@@ -1,0 +1,29 @@
+name: Publish to Github Pages
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Run npm install
+        run: npm install
+      - name: Install cargo bininstall
+        uses: cargo-bins/cargo-binstall@main
+      - name: Install dioxus-cli
+        run: cargo binstall dioxus-cli
+      - name: Build the project
+        run: dx bundle -r --platform web
+      - name: Deploy to Github Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./target/dx/dailybible-settings/release/web/public
+          publish_branch: gh-pages
+          destination_dir: .

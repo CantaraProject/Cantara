@@ -1,0 +1,43 @@
+[package]
+name = "cantara"
+version = "0.1.0"
+authors = ["Jan Martin Reckel <jm.reckel@t-online.de>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+dioxus = { version = "0.6.0", features = ["desktop"] }
+dioxus-router = { version = "0.6" }
+
+rust-i18n = "3.1.4"
+serde = "1.0.219"
+serde_json = "1.0.140"
+sys-locale = "=0.3.2"
+
+[features]
+default = ["desktop"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
+
+[profile]
+
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 1
+
+[profile.server-dev]
+inherits = "dev"
+
+[profile.android-dev]
+inherits = "dev"
+
+[profile.release]
+opt-level = "z"
+debug = false
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+incremental = false

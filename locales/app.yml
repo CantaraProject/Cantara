@@ -1,0 +1,27 @@
+_version: 2
+selection:
+  en: Select
+
+wizard:
+  title:
+    en: "Welcome to Cantara!"
+    de: "Herzlich Willkommen bei Cantara!"
+  back:
+    en: "Back"
+    de: "Zurück"
+  next:
+    en: "Next"
+    de: "Weiter"
+  first_step:
+    en: |-
+      <p>Thank you for using Cantara–the open source song presentation software!</p>
+      <p>This assistant will guide you through the setup process.
+      In about one minute, you will be ready to start creating your first song presentation.</p>
+      <p>If you have any questions, feel free to reach out to the developer.</p>
+      <p><strong>The author of Cantara wishes God's blessing for the use of this software.</strong></p>
+    de: |-
+      <p>Dankeschön für die Verwendung von Cantara–der freien Liedpräsentationssoftware!</p>
+      <p>Dieser Assistent wird Sie durch den Einrichtungsprozess führen.
+      In etwa einer Minute sind Sie bereit, Ihre erste Liedpräsentation zu erstellen.</p>
+      <p>Wenn Sie Fragen haben, können Sie gerne den Entwickler kontaktieren.</p>
+      <p><strong>Der Autor von Cantara wünscht Gottes Segen bei der Nutzung dieser Software.</strong></p>
