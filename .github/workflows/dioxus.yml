@@ -18,12 +18,19 @@ jobs:
         uses: cargo-bins/cargo-binstall@main
       - name: Install dioxus-cli
         run: cargo binstall dioxus-cli
-      - name: Build the project
+      - name: Build the project for Web
         run: dx bundle -r --platform web
       - name: Deploy to Github Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./target/dx/dailybible-settings/release/web/public
+          publish_dir: ./target/dx/cantara/release/web/public
           publish_branch: gh-pages
           destination_dir: .
+      - name: Build the project for Desktop
+        run: dx bundle -r --platform desktop
+      - name: Deploy as Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: cantara-desktop
+          path: ./target/dx/cantara/release/desktop/cantara

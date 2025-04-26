@@ -21,5 +21,6 @@ script = []
 script = []
 
 [bundle]
-identifier = "com.dailybible-settings"
-publisher = "ArchChem"
+identifier = "org.cantara.Cantara"
+publisher = "Jan Martin Reckel <jm.reckel@t-online.de>"
+icon = ["assets/cantara-logo_small.png"]
