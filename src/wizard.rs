@@ -152,7 +152,23 @@ fn SecondStep() -> Element {
     rsx! {
         div {
             class: "wizard-step",
-            p { "This is the second step!" }
+            h2 { { t!("wizard.second_step.title") } }
+            div {
+                class: "grid fade-in",
+                div {
+                    dangerous_inner_html: t!("wizard.second_step.explanation").to_string()
+                }
+                div {
+                    button {
+                        class: "primary",
+                        onclick: move |_| {
+                            let mut wizard_status = use_context::<WizardStatus>();
+                            wizard_status.is_done.set(true);
+                        },
+                        { t!("wizard.second_step.chose_directory") }
+                    }
+                }
+            }
         }
     }
 }

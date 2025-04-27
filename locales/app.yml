@@ -25,3 +25,19 @@ wizard:
       In etwa einer Minute sind Sie bereit, Ihre erste Liedpräsentation zu erstellen.</p>
       <p>Wenn Sie Fragen haben, können Sie gerne den Entwickler kontaktieren.</p>
       <p><strong>Der Autor von Cantara wünscht Gottes Segen bei der Nutzung dieser Software.</strong></p>
+  second_step:
+    title:
+      en: "Select a song repository folder"
+      de: "Wählen Sie ein Liedverzeichnis aus"
+    explanation:
+      en: |-
+        <p>In this step, you can select a folder where your songs are stored.</p>
+        <p>Click the "Browse" button to select a folder.</p>
+        <p>If you don't have any songs yet, you can create a new folder or choose an empty one.</p>
+      de: |-
+        <p>In diesem Schritt können Sie einen Ordner auswählen, in dem Ihre Lieder gespeichert sind.</p>
+        <p>Klicken Sie auf die Schaltfläche "Durchsuchen", um einen Ordner auszuwählen.</p>
+        <p>Wenn Sie noch keine Lieder haben, können Sie einen neuen Ordner erstellen oder einen leeren auswählen.</p>
+    chose_directory:
+      en: "Choose a folder"
+      de: "Ordner auswählen"
