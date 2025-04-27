@@ -1,11 +1,9 @@
 /* Ensure full height and reset margins */
-body,
-#main {
+body, #main {
     margin: 0;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    overflow-x: hidden;
 }
 
 /* Fixed top bar */
@@ -35,13 +33,15 @@ body,
 /* Main content area */
 .content {
     flex: 1;
-    padding: var(--pico-spacing);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    /* min-height: calc(100vh - (2 * var(--pico-spacing))); */
-    min-height: 100%;
+    margin-bottom: var(--bottom-bar-height);
+    margin: 0;
+    min-width: 100%;
+    /*max-height: calc(100vh - var(--top-bar-height) - var(--bottom-bar-height) - (2 * var(--pico-spacing))); /* Constrain height */
+    overflow-y: auto; /* Enable vertical scrolling */
     box-sizing: border-box;
 }
 
@@ -73,4 +73,12 @@ body,
 .center {
     align-self: center;
     text-align: center;
+}
+
+.justify {
+    justify-content: left;
+    text-align: justify;
+    text-justify: inter-word;
+    text-align-last: left;
+    hyphens: auto;
 }

@@ -20,3 +20,8 @@ pub enum Repository {
     LocaleFilePath(String),
     Remote(String),
 }
+
+#[derive(Clone)]
+pub struct RuntimeInformation {
+    pub language: String,
+}

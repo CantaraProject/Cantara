@@ -69,10 +69,18 @@ fn main() {
     launch_app();
 }
 
+
+
 #[component]
 fn App() -> Element {
     let locale = get_locale().unwrap_or_else(|| String::from("en-US"));
+    
     rust_i18n::set_locale(&locale);
+    
+    let cloned_locale = locale.clone();
+    use_context_provider(|| {
+        states::RuntimeInformation { language: cloned_locale }
+    });
 
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }
@@ -80,6 +88,7 @@ fn App() -> Element {
         document::Title { "Cantara" }
         document::Meta { name: "viewport", content: "width=device-width, initial-scale=1" }
         document::Meta { name: "color-scheme", content: "light dark" }
+        document::Meta { name: "content-language", content: locale }
 
         Router::<Route> {}
 

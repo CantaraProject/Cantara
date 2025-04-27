@@ -2,7 +2,7 @@ use dioxus::{
     html::{g::decelerate, img::decoding},
     prelude::*,
 };
-use dioxus_router::prelude::*;
+use crate::states::RuntimeInformation;
 use rust_i18n::t;
 
 use crate::LOGO;
@@ -24,6 +24,9 @@ pub fn Wizard() -> Element {
 
     use_context_provider(|| WizardStatus { is_done });
 
+    let runtime_info: RuntimeInformation = use_context();
+    let locale: Signal<String> = use_signal(|| runtime_info.language.clone());
+
     let mut increase_step = move || {
         if step() < MAX_STEPS {
             step.set(step + 1);
@@ -38,14 +41,17 @@ pub fn Wizard() -> Element {
 
     rsx!(
         header {
+            lang: locale,
             class: "top-bar",
             h1 { {t!("wizard.title")} }
         }
         main {
-            class: "content",
+            lang: locale,
+            class: "container-fluid content",
             WizardPage { step }
         }
         footer {
+            lang: locale,
             class: "bottom-bar",
             div {
                 class: "grid",
