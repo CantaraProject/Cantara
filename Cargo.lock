@@ -408,6 +408,7 @@ version = "0.1.0"
 dependencies = [
  "dioxus",
  "dioxus-router",
+ "dirs",
  "rfd 0.15.3",
  "rust-i18n",
  "serde",

@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
 use rust_i18n::t;
+use states::Settings;
 use sys_locale::get_locale;
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -100,8 +101,11 @@ fn App() -> Element {
 #[component]
 fn Selection() -> Element {
     let nav = navigator();
+    let settings: Signal<Settings> = use_context();
 
-    nav.push(Route::Wizard {});
+    if settings.read().song_repos.is_empty() || !settings.read().wizard_completed {
+        nav.replace(Route::Wizard {});
+    }
 
     rsx! {
         div {
