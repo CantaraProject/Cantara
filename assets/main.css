@@ -1,5 +1,6 @@
 /* Ensure full height and reset margins */
-body, #main {
+body,
+#main {
     margin: 0;
     min-height: 100vh;
     display: flex;
@@ -35,7 +36,7 @@ body, #main {
     flex: 1;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: left;
     justify-content: center;
     margin-bottom: var(--bottom-bar-height);
     margin: 0;
@@ -68,6 +69,7 @@ body, #main {
     align-self: center;
     align-self: center;
     text-align: center;
+    max-height: 80%;
 }
 
 .center {

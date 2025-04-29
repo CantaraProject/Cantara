@@ -41,3 +41,19 @@ wizard:
     chose_directory:
       en: "Choose a folder"
       de: "Ordner auswählen"
+    dir_selected:
+      en: "The selected directory %{dir} is valid!"
+      de: "Das ausgewählte Verzeichnis %{dir} ist gültig!"
+  third_step:
+    title:
+      en: "Finish"
+      de: "Fertig"
+    explanation:
+      en: |-
+        <p>Congratulations, you have finished the setup!</p>
+        <p>You can now start creating your first song presentation and add more songs to your repository.
+        Thank you for using Cantara!</p>
+      de: |-
+        <p>Glückwunsch, Sie haben die Einrichtung abgeschlossen!</p>
+        <p>Sie können nun Ihre erste Liedpräsentation erstellen und weitere Lieder zu Ihrem Repository hinzufügen.
+        Vielen Dank für Ihre Nutzung von Cantara!</p>

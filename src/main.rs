@@ -17,7 +17,7 @@ use wizard::Wizard;
 
 #[derive(Routable, PartialEq, Clone)]
 #[rustfmt::skip]
-enum Route {
+pub enum Route {
     #[route("/")]
     Selection,
     #[route("/wizard")]
@@ -69,18 +69,20 @@ fn main() {
     launch_app();
 }
 
-
-
 #[component]
 fn App() -> Element {
     let locale = get_locale().unwrap_or_else(|| String::from("en-US"));
-    
+
     rust_i18n::set_locale(&locale);
-    
+
     let cloned_locale = locale.clone();
-    use_context_provider(|| {
-        states::RuntimeInformation { language: cloned_locale }
+    use_context_provider(|| states::RuntimeInformation {
+        language: cloned_locale,
     });
+
+    // Initialize settings and provide them as a context to all components
+    let settings = use_signal(|| states::Settings::load());
+    use_context_provider(|| settings);
 
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }

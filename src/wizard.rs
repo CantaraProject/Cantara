@@ -1,11 +1,14 @@
+use crate::states::RuntimeInformation;
 use dioxus::{
     html::{g::decelerate, img::decoding},
     prelude::*,
 };
-use crate::states::RuntimeInformation;
+use dioxus_router::prelude::navigator;
 use rust_i18n::t;
 
-use crate::LOGO;
+use rfd::FileDialog;
+
+use crate::{Route, LOGO};
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -19,25 +22,13 @@ struct WizardStatus {
 
 #[component]
 pub fn Wizard() -> Element {
-    let mut step: Signal<u8> = use_signal(|| 1);
+    let step: Signal<u8> = use_signal(|| 1);
     let is_done = use_signal(|| false);
 
     use_context_provider(|| WizardStatus { is_done });
 
     let runtime_info: RuntimeInformation = use_context();
     let locale: Signal<String> = use_signal(|| runtime_info.language.clone());
-
-    let mut increase_step = move || {
-        if step() < MAX_STEPS {
-            step.set(step + 1);
-        }
-    };
-
-    let mut decrease_step = move || {
-        if step() > 1 {
-            step.set(step - 1);
-        }
-    };
 
     rsx!(
         header {
@@ -72,9 +63,7 @@ fn WizardButtons(step: Signal<u8>) -> Element {
     let wizard_status: WizardStatus = use_context();
 
     let mut increase_step = move || {
-        if step() < MAX_STEPS {
-            step.set(step + 1);
-        }
+        step.set(step + 1);
     };
 
     let mut decrease_step = move || {
@@ -102,18 +91,26 @@ fn WizardButtons(step: Signal<u8>) -> Element {
     }
 }
 
+/// The WizardPage component routes to a wizard page based on the current step.
 #[component]
 fn WizardPage(step: Signal<u8>) -> Element {
-    rsx! {
-        match step() {
-            1 => rsx! { FirstStep {} },
-            2 => rsx! { SecondStep {} },
-            3 => rsx! { ThirdStep {} },
-            _ => rsx! { ThirdStep {} },
+    let nav = navigator();
+
+    match step() {
+        1 => rsx! { FirstStep {} },
+        2 => rsx! { SecondStep {} },
+        3 => rsx! { ThirdStep {} },
+
+        _ => {
+            nav.replace(Route::Selection);
+            rsx! {}
         }
     }
 }
 
+/// The FirstStep component represents the first step of the wizard.
+///
+/// As the first step consists only of a brief intruduction, it is immediately marked as done.
 #[component]
 fn FirstStep() -> Element {
     let mut wizard_status: WizardStatus = use_context::<WizardStatus>();
@@ -143,29 +140,57 @@ fn FirstStep() -> Element {
     }
 }
 
+/// The SecondStep component represents the second step of the wizard.
+///
+/// The second step lets the user choose a song repository folder.
+/// It will be marked as done once the user has chosen a valid folder.
 #[component]
 fn SecondStep() -> Element {
     let mut wizard_status: WizardStatus = use_context::<WizardStatus>();
     use_effect(move || {
         wizard_status.is_done.set(false);
     });
+    let mut chosen_directory = use_signal(|| "".to_string());
+
+    let mut choose_directory = move || {
+        let path = FileDialog::new().pick_folder();
+
+        if let Some(path) = path {
+            if path.is_dir() && path.exists() {
+                chosen_directory.set(path.to_str().unwrap_or_default().to_string());
+
+                let mut wizard_status = use_context::<WizardStatus>();
+                wizard_status.is_done.set(true);
+            }
+        }
+    };
+
     rsx! {
         div {
             class: "wizard-step",
-            h2 { { t!("wizard.second_step.title") } }
+            h3 { { t!("wizard.second_step.title") } }
             div {
                 class: "grid fade-in",
                 div {
                     dangerous_inner_html: t!("wizard.second_step.explanation").to_string()
                 }
                 div {
-                    button {
-                        class: "primary",
-                        onclick: move |_| {
-                            let mut wizard_status = use_context::<WizardStatus>();
-                            wizard_status.is_done.set(true);
-                        },
-                        { t!("wizard.second_step.chose_directory") }
+                    div {
+                        role: "group",
+                        button {
+                            class: "primary",
+                            onclick: move |_| {
+                                choose_directory();
+                            },
+                            { t!("wizard.second_step.chose_directory") }
+                        }
+                    }
+                    if chosen_directory.read().is_empty().ne(&true) {
+                        {
+                            rsx! {
+                                p { { t!("wizard.second_step.dir_selected", dir=chosen_directory.read()) } }
+                            }
+                        }
                     }
                 }
             }
@@ -175,10 +200,15 @@ fn SecondStep() -> Element {
 
 #[component]
 fn ThirdStep() -> Element {
+    let mut wizard_status: WizardStatus = use_context::<WizardStatus>();
+    use_effect(move || {
+        wizard_status.is_done.set(true);
+    });
+
     rsx! {
         div {
             class: "wizard-step",
-            p { "Well done, you finished!" }
+            dangerous_inner_html: t!("wizard.third_step.explanation").to_string()
         }
     }
 }
