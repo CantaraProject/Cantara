@@ -1,8 +1,7 @@
-use crate::states::{RuntimeInformation, Settings};
-use dioxus::{
-    html::{g::decelerate, img::decoding},
-    prelude::*,
-};
+use crate::states::RuntimeInformation;
+use crate::settings::*;
+
+use dioxus::prelude::*;
 use dioxus_router::prelude::navigator;
 use rust_i18n::t;
 

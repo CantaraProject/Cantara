@@ -1,7 +1,9 @@
-use std::{fs, path::PathBuf};
+//! This module contains the logic and structures for managing, loading and saving the program's settings.
 
+use std::{fs, path::PathBuf};
 use serde::{Deserialize, Serialize};
 
+/// The struct representing Cantara's settings.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct Settings {
     pub song_repos: Vec<Repository>,
@@ -32,7 +34,8 @@ impl Settings {
             None => Self::default(),
         }
     }
-
+    
+    /// Save the current settings to storage.
     pub fn save(&self) {
         match get_settings_file() {
             Some(file) => {
@@ -45,38 +48,38 @@ impl Settings {
             None => (),
         }
     }
-
+    
+    /// Add a new repository to the settings if the repository is not already present (avoiding duplicates).
     pub fn add_repository(&mut self, repo: Repository) {
         if !self.song_repos.contains(&repo) {
             self.song_repos.push(repo);
-        }
-        
+        }       
     }
-
+    
+    /// Add a new repository folder given as String to the settings if the repository is not already present (avoiding duplicates).
     pub fn add_repository_folder(&mut self, folder: String) {
         self.song_repos.push(Repository::LocaleFilePath(folder));
     }
 }
 
+/// The enum representing the different types of repositories.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum Repository {
+    /// A repository that is a local folder represented by a file path.
     LocaleFilePath(String),
+    
+    /// A repository that is a remote URL.
     Remote(String),
 }
 
-#[derive(Clone)]
-pub struct RuntimeInformation {
-    pub language: String,
-}
-
-pub fn get_settings_file() -> Option<PathBuf> {
+fn get_settings_file() -> Option<PathBuf> {
     match get_settings_folder() {
         Some(settings_folder) => Some(settings_folder.join("settings.json")),
         None => None,
     }
 }
 
-pub fn get_settings_folder() -> Option<PathBuf> {
+fn get_settings_folder() -> Option<PathBuf> {
     match dirs::config_local_dir() {
         Some(dir) => Some(dir.join("cantara")),
         None => None,

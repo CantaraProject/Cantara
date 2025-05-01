@@ -1,8 +1,13 @@
+pub mod states;
+pub mod wizard;
+pub mod settings;
+
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
 use rust_i18n::t;
-use states::Settings;
+use settings::*;
 use sys_locale::get_locale;
+use wizard::Wizard;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -11,10 +16,6 @@ const MAIN_CSS: Asset = asset!("/assets/main.css");
 
 pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
 
-pub mod states;
-pub mod wizard;
-
-use wizard::Wizard;
 
 #[derive(Routable, PartialEq, Clone)]
 #[rustfmt::skip]
@@ -82,7 +83,7 @@ fn App() -> Element {
     });
 
     // Initialize settings and provide them as a context to all components
-    let settings = use_signal(|| states::Settings::load());
+    let settings: Signal<Settings> = use_signal(|| Settings::load());
     use_context_provider(|| settings);
 
     rsx! {
