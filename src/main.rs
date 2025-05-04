@@ -1,6 +1,8 @@
 pub mod states;
 pub mod wizard;
 pub mod settings;
+pub mod selection;
+pub mod sourcefiles;
 
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
@@ -8,6 +10,7 @@ use rust_i18n::t;
 use settings::*;
 use sys_locale::get_locale;
 use wizard::Wizard;
+use selection::Selection;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -22,6 +25,7 @@ pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
 pub enum Route {
     #[route("/")]
     Selection,
+    
     #[route("/wizard")]
     Wizard
 }
@@ -99,18 +103,3 @@ fn App() -> Element {
     }
 }
 
-#[component]
-fn Selection() -> Element {
-    let nav = navigator();
-    let settings: Signal<Settings> = use_context();
-
-    if settings.read().song_repos.is_empty() || !settings.read().wizard_completed {
-        nav.replace(Route::Wizard {});
-    }
-
-    rsx! {
-        div {
-            "Selection Page"
-        }
-    }
-}
