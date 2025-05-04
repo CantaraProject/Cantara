@@ -1,6 +1,6 @@
+pub mod settings;
 pub mod states;
 pub mod wizard;
-pub mod settings;
 
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
@@ -15,7 +15,6 @@ const PICO_CSS: Asset = asset!("/node_modules/@picocss/pico/css/pico.min.css");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 
 pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
-
 
 #[derive(Routable, PartialEq, Clone)]
 #[rustfmt::skip]
@@ -32,9 +31,6 @@ fn main() {
         #[cfg(target_os = "linux")]
         {
             if std::path::Path::new("/dev/dri").exists()
-                && std::env::var("XDG_CURRENT_DESKTOP")
-                    .unwrap_or_default()
-                    .contains("KDE")
                 && std::env::var("XDG_SESSION_TYPE").unwrap_or_default() == "wayland"
             {
                 // Gnome Webkit is currently buggy under Wayland and KDE, so we will run it with XWayland mode.
