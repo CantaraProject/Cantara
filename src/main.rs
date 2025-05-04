@@ -23,9 +23,11 @@ pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
 #[derive(Routable, PartialEq, Clone)]
 #[rustfmt::skip]
 pub enum Route {
+    /// The selection route allows the user to select songs or other elements for the presentation
     #[route("/")]
     Selection,
-    
+
+    /// The wizard is shown when the program is run for the first time (no configuration file exists)
     #[route("/wizard")]
     Wizard
 }

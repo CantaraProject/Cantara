@@ -57,3 +57,6 @@ wizard:
         <p>Glückwunsch, Sie haben die Einrichtung abgeschlossen!</p>
         <p>Sie können nun Ihre erste Liedpräsentation erstellen und weitere Lieder zu Ihrem Repository hinzufügen.
         Vielen Dank für Ihre Nutzung von Cantara!</p>
+search:
+  en: "Search..."
+  de: "Suchen..."
