@@ -1,6 +1,5 @@
 pub mod selection;
 pub mod settings;
-pub mod settings;
 pub mod sourcefiles;
 pub mod states;
 pub mod wizard;
@@ -45,8 +44,10 @@ fn main() {
                 unsafe {
                     // Disable explicit sync for NVIDIA drivers on Linux when using Way
                     std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-                    std::env::set_var("GDK_BACKEND", "x11");
                 }
+            }
+            unsafe {
+                std::env::set_var("GDK_BACKEND", "x11");
             }
         }
 

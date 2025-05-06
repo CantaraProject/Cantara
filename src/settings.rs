@@ -1,7 +1,21 @@
 //! This module contains the logic and structures for managing, loading and saving the program's settings.
 
-use std::{fs, path::PathBuf};
+use dioxus::{html::g::overline_thickness, prelude::*};
 use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+use crate::sourcefiles::{get_source_files, SourceFile};
+
+/// Returns the settings of the program
+///
+/// # Panics
+/// When the settings are not available -> if you call this function before they are set in the main function.
+pub fn use_settings() -> Signal<Settings> {
+    use_context()
+}
 
 /// The struct representing Cantara's settings.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
@@ -34,7 +48,7 @@ impl Settings {
             None => Self::default(),
         }
     }
-    
+
     /// Save the current settings to storage.
     pub fn save(&self) {
         match get_settings_file() {
@@ -48,17 +62,30 @@ impl Settings {
             None => (),
         }
     }
-    
+
     /// Add a new repository to the settings if the repository is not already present (avoiding duplicates).
     pub fn add_repository(&mut self, repo: Repository) {
         if !self.song_repos.contains(&repo) {
             self.song_repos.push(repo);
-        }       
+        }
     }
-    
+
     /// Add a new repository folder given as String to the settings if the repository is not already present (avoiding duplicates).
     pub fn add_repository_folder(&mut self, folder: String) {
         self.song_repos.push(Repository::LocaleFilePath(folder));
+    }
+
+    /// Get all elements of all repositories as a vector of [SourceFile]
+    pub fn get_sourcefiles(&self) -> Vec<SourceFile> {
+        let mut source_files: Vec<SourceFile> = vec![];
+        self.song_repos
+            .iter()
+            .for_each(|repo| source_files.extend(repo.get_files()));
+
+        source_files.sort();
+        source_files.dedup();
+
+        source_files
     }
 }
 
@@ -67,9 +94,20 @@ impl Settings {
 pub enum Repository {
     /// A repository that is a local folder represented by a file path.
     LocaleFilePath(String),
-    
+
     /// A repository that is a remote URL.
+    /// Hint: This is not implemented yet!
     Remote(String),
+}
+
+impl Repository {
+    /// Get files which are provided by the repository.
+    pub fn get_files(&self) -> Vec<SourceFile> {
+        match self {
+            Repository::LocaleFilePath(path_string) => get_source_files(&Path::new(&path_string)),
+            _ => vec![],
+        }
+    }
 }
 
 fn get_settings_file() -> Option<PathBuf> {

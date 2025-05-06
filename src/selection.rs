@@ -1,27 +1,44 @@
 //! This module includes the components for song selection
 
-use dioxus::prelude::*;
+use crate::{
+    settings::Settings,
+    sourcefiles::{get_source_files, SourceFile},
+    Route,
+};
+use dioxus::{html::u::outline, prelude::*};
 use dioxus_router::prelude::navigator;
 use rust_i18n::t;
-use crate::{settings::Settings, Route};
+use std::path::Path;
 
 #[component]
 pub fn Selection() -> Element {
     let nav = navigator();
     let settings: Signal<Settings> = use_context();
-    
+
     let filter_string: Signal<String> = use_signal(|| "".to_string());
-    
+
     if settings.read().song_repos.is_empty() || !settings.read().wizard_completed {
         nav.replace(Route::Wizard {});
     }
 
+    let source_files: Signal<Vec<SourceFile>> = use_signal(|| settings.read().get_sourcefiles());
+
     rsx! {
         header {
+            class: "top-bar no-padding",
             SearchInput { input_signal: filter_string }
         }
-        div {
-            "Selection Page"
+        main {
+            class: "container-fluid content",
+            for item in source_files.read().iter() {
+                    SourceItem { item: item.clone() }
+            }
+        }
+        footer {
+            class: "bottom-bar",
+            p {
+                "Start Presentation"
+            }
         }
     }
 }
@@ -41,6 +58,21 @@ fn SearchInput(input_signal: Signal<String>) -> Element {
                     let value = event.value();
                     input_signal.set(value);
                 },
+            }
+        }
+    }
+}
+
+/// This component renders one source item which can be selected
+#[component]
+fn SourceItem(item: SourceFile) -> Element {
+    rsx! {
+        div {
+            role: "button",
+            class: "outline",
+            tabindex: 0,
+            p {
+                { item.name }
             }
         }
     }

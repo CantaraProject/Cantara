@@ -1,7 +1,10 @@
+//! This module provides functionality for handling available source files (for creating output) in Cantara.
+
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-!// This module provides functionality for handling available source files (for creating output) in Cantara.
+use serde::{Deserialize, Serialize};
 
 /// The maximal depth for recursive file searching. Implemented as a constant to prevent loops.
 const MAX_DEPTH: usize = 6;
@@ -16,39 +19,41 @@ const MAX_DEPTH: usize = 6;
 ///
 /// # Returns
 /// A vector of `PathBuf`s containing the full paths of matching files.
-pub fn find_files_recursive(dir: &Path, ending: &str, depth: usize) -> Vec<PathBuf> {
+fn find_files_recursive(dir: &Path, endings: &Vec<&'static str>, depth: usize) -> Vec<PathBuf> {
     let mut result = Vec::new();
-    
+
     // Stop recursion beyond depth 6
     if depth > MAX_DEPTH {
         return result;
     }
-    
+
     // Read directory entries, skip if there's an error
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries {
             if let Ok(entry) = entry {
                 let path = entry.path();
-                
+
                 // If it's a file, check if its name ends with the given ending
                 if path.is_file() {
                     if let Some(file_name) = path.file_name() {
                         if let Some(file_name_str) = file_name.to_str() {
-                            if file_name_str.ends_with(ending) {
-                                result.push(path.clone());
+                            for ending in endings {
+                                if file_name_str.ends_with(ending) {
+                                    result.push(path.clone());
+                                }
                             }
                         }
                     }
                 }
                 // If it's a directory, recurse into it
                 else if path.is_dir() {
-                    let sub_result = find_files_recursive(&path, ending, depth + 1);
+                    let sub_result = find_files_recursive(&path, endings, depth + 1);
                     result.extend(sub_result);
                 }
             }
         }
     }
-    
+
     result
 }
 
@@ -67,12 +72,86 @@ pub fn find_files_recursive(dir: &Path, ending: &str, depth: usize) -> Vec<PathB
 /// - The `ending` should include the dot if matching extensions (e.g., ".txt").
 /// - Matching is case-sensitive.
 /// - Symlinks are followed (default behavior of `is_file` and `is_dir`).
-pub fn find_files_with_ending(dir: &Path, ending: &str) -> Vec<PathBuf> {
+fn find_files_with_ending(dir: &Path, endings: Vec<&'static str>) -> Vec<PathBuf> {
     // Check if the directory exists and is a directory
     if !dir.exists() || !dir.is_dir() {
         return Vec::new();
     }
-    
+
     // Start recursive traversal at depth 0.
-    find_files_recursive(dir, ending, 0)
+    find_files_recursive(dir, &endings, 0)
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SourceFileType {
+    Song,
+    Presentation,
+    Image,
+    Video,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SourceFile {
+    pub name: String,
+    pub path: PathBuf,
+    pub file_type: SourceFileType,
+}
+
+/// This function will get all source files in a given directory which can be imported and used by Cantara
+///
+/// # Parameters
+/// - `start_dir`: The borrowed [Path] reference where the recursive search for source files starts
+/// # Returns
+/// - A vector of [SourceFile]s which contains all results.
+/// If no file was found, an empty vector is returned.
+///
+/// # Hint
+/// To prevent infinitive recursion (e.g. if there are symbolic links causing a loop) the maximum depth for recursive search is determined by [MAX_DEPTH].
+pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
+    let mut source_files: Vec<SourceFile> = vec![];
+
+    find_files_with_ending(start_dir, vec!["song"])
+        .iter()
+        .for_each(|file| {
+            let file_extension: &str = file
+                .extension()
+                .unwrap_or(OsStr::new(""))
+                .to_str()
+                .unwrap_or("");
+            let file_type_option: Option<SourceFileType> = match file_extension {
+                "song" => Some(SourceFileType::Song),
+                _ => None,
+            };
+            if file_type_option.is_some() {
+                source_files.push(SourceFile {
+                    name: file
+                        .clone()
+                        .file_stem()
+                        .unwrap_or(OsStr::new(""))
+                        .to_str()
+                        .unwrap_or("")
+                        .to_string(),
+                    path: file.clone(),
+                    file_type: file_type_option.unwrap(),
+                })
+            }
+        });
+
+    source_files
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn traverse_test_dir() {
+        let dir = Path::new("testfiles");
+        assert_eq!(find_files_with_ending(dir, vec!["song"]).len(), 2);
+        assert_eq!(
+            find_files_with_ending(dir, vec!["non_existing_ending"]).len(),
+            0
+        );
+    }
 }
