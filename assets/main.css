@@ -88,3 +88,12 @@ body,
     text-align-last: left;
     hyphens: auto;
 }
+
+.selection_item {
+    text-align: left !important;
+    border: var(--pico-border-width) solid var(--pico-card-border-color);
+}
+
+.selection_item:hover {
+    border: var(--pico-border-width) solid var(--pico-primary-hover-border);
+}

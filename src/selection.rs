@@ -8,7 +8,7 @@ use crate::{
 use dioxus::{html::u::outline, prelude::*};
 use dioxus_router::prelude::navigator;
 use rust_i18n::t;
-use std::path::Path;
+use std::rc::Rc;
 
 #[component]
 pub fn Selection() -> Element {
@@ -23,13 +23,33 @@ pub fn Selection() -> Element {
 
     let source_files: Signal<Vec<SourceFile>> = use_signal(|| settings.read().get_sourcefiles());
 
+    let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
+
+    use_effect(|| {
+        document::eval(
+            r#"function inputFocus(){
+                document.getElementById("searchinput").focus();
+            }
+            window.onkeydown = inputFocus;"#,
+        );
+    });
+
     rsx! {
+
         header {
             class: "top-bar no-padding",
-            SearchInput { input_signal: filter_string }
+            SearchInput {
+                input_signal: filter_string,
+                element_signal: input_element_signal
+            }
         }
         main {
             class: "container-fluid content",
+            onkeydown: move |_| async move {
+                if let Some(searchinput) = input_element_signal() {
+                    let _ = searchinput.set_focus(true).await;
+                }
+            },
             for item in source_files.read().iter() {
                     SourceItem { item: item.clone() }
             }
@@ -44,10 +64,15 @@ pub fn Selection() -> Element {
 }
 
 #[component]
-fn SearchInput(input_signal: Signal<String>) -> Element {
+fn SearchInput(
+    input_signal: Signal<String>,
+    element_signal: Signal<Option<Rc<MountedData>>>,
+) -> Element {
     rsx! {
         div {
+            id: "searchinput",
             role: "group",
+            onmounted: move |element| element_signal.set(Some(element.data())),
             input {
                 type: "search",
                 name: "search",
@@ -69,11 +94,9 @@ fn SourceItem(item: SourceFile) -> Element {
     rsx! {
         div {
             role: "button",
-            class: "outline",
+            class: "outline selection_item",
             tabindex: 0,
-            p {
-                { item.name }
-            }
+            { item.name }
         }
     }
 }
