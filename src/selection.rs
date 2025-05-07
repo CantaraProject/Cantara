@@ -69,7 +69,9 @@ pub fn Selection() -> Element {
                 if selected_items.read().len() > 0 {
                     div {
                         class: "selected-container",
-                        "An Item selected."
+                        SelectedItems { 
+                            selected_items: selected_items
+                        }
                     }
                 }
             }
@@ -79,15 +81,15 @@ pub fn Selection() -> Element {
             div {
                 class: "grid",
                 button {
-                    class: "outline secondary",
+                    class: "outline secondary smaller-buttons",
                     { t!("selection.import") }
                 },
                 button {
-                    class: "outline secondary",
+                    class: "outline secondary smaller-buttons",
                     { t!("selection.export") }
                 },
                 button {
-                    class: "primary",
+                    class: "primary smaller-buttons",
                     { t!("selection.start_presentation") }
                 }
             }
@@ -140,7 +142,35 @@ fn SourceItem(
 }
 
 /// This struct represents a selected item
+#[derive(Clone, PartialEq)]
 struct SelectedItemRepresentation {
     /// The source file of the selected item
     source_file: SourceFile,
+}
+
+#[component]
+fn SelectedItems(
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+) -> Element {
+    rsx! {
+        div {
+            class: "selected-container",
+            for item in selected_items.read().iter() {
+                SelectedItem { item: item.clone() }
+            }
+        }
+    }
+}
+
+/// This component renders a selected item
+#[component]
+fn SelectedItem(item: SelectedItemRepresentation) -> Element {
+    rsx! {
+        div {
+            role: "button",
+            class: "outline secondary selection_item",
+            tabindex: 0,
+            { item.source_file.name }
+        }
+    }
 }

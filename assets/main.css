@@ -123,3 +123,8 @@ body {
     position: relative;    
     height: 1em;
 }
+
+.smaller-buttons {
+    height: 2.5em;
+    padding: 0;
+}
