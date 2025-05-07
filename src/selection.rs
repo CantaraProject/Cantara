@@ -10,6 +10,8 @@ use dioxus_router::prelude::navigator;
 use rust_i18n::t;
 use std::rc::Rc;
 
+rust_i18n::i18n!("locales", fallback = "en");
+
 #[component]
 pub fn Selection() -> Element {
     let nav = navigator();
@@ -22,6 +24,7 @@ pub fn Selection() -> Element {
     }
 
     let source_files: Signal<Vec<SourceFile>> = use_signal(|| settings.read().get_sourcefiles());
+    let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_signal(|| vec![]);
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
 
@@ -44,20 +47,45 @@ pub fn Selection() -> Element {
             }
         }
         main {
-            class: "container-fluid content",
+            class: "container-fluid content content-background",
             onkeydown: move |_| async move {
                 if let Some(searchinput) = input_element_signal() {
                     let _ = searchinput.set_focus(true).await;
                 }
             },
-            for item in source_files.read().iter() {
-                    SourceItem { item: item.clone() }
+            div {
+                class: "grid",
+                div {
+                    for item in source_files.read().iter() {
+                        SourceItem {
+                            item: item.clone(),
+                            selected_items: selected_items
+                        }
+                    }
+                },
+                if selected_items.read().len() > 0 {
+                    div {
+                        "An Item selected."
+                    }
+                }
             }
         }
         footer {
             class: "bottom-bar",
-            p {
-                "Start Presentation"
+            div {
+                class: "grid",
+                button {
+                    class: "outline secondary",
+                    { t!("selection.import") }
+                },
+                button {
+                    class: "outline secondary",
+                    { t!("selection.export") }
+                },
+                button {
+                    class: "primary",
+                    { t!("selection.start_presentation") }
+                }
             }
         }
     }
@@ -90,13 +118,25 @@ fn SearchInput(
 
 /// This component renders one source item which can be selected
 #[component]
-fn SourceItem(item: SourceFile) -> Element {
+fn SourceItem(
+    item: SourceFile,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+) -> Element {
     rsx! {
         div {
             role: "button",
-            class: "outline selection_item",
+            class: "outline secondary selection_item",
             tabindex: 0,
-            { item.name }
+            onclick: move |_| { selected_items.write().push(
+                SelectedItemRepresentation { source_file: item.clone() }
+            ); },
+            { item.clone().name }
         }
     }
+}
+
+/// This struct represents a selected item
+struct SelectedItemRepresentation {
+    /// The source file of the selected item
+    source_file: SourceFile,
 }
