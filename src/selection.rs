@@ -56,15 +56,19 @@ pub fn Selection() -> Element {
             div {
                 class: "grid",
                 div {
-                    for item in source_files.read().iter() {
-                        SourceItem {
-                            item: item.clone(),
-                            selected_items: selected_items
+                    div {
+                        class: "scrollable-container",
+                        for item in source_files.read().iter() {
+                            SourceItem {
+                                item: item.clone(),
+                                selected_items: selected_items
+                            }
                         }
                     }
                 },
                 if selected_items.read().len() > 0 {
                     div {
+                        class: "selected-container",
                         "An Item selected."
                     }
                 }
