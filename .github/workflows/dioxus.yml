@@ -19,11 +19,15 @@ jobs:
           - os: macos-latest
             target_dir: macos
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install Dioxus CLI
-        run: cargo install dioxus-cli
+      - uses: actions/setup-node@v4
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Run npm install
+        run: npm install
+      - name: Install cargo bininstall
+        uses: cargo-bins/cargo-binstall@main
+      - name: Install dioxus-cli
+        run: cargo binstall dioxus-cli
       - name: Run tests
         run: cargo test
       - name: Build desktop release
