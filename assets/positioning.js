@@ -23,9 +23,19 @@ function adjustDivHeight() {
     }    
 }
 
+function inputFocus(event){
+    let input = document.getElementById("searchinput");
+    let key = event.key;
+    
+    if (/^\p{L}$/u.test(event.key) && input) {
+        input.focus();
+    }
+}
+
 // Run on load and window resize
 window.addEventListener('load', adjustDivHeight);
 window.addEventListener('resize', adjustDivHeight);
+window.addEventListener('keydown', inputFocus);
 
 // Optional: Observe changes in header/footer size (e.g., dynamic content)
 const observer = new ResizeObserver(adjustDivHeight);

@@ -32,15 +32,6 @@ pub fn Selection() -> Element {
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
 
-    use_effect(|| {
-        document::eval(
-            r#"function inputFocus(){
-                document.getElementById("searchinput").focus();
-            }
-            window.onkeydown = inputFocus;"#,
-        );
-    });
-
     rsx! {
         div {
             class: "wrapper",
@@ -111,10 +102,10 @@ fn SearchInput(
 ) -> Element {
     rsx! {
         div {
-            id: "searchinput",
             role: "group",
             onmounted: move |element| element_signal.set(Some(element.data())),
             input {
+                id: "searchinput",
                 type: "search",
                 name: "search",
                 placeholder: t!("search").to_string(),
