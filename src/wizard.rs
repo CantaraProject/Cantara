@@ -30,30 +30,34 @@ pub fn Wizard() -> Element {
     let locale: Signal<String> = use_signal(|| runtime_info.language.clone());
 
     rsx!(
-        header {
-            lang: locale,
-            class: "top-bar",
-            h1 { {t!("wizard.title")} }
-        }
-        main {
-            lang: locale,
-            class: "container-fluid content",
-            WizardPage { step }
-        }
-        footer {
-            lang: locale,
-            class: "bottom-bar",
-            div {
-                class: "grid",
+        div {
+            class: "wrapper",        
+            header {
+                lang: locale,
+                class: "top-bar",
+                h1 { {t!("wizard.title")} }
+            }
+            main {
+                lang: locale,
+                class: "container-fluid content height-100",
+                WizardPage { step }
+            }
+            footer {
+                lang: locale,
+                class: "bottom-bar",
                 div {
-                    progress {
-                        value: step,
-                        max: MAX_STEPS,
+                    class: "grid",
+                    div {
+                        progress {
+                            value: step,
+                            max: MAX_STEPS,
+                        }
                     }
                 }
+                WizardButtons { step }
             }
-            WizardButtons { step }
         }
+        
     )
 }
 
