@@ -101,7 +101,7 @@ body {
 }
 
 .scrollable-container {
-    height: 100%;
+    height: 20px;
     overflow-y: auto;
 }
 

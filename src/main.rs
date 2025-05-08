@@ -16,6 +16,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 
 const PICO_CSS: Asset = asset!("/node_modules/@picocss/pico/css/pico.min.css");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
+const POSITIONING_JS: Asset = asset!("/assets/positioning.js");
 
 pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
 
@@ -93,6 +94,7 @@ fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        document::Script { src: POSITIONING_JS }
         document::Title { "Cantara" }
         document::Meta { name: "viewport", content: "width=device-width, initial-scale=1" }
         document::Meta { name: "color-scheme", content: "light dark" }
