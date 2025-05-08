@@ -407,6 +407,7 @@ name = "cantara"
 version = "0.1.0"
 dependencies = [
  "dioxus",
+ "dioxus-free-icons",
  "dioxus-router",
  "dirs",
  "rfd 0.15.3",
@@ -1061,6 +1062,15 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+]
+
+[[package]]
+name = "dioxus-free-icons"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd226c24168bb63d12d69cc0e7a6d73faa970574445c8e79c29965892f1a2ad8"
+dependencies = [
+ "dioxus",
 ]
 
 [[package]]

@@ -23,4 +23,4 @@ script = []
 [bundle]
 identifier = "org.cantara.Cantara"
 publisher = "Jan Martin Reckel <jm.reckel@t-online.de>"
-icon = ["assets/cantara-logo_small.png"]
+icon = ["assets/favicon.png"]

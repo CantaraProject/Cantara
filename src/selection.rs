@@ -10,6 +10,10 @@ use dioxus_router::prelude::navigator;
 use rust_i18n::t;
 use std::rc::Rc;
 
+use dioxus_free_icons::icons::fa_regular_icons::*;
+use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
+use dioxus_free_icons::Icon;
+
 rust_i18n::i18n!("locales", fallback = "en");
 
 #[component]
@@ -38,59 +42,62 @@ pub fn Selection() -> Element {
     });
 
     rsx! {
-
-        header {
-            class: "top-bar no-padding",
-            SearchInput {
-                input_signal: filter_string,
-                element_signal: input_element_signal
-            }
-        }
-        main {
-            class: "container-fluid content content-background",
-            onkeydown: move |_| async move {
-                if let Some(searchinput) = input_element_signal() {
-                    let _ = searchinput.set_focus(true).await;
+        div {
+            class: "wrapper",
+            header {
+                class: "top-bar no-padding",
+                SearchInput {
+                    input_signal: filter_string,
+                    element_signal: input_element_signal
                 }
-            },
-            div {
-                class: "grid",
+            }
+            main {
+                class: "content content-background height-100",
+                onkeydown: move |_| async move {
+                    if let Some(searchinput) = input_element_signal() {
+                        let _ = searchinput.set_focus(true).await;
+                    }
+                },
                 div {
+                    class: "grid height-100",
                     div {
-                        class: "scrollable-container",
-                        for item in source_files.read().iter() {
-                            SourceItem {
-                                item: item.clone(),
+                        class: "height-100",
+                        div {
+                            class: "scrollable-container",
+                            for item in source_files.read().iter() {
+                                SourceItem {
+                                    item: item.clone(),
+                                    selected_items: selected_items
+                                }
+                            }
+                        }
+                    },
+                    if selected_items.read().len() > 0 {
+                        div {
+                            class: "selected-container",
+                            SelectedItems {
                                 selected_items: selected_items
                             }
                         }
                     }
-                },
-                if selected_items.read().len() > 0 {
-                    div {
-                        class: "selected-container",
-                        SelectedItems { 
-                            selected_items: selected_items
-                        }
-                    }
                 }
             }
-        }
-        footer {
-            class: "bottom-bar",
-            div {
-                class: "grid",
-                button {
-                    class: "outline secondary smaller-buttons",
-                    { t!("selection.import") }
-                },
-                button {
-                    class: "outline secondary smaller-buttons",
-                    { t!("selection.export") }
-                },
-                button {
-                    class: "primary smaller-buttons",
-                    { t!("selection.start_presentation") }
+            footer {
+                class: "bottom-bar",
+                div {
+                    class: "grid",
+                    button {
+                        class: "outline secondary smaller-buttons",
+                        { t!("selection.import") }
+                    },
+                    button {
+                        class: "outline secondary smaller-buttons",
+                        { t!("selection.export") }
+                    },
+                    button {
+                        class: "primary smaller-buttons",
+                        { t!("selection.start_presentation") }
+                    }
                 }
             }
         }
@@ -149,14 +156,16 @@ struct SelectedItemRepresentation {
 }
 
 #[component]
-fn SelectedItems(
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-) -> Element {
+fn SelectedItems(selected_items: Signal<Vec<SelectedItemRepresentation>>) -> Element {
     rsx! {
         div {
             class: "selected-container",
-            for item in selected_items.read().iter() {
-                SelectedItem { item: item.clone() }
+            for (number, item) in selected_items.read().iter().enumerate() {
+                SelectedItem {
+                    item: item.clone(),
+                    selected_items: selected_items,
+                    id: number
+                }
             }
         }
     }
@@ -164,13 +173,46 @@ fn SelectedItems(
 
 /// This component renders a selected item
 #[component]
-fn SelectedItem(item: SelectedItemRepresentation) -> Element {
+fn SelectedItem(
+    item: SelectedItemRepresentation,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    id: usize,
+) -> Element {
     rsx! {
         div {
             role: "button",
             class: "outline secondary selection_item",
             tabindex: 0,
-            { item.source_file.name }
+            { item.source_file.name },
+
+            // Delete a selected item
+            div {
+                class: "right-justified",
+                // Move Item Up
+                if id > 0 {
+                    span {
+                        onclick: move |_| { selected_items.write().swap(id, id-1); },
+                        Icon {
+                            icon: FaArrowUp,
+                        }
+                    }
+                }
+                if id < selected_items.len() - 1 {
+                    span {
+                        onclick: move |_| { selected_items.write().swap(id, id+1); },
+                        Icon {
+                            icon: FaArrowDown,
+                        }
+                    }
+                }
+                // Delete a selected item
+                span {
+                    onclick: move |_| { selected_items.write().remove(id.clone()); },
+                    Icon {
+                        icon: FaTrashCan,
+                    }
+                }
+            }
         }
     }
 }
