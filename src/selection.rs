@@ -5,7 +5,7 @@ use crate::{
     sourcefiles::{get_source_files, SourceFile},
     Route,
 };
-use dioxus::{html::u::outline, prelude::*};
+use dioxus::prelude::*;
 use dioxus_router::prelude::navigator;
 use rust_i18n::t;
 use std::rc::Rc;
@@ -120,6 +120,13 @@ pub fn Selection() -> Element {
                 }
             }
         }
+
+        if active_detailed_item_id.read().is_some() {
+            SourceDetailView {
+                source_files: source_files,
+                active_detailed_item_id: active_detailed_item_id,
+            }
+        }
     }
 }
 
@@ -167,7 +174,7 @@ fn SourceItem(
                 }
             ); },
             oncontextmenu: move |_| {
-
+                active_detailed_item_id.set(Some(id.clone()));
             },
             { source_files.get(id).unwrap().clone().name }
         }
@@ -299,6 +306,57 @@ fn PresentationOptions(
             }
             p {
                 "The active selected number is: {active_selected_item_id.read().unwrap()}"
+            }
+        }
+    }
+}
+
+#[component]
+fn SourceDetailView(
+    source_files: Signal<Vec<SourceFile>>,
+    active_detailed_item_id: Signal<Option<usize>>,
+) -> Element {
+    let item = use_memo(move || {
+        source_files
+            .read()
+            .get(active_detailed_item_id.unwrap())
+            .unwrap()
+            .clone()
+    });
+    let path_string = use_memo(move || item.read().path.to_str().unwrap_or("").to_string());
+
+    rsx! {
+        dialog {
+            style: "position: fixed",
+            open: true,
+            article {
+                header {
+                    p {
+                        "Detail View"
+                    }
+                }
+                table {
+                    tbody {
+                        tr {
+                            td { strong { "Type" } }
+                            td { "Song" }
+                        }
+                        tr {
+                            td { strong { "Title" } }
+                            td { { item.read().name.clone() } }
+                        }
+                        tr {
+                            td { strong { "File Path" } }
+                            td { { path_string } }
+                        }
+                    }
+                }
+                footer {
+                    button {
+                        onclick: move |_| { active_detailed_item_id.set(None) },
+                        { "Close" }
+                    }
+                }
             }
         }
     }
