@@ -29,6 +29,8 @@ pub fn Selection() -> Element {
 
     let source_files: Signal<Vec<SourceFile>> = use_signal(|| settings.read().get_sourcefiles());
     let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_signal(|| vec![]);
+    let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
+    let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
 
@@ -51,24 +53,40 @@ pub fn Selection() -> Element {
                 },
                 div {
                     class: "grid height-100",
+
+                    // The area where the selectable elements (sources) are shown
                     div {
                         class: "height-100",
                         div {
                             class: "scrollable-container",
-                            for item in source_files.read().iter() {
+                            for (id, _) in source_files.read().iter().enumerate() {
                                 SourceItem {
-                                    item: item.clone(),
+                                    id: id.clone(),
+                                    source_files: source_files,
+                                    active_detailed_item_id: active_detailed_item_id,
                                     selected_items: selected_items
                                 }
                             }
                         }
                     },
+
+                    // The area where the selected elements are shown
                     if selected_items.read().len() > 0 {
                         div {
-                            class: "selected-container",
+                            class: "height-100 scrollable-container",
                             SelectedItems {
-                                selected_items: selected_items
+                                selected_items: selected_items,
+                                active_selected_item_id: active_selected_item_id
                             }
+                        }
+                    }
+
+                    // The area of distinct presentation settings
+                    div {
+                        class: "desktop-only",
+                        PresentationOptions {
+                            selected_items: selected_items,
+                            active_selected_item_id: active_selected_item_id
                         }
                     }
                 }
@@ -76,18 +94,28 @@ pub fn Selection() -> Element {
             footer {
                 class: "bottom-bar",
                 div {
-                    class: "grid",
+                    class: "no-padding width-100",
+                    role: "group",
                     button {
                         class: "outline secondary smaller-buttons",
-                        { t!("selection.import") }
+                        span {
+                            class: "desktop-only",
+                            { t!("selection.import") }
+                        }
                     },
                     button {
                         class: "outline secondary smaller-buttons",
-                        { t!("selection.export") }
+                        span {
+                            class: "desktop-only",
+                            { t!("selection.export") }
+                        }
                     },
                     button {
                         class: "primary smaller-buttons",
-                        { t!("selection.start_presentation") }
+                        span {
+                            class: "desktop-only",
+                            { t!("selection.start_presentation") }
+                        }
                     }
                 }
             }
@@ -123,8 +151,10 @@ fn SearchInput(
 /// This component renders one source item which can be selected
 #[component]
 fn SourceItem(
-    item: SourceFile,
+    source_files: Signal<Vec<SourceFile>>,
+    id: usize,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    active_detailed_item_id: Signal<Option<usize>>,
 ) -> Element {
     rsx! {
         div {
@@ -132,9 +162,14 @@ fn SourceItem(
             class: "outline secondary selection_item",
             tabindex: 0,
             onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation { source_file: item.clone() }
+                SelectedItemRepresentation {
+                    source_file: source_files.get(id).unwrap().clone(),
+                }
             ); },
-            { item.clone().name }
+            oncontextmenu: move |_| {
+
+            },
+            { source_files.get(id).unwrap().clone().name }
         }
     }
 }
@@ -147,15 +182,18 @@ struct SelectedItemRepresentation {
 }
 
 #[component]
-fn SelectedItems(selected_items: Signal<Vec<SelectedItemRepresentation>>) -> Element {
+fn SelectedItems(
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    active_selected_item_id: Signal<Option<usize>>,
+) -> Element {
     rsx! {
         div {
             class: "selected-container",
-            for (number, item) in selected_items.read().iter().enumerate() {
+            for (number, _) in selected_items.read().iter().enumerate() {
                 SelectedItem {
-                    item: item.clone(),
                     selected_items: selected_items,
-                    id: number
+                    id: number,
+                    active_selected_item_id: active_selected_item_id
                 }
             }
         }
@@ -165,19 +203,26 @@ fn SelectedItems(selected_items: Signal<Vec<SelectedItemRepresentation>>) -> Ele
 /// This component renders a selected item
 #[component]
 fn SelectedItem(
-    item: SelectedItemRepresentation,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     id: usize,
+    active_selected_item_id: Signal<Option<usize>>,
 ) -> Element {
     rsx! {
         div {
             role: "button",
             class: "outline secondary selection_item",
+            style: "display: flex; align-items: left;",
             tabindex: 0,
-            { item.source_file.name },
+            span {
+                style: "flex-grow: 1;",
+                onclick: move |_| {
+                    active_selected_item_id.set(Some(id.clone()))
+                },
+                { selected_items.read().get(id).unwrap().source_file.name.clone() },
+            }
 
             // Delete a selected item
-            div {
+            span {
                 class: "right-justified",
                 // Move Item Up
                 if id > 0 {
@@ -198,11 +243,62 @@ fn SelectedItem(
                 }
                 // Delete a selected item
                 span {
-                    onclick: move |_| { selected_items.write().remove(id.clone()); },
+                    onclick: move |_| {
+                        if *active_selected_item_id.read() == Some(id) {
+                            active_selected_item_id.set(None);
+                        }
+                        selected_items.write().remove(id.clone());
+                    },
                     Icon {
                         icon: FaTrashCan,
                     }
                 }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PresentationOptionTabState {
+    General,
+    Specific,
+}
+
+#[component]
+fn PresentationOptions(
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    active_selected_item_id: Signal<Option<usize>>,
+) -> Element {
+    let mut tab_state: Signal<PresentationOptionTabState> =
+        use_signal(|| PresentationOptionTabState::General);
+    use_effect(move || {
+        if active_selected_item_id.read().is_some() {
+            tab_state.set(PresentationOptionTabState::Specific);
+        }
+    });
+    rsx! {
+        if active_selected_item_id.read().is_some() {
+            div {
+                role: "group",
+                button {
+                    class: "smaller-buttons",
+                    class: if *tab_state.read() != PresentationOptionTabState::General {
+                        "secondary"
+                    },
+                    onclick: move |_| { tab_state.set(PresentationOptionTabState::General) },
+                    "General"
+                }
+                button {
+                    class: "smaller-buttons",
+                    class: if *tab_state.read() != PresentationOptionTabState::Specific {
+                        "secondary"
+                    },
+                    onclick: move |_| { tab_state.set(PresentationOptionTabState::Specific) },
+                    "Specific"
+                }
+            }
+            p {
+                "The active selected number is: {active_selected_item_id.read().unwrap()}"
             }
         }
     }
