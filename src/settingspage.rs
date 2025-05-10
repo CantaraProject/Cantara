@@ -15,10 +15,11 @@ pub fn SettingsPage() -> Element {
         div {
             class: "wrapper",
             header {
-                class: "top-bar no-padding",
+                class: "top-bar content",
                 h2 { { t!("settings.settings") } }
             }
-            body {
+            main {
+                class: "container height-100",
                 SettingsContent {}
             }
             footer {
@@ -34,7 +35,32 @@ pub fn SettingsPage() -> Element {
 #[component]
 fn SettingsContent() -> Element {
     rsx! {
-        h3 { "Folder" }
+        RepositorySettings {}
+    }
+}
 
+#[component]
+fn RepositorySettings() -> Element {
+    let settings = use_settings();
+    rsx! {
+        article {
+            header {
+                hgroup {
+                    h3 { "Repositories" },
+                    p { "Select one or multiple Repositories where Cantara will load source files from. "}
+                }
+            }
+            ul {
+                for repository in *settings.read().repositories.clone() {
+                    li {
+                        match repository {
+                            Repository::LocaleFilePath(string) => &string,
+                            Repository::Remote(string) => ""
+                        }
+                    }
+                }
+            }
+
+        }
     }
 }

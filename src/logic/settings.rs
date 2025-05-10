@@ -20,14 +20,14 @@ pub fn use_settings() -> Signal<Settings> {
 /// The struct representing Cantara's settings.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct Settings {
-    pub song_repos: Vec<Repository>,
+    pub repositories: Vec<Repository>,
     pub wizard_completed: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            song_repos: vec![],
+            repositories: vec![],
             wizard_completed: false,
         }
     }
@@ -65,20 +65,20 @@ impl Settings {
 
     /// Add a new repository to the settings if the repository is not already present (avoiding duplicates).
     pub fn add_repository(&mut self, repo: Repository) {
-        if !self.song_repos.contains(&repo) {
-            self.song_repos.push(repo);
+        if !self.repositories.contains(&repo) {
+            self.repositories.push(repo);
         }
     }
 
     /// Add a new repository folder given as String to the settings if the repository is not already present (avoiding duplicates).
     pub fn add_repository_folder(&mut self, folder: String) {
-        self.song_repos.push(Repository::LocaleFilePath(folder));
+        self.repositories.push(Repository::LocaleFilePath(folder));
     }
 
     /// Get all elements of all repositories as a vector of [SourceFile]
     pub fn get_sourcefiles(&self) -> Vec<SourceFile> {
         let mut source_files: Vec<SourceFile> = vec![];
-        self.song_repos
+        self.repositories
             .iter()
             .for_each(|repo| source_files.extend(repo.get_files()));
 

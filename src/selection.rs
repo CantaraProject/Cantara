@@ -20,7 +20,7 @@ pub fn Selection() -> Element {
 
     let filter_string: Signal<String> = use_signal(|| "".to_string());
 
-    if settings.read().song_repos.is_empty() || !settings.read().wizard_completed {
+    if settings.read().repositories.is_empty() || !settings.read().wizard_completed {
         nav.replace(Route::Wizard {});
     }
 
