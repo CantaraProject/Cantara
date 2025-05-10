@@ -1,11 +1,12 @@
 pub mod logic;
 pub mod selection;
 pub mod settingspage;
+pub mod shared_components;
 pub mod wizard;
 
 use crate::settingspage::SettingsPage;
 use dioxus::prelude::*;
-use dioxus_router::prelude::*;
+use dioxus_motion::prelude::*;
 use logic::settings::*;
 use logic::sourcefiles::SourceFile;
 use logic::states::{self, SelectedItemRepresentation};
@@ -21,19 +22,22 @@ const POSITIONING_JS: Asset = asset!("/assets/positioning.js");
 
 pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
 
-#[derive(Routable, PartialEq, Clone)]
+#[derive(Routable, PartialEq, Clone, MotionTransitions)]
 #[rustfmt::skip]
 pub enum Route {
     /// The selection route allows the user to select songs or other elements for the presentation
     #[route("/")]
+    #[transition(Fade)]
     Selection,
 
     /// The wizard is shown when the program is run for the first time (no configuration file exists)
     #[route("/wizard")]
+    #[transition(SlideLeft)]
     Wizard,
 
     /// The settings page is shown when explicitly called
     #[route("/settings")]
+    #[transition(Fade)]
     SettingsPage
 }
 

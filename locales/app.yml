@@ -69,6 +69,18 @@ search:
   en: Search...
   de: Suchen...
 settings:
+  repositories_headline:
+    en: Repositories
+    de: Quellen
+  repositories_description:
+    en: |-
+      Cantara loads all source files from one or multiple repositories.
+      Select one or multiple Repositories where Cantara will load source files from.
+      You need to select at least one repository.
+    de: |-
+      Cantara lädt alle Dateien aus einer oder mehreren Quellen.
+      Wählen Sie eine oder mehrere Quellen aus, aus denen Cantara Quelldateien laden soll.
+      Es muss mindestens eine Quelle ausgewählt sein.
   settings_button:
     en: Settings...
     de: Einstellungen...
@@ -78,3 +90,9 @@ settings:
   close:
     en: Close
     de: Schließen
+  presentation_headline:
+    en: Presentation Settings
+    de: Präsentationseinstellungen
+  presentation_description:
+    en: Setup here how the presentation should look like.
+    de: Hier kann eingestellt werden, wie die Präsentation aussehen soll.

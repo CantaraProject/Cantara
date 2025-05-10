@@ -1,8 +1,9 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
-use crate::logic::settings::*;
+use crate::{logic::settings::*, shared_components::DeleteIcon};
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
+use rfd::FileDialog;
 use rust_i18n::{i18n, t};
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -11,6 +12,8 @@ rust_i18n::i18n!("locales", fallback = "en");
 #[component]
 pub fn SettingsPage() -> Element {
     let nav = use_navigator();
+    let settings = use_settings();
+
     rsx! {
         div {
             class: "wrapper",
@@ -21,10 +24,15 @@ pub fn SettingsPage() -> Element {
             main {
                 class: "container height-100",
                 SettingsContent {}
+                hr { }
+                PresentationSettings {  }
             }
             footer {
                 button {
-                    onclick: move |_| { nav.replace(crate::Route::Selection); },
+                    onclick: move |_| {
+                        settings.read().save();
+                        nav.replace(crate::Route::Selection);
+                    },
                     { t!("settings.close") }
                 }
             }
@@ -41,26 +49,58 @@ fn SettingsContent() -> Element {
 
 #[component]
 fn RepositorySettings() -> Element {
-    let settings = use_settings();
-    rsx! {
-        article {
-            header {
-                hgroup {
-                    h3 { "Repositories" },
-                    p { "Select one or multiple Repositories where Cantara will load source files from. "}
-                }
+    let mut settings = use_settings();
+
+    let mut select_directory = move || {
+        let path = FileDialog::new().pick_folder();
+        let mut settings = settings.write();
+
+        if let Some(path) = path {
+            if path.is_dir() && path.exists() {
+                let chosen_directory = path.to_str().unwrap_or_default().to_string();
+                settings.add_repository_folder(chosen_directory.to_string());
             }
-            ul {
-                for repository in *settings.read().repositories.clone() {
-                    li {
-                        match repository {
-                            Repository::LocaleFilePath(string) => &string,
-                            Repository::Remote(string) => ""
-                        }
+        }
+    };
+
+    rsx! {
+        hgroup {
+            h3 { { t!("settings.repositories_headline") } },
+            p { { t!("settings.repositories_description") } }
+        }
+        for (index, repository) in settings.read().repositories.clone().iter().enumerate() {
+            article {
+                match repository {
+                    Repository::LocaleFilePath(string) => &string,
+                    Repository::Remote(string) => ""
+                }
+                if settings.read().repositories.len() > 1 {
+                    div {
+                        style: "float:right",
+                        onclick: move |_| {
+                            let mut settings = settings.write();
+                            settings.repositories.remove(index);
+                        },
+                        DeleteIcon { }
                     }
                 }
             }
+        }
 
+        button {
+            class: "smaller-buttons",
+            onclick: move |_| { select_directory(); },
+            "Add a new folder"
+        }
+    }
+}
+
+#[component]
+fn PresentationSettings() -> Element {
+    rsx! {
+        hgroup {
+            h4 { { t!("settings.presentation_headline") } }
+            p { { t!("settings.presentation_description") } }
         }
     }
 }
