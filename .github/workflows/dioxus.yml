@@ -47,7 +47,7 @@ jobs:
         run: dx build -r
       - name: Get the target name on macos
         if: matrix.os == 'macos-latest'
-        run: ls target/dx/cantara/
+        run: ls target/dx/cantara/release/
       - name: Upload desktop artifact
         uses: actions/upload-artifact@v4
         with:

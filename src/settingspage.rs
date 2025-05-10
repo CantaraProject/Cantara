@@ -1,7 +1,7 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
 use crate::{logic::settings::*, shared_components::DeleteIcon};
-use dioxus::prelude::*;
+use dioxus::{html::strong, prelude::*};
 use dioxus_router::prelude::*;
 use rfd::FileDialog;
 use rust_i18n::{i18n, t};
@@ -70,9 +70,13 @@ fn RepositorySettings() -> Element {
         }
         for (index, repository) in settings.read().repositories.clone().iter().enumerate() {
             article {
-                match repository {
-                    Repository::LocaleFilePath(string) => &string,
-                    Repository::Remote(string) => ""
+                if let Repository::LocaleFilePath(string) = repository {
+                    h6 { { t!("settings.repositories_local_dir") } }
+                    { string.clone() }
+                }
+                if let Repository::Remote(string) = repository {
+                    h6 { { t!("settings.repositories_remote_dir") } }
+                    { string.clone() }
                 }
                 if settings.read().repositories.len() > 1 {
                     div {

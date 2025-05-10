@@ -81,6 +81,12 @@ settings:
       Cantara lädt alle Dateien aus einer oder mehreren Quellen.
       Wählen Sie eine oder mehrere Quellen aus, aus denen Cantara Quelldateien laden soll.
       Es muss mindestens eine Quelle ausgewählt sein.
+  repositories_local_dir:
+    en: Local directory
+    de: Lokales Verzeichnis
+  repositories_remote_dir:
+    en: Remote directory
+    de: Entferntes Verzeichnis
   settings_button:
     en: Settings...
     de: Einstellungen...
