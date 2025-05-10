@@ -45,10 +45,14 @@ jobs:
         run: cargo test
       - name: Build desktop release
         run: dx build -r
-      - name: Get the target name on macos
+      - name: Upload desktop artifact (Mac OS)
         if: matrix.os == 'macos-latest'
-        run: ls target/dx/cantara/release/
-      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target_dir }}
+          path: target/dx/cantara/release/macos/app/
+      - name: Upload desktop artifact (Windows and Linux)
+        if: matrix.os != 'macos-latest'
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.target_dir }}
