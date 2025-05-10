@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 pub mod logic;
 pub mod selection;
 pub mod settingspage;
