@@ -1,14 +1,15 @@
+pub mod logic;
 pub mod selection;
-pub mod settings;
-pub mod sourcefiles;
-pub mod states;
+pub mod settingspage;
 pub mod wizard;
 
+use crate::settingspage::SettingsPage;
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
-use rust_i18n::t;
+use logic::settings::*;
+use logic::sourcefiles::SourceFile;
+use logic::states::{self, SelectedItemRepresentation};
 use selection::Selection;
-use settings::*;
 use sys_locale::get_locale;
 use wizard::Wizard;
 
@@ -29,7 +30,11 @@ pub enum Route {
 
     /// The wizard is shown when the program is run for the first time (no configuration file exists)
     #[route("/wizard")]
-    Wizard
+    Wizard,
+
+    /// The settings page is shown when explicitly called
+    #[route("/settings")]
+    SettingsPage
 }
 
 fn main() {
@@ -90,6 +95,11 @@ fn App() -> Element {
     // Initialize settings and provide them as a context to all components
     let settings: Signal<Settings> = use_signal(|| Settings::load());
     use_context_provider(|| settings);
+
+    // The source files and selected items should live here because they should stay persistent in the different routes.
+    let _: Signal<Vec<SourceFile>> =
+        use_context_provider(|| Signal::new(settings.read().get_sourcefiles()));
+    let _: Signal<Vec<SelectedItemRepresentation>> = use_context_provider(|| Signal::new(vec![]));
 
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }

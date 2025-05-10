@@ -1,5 +1,4 @@
-use crate::states::RuntimeInformation;
-use crate::settings::*;
+use crate::logic::{settings::*, states::RuntimeInformation};
 
 use dioxus::prelude::*;
 use dioxus_router::prelude::navigator;
@@ -31,7 +30,7 @@ pub fn Wizard() -> Element {
 
     rsx!(
         div {
-            class: "wrapper",        
+            class: "wrapper",
             header {
                 lang: locale,
                 class: "top-bar",
@@ -57,7 +56,7 @@ pub fn Wizard() -> Element {
                 WizardButtons { step }
             }
         }
-        
+
     )
 }
 

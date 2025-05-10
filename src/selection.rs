@@ -1,10 +1,7 @@
 //! This module includes the components for song selection
 
-use crate::{
-    settings::Settings,
-    sourcefiles::{get_source_files, SourceFile},
-    Route,
-};
+use crate::logic::states::SelectedItemRepresentation;
+use crate::{logic::settings::Settings, logic::sourcefiles::SourceFile, Route};
 use dioxus::prelude::*;
 use dioxus_router::prelude::navigator;
 use rust_i18n::t;
@@ -27,8 +24,8 @@ pub fn Selection() -> Element {
         nav.replace(Route::Wizard {});
     }
 
-    let source_files: Signal<Vec<SourceFile>> = use_signal(|| settings.read().get_sourcefiles());
-    let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_signal(|| vec![]);
+    let source_files: Signal<Vec<SourceFile>> = use_context();
+    let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
 
@@ -45,7 +42,12 @@ pub fn Selection() -> Element {
                 }
             }
             main {
+                id: "selection-content",
                 class: "content content-background height-100",
+                onmounted: move |_| async move {
+                    // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
+                    let _ = document::eval("adjustDivHeight();").await;
+                },
                 onkeydown: move |_| async move {
                     if let Some(searchinput) = input_element_signal() {
                         let _ = searchinput.set_focus(true).await;
@@ -96,6 +98,14 @@ pub fn Selection() -> Element {
                 div {
                     class: "no-padding width-100",
                     role: "group",
+                    button {
+                        onclick: move |_| { nav.push(crate::Route::SettingsPage); },
+                        class: "outline secondary smaller-buttons",
+                        span {
+                            class: "desktop-only",
+                            { t!("settings.settings_button") }
+                        }
+                    },
                     button {
                         class: "outline secondary smaller-buttons",
                         span {
@@ -179,13 +189,6 @@ fn SourceItem(
             { source_files.get(id).unwrap().clone().name }
         }
     }
-}
-
-/// This struct represents a selected item
-#[derive(Clone, PartialEq)]
-struct SelectedItemRepresentation {
-    /// The source file of the selected item
-    source_file: SourceFile,
 }
 
 #[component]
@@ -311,6 +314,8 @@ fn PresentationOptions(
     }
 }
 
+/// This component provides a Detail View for a source file which will open as a modal dialog (in front of anything else)
+/// if the signal active_detailed_item_id is set to a non None value.
 #[component]
 fn SourceDetailView(
     source_files: Signal<Vec<SourceFile>>,

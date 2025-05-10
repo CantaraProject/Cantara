@@ -66,5 +66,15 @@ wizard:
         <p>Sie können nun Ihre erste Liedpräsentation erstellen und weitere Lieder zu Ihrem Repository hinzufügen.
         Vielen Dank für Ihre Nutzung von Cantara!</p>
 search:
-  en: "Search..."
-  de: "Suchen..."
+  en: Search...
+  de: Suchen...
+settings:
+  settings_button:
+    en: Settings...
+    de: Einstellungen...
+  settings:
+    en: Settings
+    de: Einstellungen
+  close:
+    en: Close
+    de: Schließen
