@@ -19,12 +19,14 @@ jobs:
           - os: macos-latest
             target_dir: macos
     steps:
-      - name: Provide npm (needed for build process)
+      - name: Provide npm (needed for the build)
         uses: actions/setup-node@v4
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Install cargo bininstall
         uses: cargo-bins/cargo-binstall@main
+      - name: Run npm install
+        run: npm install
       - name: Install dioxus-cli
         run: cargo binstall dioxus-cli
       - name: Install dependencies under Linux
