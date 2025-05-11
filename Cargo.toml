@@ -6,6 +6,7 @@ keywords = ["music", "sheets", "presentation"]
 license = "GPL-3.0"
 description = "Functionalities to import, manage and export songs in various formats"
 edition = "2021"
+repository = "https://github.com/CantaraProject/Cantara"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
