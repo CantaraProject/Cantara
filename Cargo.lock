@@ -427,6 +427,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1628fb46dfa0b37568d12e5edd512553eccf6a22a78e8bde00bb4aed84d5bdbf"
 
 [[package]]
+name = "bytemuck"
+version = "1.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9134a6ef01ce4b366b50689c94f82c14bc72bc5d0386829828a2e2752ef7958c"
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -474,6 +480,7 @@ dependencies = [
  "dioxus-router",
  "dirs",
  "rfd 0.15.3",
+ "rgb",
  "rust-i18n",
  "serde",
  "serde_json",
@@ -482,9 +489,9 @@ dependencies = [
 
 [[package]]
 name = "cantara-songlib"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9353f0d6c01dcdd55459aa5e3418b27a46b8d1e7dfee157209801aa5151830cb"
+checksum = "a634df86ac7e92e4a1c6015daf94e08ba33f3dd5e5ad220268c05e4e0ee3dfb6"
 dependencies = [
  "cbindgen",
  "clap 4.5.37",
@@ -4140,6 +4147,16 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "rgb"
+version = "0.8.50"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57397d16646700483b67d2dd6511d79318f9d057fdbd21a4066aeac8b41d310a"
+dependencies = [
+ "bytemuck",
+ "serde",
 ]
 
 [[package]]

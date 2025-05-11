@@ -1,6 +1,8 @@
 //! This module contains the logic and structures for managing, loading and saving the program's settings.
 
+use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
+use rgb::*;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -18,7 +20,7 @@ pub fn use_settings() -> Signal<Settings> {
 }
 
 /// The struct representing Cantara's settings.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Settings {
     pub repositories: Vec<Repository>,
     pub wizard_completed: bool,
@@ -90,7 +92,7 @@ impl Settings {
 }
 
 /// The enum representing the different types of repositories.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub enum Repository {
     /// A repository that is a local folder represented by a file path.
     LocaleFilePath(String),
@@ -122,6 +124,114 @@ fn get_settings_folder() -> Option<PathBuf> {
         Some(dir) => Some(dir.join("cantara")),
         None => None,
     }
+}
+
+/// A configured Presentation Design which is used both for creating the presentation slides as well as for rendering them.
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct PresentationDesign {
+    /// A name which helps to identify the design
+    name: String,
+
+    /// A description (can be empty)
+    description: String,
+
+    /// Presentation Design settings for that PresentationDesign
+    presentation_design_settings: PresentationDesignSettings,
+
+    /// Settings for the slide creation process
+    slide_settings: SlideSettings,
+}
+
+impl Default for PresentationDesign {
+    fn default() -> Self {
+        PresentationDesign {
+            name: "Default".to_string(),
+            description: "".to_string(),
+            presentation_design_settings: PresentationDesignSettings::default(),
+            slide_settings: SlideSettings::default(),
+        }
+    }
+}
+
+/// This enum describes the general design of the presentation (background color, font-colors etc.)
+/// It can be configured via a Template or imputed by direct HTML/CSS
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub enum PresentationDesignSettings {
+    /// Describe the design via a template given by Cantara
+    Template(PresentationDesignTemplate),
+
+    /// Manually specified template with HTML/CSS/Javascript (not implemented yet)
+    Custom(String),
+}
+
+impl Default for PresentationDesignSettings {
+    fn default() -> Self {
+        PresentationDesignSettings::Template(PresentationDesignTemplate::default())
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct PresentationDesignTemplate {
+    main_content_fonts: Vec<FontRepresentation>,
+    vertical_alignment: VerticalAlign,
+    spoiler_content_fontsize_factor: f64,
+    background_color: RGB8,
+    background_transparancy: u8,
+}
+
+impl Default for PresentationDesignTemplate {
+    fn default() -> Self {
+        PresentationDesignTemplate {
+            main_content_fonts: vec![FontRepresentation::default()],
+            vertical_alignment: VerticalAlign::default(),
+            spoiler_content_fontsize_factor: 0.6,
+            background_color: Rgb::new(0, 0, 0),
+            background_transparancy: 0,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct FontRepresentation {
+    font_family: Option<String>,
+    font_size: usize,
+    shadow: bool,
+    line_height: f64,
+    color: RGBA8,
+    horizontal_alignment: HorizontalAlign,
+}
+
+impl Default for FontRepresentation {
+    fn default() -> Self {
+        FontRepresentation {
+            font_family: None,
+            font_size: 36,
+            shadow: false,
+            line_height: 1.2,
+            color: Rgba::new(255, 255, 255, 255),
+            horizontal_alignment: HorizontalAlign::default(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
+pub enum HorizontalAlign {
+    Left,
+
+    #[default]
+    Centered,
+
+    Right,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
+pub enum VerticalAlign {
+    Top,
+
+    #[default]
+    Middle,
+
+    Bottom,
 }
 
 #[cfg(test)]

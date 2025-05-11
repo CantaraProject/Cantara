@@ -4,6 +4,7 @@ pub mod logic;
 pub mod selection;
 pub mod settingspage;
 pub mod shared_components;
+pub mod slide_rendering;
 pub mod wizard;
 
 use crate::settingspage::SettingsPage;
@@ -103,8 +104,7 @@ fn App() -> Element {
     use_context_provider(|| settings);
 
     // The source files and selected items should live here because they should stay persistent in the different routes.
-    let _: Signal<Vec<SourceFile>> =
-        use_context_provider(|| Signal::new(settings.read().get_sourcefiles()));
+    let _: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));
     let _: Signal<Vec<SelectedItemRepresentation>> = use_context_provider(|| Signal::new(vec![]));
 
     rsx! {

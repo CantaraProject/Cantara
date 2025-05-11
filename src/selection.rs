@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 use dioxus_router::prelude::navigator;
 use rust_i18n::t;
 use std::rc::Rc;
+use std::thread;
 
 use dioxus_free_icons::icons::fa_regular_icons::*;
 use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
@@ -20,16 +21,22 @@ pub fn Selection() -> Element {
 
     let filter_string: Signal<String> = use_signal(|| "".to_string());
 
-    if settings.read().repositories.is_empty() || !settings.read().wizard_completed {
-        nav.replace(Route::Wizard {});
-    }
-
-    let source_files: Signal<Vec<SourceFile>> = use_context();
+    let mut source_files: Signal<Vec<SourceFile>> = use_context();
     let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
+
+    use_effect(move || {
+        if !settings.read().wizard_completed {
+            nav.replace(Route::Wizard {});
+        }
+
+        use_future(move || async move {
+            source_files.set(settings.read().get_sourcefiles());
+        });
+    });
 
     rsx! {
         div {
