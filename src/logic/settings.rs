@@ -22,8 +22,18 @@ pub fn use_settings() -> Signal<Settings> {
 /// The struct representing Cantara's settings.
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Settings {
+    /// A vector with the repositories which Cantara uses
+    /// This should at least contain one element.
     pub repositories: Vec<Repository>,
+
+    /// A boolean variable which is set to true when the initial wizard has been completed once.
+    /// It can't be changed from the user interface.
     pub wizard_completed: bool,
+
+    /// The configured presentation designs in Cantara.
+    /// The default one is added as default.
+    #[serde(default = "default_presentation_design_vec")]
+    pub presentation_designs: Vec<PresentationDesign>,
 }
 
 impl Default for Settings {
@@ -31,8 +41,14 @@ impl Default for Settings {
         Self {
             repositories: vec![],
             wizard_completed: false,
+            presentation_designs: default_presentation_design_vec(),
         }
     }
+}
+
+/// This creates the default presentation designs if there are none available
+fn default_presentation_design_vec() -> Vec<PresentationDesign> {
+    vec![PresentationDesign::default()]
 }
 
 impl Settings {
@@ -153,11 +169,11 @@ impl Default for PresentationDesign {
     }
 }
 
-/// This enum describes the general design of the presentation (background color, font-colors etc.)
+/// This enum describes the general design of the presentation (background color, font-colors etc.).
 /// It can be configured via a Template or imputed by direct HTML/CSS
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub enum PresentationDesignSettings {
-    /// Describe the design via a template given by Cantara
+    /// Describe the design via a template set up in Cantara
     Template(PresentationDesignTemplate),
 
     /// Manually specified template with HTML/CSS/Javascript (not implemented yet)
