@@ -12,7 +12,7 @@ use dioxus::prelude::*;
 use dioxus_motion::prelude::*;
 use logic::settings::*;
 use logic::sourcefiles::SourceFile;
-use logic::states::{self, SelectedItemRepresentation};
+use logic::states::{self, RunningPresentation, SelectedItemRepresentation};
 use selection::Selection;
 use sys_locale::get_locale;
 use wizard::Wizard;
@@ -106,6 +106,8 @@ fn App() -> Element {
     // The source files and selected items should live here because they should stay persistent in the different routes.
     let _: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));
     let _: Signal<Vec<SelectedItemRepresentation>> = use_context_provider(|| Signal::new(vec![]));
+
+    let _: Vec<RunningPresentation> = use_context_provider(|| vec![]);
 
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }

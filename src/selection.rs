@@ -6,7 +6,6 @@ use dioxus::prelude::*;
 use dioxus_router::prelude::navigator;
 use rust_i18n::t;
 use std::rc::Rc;
-use std::thread;
 
 use dioxus_free_icons::icons::fa_regular_icons::*;
 use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
@@ -186,9 +185,7 @@ fn SourceItem(
             class: "outline secondary selection_item",
             tabindex: 0,
             onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation {
-                    source_file: source_files.get(id).unwrap().clone(),
-                }
+                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
             ); },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id.clone()));

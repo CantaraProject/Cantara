@@ -1,8 +1,11 @@
 use std::{fs, path::PathBuf};
 
+use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::sourcefiles::SourceFile;
+use cantara_songlib::slides::Slide;
+
+use super::{settings::PresentationDesign, sourcefiles::SourceFile};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct Settings {
@@ -89,6 +92,40 @@ pub fn get_settings_folder() -> Option<PathBuf> {
 pub struct SelectedItemRepresentation {
     /// The source file of the selected item
     pub source_file: SourceFile,
+
+    /// The [PresentationDesign] as an option. If [None], the default [PresentationDesign] will be used.
+    pub presentation_design_option: Option<PresentationDesign>,
+}
+
+impl SelectedItemRepresentation {
+    pub fn new_with_sourcefile(source_file: SourceFile) -> Self {
+        SelectedItemRepresentation {
+            source_file,
+            presentation_design_option: None,
+        }
+    }
+}
+
+/// A created presentation which is able to run
+///
+/// Warning: As this struct contains [Signal]s, they have two be created from *within* a component!
+#[derive(Clone, PartialEq)]
+pub struct RunningPresentation {
+    pub presentation_signal: Signal<Vec<Slide>>,
+    pub active_slide_number_signal: Signal<usize>,
+}
+
+impl RunningPresentation {
+    /// Helper function to create a new [RunningPresentation] data structure
+    pub fn new(
+        presentation_signal: Signal<Vec<Slide>>,
+        active_slide_number_signal: Signal<usize>,
+    ) -> Self {
+        RunningPresentation {
+            presentation_signal,
+            active_slide_number_signal,
+        }
+    }
 }
 
 #[cfg(test)]

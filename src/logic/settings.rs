@@ -146,16 +146,16 @@ fn get_settings_folder() -> Option<PathBuf> {
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct PresentationDesign {
     /// A name which helps to identify the design
-    name: String,
+    pub name: String,
 
     /// A description (can be empty)
-    description: String,
+    pub description: String,
 
     /// Presentation Design settings for that PresentationDesign
-    presentation_design_settings: PresentationDesignSettings,
+    pub presentation_design_settings: PresentationDesignSettings,
 
     /// Settings for the slide creation process
-    slide_settings: SlideSettings,
+    pub slide_settings: SlideSettings,
 }
 
 impl Default for PresentationDesign {
@@ -188,11 +188,22 @@ impl Default for PresentationDesignSettings {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct PresentationDesignTemplate {
-    main_content_fonts: Vec<FontRepresentation>,
-    vertical_alignment: VerticalAlign,
-    spoiler_content_fontsize_factor: f64,
-    background_color: RGB8,
-    background_transparancy: u8,
+    pub main_content_fonts: Vec<FontRepresentation>,
+    pub vertical_alignment: VerticalAlign,
+    pub spoiler_content_fontsize_factor: f64,
+    pub background_color: RGB8,
+    pub background_transparancy: u8,
+}
+
+impl PresentationDesignTemplate {
+    pub fn get_background_as_rgb_string(&self) -> String {
+        format!(
+            "{}, {}, {}",
+            self.background_color.r.to_string(),
+            self.background_color.g.to_string(),
+            self.background_color.b.to_string()
+        )
+    }
 }
 
 impl Default for PresentationDesignTemplate {
@@ -209,12 +220,24 @@ impl Default for PresentationDesignTemplate {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct FontRepresentation {
-    font_family: Option<String>,
-    font_size: usize,
-    shadow: bool,
-    line_height: f64,
-    color: RGBA8,
-    horizontal_alignment: HorizontalAlign,
+    pub font_family: Option<String>,
+    pub font_size: usize,
+    pub shadow: bool,
+    pub line_height: f64,
+    pub color: RGBA8,
+    pub horizontal_alignment: HorizontalAlign,
+}
+
+impl FontRepresentation {
+    pub fn get_color_as_rgba_string(&self) -> String {
+        format!(
+            "{}, {}, {}, {}",
+            self.color.r.to_string(),
+            self.color.g.to_string(),
+            self.color.b.to_string(),
+            self.color.a.to_string()
+        )
+    }
 }
 
 impl Default for FontRepresentation {
