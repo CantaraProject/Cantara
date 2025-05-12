@@ -152,3 +152,27 @@ body {
         display: none;
     }
 }
+
+.listed-article:not(:last-of-type) {
+    margin-bottom: 0;
+}
+
+/* Do not scale the CSS size too much as the default pico css configuration would do */
+@media (min-width: 1024px) {
+  :root,
+  :host {
+    --pico-font-size: 106.25%;
+  }
+}
+@media (min-width: 1280px) {
+  :root,
+  :host {
+    --pico-font-size: 106.25%;
+  }
+}
+@media (min-width: 1536px) {
+  :root,
+  :host {
+    --pico-font-size: 106.25%;
+  }
+}

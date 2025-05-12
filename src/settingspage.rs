@@ -70,6 +70,7 @@ fn RepositorySettings() -> Element {
         }
         for (index, repository) in settings.read().repositories.clone().iter().enumerate() {
             article {
+                class: "listed-article",
                 if let Repository::LocaleFilePath(string) = repository {
                     h6 { { t!("settings.repositories_local_dir") } }
                     { string.clone() }
