@@ -107,7 +107,7 @@ fn App() -> Element {
     let _: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));
     let _: Signal<Vec<SelectedItemRepresentation>> = use_context_provider(|| Signal::new(vec![]));
 
-    let _: Vec<RunningPresentation> = use_context_provider(|| vec![]);
+    let _: Signal<Vec<RunningPresentation>> = use_context_provider(|| Signal::new(vec![]));
 
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }

@@ -112,16 +112,14 @@ impl SelectedItemRepresentation {
 #[derive(Clone, PartialEq)]
 pub struct RunningPresentation {
     pub presentation: Vec<SlideChapter>,
-    pub active_slide_number: usize,
     pub position: Option<RunningPresentationPosition>,
 }
 
 impl RunningPresentation {
     /// Helper function to create a new [RunningPresentation] data structure
-    pub fn new(presentation: Vec<SlideChapter>, active_slide_number: usize) -> Self {
+    pub fn new(presentation: Vec<SlideChapter>) -> Self {
         RunningPresentation {
             presentation: presentation.clone(),
-            active_slide_number,
             position: RunningPresentationPosition::new(&presentation),
         }
     }
