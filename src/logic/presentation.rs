@@ -55,7 +55,9 @@ pub fn add_presentation(selected_items: &Vec<SelectedItemRepresentation>) -> Opt
                 source_file: selected_item.source_file.clone(),
                 presentation_design: selected_item.presentation_design_option.clone(),
             }),
-            Err(_) => {}
+            Err(_) => {
+                // TODO: Implement error handling, the user should get a message if an error occurs...
+            }
         }
     }
 
