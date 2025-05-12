@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use cantara_songlib::slides::Slide;
 
-use super::{settings::PresentationDesign, sourcefiles::SourceFile};
+use super::{presentation, settings::PresentationDesign, sourcefiles::SourceFile};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct Settings {
@@ -111,19 +111,137 @@ impl SelectedItemRepresentation {
 /// Warning: As this struct contains [Signal]s, they have two be created from *within* a component!
 #[derive(Clone, PartialEq)]
 pub struct RunningPresentation {
-    pub presentation_signal: Signal<Vec<Slide>>,
-    pub active_slide_number_signal: Signal<usize>,
+    pub presentation: Vec<SlideChapter>,
+    pub active_slide_number: usize,
+    pub position: Option<RunningPresentationPosition>,
 }
 
 impl RunningPresentation {
     /// Helper function to create a new [RunningPresentation] data structure
-    pub fn new(
-        presentation_signal: Signal<Vec<Slide>>,
-        active_slide_number_signal: Signal<usize>,
-    ) -> Self {
+    pub fn new(presentation: Vec<SlideChapter>, active_slide_number: usize) -> Self {
         RunningPresentation {
-            presentation_signal,
-            active_slide_number_signal,
+            presentation: presentation.clone(),
+            active_slide_number,
+            position: RunningPresentationPosition::new(&presentation),
+        }
+    }
+
+    /// Go to the next slide (if any exists)
+    pub fn next_slide(&mut self) {
+        if let Some(ref mut position) = self.position {
+            let _ = position.try_next(&self.presentation);
+        }
+    }
+
+    /// Go to the previous slide (if any exists)
+    pub fn previous_slide(&mut self) {
+        if let Some(ref mut position) = self.position {
+            let _ = position.try_back(&self.presentation);
+        }
+    }
+}
+
+/// This represents a position in a running presentation.
+/// This struct should always be save in that sense that the presentation does exist.
+#[derive(Clone, PartialEq)]
+pub struct RunningPresentationPosition {
+    /// The number of the current chapter
+    chapter: usize,
+
+    /// The number of the current slide of the chapter
+    chapter_slide: usize,
+
+    /// The total slide number of all chapters
+    slide_total: usize,
+}
+
+impl RunningPresentationPosition {
+    /// Creates a new position if there is at least one slide available
+    pub fn new(presentation: &Vec<SlideChapter>) -> Option<Self> {
+        if presentation.len() > 0 && presentation.get(0).unwrap().slides.len() > 0 {
+            Some(RunningPresentationPosition {
+                chapter: 0,
+                chapter_slide: 0,
+                slide_total: 0,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Tries to go to the next position if it exists (and returns okay),
+    /// if the next position does not exist, an error will be returned.
+    pub fn try_next(&mut self, presentation: &Vec<SlideChapter>) -> Result<(), ()> {
+        if self.chapter_slide < self.cur_chapter_slide_length(presentation) {
+            self.chapter_slide = self.chapter_slide + 1;
+            self.slide_total = self.slide_total + 1;
+            Ok(())
+        } else if self.chapter < presentation.len() {
+            self.chapter = self.chapter + 1;
+            self.chapter_slide = 0;
+            self.slide_total = self.slide_total + 1;
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    /// Tries to go to the next position if it exists (and returns okay),
+    /// if the next position does not exist, an error will be returned.
+    pub fn try_back(&mut self, presentation: &Vec<SlideChapter>) -> Result<(), ()> {
+        if self.chapter_slide > 0 {
+            self.chapter_slide = self.chapter_slide - 1;
+            self.slide_total = self.slide_total - 1;
+            Ok(())
+        } else if self.chapter > 0 {
+            self.chapter = self.chapter - 1;
+            self.chapter_slide = self.cur_chapter_slide_length(presentation) - 1;
+            self.slide_total = self.slide_total - 1;
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    /// Helper function for getting the current slide length
+    fn cur_chapter_slide_length(&self, presentation: &Vec<SlideChapter>) -> usize {
+        return presentation.get(self.chapter).unwrap().slides.len();
+    }
+
+    /// Get the number of the current chapter
+    pub fn chapter(&self) -> usize {
+        self.chapter
+    }
+
+    /// Get the number of the current slide in the current chapter
+    pub fn chapter_slide(&self) -> usize {
+        self.chapter_slide
+    }
+
+    /// Get the total slide number position
+    pub fn slide_total(&self) -> usize {
+        self.slide_total
+    }
+}
+
+/// Contains slide, the source file and the presentation design for each chapter (e.g. a song)
+#[derive(Clone, PartialEq)]
+pub struct SlideChapter {
+    pub slides: Vec<Slide>,
+    pub source_file: SourceFile,
+    pub presentation_design: Option<PresentationDesign>,
+}
+
+impl SlideChapter {
+    pub fn new(
+        slides: Vec<Slide>,
+        source_file: SourceFile,
+        presentation_design: Option<PresentationDesign>,
+    ) -> Self {
+        SlideChapter {
+            slides,
+            source_file,
+            presentation_design,
         }
     }
 }

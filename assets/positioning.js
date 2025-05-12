@@ -17,7 +17,7 @@ function adjustDivHeight() {
   const targetHeight = window.innerHeight - headerHeight - footerHeight;
 
   if (window.innerWidth < 768) {
-    targetDiv.style.height = `${targetHeight / 2 - 5}px`;
+    targetDiv.style.height = `${targetHeight / 3 - 5}px`;
   } else {
     targetDiv.style.height = `${targetHeight - 10}px`;
   }
