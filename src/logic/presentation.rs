@@ -47,6 +47,7 @@ mod tests {
                 path: PathBuf::from_str("testfiles/Amazing Grace.song").unwrap(),
                 file_type: SourceFileType::Song,
             },
+            presentation_design_option: None,
         };
         assert!(create_presentation(&select_item, &PresentationDesign::default()).is_ok());
     }
