@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf};
 
-use dioxus::prelude::*;
+use dioxus::{html::u::position, prelude::*};
 use serde::{Deserialize, Serialize};
 
 use cantara_songlib::slides::Slide;
@@ -126,15 +126,43 @@ impl RunningPresentation {
 
     /// Go to the next slide (if any exists)
     pub fn next_slide(&mut self) {
-        if let Some(ref mut position) = self.position {
-            let _ = position.try_next(&self.presentation);
+        if let Some(ref mut pos) = self.position {
+            let _ = pos.try_next(&self.presentation);
         }
     }
 
     /// Go to the previous slide (if any exists)
     pub fn previous_slide(&mut self) {
-        if let Some(ref mut position) = self.position {
-            let _ = position.try_back(&self.presentation);
+        if let Some(ref mut pos) = self.position {
+            let _ = pos.try_back(&self.presentation);
+        }
+    }
+
+    pub fn get_current_slide(&self) -> Option<Slide> {
+        match self.position.clone() {
+            Some(pos) => Some(
+                self.presentation
+                    .get(pos.chapter())
+                    .unwrap()
+                    .slides
+                    .get(pos.chapter_slide())
+                    .unwrap()
+                    .clone(),
+            ),
+            None => None,
+        }
+    }
+
+    pub fn get_current_presentation_design(&self) -> PresentationDesign {
+        match self.position.clone() {
+            Some(pos) => self
+                .presentation
+                .get(pos.chapter())
+                .unwrap()
+                .presentation_design
+                .clone()
+                .unwrap_or(PresentationDesign::default()),
+            None => PresentationDesign::default(),
         }
     }
 }

@@ -370,3 +370,7 @@ fn SourceDetailView(
         }
     }
 }
+
+/// Helper function to start a presentation from the selection page
+/// It will create the presentation and open the window
+fn start_presentation(selected_items: Signal<Vec<SelectedItemRepresentation>>) {}

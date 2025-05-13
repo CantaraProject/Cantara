@@ -25,6 +25,10 @@ const POSITIONING_JS: Asset = asset!("/assets/positioning.js");
 
 pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
 
+/// Contains the running presentations globally.
+/// As this is shared between different windows (and virtual DOMs), it has to be declared as a global signal.
+static RUNNING_PRESENTATIONS: GlobalSignal<Vec<RunningPresentation>> = Global::new(|| vec![]);
+
 #[derive(Routable, PartialEq, Clone, MotionTransitions)]
 #[rustfmt::skip]
 pub enum Route {

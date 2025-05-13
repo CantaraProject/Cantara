@@ -1,5 +1,7 @@
 //! This module contains functions for creating presentations
 
+use crate::RUNNING_PRESENTATIONS;
+
 use super::{
     settings::PresentationDesign,
     sourcefiles::SourceFileType,
@@ -38,12 +40,10 @@ fn create_presentation_slides(
 /// Adds a presentation to the global running presentations signal
 /// Returns the number (id) of the created presentation
 pub fn add_presentation(selected_items: &Vec<SelectedItemRepresentation>) -> Option<usize> {
-    let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
-
     // Right now, we only allow one running presentation at the same time.
     // Later, Cantara is going to support multiple presentations.
-    if running_presentations.len() > 0 {
-        running_presentations.clear();
+    if RUNNING_PRESENTATIONS.len() > 0 {
+        RUNNING_PRESENTATIONS.write().clear();
     }
 
     let mut presentation: Vec<SlideChapter> = vec![];
@@ -62,8 +62,10 @@ pub fn add_presentation(selected_items: &Vec<SelectedItemRepresentation>) -> Opt
     }
 
     if !presentation.is_empty() {
-        running_presentations.push(RunningPresentation::new(presentation));
-        return Some(running_presentations.len() - 1);
+        RUNNING_PRESENTATIONS
+            .write()
+            .push(RunningPresentation::new(presentation));
+        return Some(RUNNING_PRESENTATIONS.len() - 1);
     }
 
     None
