@@ -11,7 +11,7 @@ repository = "https://github.com/CantaraProject/Cantara"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = { version = "0.6.0", features = ["desktop"] }
+dioxus = { version = "0.6.3", features = ["desktop"] }
 dioxus-router = { version = "0.6" }
 dirs = "6.0.0"
 rfd = "0.15.3"
@@ -27,7 +27,7 @@ serde_json = "1.0.140"
 sys-locale = "=0.3.2"
 
 # Cantara libraries
-cantara-songlib = "0.1.2"
+cantara-songlib = "0.1.3"
 rgb = { version = "0.8.50", features = ["serde"] }
 
 [features]
