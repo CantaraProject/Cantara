@@ -8,50 +8,15 @@ use crate::{
         settings::{PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate},
         states::RunningPresentationPosition,
     },
-    RUNNING_PRESENTATIONS,
+    RUNNING_PRESENTATIONS, TEST_STATE,
 };
-
-fn get_current_position_slide_and_design(
-) -> Option<(RunningPresentationPosition, Slide, PresentationDesign)> {
-    if RUNNING_PRESENTATIONS.get(0).is_none() {
-        return None;
-    }
-
-    if RUNNING_PRESENTATIONS.get(0).unwrap().position.is_none() {
-        return None;
-    }
-
-    let current_position: RunningPresentationPosition = RUNNING_PRESENTATIONS
-        .get(0)
-        .unwrap()
-        .position
-        .clone()
-        .unwrap()
-        .clone();
-
-    // We can safely unwrap here because we have checked the existence of the slide already before.
-    let current_slide: Slide = RUNNING_PRESENTATIONS
-        .get(0)
-        .unwrap()
-        .get_current_slide()
-        .unwrap();
-
-    let presentation_design: PresentationDesign = RUNNING_PRESENTATIONS
-        .get(0)
-        .unwrap()
-        .presentation
-        .get(current_position.chapter())
-        .unwrap()
-        .presentation_design
-        .clone()
-        .unwrap_or(PresentationDesign::default());
-
-    Some((current_position, current_slide, presentation_design))
-}
 
 #[component]
 pub fn PresentationPage() -> Element {
-    let current_slide = use_memo(|| RUNNING_PRESENTATIONS.get(0).unwrap().get_current_slide());
+    let current_slide: Memo<Option<Slide>> = use_memo(|| match RUNNING_PRESENTATIONS.get(0) {
+        Some(presentation) => presentation.clone().get_current_slide(),
+        None => None,
+    });
     if current_slide.read().clone().is_none() {
         return rsx! {
             div {
@@ -62,6 +27,10 @@ pub fn PresentationPage() -> Element {
                     height:100%;
                     background-color: black);
                 ",
+                p {
+                    { "No presentation data found:" },
+                    { TEST_STATE.read().clone() }
+                }
             }
         };
     }
@@ -90,7 +59,7 @@ pub fn PresentationPage() -> Element {
                 width:100%;
                 height:100%;
                 background-color: rgb({current_pds.read().clone().get_background_as_rgb_string()});
-                color: rgba({current_pds.read().clone().main_content_fonts.get(0).unwrap().get_color_as_rgba_string()});
+                color: white;
             ",
             {
                 match current_slide.read().clone().unwrap().slide_content.clone() {

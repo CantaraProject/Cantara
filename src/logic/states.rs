@@ -107,8 +107,6 @@ impl SelectedItemRepresentation {
 }
 
 /// A created presentation which is able to run
-///
-/// Warning: As this struct contains [Signal]s, they have two be created from *within* a component!
 #[derive(Clone, PartialEq)]
 pub struct RunningPresentation {
     pub presentation: Vec<SlideChapter>,

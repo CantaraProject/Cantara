@@ -1,6 +1,8 @@
 //! This module includes the components for song selection
 
+use crate::logic::presentation;
 use crate::logic::states::SelectedItemRepresentation;
+use crate::TEST_STATE;
 use crate::{logic::settings::Settings, logic::sourcefiles::SourceFile, Route};
 use dioxus::prelude::*;
 use dioxus_router::prelude::navigator;
@@ -128,6 +130,7 @@ pub fn Selection() -> Element {
                     },
                     button {
                         class: "primary smaller-buttons",
+                        onclick: move |_| start_presentation(&selected_items.read().clone()),
                         span {
                             class: "desktop-only",
                             { t!("selection.start_presentation") }
@@ -314,6 +317,7 @@ fn PresentationOptions(
             p {
                 "The active selected number is: {active_selected_item_id.read().unwrap()}"
             }
+            p { { TEST_STATE.read().clone() } }
         }
     }
 }
@@ -373,4 +377,17 @@ fn SourceDetailView(
 
 /// Helper function to start a presentation from the selection page
 /// It will create the presentation and open the window
-fn start_presentation(selected_items: Signal<Vec<SelectedItemRepresentation>>) {}
+#[cfg(feature = "desktop")]
+fn start_presentation(selected_items: &Vec<SelectedItemRepresentation>) {
+    // Create the presentation
+
+    *TEST_STATE.write() = "Test 2".to_string();
+
+    use crate::{slide_rendering::PresentationPage, TEST_STATE};
+    if presentation::add_presentation(&selected_items).is_some() {
+        // Create a new window if running on desktop
+        let presentation_dom = VirtualDom::new(PresentationPage);
+
+        dioxus::desktop::window().new_window(presentation_dom, Default::default());
+    }
+}

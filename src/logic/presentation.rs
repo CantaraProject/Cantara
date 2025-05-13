@@ -9,7 +9,7 @@ use super::{
 };
 
 use cantara_songlib::slides::Slide;
-use dioxus::prelude::*;
+use dioxus::{logger, prelude::*};
 use std::error::Error;
 
 /// Creates a presentation from a selected_item_representation and a presentation_design

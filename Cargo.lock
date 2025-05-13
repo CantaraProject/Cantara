@@ -479,6 +479,7 @@ dependencies = [
  "dioxus-motion",
  "dioxus-router",
  "dirs",
+ "once_cell",
  "rfd 0.15.3",
  "rgb",
  "rust-i18n",

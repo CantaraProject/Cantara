@@ -7,6 +7,8 @@ pub mod shared_components;
 pub mod slide_rendering;
 pub mod wizard;
 
+use std::sync::RwLock;
+
 use crate::settingspage::SettingsPage;
 use dioxus::prelude::*;
 use dioxus_motion::prelude::*;
@@ -16,6 +18,8 @@ use logic::states::{self, RunningPresentation, SelectedItemRepresentation};
 use selection::Selection;
 use sys_locale::get_locale;
 use wizard::Wizard;
+
+use once_cell::sync::Lazy;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -28,6 +32,10 @@ pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
 /// Contains the running presentations globally.
 /// As this is shared between different windows (and virtual DOMs), it has to be declared as a global signal.
 static RUNNING_PRESENTATIONS: GlobalSignal<Vec<RunningPresentation>> = Global::new(|| vec![]);
+
+//pub static TEST_STRING: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new("test".to_string()));
+
+static TEST_STATE: GlobalSignal<String> = Global::new(|| "test".to_string());
 
 #[derive(Routable, PartialEq, Clone, MotionTransitions)]
 #[rustfmt::skip]
