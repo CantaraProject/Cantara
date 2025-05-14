@@ -222,6 +222,7 @@ impl Default for PresentationDesignTemplate {
 pub struct FontRepresentation {
     pub font_family: Option<String>,
     pub font_size: usize,
+    pub headline_font_size: usize,
     pub shadow: bool,
     pub line_height: f64,
     pub color: RGBA8,
@@ -245,6 +246,7 @@ impl Default for FontRepresentation {
         FontRepresentation {
             font_family: None,
             font_size: 36,
+            headline_font_size: 44,
             shadow: false,
             line_height: 1.2,
             color: Rgba::new(255, 255, 255, 255),

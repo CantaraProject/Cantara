@@ -1,0 +1,32 @@
+/* Ensure full height and reset margins */
+body {
+    height: 100%;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    background-color: var(--var-presentation-background-color);
+    color: var(--var-main-text-color);
+}
+#main {
+    min-height: 100%;
+    min-width: 100%;
+    padding: 0;
+}
+
+#presentation {
+    outline: none,
+    min-height: 100%,
+    min-width: 100%,
+    position: fixed;
+    margin: 0;
+}
+
+#presentation:focus {
+    outline: none;
+}
+
+#headline {
+    font-size: var(--var-headline-font-size);
+    text-align: center;
+    color: white;
+}

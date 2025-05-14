@@ -102,3 +102,8 @@ settings:
   presentation_description:
     en: Setup here how the presentation should look like.
     de: Hier kann eingestellt werden, wie die Präsentation aussehen soll.
+
+presentation:
+  title:
+    en: Presentation
+    de: Präsentation

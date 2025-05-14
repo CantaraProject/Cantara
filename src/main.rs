@@ -7,8 +7,6 @@ pub mod shared_components;
 pub mod slide_rendering;
 pub mod wizard;
 
-use std::sync::RwLock;
-
 use crate::settingspage::SettingsPage;
 use dioxus::prelude::*;
 use dioxus_motion::prelude::*;
@@ -19,8 +17,6 @@ use selection::Selection;
 use sys_locale::get_locale;
 use wizard::Wizard;
 
-use once_cell::sync::Lazy;
-
 rust_i18n::i18n!("locales", fallback = "en");
 
 const PICO_CSS: Asset = asset!("/node_modules/@picocss/pico/css/pico.min.css");
@@ -28,12 +24,6 @@ const MAIN_CSS: Asset = asset!("/assets/main.css");
 const POSITIONING_JS: Asset = asset!("/assets/positioning.js");
 
 pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
-
-/// Contains the running presentations globally.
-/// As this is shared between different windows (and virtual DOMs), it has to be declared as a global signal.
-static RUNNING_PRESENTATIONS: GlobalSignal<Vec<RunningPresentation>> = Global::new(|| vec![]);
-
-//pub static TEST_STRING: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new("test".to_string()));
 
 static TEST_STATE: GlobalSignal<String> = Global::new(|| "test".to_string());
 
@@ -119,6 +109,7 @@ fn App() -> Element {
     let _: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));
     let _: Signal<Vec<SelectedItemRepresentation>> = use_context_provider(|| Signal::new(vec![]));
 
+    // The running presentations given as a global signal
     let _: Signal<Vec<RunningPresentation>> = use_context_provider(|| Signal::new(vec![]));
 
     rsx! {

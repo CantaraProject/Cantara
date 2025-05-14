@@ -1,7 +1,7 @@
 //! This module includes the components for song selection
 
 use crate::logic::presentation;
-use crate::logic::states::SelectedItemRepresentation;
+use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
 use crate::TEST_STATE;
 use crate::{logic::settings::Settings, logic::sourcefiles::SourceFile, Route};
 use dioxus::prelude::*;
@@ -26,6 +26,7 @@ pub fn Selection() -> Element {
     let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
+    let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
 
@@ -130,7 +131,7 @@ pub fn Selection() -> Element {
                     },
                     button {
                         class: "primary smaller-buttons",
-                        onclick: move |_| start_presentation(&selected_items.read().clone()),
+                        onclick: move |_| start_presentation(&selected_items.read().clone(), &mut running_presentations),
                         span {
                             class: "desktop-only",
                             { t!("selection.start_presentation") }
@@ -378,16 +379,21 @@ fn SourceDetailView(
 /// Helper function to start a presentation from the selection page
 /// It will create the presentation and open the window
 #[cfg(feature = "desktop")]
-fn start_presentation(selected_items: &Vec<SelectedItemRepresentation>) {
+fn start_presentation(
+    selected_items: &Vec<SelectedItemRepresentation>,
+    running_presentations: &mut Signal<Vec<RunningPresentation>>,
+) {
     // Create the presentation
 
-    *TEST_STATE.write() = "Test 2".to_string();
+    use dioxus::desktop::Config;
 
-    use crate::{slide_rendering::PresentationPage, TEST_STATE};
-    if presentation::add_presentation(&selected_items).is_some() {
+    use crate::slide_rendering::PresentationPage;
+
+    if presentation::add_presentation(&selected_items, running_presentations).is_some() {
         // Create a new window if running on desktop
-        let presentation_dom = VirtualDom::new(PresentationPage);
+        let presentation_dom =
+            VirtualDom::new(PresentationPage).with_root_context(running_presentations.clone());
 
-        dioxus::desktop::window().new_window(presentation_dom, Default::default());
+        dioxus::desktop::window().new_window(presentation_dom, Config::new().with_menu(None));
     }
 }
