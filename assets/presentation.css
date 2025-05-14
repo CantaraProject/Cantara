@@ -1,24 +1,31 @@
 /* Ensure full height and reset margins */
-body {
+html, body {
     height: 100%;
     width: 100%;
     padding: 0;
     margin: 0;
-    background-color: var(--var-presentation-background-color);
-    color: var(--var-main-text-color);
+
 }
 #main {
     min-height: 100%;
     min-width: 100%;
     padding: 0;
+    margin: 0;
 }
 
 #presentation {
-    outline: none,
+    outline: none;
     min-height: 100%,
     min-width: 100%,
-    position: fixed;
     margin: 0;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    position: absolute;
+    background-color: var(--var-presentation-background-color);
+    color: var(--var-main-text-color);
+    overflow-y: hidden;
 }
 
 #presentation:focus {
@@ -29,4 +36,12 @@ body {
     font-size: var(--var-headline-font-size);
     text-align: center;
     color: white;
+}
+
+.main-content {
+    font-size: var(--var-maincontent-font-size);
+}
+
+.spoiler {
+    font-size: var(--var-spoiler-font-size);
 }

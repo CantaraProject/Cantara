@@ -60,6 +60,8 @@ pub fn PresentationPage() -> Element {
             r#"var r = document.querySelector(':root');
             r.style.setProperty('--var-presentation-background-color', 'rgb({})');
             r.style.setProperty('--var-headline-font-size', '{}px');
+            r.style.setProperty('--var-maincontent-font-size', '{}px');
+            r.style.setProperty('--var-spoiler-font-size', '{}px');
             r.style.setProperty('--var-main-text-color', 'rgb({})')
             "#,
             current_pds.read().clone().get_background_as_rgb_string(),
@@ -69,6 +71,20 @@ pub fn PresentationPage() -> Element {
                 .get(0)
                 .unwrap_or(&FontRepresentation::default())
                 .headline_font_size)
+                .to_string(),
+            (current_pds
+                .read()
+                .main_content_fonts
+                .get(0)
+                .unwrap_or(&FontRepresentation::default())
+                .font_size)
+                .to_string(),
+            (current_pds
+                .read()
+                .main_content_fonts
+                .get(0)
+                .unwrap_or(&FontRepresentation::default())
+                .spoiler_font_size)
                 .to_string(),
             current_pds
                 .read()
@@ -125,7 +141,7 @@ fn TitleSlideComponent(
     rsx! {
         div {
             id: "headline",
-            { title_slide.title_text }
+            p { { title_slide.title_text } }
         }
     }
 }
@@ -135,13 +151,25 @@ fn SlingleLanguageMainContentSlide(
     main_slide: SingleLanguageMainContentSlide,
     current_pds: PresentationDesignTemplate,
 ) -> Element {
+    let number_of_main_content_lines = {
+        let cloned_main_slide = main_slide.clone();
+        let main_text = cloned_main_slide.main_text();
+        let lines: Vec<&str> = main_text.split("\n").collect();
+        lines.len()
+    };
+
     rsx! {
         div {
-            id: "singlelanguagemaincontent",
+            id: "singlelanguage-main-content",
             div {
                 class: "main-content",
                 p {
-                    { main_slide.clone().main_text() }
+                    for (num, line) in main_slide.clone().main_text().split("\n").enumerate() {
+                        { line }
+                        if num < number_of_main_content_lines -1 {
+                            br { }
+                        }
+                    }
                 }
             }
             if let Some(spoiler_content) = Some(main_slide.spoiler_text()) {
