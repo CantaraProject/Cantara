@@ -196,11 +196,11 @@ impl RunningPresentationPosition {
     /// Tries to go to the next position if it exists (and returns okay),
     /// if the next position does not exist, an error will be returned.
     pub fn try_next(&mut self, presentation: &Vec<SlideChapter>) -> Result<(), ()> {
-        if self.chapter_slide < self.cur_chapter_slide_length(presentation) {
+        if self.chapter_slide < self.cur_chapter_slide_length(presentation) - 1 {
             self.chapter_slide = self.chapter_slide + 1;
             self.slide_total = self.slide_total + 1;
             Ok(())
-        } else if self.chapter < presentation.len() {
+        } else if self.chapter < presentation.len() - 1 {
             self.chapter = self.chapter + 1;
             self.chapter_slide = 0;
             self.slide_total = self.slide_total + 1;
