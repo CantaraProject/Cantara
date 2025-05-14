@@ -1,10 +1,9 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
 use crate::{logic::settings::*, shared_components::DeleteIcon};
-use dioxus::{html::strong, prelude::*};
-use dioxus_router::prelude::*;
+use dioxus::prelude::*;
 use rfd::FileDialog;
-use rust_i18n::{i18n, t};
+use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
 

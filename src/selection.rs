@@ -72,7 +72,7 @@ pub fn Selection() -> Element {
                             class: "scrollable-container",
                             for (id, _) in source_files.read().iter().enumerate() {
                                 SourceItem {
-                                    id: id.clone(),
+                                    id: id,
                                     source_files: source_files,
                                     active_detailed_item_id: active_detailed_item_id,
                                     selected_items: selected_items
@@ -82,7 +82,7 @@ pub fn Selection() -> Element {
                     },
 
                     // The area where the selected elements are shown
-                    if selected_items.read().len() > 0 {
+                    if !selected_items.read().is_empty() {
                         div {
                             class: "height-100 scrollable-container",
                             SelectedItems {
@@ -192,7 +192,7 @@ fn SourceItem(
                 SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
             ); },
             oncontextmenu: move |_| {
-                active_detailed_item_id.set(Some(id.clone()));
+                active_detailed_item_id.set(Some(id));
             },
             { source_files.get(id).unwrap().clone().name }
         }
@@ -234,7 +234,7 @@ fn SelectedItem(
             span {
                 style: "flex-grow: 1;",
                 onclick: move |_| {
-                    active_selected_item_id.set(Some(id.clone()))
+                    active_selected_item_id.set(Some(id))
                 },
                 { selected_items.read().get(id).unwrap().source_file.name.clone() },
             }
@@ -265,7 +265,7 @@ fn SelectedItem(
                         if *active_selected_item_id.read() == Some(id) {
                             active_selected_item_id.set(None);
                         }
-                        selected_items.write().remove(id.clone());
+                        selected_items.write().remove(id);
                     },
                     Icon {
                         icon: FaTrashCan,
@@ -389,10 +389,10 @@ fn start_presentation(
 
     use crate::slide_rendering::PresentationPage;
 
-    if presentation::add_presentation(&selected_items, running_presentations).is_some() {
+    if presentation::add_presentation(selected_items, running_presentations).is_some() {
         // Create a new window if running on desktop
         let presentation_dom =
-            VirtualDom::new(PresentationPage).with_root_context(running_presentations.clone());
+            VirtualDom::new(PresentationPage).with_root_context(*running_presentations);
 
         dioxus::desktop::window().new_window(presentation_dom, Config::new().with_menu(None));
     }

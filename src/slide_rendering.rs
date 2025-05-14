@@ -67,30 +67,23 @@ pub fn PresentationPage() -> Element {
             current_pds.read().clone().get_background_as_rgb_string(),
             (current_pds
                 .read()
-                .main_content_fonts
-                .get(0)
+                .main_content_fonts.first()
                 .unwrap_or(&FontRepresentation::default())
-                .headline_font_size)
-                .to_string(),
+                .headline_font_size),
             (current_pds
                 .read()
-                .main_content_fonts
-                .get(0)
+                .main_content_fonts.first()
                 .unwrap_or(&FontRepresentation::default())
-                .font_size)
-                .to_string(),
+                .font_size),
             (current_pds
                 .read()
-                .main_content_fonts
-                .get(0)
+                .main_content_fonts.first()
                 .unwrap_or(&FontRepresentation::default())
-                .spoiler_font_size)
-                .to_string(),
+                .spoiler_font_size),
             current_pds
                 .read()
                 .clone()
-                .main_content_fonts
-                .get(0)
+                .main_content_fonts.first()
                 .unwrap()
                 .get_color_as_rgba_string()
         ));

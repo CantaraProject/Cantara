@@ -102,7 +102,7 @@ fn App() -> Element {
     });
 
     // Initialize settings and provide them as a context to all components
-    let settings: Signal<Settings> = use_signal(|| Settings::load());
+    let settings: Signal<Settings> = use_signal(Settings::load);
     use_context_provider(|| settings);
 
     // The source files and selected items should live here because they should stay persistent in the different routes.

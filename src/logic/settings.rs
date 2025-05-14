@@ -69,15 +69,9 @@ impl Settings {
 
     /// Save the current settings to storage.
     pub fn save(&self) {
-        match get_settings_file() {
-            Some(file) => {
-                let _ = fs::create_dir_all(get_settings_folder().unwrap());
-                match std::fs::write(file, serde_json::to_string_pretty(self).unwrap()) {
-                    Ok(_) => (),
-                    Err(_) => (),
-                }
-            }
-            None => (),
+        if let Some(file) = get_settings_file() {
+            let _ = fs::create_dir_all(get_settings_folder().unwrap());
+            if std::fs::write(file, serde_json::to_string_pretty(self).unwrap()).is_ok() {  }
         }
     }
 
@@ -122,24 +116,18 @@ impl Repository {
     /// Get files which are provided by the repository.
     pub fn get_files(&self) -> Vec<SourceFile> {
         match self {
-            Repository::LocaleFilePath(path_string) => get_source_files(&Path::new(&path_string)),
+            Repository::LocaleFilePath(path_string) => get_source_files(Path::new(&path_string)),
             _ => vec![],
         }
     }
 }
 
 fn get_settings_file() -> Option<PathBuf> {
-    match get_settings_folder() {
-        Some(settings_folder) => Some(settings_folder.join("settings.json")),
-        None => None,
-    }
+    get_settings_folder().map(|settings_folder| settings_folder.join("settings.json"))
 }
 
 fn get_settings_folder() -> Option<PathBuf> {
-    match dirs::config_local_dir() {
-        Some(dir) => Some(dir.join("cantara")),
-        None => None,
-    }
+    dirs::config_local_dir().map(|dir| dir.join("cantara"))
 }
 
 /// A configured Presentation Design which is used both for creating the presentation slides as well as for rendering them.
@@ -199,9 +187,9 @@ impl PresentationDesignTemplate {
     pub fn get_background_as_rgb_string(&self) -> String {
         format!(
             "{}, {}, {}",
-            self.background_color.r.to_string(),
-            self.background_color.g.to_string(),
-            self.background_color.b.to_string()
+            self.background_color.r,
+            self.background_color.g,
+            self.background_color.b
         )
     }
 }
@@ -234,10 +222,10 @@ impl FontRepresentation {
     pub fn get_color_as_rgba_string(&self) -> String {
         format!(
             "{}, {}, {}, {}",
-            self.color.r.to_string(),
-            self.color.g.to_string(),
-            self.color.b.to_string(),
-            self.color.a.to_string()
+            self.color.r,
+            self.color.g,
+            self.color.b,
+            self.color.a
         )
     }
 }

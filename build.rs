@@ -5,7 +5,7 @@ use std::process::Command;
 
 fn main() {
     // Check if "dist" folder exists
-    if !fs::metadata("node_modules").is_ok() {
+    if fs::metadata("node_modules").is_err() {
         // Run npm install
         let output = Command::new("npm")
             .arg("install")

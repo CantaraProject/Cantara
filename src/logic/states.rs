@@ -1,26 +1,19 @@
 use std::{fs, path::PathBuf};
 
-use dioxus::{html::u::position, prelude::*};
+use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use cantara_songlib::slides::Slide;
 
-use super::{presentation, settings::PresentationDesign, sourcefiles::SourceFile};
+use super::{settings::PresentationDesign, sourcefiles::SourceFile};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub struct Settings {
     pub song_repos: Vec<Repository>,
     pub wizard_completed: bool,
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            song_repos: vec![],
-            wizard_completed: false,
-        }
-    }
-}
 
 impl Settings {
     /// Load settings from storage or creates a new default settings if
@@ -39,15 +32,9 @@ impl Settings {
     }
 
     pub fn save(&self) {
-        match get_settings_file() {
-            Some(file) => {
-                let _ = fs::create_dir_all(get_settings_folder().unwrap());
-                match std::fs::write(file, serde_json::to_string_pretty(self).unwrap()) {
-                    Ok(_) => (),
-                    Err(_) => (),
-                }
-            }
-            None => (),
+        if let Some(file) = get_settings_file() {
+            let _ = fs::create_dir_all(get_settings_folder().unwrap());
+            if std::fs::write(file, serde_json::to_string_pretty(self).unwrap()).is_ok() {  }
         }
     }
 
@@ -74,17 +61,11 @@ pub struct RuntimeInformation {
 }
 
 pub fn get_settings_file() -> Option<PathBuf> {
-    match get_settings_folder() {
-        Some(settings_folder) => Some(settings_folder.join("settings.json")),
-        None => None,
-    }
+    get_settings_folder().map(|settings_folder| settings_folder.join("settings.json"))
 }
 
 pub fn get_settings_folder() -> Option<PathBuf> {
-    match dirs::config_local_dir() {
-        Some(dir) => Some(dir.join("cantara")),
-        None => None,
-    }
+    dirs::config_local_dir().map(|dir| dir.join("cantara"))
 }
 
 /// This struct represents a selected item
@@ -137,18 +118,13 @@ impl RunningPresentation {
     }
 
     pub fn get_current_slide(&self) -> Option<Slide> {
-        match self.position.clone() {
-            Some(pos) => Some(
-                self.presentation
+        self.position.clone().map(|pos| self.presentation
                     .get(pos.chapter())
                     .unwrap()
                     .slides
                     .get(pos.chapter_slide())
                     .unwrap()
-                    .clone(),
-            ),
-            None => None,
-        }
+                    .clone())
     }
 
     pub fn get_current_presentation_design(&self) -> PresentationDesign {
@@ -182,7 +158,7 @@ pub struct RunningPresentationPosition {
 impl RunningPresentationPosition {
     /// Creates a new position if there is at least one slide available
     pub fn new(presentation: &Vec<SlideChapter>) -> Option<Self> {
-        if presentation.len() > 0 && presentation.get(0).unwrap().slides.len() > 0 {
+        if !presentation.is_empty() && !presentation.first().unwrap().slides.is_empty() {
             Some(RunningPresentationPosition {
                 chapter: 0,
                 chapter_slide: 0,
@@ -197,13 +173,13 @@ impl RunningPresentationPosition {
     /// if the next position does not exist, an error will be returned.
     pub fn try_next(&mut self, presentation: &Vec<SlideChapter>) -> Result<(), ()> {
         if self.chapter_slide < self.cur_chapter_slide_length(presentation) - 1 {
-            self.chapter_slide = self.chapter_slide + 1;
-            self.slide_total = self.slide_total + 1;
+            self.chapter_slide += 1;
+            self.slide_total += 1;
             Ok(())
         } else if self.chapter < presentation.len() - 1 {
-            self.chapter = self.chapter + 1;
+            self.chapter += 1;
             self.chapter_slide = 0;
-            self.slide_total = self.slide_total + 1;
+            self.slide_total += 1;
             Ok(())
         } else {
             Err(())
@@ -214,13 +190,13 @@ impl RunningPresentationPosition {
     /// if the next position does not exist, an error will be returned.
     pub fn try_back(&mut self, presentation: &Vec<SlideChapter>) -> Result<(), ()> {
         if self.chapter_slide > 0 {
-            self.chapter_slide = self.chapter_slide - 1;
-            self.slide_total = self.slide_total - 1;
+            self.chapter_slide -= 1;
+            self.slide_total -= 1;
             Ok(())
         } else if self.chapter > 0 {
-            self.chapter = self.chapter - 1;
+            self.chapter -= 1;
             self.chapter_slide = self.cur_chapter_slide_length(presentation) - 1;
-            self.slide_total = self.slide_total - 1;
+            self.slide_total -= 1;
             Ok(())
         } else {
             Err(())
@@ -229,7 +205,7 @@ impl RunningPresentationPosition {
 
     /// Helper function for getting the current slide length
     fn cur_chapter_slide_length(&self, presentation: &Vec<SlideChapter>) -> usize {
-        return presentation.get(self.chapter).unwrap().slides.len();
+        presentation.get(self.chapter).unwrap().slides.len()
     }
 
     /// Get the number of the current chapter

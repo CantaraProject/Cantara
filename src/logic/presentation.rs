@@ -7,7 +7,7 @@ use super::{
 };
 
 use cantara_songlib::slides::Slide;
-use dioxus::{logger, prelude::*};
+use dioxus::prelude::*;
 use std::error::Error;
 
 /// Creates a presentation from a selected_item_representation and a presentation_design
@@ -50,7 +50,7 @@ pub fn add_presentation(
     let mut presentation: Vec<SlideChapter> = vec![];
 
     for selected_item in selected_items {
-        match create_presentation_slides(&selected_item, &PresentationDesign::default()) {
+        match create_presentation_slides(selected_item, &PresentationDesign::default()) {
             Ok(slides) => presentation.push(SlideChapter {
                 slides,
                 source_file: selected_item.source_file.clone(),
