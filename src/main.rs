@@ -70,7 +70,7 @@ fn main() {
         let window = tao::window::WindowBuilder::new()
             .with_resizable(true)
             .with_title("Cantara")
-            .with_inner_size(tao::dpi::LogicalSize::new(800.0, 600.0))
+            .with_inner_size(tao::dpi::LogicalSize::new(900.0, 800.0))
             .with_decorations(true)
             .with_visible(true);
         dioxus::LaunchBuilder::new()

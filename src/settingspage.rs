@@ -1,6 +1,9 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
-use crate::{logic::settings::*, shared_components::DeleteIcon};
+use crate::{
+    logic::settings::*,
+    shared_components::{DeleteIcon, EditIcon},
+};
 use dioxus::prelude::*;
 use rfd::FileDialog;
 use rust_i18n::t;
@@ -11,7 +14,16 @@ rust_i18n::i18n!("locales", fallback = "en");
 #[component]
 pub fn SettingsPage() -> Element {
     let nav = use_navigator();
-    let settings = use_settings();
+    let mut settings = use_settings();
+
+    let presentation_designs: Signal<Vec<PresentationDesign>> =
+        use_signal(|| settings.read().presentation_designs.clone());
+
+    use_effect(move || {
+        if *presentation_designs.read() != settings.read().presentation_designs {
+            settings.write().presentation_designs = presentation_designs.read().clone();
+        }
+    });
 
     rsx! {
         div {
@@ -24,7 +36,9 @@ pub fn SettingsPage() -> Element {
                 class: "container height-100",
                 SettingsContent {}
                 hr { }
-                PresentationSettings {  }
+                PresentationSettings {
+                    presentation_designs: presentation_designs
+                }
             }
             footer {
                 button {
@@ -70,24 +84,54 @@ fn RepositorySettings() -> Element {
         for (index, repository) in settings.read().repositories.clone().iter().enumerate() {
             article {
                 class: "listed-article",
-                if let Repository::LocaleFilePath(string) = repository {
-                    h6 { { t!("settings.repositories_local_dir") } }
-                    { string.clone() }
-                }
-                if let Repository::Remote(string) = repository {
-                    h6 { { t!("settings.repositories_remote_dir") } }
-                    { string.clone() }
-                }
-                if settings.read().repositories.len() > 1 {
+                h6 {
+                    { repository.name.clone() }
                     div {
                         style: "float:right",
-                        onclick: move |_| {
-                            let mut settings = settings.write();
-                            settings.repositories.remove(index);
-                        },
-                        DeleteIcon { }
+                        span {
+                            onclick: move |_| {
+                                async move {
+                                    let mut settings = settings.write();
+                                    let new_name = match document::eval("return prompt('Please enter a new name: ', '');").await {
+                                        Ok(str) => Some(str.to_string().replace("\"", "")),
+                                        Err(_) => None
+                                    };
+                                    if new_name.is_some() {
+                                        let new_name_unwrapped = new_name.clone().unwrap();
+                                        if new_name_unwrapped.trim() != "" && new_name_unwrapped != "null".to_string() {
+                                            settings.repositories.get_mut(index).unwrap().name = new_name_unwrapped.trim().to_string();
+                                        }
+                                    }
+                                }
+                            },
+                            EditIcon {  }
+                        }
+                        if settings.read().repositories.len() > 1 && settings.read().repositories.get(index).unwrap().removable {
+                            span {
+                                style: "float:right",
+                                onclick: move |_| {
+                                    let mut settings = settings.write();
+                                    settings.repositories.remove(index);
+                                },
+                                DeleteIcon { }
+                            }
+                        }
                     }
                 }
+
+                if let RepositoryType::LocaleFilePath(string) = &repository.repository_type {
+                    div { { t!("settings.repositories_local_dir") }
+                        br { }
+                        pre { { string.clone() } }
+                    }
+                }
+                if let RepositoryType::Remote(string) = &repository.repository_type {
+                    div { { t!("settings.repositories_remote_dir") }
+                        br { }
+                        { string.clone() }
+                    }
+                }
+
             }
         }
 
@@ -100,7 +144,7 @@ fn RepositorySettings() -> Element {
 }
 
 #[component]
-fn PresentationSettings() -> Element {
+fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -> Element {
     rsx! {
         hgroup {
             h4 { { t!("settings.presentation_headline") } }

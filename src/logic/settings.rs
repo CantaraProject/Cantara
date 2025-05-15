@@ -71,7 +71,7 @@ impl Settings {
     pub fn save(&self) {
         if let Some(file) = get_settings_file() {
             let _ = fs::create_dir_all(get_settings_folder().unwrap());
-            if std::fs::write(file, serde_json::to_string_pretty(self).unwrap()).is_ok() {  }
+            if std::fs::write(file, serde_json::to_string_pretty(self).unwrap()).is_ok() {}
         }
     }
 
@@ -84,7 +84,10 @@ impl Settings {
 
     /// Add a new repository folder given as String to the settings if the repository is not already present (avoiding duplicates).
     pub fn add_repository_folder(&mut self, folder: String) {
-        self.repositories.push(Repository::LocaleFilePath(folder));
+        let name: &str = get_last_dir(&folder).unwrap_or(&folder);
+
+        self.repositories
+            .push(Repository::new_local_folder(name.into(), folder));
     }
 
     /// Get all elements of all repositories as a vector of [SourceFile]
@@ -92,7 +95,7 @@ impl Settings {
         let mut source_files: Vec<SourceFile> = vec![];
         self.repositories
             .iter()
-            .for_each(|repo| source_files.extend(repo.get_files()));
+            .for_each(|repo| source_files.extend(repo.repository_type.get_files()));
 
         source_files.sort();
         source_files.dedup();
@@ -101,9 +104,36 @@ impl Settings {
     }
 }
 
-/// The enum representing the different types of repositories.
+/// This struct reprents a repository
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
-pub enum Repository {
+pub struct Repository {
+    /// A user given name for the repository which makes it easier to identify it
+    pub name: String,
+
+    /// Whether or not the repository is removable
+    pub removable: bool,
+
+    /// Whether or not the user has writing permissions to the repository
+    pub writing_permissions: bool,
+
+    /// The type of the repository-linked to it are additional information
+    pub repository_type: RepositoryType,
+}
+
+impl Repository {
+    pub fn new_local_folder(name: String, path: String) -> Self {
+        Repository {
+            name,
+            removable: true,
+            writing_permissions: true,
+            repository_type: RepositoryType::LocaleFilePath(path),
+        }
+    }
+}
+
+/// The enum represents the different types of repositories.
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub enum RepositoryType {
     /// A repository that is a local folder represented by a file path.
     LocaleFilePath(String),
 
@@ -112,11 +142,13 @@ pub enum Repository {
     Remote(String),
 }
 
-impl Repository {
+impl RepositoryType {
     /// Get files which are provided by the repository.
     pub fn get_files(&self) -> Vec<SourceFile> {
         match self {
-            Repository::LocaleFilePath(path_string) => get_source_files(Path::new(&path_string)),
+            RepositoryType::LocaleFilePath(path_string) => {
+                get_source_files(Path::new(&path_string))
+            }
             _ => vec![],
         }
     }
@@ -187,9 +219,7 @@ impl PresentationDesignTemplate {
     pub fn get_background_as_rgb_string(&self) -> String {
         format!(
             "{}, {}, {}",
-            self.background_color.r,
-            self.background_color.g,
-            self.background_color.b
+            self.background_color.r, self.background_color.g, self.background_color.b
         )
     }
 }
@@ -222,10 +252,7 @@ impl FontRepresentation {
     pub fn get_color_as_rgba_string(&self) -> String {
         format!(
             "{}, {}, {}, {}",
-            self.color.r,
-            self.color.g,
-            self.color.b,
-            self.color.a
+            self.color.r, self.color.g, self.color.b, self.color.a
         )
     }
 }
@@ -263,6 +290,14 @@ pub enum VerticalAlign {
     Middle,
 
     Bottom,
+}
+
+/// Gets the last dir from a given path as String
+fn get_last_dir(path: &str) -> Option<&str> {
+    path.trim_end_matches(['\\', '/']) // Remove trailing separators
+        .rsplit(['\\', '/']) // Split by either separator
+        .next() // Get the last segment
+        .filter(|s| !s.is_empty()) // Ensure it's not empty
 }
 
 #[cfg(test)]

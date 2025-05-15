@@ -2,6 +2,7 @@
 
 use dioxus::prelude::*;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
+use dioxus_free_icons::icons::fa_solid_icons::FaPenToSquare;
 use dioxus_free_icons::Icon;
 
 #[component]
@@ -9,6 +10,15 @@ pub fn DeleteIcon() -> Element {
     rsx! {
         Icon {
             icon: FaTrashCan,
+        }
+    }
+}
+
+#[component]
+pub fn EditIcon() -> Element {
+    rsx! {
+        Icon {
+            icon: FaPenToSquare,
         }
     }
 }
