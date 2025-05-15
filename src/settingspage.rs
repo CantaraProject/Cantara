@@ -2,7 +2,7 @@
 
 use crate::{
     logic::settings::*,
-    shared_components::{DeleteIcon, EditIcon},
+    shared_components::{DeleteIcon, EditIcon, ExamplePresentationViewer},
 };
 use dioxus::prelude::*;
 use rfd::FileDialog;
@@ -149,6 +149,13 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
         hgroup {
             h4 { { t!("settings.presentation_headline") } }
             p { { t!("settings.presentation_description") } }
+        }
+
+        for presentation_design in presentation_designs.read().clone() {
+            ExamplePresentationViewer {
+                width: 600,
+                presentation_design: presentation_design.clone()
+            }
         }
     }
 }

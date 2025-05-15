@@ -2,13 +2,39 @@
 
 use super::{
     settings::PresentationDesign,
-    sourcefiles::SourceFileType,
+    sourcefiles::{SourceFile, SourceFileType},
     states::{RunningPresentation, SelectedItemRepresentation, SlideChapter},
 };
 
+use cantara_songlib::importer::classic_song::slides_from_classic_song;
 use cantara_songlib::slides::Slide;
 use dioxus::prelude::*;
-use std::error::Error;
+use std::{error::Error, path::PathBuf};
+
+/// This song provides Amazing Grace as a default song which can be used for creating example presentations
+const AMAZING_GRACE_SONG: &str = "#title: Amazing Grace
+#author: John Newton
+
+Amazing grace
+how sweet the sound
+that saved a wretch like me.
+I once was lost
+but now am found,
+was blind, but now I see
+
+It was grace that tought
+my heart to fear,
+and grace my fears relieved:
+how precious did that
+grace appear the hour
+I first believed.
+
+How sweet the name
+of Jesus sounds
+in a believer's ear.
+It soothes his sorrows,
+heals the wounds,
+and drives away his fear.";
 
 /// Creates a presentation from a selected_item_representation and a presentation_design
 fn create_presentation_slides(
@@ -70,6 +96,25 @@ pub fn add_presentation(
     }
 
     None
+}
+
+/// Creates an example presentation with the song Amazing Grace and a given presentation design
+pub fn create_amazing_grace_presentation(
+    presentation_design: &PresentationDesign,
+) -> RunningPresentation {
+    let slides = slides_from_classic_song(
+        AMAZING_GRACE_SONG,
+        &presentation_design.slide_settings,
+        "Amazing Grace".to_string(),
+    );
+    let source_file = SourceFile {
+        name: "Amazing Grace (Example)".to_string(),
+        path: PathBuf::new(),
+        file_type: SourceFileType::Song,
+    };
+    let slide_chapter = SlideChapter::new(slides, source_file, Some(presentation_design.clone()));
+
+    RunningPresentation::new(vec![slide_chapter])
 }
 
 #[cfg(test)]

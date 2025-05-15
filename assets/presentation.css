@@ -14,6 +14,7 @@ html, body {
 }
 
 #presentation {
+    all: unset;
     outline: none;
     min-height: 100%,
     min-width: 100%,
@@ -23,9 +24,13 @@ html, body {
     bottom: 0;
     right: 0;
     position: absolute;
-    background-color: var(--var-presentation-background-color);
-    color: var(--var-main-text-color);
+    background-color: var(--var-presentation-background-color)!important;
+    color: var(--var-main-text-color)!important;
     overflow-y: hidden;
+}
+
+#presentation p {
+    color: var(--var-main-text-color)!important;
 }
 
 #presentation:focus {
@@ -35,13 +40,20 @@ html, body {
 #headline {
     font-size: var(--var-headline-font-size);
     text-align: center;
-    color: white;
+    color: var(--var-main-text-color)!important;
 }
 
 .main-content {
     font-size: var(--var-maincontent-font-size);
+    color: var(--var-main-text-color)!important;
 }
 
 .spoiler {
     font-size: var(--var-spoiler-font-size);
+    color: var(--var-main-text-color)!important;
+}
+
+.presentation-preview {
+    font-weight: 600!important;
+    color: var(--var-main-text-color)!important;
 }
