@@ -11,14 +11,31 @@ use crate::logic::{
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
 
+/// The presentation page as entry point for the presentation window
 #[component]
 pub fn PresentationPage() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
-    let current_slide: Memo<Option<Slide>> = use_memo(move || match running_presentations.get(0) {
-        Some(presentation) => presentation.clone().get_current_slide(),
-        None => None,
+    let running_presentation: Signal<RunningPresentation> =
+        use_signal(move || running_presentations.get(0).unwrap().clone());
+
+    use_effect(move || {
+        *running_presentations.write().get_mut(0).unwrap() = running_presentation.read().clone();
     });
+
+    rsx! {
+        PresentationRendererComponent {
+            running_presentation: running_presentation
+        }
+    }
+}
+
+/// The actual presentation rendering component which can be used to render presentations accordingly
+/// It takes a signal and rewrites to it when the presentation position changes
+#[component]
+pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresentation>) -> Element {
+    let current_slide: Memo<Option<Slide>> =
+        use_memo(move || running_presentation.read().get_current_slide());
 
     // Stop rendering if no slide can be rendered.
     if current_slide.read().clone().is_none() {
@@ -39,9 +56,8 @@ pub fn PresentationPage() -> Element {
     }
 
     let current_design = use_memo(move || {
-        running_presentations
-            .get(0)
-            .unwrap()
+        running_presentation
+            .read()
             .get_current_presentation_design()
     });
 
@@ -67,23 +83,27 @@ pub fn PresentationPage() -> Element {
             current_pds.read().clone().get_background_as_rgb_string(),
             (current_pds
                 .read()
-                .main_content_fonts.first()
+                .main_content_fonts
+                .first()
                 .unwrap_or(&FontRepresentation::default())
                 .headline_font_size),
             (current_pds
                 .read()
-                .main_content_fonts.first()
+                .main_content_fonts
+                .first()
                 .unwrap_or(&FontRepresentation::default())
                 .font_size),
             (current_pds
                 .read()
-                .main_content_fonts.first()
+                .main_content_fonts
+                .first()
                 .unwrap_or(&FontRepresentation::default())
                 .spoiler_font_size),
             current_pds
                 .read()
                 .clone()
-                .main_content_fonts.first()
+                .main_content_fonts
+                .first()
                 .unwrap()
                 .get_color_as_rgba_string()
         ));
@@ -97,13 +117,13 @@ pub fn PresentationPage() -> Element {
             tabindex: 0,
             onkeydown: move |event: Event<KeyboardData>| {
                 match event.key() {
-                    Key::ArrowRight => running_presentations.write().get_mut(0).unwrap().next_slide(),
-                    Key::ArrowLeft => running_presentations.write().get_mut(0).unwrap().previous_slide(),
+                    Key::ArrowRight => running_presentation.write().next_slide(),
+                    Key::ArrowLeft => running_presentation.write().previous_slide(),
                     _ => {}
                 }
             },
             onclick: move |_| {
-                running_presentations.write().get_mut(0).unwrap().next_slide();
+                running_presentation.write().next_slide();
             },
             {
                 match current_slide.read().clone().unwrap().slide_content.clone() {
