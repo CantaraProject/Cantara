@@ -125,6 +125,9 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             onclick: move |_| {
                 running_presentation.write().next_slide();
             },
+            oncontextmenu: move |_| {
+                running_presentation.write().previous_slide();
+            },
             {
                 match current_slide.read().clone().unwrap().slide_content.clone() {
                     SlideContent::Title(title_slide) => rsx! {
