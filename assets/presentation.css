@@ -31,6 +31,7 @@ html, body {
 
 #presentation p {
     color: var(--var-main-text-color)!important;
+    margin: 0;
 }
 
 #presentation:focus {

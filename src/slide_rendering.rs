@@ -4,10 +4,10 @@ use cantara_songlib::slides::*;
 use dioxus::prelude::*;
 use rust_i18n::t;
 
-use crate::logic::{
+use crate::{logic::{
     settings::{FontRepresentation, PresentationDesignSettings, PresentationDesignTemplate},
     states::RunningPresentation,
-};
+}, MAIN_CSS};
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
@@ -27,6 +27,7 @@ pub fn PresentationPage() -> Element {
     });
 
     rsx! {
+        document::Link { rel: "stylesheet", href: MAIN_CSS }        
         document::Title { { t!("presentation.title")} }
         PresentationRendererComponent {
             running_presentation: running_presentation

@@ -62,7 +62,7 @@ pub fn ExamplePresentationViewer(
 
     rsx! {
         div {
-            class: "presentation-preview",
+            class: "rounded-corners presentation-preview",
             style: format!("{}{}", "position: relative;width:1024px;height:576px;", zoom_css_string),
 
             PresentationRendererComponent {

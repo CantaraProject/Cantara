@@ -208,11 +208,23 @@ impl Default for PresentationDesignSettings {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct PresentationDesignTemplate {
+    /// The font configuration for the main content
     pub main_content_fonts: Vec<FontRepresentation>,
+    
+    /// The vertical alignment of the content
     pub vertical_alignment: VerticalAlign,
+    
+    /// The factor for the font size of the spoiler content relative to the main content font size
     pub spoiler_content_fontsize_factor: f64,
+    
+    /// The background color of the presentation
     pub background_color: RGB8,
+    
+    /// The background color transparancy towards an image (0-255)
     pub background_transparancy: u8,
+    
+    /// The padding of the presentation (top, bottom, left, right)
+    pub padding: TopBottomLeftRight,
 }
 
 impl PresentationDesignTemplate {
@@ -232,6 +244,7 @@ impl Default for PresentationDesignTemplate {
             spoiler_content_fontsize_factor: 0.6,
             background_color: Rgb::new(0, 0, 0),
             background_transparancy: 0,
+            padding: default_padding(),
         }
     }
 }
@@ -292,6 +305,16 @@ pub enum VerticalAlign {
     Bottom,
 }
 
+/// Returns the default padding for the presentation design
+fn default_padding() -> TopBottomLeftRight {
+    TopBottomLeftRight {
+        top: CssSize::Px(20.0),
+        bottom: CssSize::Px(20.0),
+        left: CssSize::Px(20.0),
+        right: CssSize::Px(20.0),
+    }
+}
+
 /// Represens for distance values (top, bottom, left, right)
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct TopBottomLeftRight {
@@ -301,17 +324,29 @@ pub struct TopBottomLeftRight {
     right: CssSize,
 }
 
+impl Default for TopBottomLeftRight {
+    fn default() -> Self {
+        TopBottomLeftRight {
+            top: CssSize::Null,
+            bottom: CssSize::Null,
+            left: CssSize::Null,
+            right: CssSize::Null,
+        }
+    }
+}
+
 /// A size value representing a CSS file
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub enum CssSize {
-    Px(usize),
-    Em(usize),
-    Percentage(usize),
+    Px(f32),
+    Em(f32),
+    Percentage(f32),
+    Null,
 }
 
 impl Default for CssSize {
     fn default() -> Self {
-        CssSize::Px(0)
+        CssSize::Null
     }
 }
 
@@ -321,7 +356,18 @@ impl CssSize {
             CssSize::Px(size) => format!("{}px", size.to_string()),
             CssSize::Em(size) => format!("{}em", size.to_string()),
             CssSize::Percentage(size) => format!("{}%", size.to_string()),
+            CssSize::Null => "0".to_string(),
         }
+    }
+    
+    /// Checks if the size is null or zero
+    pub fn is_null(&self) -> bool {
+        matches!(self, CssSize::Null) || matches!(self, CssSize::Px(0.0)) 
+            || matches!(self, CssSize::Em(0.0)) || matches!(self, CssSize::Percentage(0.0))
+    }
+    
+    pub fn null() -> Self {
+        CssSize::Null
     }
 }
 
