@@ -13,7 +13,7 @@ html, body {
     margin: 0;
 }
 
-#presentation {
+.presentation {
     all: unset;
     outline: none;
     min-height: 100%,
@@ -34,12 +34,12 @@ html, body {
     padding-bottom: var(--var-presentation-padding-bottom);
 }
 
-#presentation p {
+.presentation p {
     color: var(--var-main-text-color)!important;
     margin: 0;
 }
 
-#presentation:focus {
+.presentation:focus {
     outline: none;
 }
 
@@ -62,4 +62,18 @@ html, body {
 .presentation-preview {
     font-weight: 600!important;
     color: var(--var-main-text-color)!important;
+}
+
+/* Fade in Animation */
+.presentation-fade-in {
+    animation: presentationFadeIn 1s ease-in-out;
+}
+
+@keyframes presentationFadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }

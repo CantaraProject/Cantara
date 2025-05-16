@@ -41,7 +41,14 @@ pub fn PresentationPage() -> Element {
 pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresentation>) -> Element {
     let current_slide: Memo<Option<Slide>> =
         use_memo(move || running_presentation.read().get_current_slide());
-
+    
+    let current_slide_number: Memo<usize> =
+        use_memo(move || match running_presentation.read().clone().position {
+            Some(position) => position.slide_total(),
+            None => 0
+            }
+        );
+    
     // Stop rendering if no slide can be rendered.
     if current_slide.read().clone().is_none() {
         return rsx! {
@@ -126,7 +133,9 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Script { src: PRESENTATION_JS }
         div {
-            id: "presentation",
+            key: current_slide_number.read().to_string(),
+            id: "presentation-slide",
+            class: "presentation presentation-fade-in",
             tabindex: 0,
             onkeydown: move |event: Event<KeyboardData>| {
                 match event.key() {
@@ -189,7 +198,7 @@ fn SlingleLanguageMainContentSlide(
 
     rsx! {
         div {
-            id: "singlelanguage-main-content",
+            id: "singlelanguage-main-content",            
             div {
                 class: "main-content",
                 p {
