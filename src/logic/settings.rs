@@ -318,10 +318,10 @@ fn default_padding() -> TopBottomLeftRight {
 /// Represens for distance values (top, bottom, left, right)
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct TopBottomLeftRight {
-    top: CssSize,
-    bottom: CssSize,
-    left: CssSize,
-    right: CssSize,
+    pub top: CssSize,
+    pub bottom: CssSize,
+    pub left: CssSize,
+    pub right: CssSize,
 }
 
 impl Default for TopBottomLeftRight {

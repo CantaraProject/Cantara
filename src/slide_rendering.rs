@@ -84,6 +84,10 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             r.style.setProperty('--var-maincontent-font-size', '{}px');
             r.style.setProperty('--var-spoiler-font-size', '{}px');
             r.style.setProperty('--var-main-text-color', 'rgb({})')
+            r.style.setProperty('--var-presentation-padding-left', '{}')
+            r.style.setProperty('--var-presentation-padding-right', '{}')
+            r.style.setProperty('--var-presentation-padding-top', '{}')
+            r.style.setProperty('--var-presentation-padding-bottom', '{}')
             "#,
             current_pds.read().clone().get_background_as_rgb_string(),
             (current_pds
@@ -110,7 +114,11 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
                 .main_content_fonts
                 .first()
                 .unwrap()
-                .get_color_as_rgba_string()
+                .get_color_as_rgba_string(),
+            current_pds.read().padding.left.to_css_string(),
+            current_pds.read().padding.right.to_css_string(),
+            current_pds.read().padding.top.to_css_string(),
+            current_pds.read().padding.bottom.to_css_string()
         ));
     });
 
