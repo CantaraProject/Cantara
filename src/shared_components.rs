@@ -4,6 +4,7 @@ use dioxus::prelude::*;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
 use dioxus_free_icons::icons::fa_solid_icons::FaPenToSquare;
 use dioxus_free_icons::Icon;
+use rust_i18n::t;
 
 use crate::logic::presentation::create_amazing_grace_presentation;
 use crate::logic::settings::{PresentationDesign, PresentationDesignSettings};
@@ -34,7 +35,7 @@ pub fn ExamplePresentationViewer(
     width: usize,
     increase_font_size_in_percent: Option<usize>,
 ) -> Element {
-    let scale_percentage = ((width as f64 / 1600 as f64) * 100.0).round();
+    let scale_percentage = ((width as f64 / 1024 as f64) * 100.0).round();
     let zoom_css_string = format!("zoom: {}%;", scale_percentage.to_string());
 
     let presentation_design = match increase_font_size_in_percent {
@@ -62,7 +63,7 @@ pub fn ExamplePresentationViewer(
     rsx! {
         div {
             class: "presentation-preview",
-            style: format!("{}{}", "position: relative;width:1600px;height:900px;", zoom_css_string),
+            style: format!("{}{}", "position: relative;width:1024px;height:576px;", zoom_css_string),
 
             PresentationRendererComponent {
                 running_presentation: presentation_signal

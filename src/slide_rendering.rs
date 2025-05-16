@@ -2,6 +2,7 @@
 
 use cantara_songlib::slides::*;
 use dioxus::prelude::*;
+use rust_i18n::t;
 
 use crate::logic::{
     settings::{FontRepresentation, PresentationDesignSettings, PresentationDesignTemplate},
@@ -10,6 +11,8 @@ use crate::logic::{
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
+
+rust_i18n::i18n!("locales", fallback = "en");
 
 /// The presentation page as entry point for the presentation window
 #[component]
@@ -24,6 +27,7 @@ pub fn PresentationPage() -> Element {
     });
 
     rsx! {
+        document::Title { { t!("presentation.title")} }
         PresentationRendererComponent {
             running_presentation: running_presentation
         }

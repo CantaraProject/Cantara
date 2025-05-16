@@ -292,6 +292,39 @@ pub enum VerticalAlign {
     Bottom,
 }
 
+/// Represens for distance values (top, bottom, left, right)
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct TopBottomLeftRight {
+    top: CssSize,
+    bottom: CssSize,
+    left: CssSize,
+    right: CssSize,
+}
+
+/// A size value representing a CSS file
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub enum CssSize {
+    Px(usize),
+    Em(usize),
+    Percentage(usize),
+}
+
+impl Default for CssSize {
+    fn default() -> Self {
+        CssSize::Px(0)
+    }
+}
+
+impl CssSize {
+    pub fn to_css_string(&self) -> String {
+        match self {
+            CssSize::Px(size) => format!("{}px", size.to_string()),
+            CssSize::Em(size) => format!("{}em", size.to_string()),
+            CssSize::Percentage(size) => format!("{}%", size.to_string()),
+        }
+    }
+}
+
 /// Gets the last dir from a given path as String
 fn get_last_dir(path: &str) -> Option<&str> {
     path.trim_end_matches(['\\', '/']) // Remove trailing separators
