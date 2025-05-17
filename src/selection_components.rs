@@ -387,7 +387,7 @@ fn start_presentation(
 
     use dioxus::desktop::Config;
 
-    use crate::slide_rendering::PresentationPage;
+    use crate::presentation_components::PresentationPage;
 
     if presentation::add_presentation(selected_items, running_presentations).is_some() {
         // Create a new window if running on desktop

@@ -8,7 +8,7 @@ use rust_i18n::t;
 
 use crate::logic::presentation::create_amazing_grace_presentation;
 use crate::logic::settings::{PresentationDesign, PresentationDesignSettings};
-use crate::slide_rendering::PresentationRendererComponent;
+use crate::presentation_components::PresentationRendererComponent;
 
 #[component]
 pub fn DeleteIcon() -> Element {

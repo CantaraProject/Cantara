@@ -1,21 +1,21 @@
 #![windows_subsystem = "windows"]
 
 pub mod logic;
-pub mod selection;
-pub mod settingspage;
+pub mod selection_components;
+pub mod settings_components;
 pub mod shared_components;
-pub mod slide_rendering;
-pub mod wizard;
+pub mod presentation_components;
+pub mod wizard_components;
 
-use crate::settingspage::SettingsPage;
+use crate::settings_components::SettingsPage;
 use dioxus::prelude::*;
 use dioxus_motion::prelude::*;
 use logic::settings::*;
 use logic::sourcefiles::SourceFile;
 use logic::states::{self, RunningPresentation, SelectedItemRepresentation};
-use selection::Selection;
+use selection_components::Selection;
 use sys_locale::get_locale;
-use wizard::Wizard;
+use wizard_components::Wizard;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
