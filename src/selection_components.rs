@@ -12,6 +12,7 @@ use std::rc::Rc;
 use dioxus_free_icons::icons::fa_regular_icons::*;
 use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
 use dioxus_free_icons::Icon;
+use crate::logic::settings::PresentationDesign;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -29,6 +30,11 @@ pub fn Selection() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
+
+    let default_presentation_design_signal = use_signal(|| match settings.read().presentation_designs.get(0) {
+        Some(design) => design.clone(),
+        None => PresentationDesign::default(),
+    });
 
     use_effect(move || {
         if !settings.read().wizard_completed {
@@ -131,7 +137,7 @@ pub fn Selection() -> Element {
                     },
                     button {
                         class: "primary smaller-buttons",
-                        onclick: move |_| start_presentation(&selected_items.read().clone(), &mut running_presentations),
+                        onclick: move |_| start_presentation(&selected_items.read().clone(), &mut running_presentations, &default_presentation_design_signal()),
                         span {
                             class: "desktop-only",
                             { t!("selection.start_presentation") }
@@ -382,14 +388,18 @@ fn SourceDetailView(
 fn start_presentation(
     selected_items: &Vec<SelectedItemRepresentation>,
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
+    default_presentation_design: &PresentationDesign,
 ) {
     // Create the presentation
 
     use dioxus::desktop::Config;
-
     use crate::presentation_components::PresentationPage;
 
-    if presentation::add_presentation(selected_items, running_presentations).is_some() {
+    if presentation::add_presentation(
+        selected_items,
+        running_presentations,
+        default_presentation_design
+    ).is_some() {
         // Create a new window if running on desktop
         let presentation_dom =
             VirtualDom::new(PresentationPage).with_root_context(*running_presentations);

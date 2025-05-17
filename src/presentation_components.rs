@@ -14,7 +14,7 @@ const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
 
 rust_i18n::i18n!("locales", fallback = "en");
 
-/// The presentation page as entry point for the presentation window
+/// The presentation page as the entry point for the presentation window
 #[component]
 pub fn PresentationPage() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
