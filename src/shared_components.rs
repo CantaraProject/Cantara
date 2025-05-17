@@ -30,6 +30,22 @@ pub fn EditIcon() -> Element {
 }
 
 #[component]
+pub fn PresentationDesignSelecter(
+    presentation_designs: Signal<PresentationDesign>,
+    default_selection: Option<usize>,
+    viewer_width: usize,
+    on_change: EventHandler<usize>,
+) -> Element {
+    rsx! {
+        div {
+            class: "presentation-design-selecter",
+        }
+    }
+
+    // TODO: Implement the viewer component
+}
+
+#[component]
 pub fn PresentationViewer (
     presentation_signal: Signal<RunningPresentation>,
     presentation_design: PresentationDesign,
