@@ -1,3 +1,17 @@
+//! Cantara is an open source song presentation software that allows people to present song lyrics for a bigger audience to sing together.
+//!
+//! While the program was originally written in Free Pascal/Lazarus, this repository is a rewrite in Rust using Dioxus.
+//!
+//! # Structure
+//! - The [main] function is the entry point for the program which handles the initializing and startup.
+//! - Modules ending with `_components` contain the dioxus components used in the program and some helper functions used by the components
+//! - The [logic] module provides the business logic of the program including repositories, settings and states.
+//!
+//! ## Additional crates
+//! The parsing of the song files, the song structures and the side generation are part of the [cantara_songlib] crate.
+
+
+// Make sure that no terminal window is shown on windows
 #![windows_subsystem = "windows"]
 
 pub mod logic;
@@ -19,12 +33,19 @@ use wizard_components::Wizard;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+/// The CSS file provided by pico css
 const PICO_CSS: Asset = asset!("/node_modules/@picocss/pico/css/pico.min.css");
+
+/// Cantara's own CSS file with additions to the PicoCss definitions
 const MAIN_CSS: Asset = asset!("/assets/main.css");
+
+/// JavaScript helper functions which are used for styling and keyboard event handling
 const POSITIONING_JS: Asset = asset!("/assets/positioning.js");
 
+/// The Cantara Logo
 pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
 
+/// The test state for debugging purposes (will be removed in the final version)
 static TEST_STATE: GlobalSignal<String> = Global::new(|| "test".to_string());
 
 #[derive(Routable, PartialEq, Clone, MotionTransitions)]
