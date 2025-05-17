@@ -66,7 +66,7 @@ html, body {
 
 /* Fade in Animation */
 .presentation-fade-in {
-    animation: presentationFadeIn 1s ease-in-out;
+    animation: presentationFadeIn 400ms ease-in-out;
 }
 
 @keyframes presentationFadeIn {

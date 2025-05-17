@@ -48,7 +48,21 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             None => 0
             }
         );
-    
+
+    let mut presentation_is_visible = use_signal(|| false);
+
+    let mut go_to_next_slide = move || {
+        running_presentation.write().next_slide();
+        presentation_is_visible.set(false);
+        presentation_is_visible.set(true);
+    };
+
+    let mut go_to_previous_slide = move || {
+        running_presentation.write().previous_slide();
+        presentation_is_visible.set(false);
+        presentation_is_visible.set(true);
+    };
+
     // Stop rendering if no slide can be rendered.
     if current_slide.read().clone().is_none() {
         return rsx! {
@@ -133,38 +147,45 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Script { src: PRESENTATION_JS }
         div {
-            key: current_slide_number.read().to_string(),
-            id: "presentation-slide",
-            class: "presentation presentation-fade-in",
+            class: "presentation",
             tabindex: 0,
             onkeydown: move |event: Event<KeyboardData>| {
                 match event.key() {
-                    Key::ArrowRight => running_presentation.write().next_slide(),
-                    Key::ArrowLeft => running_presentation.write().previous_slide(),
+                    Key::ArrowRight => go_to_next_slide(),
+                    Key::ArrowLeft => go_to_previous_slide(),
                     _ => {}
                 }
             },
             onclick: move |_| {
-                running_presentation.write().next_slide();
+                go_to_next_slide();
             },
             oncontextmenu: move |_| {
-                running_presentation.write().previous_slide();
+                go_to_previous_slide();
             },
-            {
-                match current_slide.read().clone().unwrap().slide_content.clone() {
-                    SlideContent::Title(title_slide) => rsx! {
-                        TitleSlideComponent {
-                            title_slide: title_slide.clone(),
-                            current_pds: current_pds.read().clone()
+            onmounted: move |_| {
+                presentation_is_visible.set(true);
+            },
+            if presentation_is_visible() {
+                div {
+                    class: "slide-container presentation-fade-in",
+                    key: "{current_slide_number}",
+                    {
+                        match current_slide.read().clone().unwrap().slide_content.clone() {
+                            SlideContent::Title(title_slide) => rsx! {
+                                TitleSlideComponent {
+                                    title_slide: title_slide.clone(),
+                                    current_pds: current_pds.read().clone()
+                                }
+                            },
+                            SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
+                                SlingleLanguageMainContentSlide {
+                                    main_slide: main_slide.clone(),
+                                    current_pds: current_pds.read().clone()
+                                }
+                            },
+                            _ => rsx! { p { "No content provided" } }
                         }
-                    },
-                    SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
-                        SlingleLanguageMainContentSlide {
-                            main_slide: main_slide.clone(),
-                            current_pds: current_pds.read().clone()
-                        }
-                    },
-                    _ => rsx! { p { "No content provided" } }
+                    }
                 }
             }
         }

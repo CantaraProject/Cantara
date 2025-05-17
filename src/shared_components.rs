@@ -8,6 +8,7 @@ use rust_i18n::t;
 
 use crate::logic::presentation::create_amazing_grace_presentation;
 use crate::logic::settings::{PresentationDesign, PresentationDesignSettings};
+use crate::logic::states::RunningPresentation;
 use crate::presentation_components::PresentationRendererComponent;
 
 #[component]
@@ -28,9 +29,9 @@ pub fn EditIcon() -> Element {
     }
 }
 
-/// Provides an Example Presentation Viewer in 16:9 format scailed down to a fixed with
 #[component]
-pub fn ExamplePresentationViewer(
+pub fn PresentationViewer (
+    presentation_signal: Signal<RunningPresentation>,
     presentation_design: PresentationDesign,
     width: usize,
     increase_font_size_in_percent: Option<usize>,
@@ -57,9 +58,6 @@ pub fn ExamplePresentationViewer(
         }
     };
 
-    let presentation_signal =
-        use_signal(|| create_amazing_grace_presentation(&presentation_design));
-
     rsx! {
         div {
             class: "rounded-corners presentation-preview",
@@ -68,6 +66,26 @@ pub fn ExamplePresentationViewer(
             PresentationRendererComponent {
                 running_presentation: presentation_signal
             }
+        }
+    }
+}
+
+/// Provides an Example Presentation Viewer in 16:9 format scailed down to a fixed with
+#[component]
+pub fn ExamplePresentationViewer(
+    presentation_design: PresentationDesign,
+    width: usize,
+    increase_font_size_in_percent: Option<usize>,
+) -> Element {
+    let presentation_signal =
+        use_signal(|| create_amazing_grace_presentation(&presentation_design));
+
+    rsx! {
+        PresentationViewer {
+            presentation_signal: presentation_signal,
+            presentation_design: presentation_design,
+            width: width,
+            increase_font_size_in_percent: increase_font_size_in_percent,
         }
     }
 }

@@ -33,10 +33,10 @@ use wizard_components::Wizard;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
-/// The CSS file provided by pico css
+/// The CSS file provided by PicoCSS
 const PICO_CSS: Asset = asset!("/node_modules/@picocss/pico/css/pico.min.css");
 
-/// Cantara's own CSS file with additions to the PicoCss definitions
+/// Cantara's own CSS file with additions to the PicoCSS definitions
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 
 /// JavaScript helper functions which are used for styling and keyboard event handling
