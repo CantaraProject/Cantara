@@ -5,7 +5,7 @@ authors = ["Jan Martin Reckel <jm.reckel@t-online.de>"]
 keywords = ["music", "sheets", "presentation"]
 license = "GPL-3.0"
 description = "Software for Song Presentation in Churches"
-edition = "2021"
+edition = "2024"
 repository = "https://github.com/CantaraProject/Cantara"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
