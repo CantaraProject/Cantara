@@ -31,48 +31,44 @@ pub fn EditIcon() -> Element {
 
 #[component]
 pub fn PresentationDesignSelecter(
-    presentation_designs: Signal<PresentationDesign>,
+    presentation_designs: Signal<Vec<PresentationDesign>>,
     default_selection: Option<usize>,
     viewer_width: usize,
-    on_change: EventHandler<usize>,
+    on_change: EventHandler<SelectionEvent>,
 ) -> Element {
+    let mut presentations: Signal<Vec<Signal<RunningPresentation>>> = use_signal(|| vec![]);
+
+    use_effect(move || for design in presentation_designs() {
+        let presentation = use_signal(|| create_amazing_grace_presentation(&design));
+        presentations.push(presentation);
+    });
     rsx! {
         div {
             class: "presentation-design-selecter",
+
+            for (number, presentation) in presentations().iter().enumerate() {
+            div {
+                class: "presentation-design-selecter-item",
+                    PresentationViewer {
+                        presentation_signal: *presentation,
+                        width: viewer_width,
+                    }
+                }
+            }
         }
     }
+
 
     // TODO: Implement the viewer component
 }
 
 #[component]
-pub fn PresentationViewer (
+pub fn PresentationViewer(
     presentation_signal: Signal<RunningPresentation>,
-    presentation_design: PresentationDesign,
     width: usize,
-    increase_font_size_in_percent: Option<usize>,
 ) -> Element {
     let scale_percentage = ((width as f64 / 1024 as f64) * 100.0).round();
     let zoom_css_string = format!("zoom: {}%;", scale_percentage.to_string());
-
-    let presentation_design = match increase_font_size_in_percent {
-        None => presentation_design,
-        Some(factor) => {
-            let mut factored_presentation_design = presentation_design.clone();
-            if let PresentationDesignSettings::Template(presentation_design_template) =
-                factored_presentation_design.presentation_design_settings
-            {
-                let mut factored_presentation_design_template =
-                    presentation_design_template.clone();
-                for mut font in factored_presentation_design_template.main_content_fonts {
-                    font.font_size *= factor;
-                }
-                factored_presentation_design.presentation_design_settings =
-                    PresentationDesignSettings::Template(presentation_design_template);
-            }
-            factored_presentation_design
-        }
-    };
 
     rsx! {
         div {
@@ -99,9 +95,7 @@ pub fn ExamplePresentationViewer(
     rsx! {
         PresentationViewer {
             presentation_signal: presentation_signal,
-            presentation_design: presentation_design,
             width: width,
-            increase_font_size_in_percent: increase_font_size_in_percent,
         }
     }
 }
