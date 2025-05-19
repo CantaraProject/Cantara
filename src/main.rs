@@ -10,15 +10,14 @@
 //! ## Additional crates
 //! The parsing of the song files, the song structures and the side generation are part of the [cantara_songlib] crate.
 
-
 // Make sure that no terminal window is shown on windows
 #![windows_subsystem = "windows"]
 
 pub mod logic;
+pub mod presentation_components;
 pub mod selection_components;
 pub mod settings_components;
 pub mod shared_components;
-pub mod presentation_components;
 pub mod wizard_components;
 
 use crate::settings_components::SettingsPage;

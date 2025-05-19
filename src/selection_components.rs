@@ -1,18 +1,18 @@
 //! This module includes the components for song selection
 
+use crate::TEST_STATE;
 use crate::logic::presentation;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
-use crate::TEST_STATE;
-use crate::{logic::settings::Settings, logic::sourcefiles::SourceFile, Route};
+use crate::{Route, logic::settings::Settings, logic::sourcefiles::SourceFile};
 use dioxus::prelude::*;
 use dioxus_router::prelude::navigator;
 use rust_i18n::t;
 use std::rc::Rc;
 
+use crate::logic::settings::PresentationDesign;
+use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::*;
 use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
-use dioxus_free_icons::Icon;
-use crate::logic::settings::PresentationDesign;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -31,10 +31,11 @@ pub fn Selection() -> Element {
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
 
-    let default_presentation_design_signal = use_signal(|| match settings.read().presentation_designs.get(0) {
-        Some(design) => design.clone(),
-        None => PresentationDesign::default(),
-    });
+    let default_presentation_design_signal =
+        use_signal(|| match settings.read().presentation_designs.get(0) {
+            Some(design) => design.clone(),
+            None => PresentationDesign::default(),
+        });
 
     use_effect(move || {
         if !settings.read().wizard_completed {
@@ -392,14 +393,16 @@ fn start_presentation(
 ) {
     // Create the presentation
 
-    use dioxus::desktop::Config;
     use crate::presentation_components::PresentationPage;
+    use dioxus::desktop::Config;
 
     if presentation::add_presentation(
         selected_items,
         running_presentations,
-        default_presentation_design
-    ).is_some() {
+        default_presentation_design,
+    )
+    .is_some()
+    {
         // Create a new window if running on desktop
         let presentation_dom =
             VirtualDom::new(PresentationPage).with_root_context(*running_presentations);

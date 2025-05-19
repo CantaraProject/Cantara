@@ -66,7 +66,7 @@ fn create_presentation_slides(
 pub fn add_presentation(
     selected_items: &Vec<SelectedItemRepresentation>,
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
-    default_presentation_design: &PresentationDesign
+    default_presentation_design: &PresentationDesign,
 ) -> Option<usize> {
     // Right now, we only allow one running presentation at the same time.
     // Later, Cantara is going to support multiple presentations.
@@ -77,7 +77,10 @@ pub fn add_presentation(
     let mut presentation: Vec<SlideChapter> = vec![];
 
     for selected_item in selected_items {
-        let used_presentation_design = selected_item.presentation_design_option.clone().unwrap_or(default_presentation_design.clone());
+        let used_presentation_design = selected_item
+            .presentation_design_option
+            .clone()
+            .unwrap_or(default_presentation_design.clone());
         match create_presentation_slides(selected_item, &used_presentation_design) {
             Ok(slides) => presentation.push(SlideChapter {
                 slides,

@@ -6,7 +6,7 @@ use rust_i18n::t;
 
 use rfd::FileDialog;
 
-use crate::{Route, LOGO};
+use crate::{LOGO, Route};
 
 rust_i18n::i18n!("locales", fallback = "en");
 

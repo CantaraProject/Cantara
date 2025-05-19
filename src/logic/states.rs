@@ -7,13 +7,11 @@ use cantara_songlib::slides::Slide;
 
 use super::{settings::PresentationDesign, sourcefiles::SourceFile};
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Settings {
     pub song_repos: Vec<Repository>,
     pub wizard_completed: bool,
 }
-
 
 impl Settings {
     /// Load settings from storage or creates a new default settings if
@@ -34,7 +32,7 @@ impl Settings {
     pub fn save(&self) {
         if let Some(file) = get_settings_file() {
             let _ = fs::create_dir_all(get_settings_folder().unwrap());
-            if std::fs::write(file, serde_json::to_string_pretty(self).unwrap()).is_ok() {  }
+            if std::fs::write(file, serde_json::to_string_pretty(self).unwrap()).is_ok() {}
         }
     }
 
@@ -118,13 +116,15 @@ impl RunningPresentation {
     }
 
     pub fn get_current_slide(&self) -> Option<Slide> {
-        self.position.clone().map(|pos| self.presentation
-                    .get(pos.chapter())
-                    .unwrap()
-                    .slides
-                    .get(pos.chapter_slide())
-                    .unwrap()
-                    .clone())
+        self.position.clone().map(|pos| {
+            self.presentation
+                .get(pos.chapter())
+                .unwrap()
+                .slides
+                .get(pos.chapter_slide())
+                .unwrap()
+                .clone()
+        })
     }
 
     pub fn get_current_presentation_design(&self) -> PresentationDesign {

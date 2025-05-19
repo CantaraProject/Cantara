@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::logic::sourcefiles::{get_source_files, SourceFile};
+use crate::logic::sourcefiles::{SourceFile, get_source_files};
 
 /// Returns the settings of the program
 ///
@@ -210,19 +210,19 @@ impl Default for PresentationDesignSettings {
 pub struct PresentationDesignTemplate {
     /// The font configuration for the main content
     pub main_content_fonts: Vec<FontRepresentation>,
-    
+
     /// The vertical alignment of the content
     pub vertical_alignment: VerticalAlign,
-    
+
     /// The factor for the font size of the spoiler content relative to the main content font size
     pub spoiler_content_fontsize_factor: f64,
-    
+
     /// The background color of the presentation
     pub background_color: RGB8,
-    
+
     /// The background color transparancy towards an image (0-255)
     pub background_transparancy: u8,
-    
+
     /// The padding of the presentation (top, bottom, left, right)
     pub padding: TopBottomLeftRight,
 }
@@ -369,13 +369,15 @@ impl CssSize {
             CssSize::Null => "0".to_string(),
         }
     }
-    
+
     /// Checks if the size is null or zero
     pub fn is_null(&self) -> bool {
-        matches!(self, CssSize::Null) || matches!(self, CssSize::Px(0.0)) 
-            || matches!(self, CssSize::Em(0.0)) || matches!(self, CssSize::Percentage(0.0))
+        matches!(self, CssSize::Null)
+            || matches!(self, CssSize::Px(0.0))
+            || matches!(self, CssSize::Em(0.0))
+            || matches!(self, CssSize::Percentage(0.0))
     }
-    
+
     pub fn null() -> Self {
         CssSize::Null
     }

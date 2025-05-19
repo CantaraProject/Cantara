@@ -1,9 +1,9 @@
 //! This submodule contains shared components which can be reused among different parts of the program.
 
 use dioxus::prelude::*;
+use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
 use dioxus_free_icons::icons::fa_solid_icons::FaPenToSquare;
-use dioxus_free_icons::Icon;
 use rust_i18n::t;
 
 use crate::logic::presentation::create_amazing_grace_presentation;
@@ -39,9 +39,11 @@ pub fn PresentationDesignSelecter(
 ) -> Element {
     let mut presentations: Signal<Vec<Signal<RunningPresentation>>> = use_signal(|| vec![]);
 
-    use_effect(move || for design in presentation_designs() {
-        let presentation = use_signal(|| create_amazing_grace_presentation(&design));
-        presentations.push(presentation);
+    use_effect(move || {
+        for design in presentation_designs() {
+            let presentation = use_signal(|| create_amazing_grace_presentation(&design));
+            presentations.push(presentation);
+        }
     });
     rsx! {
         div {

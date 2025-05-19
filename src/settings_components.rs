@@ -1,5 +1,6 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
+use crate::shared_components::PresentationDesignSelecter;
 use crate::{
     logic::settings::*,
     shared_components::{DeleteIcon, EditIcon, ExamplePresentationViewer},
@@ -7,7 +8,6 @@ use crate::{
 use dioxus::prelude::*;
 use rfd::FileDialog;
 use rust_i18n::t;
-use crate::shared_components::PresentationDesignSelecter;
 
 rust_i18n::i18n!("locales", fallback = "en");
 

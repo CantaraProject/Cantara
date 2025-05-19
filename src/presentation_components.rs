@@ -4,10 +4,13 @@ use cantara_songlib::slides::*;
 use dioxus::prelude::*;
 use rust_i18n::t;
 
-use crate::{logic::{
-    settings::{FontRepresentation, PresentationDesignSettings, PresentationDesignTemplate},
-    states::RunningPresentation,
-}, MAIN_CSS};
+use crate::{
+    MAIN_CSS,
+    logic::{
+        settings::{FontRepresentation, PresentationDesignSettings, PresentationDesignTemplate},
+        states::RunningPresentation,
+    },
+};
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
@@ -27,7 +30,7 @@ pub fn PresentationPage() -> Element {
     });
 
     rsx! {
-        document::Link { rel: "stylesheet", href: MAIN_CSS }        
+        document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Title { { t!("presentation.title")} }
         PresentationRendererComponent {
             running_presentation: running_presentation
@@ -41,13 +44,12 @@ pub fn PresentationPage() -> Element {
 pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresentation>) -> Element {
     let current_slide: Memo<Option<Slide>> =
         use_memo(move || running_presentation.read().get_current_slide());
-    
+
     let current_slide_number: Memo<usize> =
         use_memo(move || match running_presentation.read().clone().position {
             Some(position) => position.slide_total(),
-            None => 0
-            }
-        );
+            None => 0,
+        });
 
     let mut presentation_is_visible = use_signal(|| false);
 
@@ -96,47 +98,73 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             },
         );
 
-    let css_presentation_background_color = use_memo(move || current_pds.read().clone().get_background_as_rgb_string());
-    let css_headline_font_size = use_memo(move || current_pds
-        .read()
-        .main_content_fonts
-        .first()
-        .unwrap_or(&FontRepresentation::default())
-        .headline_font_size);
-    let css_maincontent_font_size = use_memo(move || current_pds
-        .read()
-        .main_content_fonts
-        .first()
-        .unwrap_or(&FontRepresentation::default())
-        .font_size);
-    let css_spoiler_font_size = use_memo(move || current_pds
-        .read()
-        .main_content_fonts
-        .first()
-        .unwrap_or(&FontRepresentation::default())
-        .spoiler_font_size);
-    let css_main_text_color: Memo<String> = use_memo(move || current_pds
-        .read()
-        .clone()
-        .main_content_fonts
-        .first()
-        .unwrap()
-        .get_color_as_rgba_string());
-    let css_padding_left: Memo<String> = use_memo(move || current_pds.read().padding.left.to_css_string());
-    let css_padding_right: Memo<String> = use_memo(move || current_pds.read().padding.right.to_css_string());
-    let css_padding_top: Memo<String> = use_memo(move || current_pds.read().padding.top.to_css_string());
-    let css_padding_bottom: Memo<String> = use_memo(move || current_pds.read().padding.bottom.to_css_string());
-    let css_text_align: Memo<String> = use_memo(move || current_pds.read().main_content_fonts.first().unwrap().horizontal_alignment.to_css_string());
+    let css_presentation_background_color =
+        use_memo(move || current_pds.read().clone().get_background_as_rgb_string());
+    let css_headline_font_size = use_memo(move || {
+        current_pds
+            .read()
+            .main_content_fonts
+            .first()
+            .unwrap_or(&FontRepresentation::default())
+            .headline_font_size
+    });
+    let css_maincontent_font_size = use_memo(move || {
+        current_pds
+            .read()
+            .main_content_fonts
+            .first()
+            .unwrap_or(&FontRepresentation::default())
+            .font_size
+    });
+    let css_spoiler_font_size = use_memo(move || {
+        current_pds
+            .read()
+            .main_content_fonts
+            .first()
+            .unwrap_or(&FontRepresentation::default())
+            .spoiler_font_size
+    });
+    let css_main_text_color: Memo<String> = use_memo(move || {
+        current_pds
+            .read()
+            .clone()
+            .main_content_fonts
+            .first()
+            .unwrap()
+            .get_color_as_rgba_string()
+    });
+    let css_padding_left: Memo<String> =
+        use_memo(move || current_pds.read().padding.left.to_css_string());
+    let css_padding_right: Memo<String> =
+        use_memo(move || current_pds.read().padding.right.to_css_string());
+    let css_padding_top: Memo<String> =
+        use_memo(move || current_pds.read().padding.top.to_css_string());
+    let css_padding_bottom: Memo<String> =
+        use_memo(move || current_pds.read().padding.bottom.to_css_string());
+    let css_text_align: Memo<String> = use_memo(move || {
+        current_pds
+            .read()
+            .main_content_fonts
+            .first()
+            .unwrap()
+            .horizontal_alignment
+            .to_css_string()
+    });
 
-
-    let custom_css_style: Memo<String> = use_memo(move || format!("{};{};{};{};{};{};",
-        format!("background-color: rgb({});", css_presentation_background_color()),
-        format!("padding-left: {};", css_padding_left()),
-        format!("padding-right: {}", css_padding_right()),
-        format!("padding-top: {}", css_padding_top()),
-        format!("padding-bottom: {}", css_padding_bottom()),
-        format!("color: rgba({})!important", css_main_text_color)
-    ));
+    let custom_css_style: Memo<String> = use_memo(move || {
+        format!(
+            "{};{};{};{};{};{};",
+            format!(
+                "background-color: rgb({});",
+                css_presentation_background_color()
+            ),
+            format!("padding-left: {};", css_padding_left()),
+            format!("padding-right: {}", css_padding_right()),
+            format!("padding-top: {}", css_padding_top()),
+            format!("padding-bottom: {}", css_padding_bottom()),
+            format!("color: rgba({})!important", css_main_text_color)
+        )
+    });
 
     rsx! {
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
@@ -200,7 +228,7 @@ fn TitleSlideComponent(
     title_slide: TitleSlide,
     css_headline_font_size: String,
     css_text_color: String,
-    css_text_align: String
+    css_text_align: String,
 ) -> Element {
     rsx! {
         div {
@@ -221,7 +249,7 @@ fn SlingleLanguageMainContentSlide(
     css_main_content_size: String,
     css_spoiler_content_size: String,
     css_text_color: String,
-    css_text_align: String
+    css_text_align: String,
 ) -> Element {
     let number_of_main_content_lines = {
         let cloned_main_slide = main_slide.clone();
