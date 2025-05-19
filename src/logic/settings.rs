@@ -295,6 +295,16 @@ pub enum HorizontalAlign {
     Right,
 }
 
+impl HorizontalAlign {
+    pub fn to_css_string(&self) -> String {
+        match self {
+            HorizontalAlign::Left => "left".to_string(),
+            HorizontalAlign::Centered => "center".to_string(),
+            HorizontalAlign::Right => "right".to_string(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
 pub enum VerticalAlign {
     Top,

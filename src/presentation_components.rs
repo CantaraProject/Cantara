@@ -126,6 +126,8 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
     let css_padding_right: Memo<String> = use_memo(move || current_pds.read().padding.right.to_css_string());
     let css_padding_top: Memo<String> = use_memo(move || current_pds.read().padding.top.to_css_string());
     let css_padding_bottom: Memo<String> = use_memo(move || current_pds.read().padding.bottom.to_css_string());
+    let css_text_align: Memo<String> = use_memo(move || current_pds.read().main_content_fonts.first().unwrap().horizontal_alignment.to_css_string());
+
 
     let custom_css_style: Memo<String> = use_memo(move || format!("{};{};{};{};{};{};",
         format!("background-color: rgb({});", css_presentation_background_color()),
@@ -170,7 +172,8 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
                                 TitleSlideComponent {
                                     title_slide: title_slide.clone(),
                                     css_headline_font_size: css_headline_font_size(),
-                                    css_text_color: css_main_text_color()
+                                    css_text_color: css_main_text_color(),
+                                    css_text_align: css_text_align()
                                 }
                             },
                             SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
@@ -179,7 +182,8 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
                                     current_pds: current_pds.read().clone(),
                                     css_main_content_size: css_maincontent_font_size(),
                                     css_spoiler_content_size: css_spoiler_font_size(),
-                                    css_text_color: css_main_text_color()
+                                    css_text_color: css_main_text_color(),
+                                    css_text_align: css_text_align()
                                 }
                             },
                             _ => rsx! { p { "No content provided" } }
@@ -195,14 +199,15 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
 fn TitleSlideComponent(
     title_slide: TitleSlide,
     css_headline_font_size: String,
-    css_text_color: String
+    css_text_color: String,
+    css_text_align: String
 ) -> Element {
     rsx! {
         div {
             id: "headline",
-            style: format!("font-size: {}px!important;color: rgba({})!important;", css_headline_font_size, css_text_color),
+            style: format!("font-size: {}px!important;color: rgba({})!important;text-align: {}!important;", css_headline_font_size, css_text_color, css_text_align),
             p {
-                style: format!("font-size: {}px!important;color: rgba({})!important;", css_headline_font_size, css_text_color),
+                style: format!("font-size: {}px!important;color: rgba({})!important;text-align: {}!important;", css_headline_font_size, css_text_color, css_text_align),
                 { title_slide.title_text }
             }
         }
@@ -215,7 +220,8 @@ fn SlingleLanguageMainContentSlide(
     current_pds: PresentationDesignTemplate,
     css_main_content_size: String,
     css_spoiler_content_size: String,
-    css_text_color: String
+    css_text_color: String,
+    css_text_align: String
 ) -> Element {
     let number_of_main_content_lines = {
         let cloned_main_slide = main_slide.clone();
@@ -229,9 +235,9 @@ fn SlingleLanguageMainContentSlide(
             id: "singlelanguage-main-content",
             div {
                 class: "main-content",
-                style: format!("font-size: {}px!important;color: rgba({})!important;", css_main_content_size, css_text_color),
+                style: format!("font-size: {}px!important;color: rgba({})!important;text-align: {}!important;", css_main_content_size, css_text_color, css_text_align),
                 p {
-                    style: format!("font-size: {}px;color: rgba({})!important;", css_main_content_size, css_text_color),
+                    style: format!("font-size: {}px;color: rgba({})!important;text-align: {}!important;", css_main_content_size, css_text_color, css_text_align),
                     for (num, line) in main_slide.clone().main_text().split("\n").enumerate() {
                         { line }
                         if num < number_of_main_content_lines -1 {
@@ -243,9 +249,9 @@ fn SlingleLanguageMainContentSlide(
             if let Some(spoiler_content) = Some(main_slide.spoiler_text()) {
                 div {
                     class: "spoiler-content",
-                    style: format!("font-size: {}px!important;color: rgba({})!important;", css_spoiler_content_size, css_text_color),
+                    style: format!("font-size: {}px!important;color: rgba({})!important;text-align: {}!important;", css_spoiler_content_size, css_text_color, css_text_align),
                     p {
-                        style: format!("font-size: {}px!important;color: rgba({})!important;", css_spoiler_content_size, css_text_color),
+                        style: format!("font-size: {}px!important;color: rgba({})!important;text-align: {}!important;", css_spoiler_content_size, css_text_color, css_text_align),
                         { spoiler_content }
                     }
                 }
