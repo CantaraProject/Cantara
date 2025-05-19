@@ -16,26 +16,16 @@ html, body {
 .presentation {
     all: unset;
     outline: none;
-    min-height: 100%,
-    min-width: 100%,
     margin: 0;
     top: 0;
     left: 0;
     bottom: 0;
     right: 0;
     position: absolute;
-    background-color: var(--var-presentation-background-color)!important;
-    color: var(--var-main-text-color)!important;
     overflow-y: hidden;
-    
-    padding-left: var(--var-presentation-padding-left);
-    padding-right: var(--var-presentation-padding-right);
-    padding-top: var(--var-presentation-padding-top);
-    padding-bottom: var(--var-presentation-padding-bottom);
 }
 
 .presentation p {
-    color: var(--var-main-text-color)!important;
     margin: 0;
 }
 
@@ -44,24 +34,15 @@ html, body {
 }
 
 #headline {
-    font-size: var(--var-headline-font-size);
     text-align: center;
-    color: var(--var-main-text-color)!important;
 }
 
 .main-content {
-    font-size: var(--var-maincontent-font-size);
-    color: var(--var-main-text-color)!important;
+
 }
 
 .spoiler {
-    font-size: var(--var-spoiler-font-size);
-    color: var(--var-main-text-color)!important;
-}
 
-.presentation-preview {
-    font-weight: 600!important;
-    color: var(--var-main-text-color)!important;
 }
 
 /* Fade in Animation */

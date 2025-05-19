@@ -96,58 +96,53 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             },
         );
 
-    // Set the CSS variables from the loaded PresentationDesign
-    use_effect(move || {
-        document::eval(&format!(
-            r#"var r = document.querySelector(':root');
-            r.style.setProperty('--var-presentation-background-color', 'rgb({})');
-            r.style.setProperty('--var-headline-font-size', '{}px');
-            r.style.setProperty('--var-maincontent-font-size', '{}px');
-            r.style.setProperty('--var-spoiler-font-size', '{}px');
-            r.style.setProperty('--var-main-text-color', 'rgb({})')
-            r.style.setProperty('--var-presentation-padding-left', '{}')
-            r.style.setProperty('--var-presentation-padding-right', '{}')
-            r.style.setProperty('--var-presentation-padding-top', '{}')
-            r.style.setProperty('--var-presentation-padding-bottom', '{}')
-            "#,
-            current_pds.read().clone().get_background_as_rgb_string(),
-            (current_pds
-                .read()
-                .main_content_fonts
-                .first()
-                .unwrap_or(&FontRepresentation::default())
-                .headline_font_size),
-            (current_pds
-                .read()
-                .main_content_fonts
-                .first()
-                .unwrap_or(&FontRepresentation::default())
-                .font_size),
-            (current_pds
-                .read()
-                .main_content_fonts
-                .first()
-                .unwrap_or(&FontRepresentation::default())
-                .spoiler_font_size),
-            current_pds
-                .read()
-                .clone()
-                .main_content_fonts
-                .first()
-                .unwrap()
-                .get_color_as_rgba_string(),
-            current_pds.read().padding.left.to_css_string(),
-            current_pds.read().padding.right.to_css_string(),
-            current_pds.read().padding.top.to_css_string(),
-            current_pds.read().padding.bottom.to_css_string()
-        ));
-    });
+    let css_presentation_background_color = use_memo(move || current_pds.read().clone().get_background_as_rgb_string());
+    let css_headline_font_size = use_memo(move || current_pds
+        .read()
+        .main_content_fonts
+        .first()
+        .unwrap_or(&FontRepresentation::default())
+        .headline_font_size);
+    let css_maincontent_font_size = use_memo(move || current_pds
+        .read()
+        .main_content_fonts
+        .first()
+        .unwrap_or(&FontRepresentation::default())
+        .font_size);
+    let css_spoiler_font_size = use_memo(move || current_pds
+        .read()
+        .main_content_fonts
+        .first()
+        .unwrap_or(&FontRepresentation::default())
+        .spoiler_font_size);
+    let css_main_text_color: Memo<String> = use_memo(move || current_pds
+        .read()
+        .clone()
+        .main_content_fonts
+        .first()
+        .unwrap()
+        .get_color_as_rgba_string());
+    let css_padding_left: Memo<String> = use_memo(move || current_pds.read().padding.left.to_css_string());
+    let css_padding_right: Memo<String> = use_memo(move || current_pds.read().padding.right.to_css_string());
+    let css_padding_top: Memo<String> = use_memo(move || current_pds.read().padding.top.to_css_string());
+    let css_padding_bottom: Memo<String> = use_memo(move || current_pds.read().padding.bottom.to_css_string());
+
+    let custom_css_style: Memo<String> = use_memo(move || format!("{};{};{};{};{};{};",
+        format!("background-color: rgb({});", css_presentation_background_color()),
+        format!("padding-left: {};", css_padding_left()),
+        format!("padding-right: {}", css_padding_right()),
+        format!("padding-top: {}", css_padding_top()),
+        format!("padding-bottom: {}", css_padding_bottom()),
+        format!("color: rgba({})!important", css_main_text_color)
+    ));
 
     rsx! {
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Script { src: PRESENTATION_JS }
         div {
             class: "presentation",
+            style: custom_css_style(),
+
             tabindex: 0,
             onkeydown: move |event: Event<KeyboardData>| {
                 match event.key() {
@@ -174,13 +169,17 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
                             SlideContent::Title(title_slide) => rsx! {
                                 TitleSlideComponent {
                                     title_slide: title_slide.clone(),
-                                    current_pds: current_pds.read().clone()
+                                    css_headline_font_size: css_headline_font_size(),
+                                    css_text_color: css_main_text_color()
                                 }
                             },
                             SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
                                 SlingleLanguageMainContentSlide {
                                     main_slide: main_slide.clone(),
-                                    current_pds: current_pds.read().clone()
+                                    current_pds: current_pds.read().clone(),
+                                    css_main_content_size: css_maincontent_font_size(),
+                                    css_spoiler_content_size: css_spoiler_font_size(),
+                                    css_text_color: css_main_text_color()
                                 }
                             },
                             _ => rsx! { p { "No content provided" } }
@@ -195,12 +194,17 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
 #[component]
 fn TitleSlideComponent(
     title_slide: TitleSlide,
-    current_pds: PresentationDesignTemplate,
+    css_headline_font_size: String,
+    css_text_color: String
 ) -> Element {
     rsx! {
         div {
             id: "headline",
-            p { { title_slide.title_text } }
+            style: format!("font-size: {}px!important;color: rgba({})!important;", css_headline_font_size, css_text_color),
+            p {
+                style: format!("font-size: {}px!important;color: rgba({})!important;", css_headline_font_size, css_text_color),
+                { title_slide.title_text }
+            }
         }
     }
 }
@@ -209,6 +213,9 @@ fn TitleSlideComponent(
 fn SlingleLanguageMainContentSlide(
     main_slide: SingleLanguageMainContentSlide,
     current_pds: PresentationDesignTemplate,
+    css_main_content_size: String,
+    css_spoiler_content_size: String,
+    css_text_color: String
 ) -> Element {
     let number_of_main_content_lines = {
         let cloned_main_slide = main_slide.clone();
@@ -219,10 +226,12 @@ fn SlingleLanguageMainContentSlide(
 
     rsx! {
         div {
-            id: "singlelanguage-main-content",            
+            id: "singlelanguage-main-content",
             div {
                 class: "main-content",
+                style: format!("font-size: {}px!important;color: rgba({})!important;", css_main_content_size, css_text_color),
                 p {
+                    style: format!("font-size: {}px;color: rgba({})!important;", css_main_content_size, css_text_color),
                     for (num, line) in main_slide.clone().main_text().split("\n").enumerate() {
                         { line }
                         if num < number_of_main_content_lines -1 {
@@ -234,7 +243,9 @@ fn SlingleLanguageMainContentSlide(
             if let Some(spoiler_content) = Some(main_slide.spoiler_text()) {
                 div {
                     class: "spoiler-content",
+                    style: format!("font-size: {}px!important;color: rgba({})!important;", css_spoiler_content_size, css_text_color),
                     p {
+                        style: format!("font-size: {}px!important;color: rgba({})!important;", css_spoiler_content_size, css_text_color),
                         { spoiler_content }
                     }
                 }
