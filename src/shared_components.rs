@@ -29,12 +29,13 @@ pub fn EditIcon() -> Element {
     }
 }
 
+/// A component which displays multiple presentation designs in an "Amazing Grace" presentation and allows to select one
 #[component]
 pub fn PresentationDesignSelecter(
     presentation_designs: Signal<Vec<PresentationDesign>>,
     default_selection: Option<usize>,
     viewer_width: usize,
-    on_change: EventHandler<SelectionEvent>,
+    active_item: Signal<Option<usize>>,
 ) -> Element {
     let mut presentations: Signal<Vec<Signal<RunningPresentation>>> = use_signal(|| vec![]);
 
@@ -47,19 +48,23 @@ pub fn PresentationDesignSelecter(
             class: "presentation-design-selecter",
 
             for (number, presentation) in presentations().iter().enumerate() {
-            div {
-                class: "presentation-design-selecter-item",
+                div {
+                    class: format!("presentation-design-selecter-item {}", match active_item() {
+                        Some(active_item) => if active_item == number { "active" } else { "" },
+                        None => "",
+                    }),
+                    key: number,
+                    onclick: move |_| active_item.set(Some(number)),
                     PresentationViewer {
                         presentation_signal: *presentation,
                         width: viewer_width,
-                    }
+                    },
+                    br {}
+                    p { { presentation.read().clone().get_current_presentation_design().clone().name } }
                 }
             }
         }
     }
-
-
-    // TODO: Implement the viewer component
 }
 
 #[component]

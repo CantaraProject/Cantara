@@ -7,6 +7,7 @@ use crate::{
 use dioxus::prelude::*;
 use rfd::FileDialog;
 use rust_i18n::t;
+use crate::shared_components::PresentationDesignSelecter;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -145,17 +146,18 @@ fn RepositorySettings() -> Element {
 
 #[component]
 fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -> Element {
+    let selected_presentation_design: Signal<Option<usize>> = use_signal(|| None);
+
     rsx! {
         hgroup {
             h4 { { t!("settings.presentation_headline") } }
             p { { t!("settings.presentation_description") } }
         }
 
-        for presentation_design in presentation_designs.read().clone() {
-            ExamplePresentationViewer {
-                width: 600,
-                presentation_design: presentation_design.clone()
-            }
+        PresentationDesignSelecter {
+            presentation_designs: presentation_designs,
+            viewer_width: 400,
+            active_item: selected_presentation_design
         }
     }
 }
