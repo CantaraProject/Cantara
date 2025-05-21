@@ -129,6 +129,14 @@ body {
     width: 100% !important;
 }
 
+/* Show divs inline */
+div.inline-div {
+    float: left;
+}
+
+.clearBoth { clear:both; }
+
+
 /* Show the elements only on mobile screens (max-width: 767px) */
 @media only screen and (max-width: 767px) {
     .mobile-only {

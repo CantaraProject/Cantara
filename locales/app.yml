@@ -100,8 +100,8 @@ settings:
     en: Presentation Settings
     de: Präsentationseinstellungen
   presentation_description:
-    en: Setup here how the presentation should look like.
-    de: Hier kann eingestellt werden, wie die Präsentation aussehen soll.
+    en: Setup how the presentation should look like. Click on one of the presentation designs below to adjust its settings, or create a new one.
+    de: Hier kann eingestellt werden, wie die Präsentation aussehen soll. Klicken Sie dazu auf eines der Präsentationsdesigns oder legen Sie ein neues an.
 
 presentation:
   title:

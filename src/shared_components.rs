@@ -50,7 +50,7 @@ pub fn PresentationDesignSelecter(
             class: "presentation-design-selecter",
 
             for (number, presentation) in presentations().iter().enumerate() {
-                div {
+                span {
                     class: format!("presentation-design-selecter-item {}", match active_item() {
                         Some(active_item) => if active_item == number { "active" } else { "" },
                         None => "",
@@ -60,9 +60,8 @@ pub fn PresentationDesignSelecter(
                     PresentationViewer {
                         presentation_signal: *presentation,
                         width: viewer_width,
-                    },
-                    br {}
-                    p { { presentation.read().clone().get_current_presentation_design().clone().name } }
+                        title: presentation().get_current_presentation_design().clone().name
+                    }
                 }
             }
         }
@@ -73,17 +72,26 @@ pub fn PresentationDesignSelecter(
 pub fn PresentationViewer(
     presentation_signal: Signal<RunningPresentation>,
     width: usize,
+    title: Option<String>,
 ) -> Element {
     let scale_percentage = ((width as f64 / 1024 as f64) * 100.0).round();
     let zoom_css_string = format!("zoom: {}%;", scale_percentage.to_string());
 
     rsx! {
         div {
-            class: "rounded-corners presentation-preview",
+            class: "rounded-corners presentation-preview inline-div",
             style: format!("{}{}", "position: relative;width:1024px;height:576px;", zoom_css_string),
 
             PresentationRendererComponent {
                 running_presentation: presentation_signal
+            }
+
+            if let Some(title) = title {
+                div {
+                    class: "presentation-title",
+                    style: "zoom:100%!important;position: absolute;top: 0;right: 0;display: flex;align-items: center;justify-content: center;font-size: 30pt;background-color:black;color:white;",
+                    { title }
+                }
             }
         }
     }

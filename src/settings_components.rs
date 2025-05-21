@@ -30,11 +30,11 @@ pub fn SettingsPage() -> Element {
         div {
             class: "wrapper",
             header {
-                class: "top-bar content",
+                class: "top-bar",
                 h2 { { t!("settings.settings") } }
             }
             main {
-                class: "container height-100",
+                class: "container-fluid content height-100",
                 SettingsContent {}
                 hr { }
                 PresentationSettings {
@@ -42,7 +42,9 @@ pub fn SettingsPage() -> Element {
                 }
             }
             footer {
+                class: "bottom-bar",
                 button {
+
                     onclick: move |_| {
                         settings.read().save();
                         nav.replace(crate::Route::Selection);
