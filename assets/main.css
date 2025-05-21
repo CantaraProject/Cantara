@@ -134,8 +134,22 @@ div.inline-div {
     float: left;
 }
 
-.clearBoth { clear:both; }
+.clearBoth {
+    clear: both;
+}
 
+.selection-sidebar {
+    float: left;
+    height: 100%;
+    width: 50px;
+    background-color: var(--pico-background-color);
+}
+
+.sidebar-element {
+    width: 100%;
+    height: 50px;
+    background-color: var(--pico-table-row-stripped-background-color);
+}
 
 /* Show the elements only on mobile screens (max-width: 767px) */
 @media only screen and (max-width: 767px) {
@@ -173,20 +187,20 @@ div.inline-div {
 
 /* Do not scale the CSS size too much as the default pico css configuration would do */
 @media (min-width: 1024px) {
-  :root,
-  :host {
-    --pico-font-size: 106.25%;
-  }
+    :root,
+    :host {
+        --pico-font-size: 106.25%;
+    }
 }
 @media (min-width: 1280px) {
-  :root,
-  :host {
-    --pico-font-size: 106.25%;
-  }
+    :root,
+    :host {
+        --pico-font-size: 106.25%;
+    }
 }
 @media (min-width: 1536px) {
-  :root,
-  :host {
-    --pico-font-size: 106.25%;
-  }
+    :root,
+    :host {
+        --pico-font-size: 106.25%;
+    }
 }

@@ -3,6 +3,7 @@
 use crate::TEST_STATE;
 use crate::logic::presentation;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
+use crate::shared_components::{ImageIcon, MusicIcon};
 use crate::{Route, logic::settings::Settings, logic::sourcefiles::SourceFile};
 use dioxus::prelude::*;
 use dioxus_router::prelude::navigator;
@@ -27,6 +28,8 @@ pub fn Selection() -> Element {
     let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
+    let active_selection_filter: Signal<SelectionFilterOptions> =
+        use_signal(|| SelectionFilterOptions::Songs);
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
@@ -75,6 +78,9 @@ pub fn Selection() -> Element {
                     // The area where the selectable elements (sources) are shown
                     div {
                         class: "height-100",
+                        SelectionFilterSideBar {
+                            active_selection: active_selection_filter
+                        }
                         div {
                             class: "scrollable-container",
                             for (id, _) in source_files.read().iter().enumerate() {
@@ -408,5 +414,47 @@ fn start_presentation(
             VirtualDom::new(PresentationPage).with_root_context(*running_presentations);
 
         dioxus::desktop::window().new_window(presentation_dom, Config::new().with_menu(None));
+    }
+}
+
+/// An enum representing the active selection (songs, pictures, presentations)
+#[derive(Clone)]
+enum SelectionFilterOptions {
+    Songs,
+    Pictures,
+    Presentations,
+}
+
+/// This component renders a sidebar for the selection where the user can filter the sources
+#[component]
+fn SelectionFilterSideBar(active_selection: Signal<SelectionFilterOptions>) -> Element {
+    rsx! {
+        div {
+            class: "selection-sidebar",
+            // Song Selection
+            div {
+                role: "button",
+                class: match active_selection() {
+                    SelectionFilterOptions::Songs => "outline",
+                    _ => "outline secondary"
+                },
+                style: "padding: 12px;",
+                onclick: move |_| active_selection.set(SelectionFilterOptions::Songs),
+                MusicIcon {
+                }
+            }
+            // Picture Selection
+            div {
+                role: "button",
+                class: match active_selection() {
+                    SelectionFilterOptions::Pictures => "outline",
+                    _ => "outline secondary"
+                },
+                style: "padding: 12px;",
+                onclick: move |_| active_selection.set(SelectionFilterOptions::Pictures),
+                ImageIcon {
+                }
+            }
+        }
     }
 }

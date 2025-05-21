@@ -1,9 +1,10 @@
 //! This submodule contains shared components which can be reused among different parts of the program.
 
+use dioxus::html::u::height;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
-use dioxus_free_icons::icons::fa_solid_icons::FaPenToSquare;
+use dioxus_free_icons::icons::fa_solid_icons::{FaImage, FaMusic, FaPenToSquare};
 use rust_i18n::t;
 
 use crate::logic::presentation::create_amazing_grace_presentation;
@@ -25,6 +26,32 @@ pub fn EditIcon() -> Element {
     rsx! {
         Icon {
             icon: FaPenToSquare,
+        }
+    }
+}
+
+#[component]
+pub fn MusicIcon(width: Option<u32>) -> Element {
+    rsx! {
+        Icon {
+            icon: FaMusic,
+            width: match width {
+                Some(w) => w,
+                None => 20
+            },
+        }
+    }
+}
+
+#[component]
+pub fn ImageIcon(width: Option<u32>) -> Element {
+    rsx! {
+        Icon {
+            icon: FaImage,
+            width: match width {
+                Some(w) => w,
+                None => 20
+            },
         }
     }
 }
