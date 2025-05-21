@@ -9,6 +9,9 @@ selection:
   export:
     en: Export...
     de: Exportieren...
+  detail_view:
+    en: Detail View...
+    de: Detailansicht
 
 wizard:
   title:
@@ -107,3 +110,29 @@ presentation:
   title:
     en: Presentation
     de: Präsentation
+
+general:
+  type:
+    en: Type
+    de: Typ
+  song:
+    en: Song
+    de: Lied
+  picture:
+    en: Picture
+    de: Bild
+  presentation:
+    en: Presentation
+    de: Präsentation
+  video:
+    en: Video
+    de: Video
+  file_path:
+    en: File Path
+    de: Dateipfad
+  title:
+    en: Title
+    de: Titel
+  close:
+    en: Close
+    de: Schließen

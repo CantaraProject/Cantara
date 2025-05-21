@@ -62,7 +62,7 @@ fn find_files_recursive(dir: &Path, endings: &Vec<&'static str>, depth: usize) -
 ///
 /// # Arguments
 /// * `dir` - The starting directory path.
-/// * `ending` - The suffix to match (e.g., ".txt").
+/// * `endings` - A vector with the suffixes to match (e.g., `vec![".txt"]`).
 ///
 /// # Returns
 /// A vector of `PathBuf`s containing the full paths of matching files.
@@ -110,7 +110,7 @@ pub struct SourceFile {
 pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
     let mut source_files: Vec<SourceFile> = vec![];
 
-    find_files_with_ending(start_dir, vec!["song"])
+    find_files_with_ending(start_dir, vec!["song", "jpg", "png"])
         .iter()
         .for_each(|file| {
             let file_extension: &str = file
@@ -118,10 +118,14 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
                 .unwrap_or(OsStr::new(""))
                 .to_str()
                 .unwrap_or("");
-            let file_type_option: Option<SourceFileType> = match file_extension {
-                "song" => Some(SourceFileType::Song),
-                _ => None,
-            };
+            let file_type_option: Option<SourceFileType> =
+                match file_extension.to_lowercase().as_str() {
+                    "song" => Some(SourceFileType::Song),
+                    "png" => Some(SourceFileType::Image),
+                    "jpg" => Some(SourceFileType::Image),
+                    "jpeg" => Some(SourceFileType::Image),
+                    _ => None,
+                };
             if file_type_option.is_some() {
                 source_files.push(SourceFile {
                     name: file

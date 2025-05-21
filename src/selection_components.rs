@@ -2,6 +2,7 @@
 
 use crate::TEST_STATE;
 use crate::logic::presentation;
+use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
 use crate::shared_components::{ImageIcon, MusicIcon};
 use crate::{Route, logic::settings::Settings, logic::sourcefiles::SourceFile};
@@ -81,15 +82,18 @@ pub fn Selection() -> Element {
                         SelectionFilterSideBar {
                             active_selection: active_selection_filter
                         }
-                        div {
-                            class: "scrollable-container",
-                            for (id, _) in source_files.read().iter().enumerate() {
-                                SourceItem {
-                                    id: id,
-                                    source_files: source_files,
-                                    active_detailed_item_id: active_detailed_item_id,
-                                    selected_items: selected_items
-                                }
+                        if active_selection_filter() == SelectionFilterOptions::Songs {
+                            SongSourceItems {
+                                source_files: source_files,
+                                active_detailed_item_id: active_detailed_item_id,
+                                selected_items: selected_items
+                            }
+                        }
+                        if active_selection_filter() == SelectionFilterOptions::Pictures {
+                            ImageSourceItems {
+                                source_files: source_files,
+                                active_detailed_item_id: active_detailed_item_id,
+                                selected_items: selected_items
                             }
                         }
                     },
@@ -188,9 +192,59 @@ fn SearchInput(
     }
 }
 
+#[component]
+fn SongSourceItems(
+    source_files: Signal<Vec<SourceFile>>,
+    active_detailed_item_id: Signal<Option<usize>>,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+) -> Element {
+    rsx! {
+        div {
+            class: "scrollable-container",
+            onmounted: move |_| async move {
+                // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
+                let _ = document::eval("adjustDivHeight();").await;
+            },
+            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Song) {
+                SongSourceItem {
+                    id: id,
+                    source_files: source_files,
+                    active_detailed_item_id: active_detailed_item_id,
+                    selected_items: selected_items
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn ImageSourceItems(
+    source_files: Signal<Vec<SourceFile>>,
+    active_detailed_item_id: Signal<Option<usize>>,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+) -> Element {
+    rsx! {
+        div {
+            class: "scrollable-container",
+            onmounted: move |_| async move {
+                // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
+                let _ = document::eval("adjustDivHeight();").await;
+            },
+            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Image) {
+                SongSourceItem {
+                    id: id,
+                    source_files: source_files,
+                    active_detailed_item_id: active_detailed_item_id,
+                    selected_items: selected_items
+                }
+            }
+        }
+    }
+}
+
 /// This component renders one source item which can be selected
 #[component]
-fn SourceItem(
+fn SongSourceItem(
     source_files: Signal<Vec<SourceFile>>,
     id: usize,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
@@ -295,6 +349,7 @@ enum PresentationOptionTabState {
     Specific,
 }
 
+/// The component for setting up presentation options
 #[component]
 fn PresentationOptions(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
@@ -358,22 +413,27 @@ fn SourceDetailView(
             open: true,
             article {
                 header {
-                    p {
-                        "Detail View"
-                    }
+                    p { { t!("selection.detail_view") } }
                 }
                 table {
                     tbody {
                         tr {
-                            td { strong { "Type" } }
-                            td { "Song" }
+                            td { strong { { t!("general.type") } } }
+                            td {
+                                match item().file_type {
+                                    SourceFileType::Song => t!("general.song"),
+                                    SourceFileType::Image => t!("general.picture"),
+                                    SourceFileType::Presentation => t!("general.presentation"),
+                                    SourceFileType::Video => t!("general.video")
+                                }
+                            }
                         }
                         tr {
-                            td { strong { "Title" } }
+                            td { strong { { t!("general.title") } } }
                             td { { item.read().name.clone() } }
                         }
                         tr {
-                            td { strong { "File Path" } }
+                            td { strong { { t!("general.file_path") } } }
                             td { { path_string } }
                         }
                     }
@@ -381,7 +441,7 @@ fn SourceDetailView(
                 footer {
                     button {
                         onclick: move |_| { active_detailed_item_id.set(None) },
-                        { "Close" }
+                        { { t!("general.close") } }
                     }
                 }
             }
@@ -418,7 +478,7 @@ fn start_presentation(
 }
 
 /// An enum representing the active selection (songs, pictures, presentations)
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 enum SelectionFilterOptions {
     Songs,
     Pictures,
