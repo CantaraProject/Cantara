@@ -108,7 +108,7 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             .unwrap_or(&FontRepresentation::default())
             .headline_font_size
     });
-    let css_maincontent_font_size = use_memo(move || {
+    let css_main_content_font_size = use_memo(move || {
         current_pds
             .read()
             .main_content_fonts
@@ -205,10 +205,10 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
                                 }
                             },
                             SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
-                                SlingleLanguageMainContentSlide {
+                                SingleLanguageMainContentSlideRenderer {
                                     main_slide: main_slide.clone(),
                                     current_pds: current_pds.read().clone(),
-                                    css_main_content_size: css_maincontent_font_size(),
+                                    css_main_content_size: css_main_content_font_size(),
                                     css_spoiler_content_size: css_spoiler_font_size(),
                                     css_text_color: css_main_text_color(),
                                     css_text_align: css_text_align()
@@ -243,7 +243,7 @@ fn TitleSlideComponent(
 }
 
 #[component]
-fn SlingleLanguageMainContentSlide(
+fn SingleLanguageMainContentSlideRenderer(
     main_slide: SingleLanguageMainContentSlide,
     current_pds: PresentationDesignTemplate,
     css_main_content_size: String,
@@ -260,7 +260,6 @@ fn SlingleLanguageMainContentSlide(
 
     rsx! {
         div {
-            id: "singlelanguage-main-content",
             div {
                 class: "main-content",
                 style: format!("font-size: {}px!important;color: rgba({})!important;text-align: {}!important;", css_main_content_size, css_text_color, css_text_align),
