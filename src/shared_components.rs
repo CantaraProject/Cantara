@@ -75,7 +75,6 @@ pub fn PresentationDesignSelecter(
     rsx! {
         div {
             class: "presentation-design-selecter",
-
             for (number, presentation) in presentations().iter().enumerate() {
                 span {
                     class: format!("presentation-design-selecter-item {}", match active_item() {
@@ -87,7 +86,8 @@ pub fn PresentationDesignSelecter(
                     PresentationViewer {
                         presentation_signal: *presentation,
                         width: viewer_width,
-                        title: presentation().get_current_presentation_design().clone().name
+                        title: presentation().get_current_presentation_design().clone().name,
+                        selected: active_item() == Some(number)
                     }
                 }
             }

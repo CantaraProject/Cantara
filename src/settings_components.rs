@@ -148,7 +148,7 @@ fn RepositorySettings() -> Element {
 
 #[component]
 fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -> Element {
-    let selected_presentation_design: Signal<Option<usize>> = use_signal(|| None);
+    let selected_presentation_design: Signal<Option<usize>> = use_signal(|| Some(0));
 
     rsx! {
         hgroup {
