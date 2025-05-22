@@ -217,31 +217,6 @@ fn SongSourceItems(
     }
 }
 
-#[component]
-fn ImageSourceItems(
-    source_files: Signal<Vec<SourceFile>>,
-    active_detailed_item_id: Signal<Option<usize>>,
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-) -> Element {
-    rsx! {
-        div {
-            class: "scrollable-container",
-            onmounted: move |_| async move {
-                // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
-                let _ = document::eval("adjustDivHeight();").await;
-            },
-            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Image) {
-                SongSourceItem {
-                    id: id,
-                    source_files: source_files,
-                    active_detailed_item_id: active_detailed_item_id,
-                    selected_items: selected_items
-                }
-            }
-        }
-    }
-}
-
 /// This component renders one source item which can be selected
 #[component]
 fn SongSourceItem(
@@ -262,6 +237,60 @@ fn SongSourceItem(
                 active_detailed_item_id.set(Some(id));
             },
             { source_files.get(id).unwrap().clone().name }
+        }
+    }
+}
+
+/// The component renders the list of available pictures
+#[component]
+fn ImageSourceItems(
+    source_files: Signal<Vec<SourceFile>>,
+    active_detailed_item_id: Signal<Option<usize>>,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+) -> Element {
+    rsx! {
+        div {
+            class: "scrollable-container",
+            onmounted: move |_| async move {
+                // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
+                let _ = document::eval("adjustDivHeight();").await;
+            },
+            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Image) {
+                ImageSourceItem {
+                    id: id,
+                    source_files: source_files,
+                    active_detailed_item_id: active_detailed_item_id,
+                    selected_items: selected_items
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn ImageSourceItem(
+    source_files: Signal<Vec<SourceFile>>,
+    id: usize,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    active_detailed_item_id: Signal<Option<usize>>,
+) -> Element {
+    rsx! {
+        div {
+            role: "button",
+            class: "outline secondary selection_item",
+            tabindex: 0,
+            onclick: move |_| { selected_items.write().push(
+                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
+            ); },
+            oncontextmenu: move |_| {
+                active_detailed_item_id.set(Some(id));
+            },
+            { source_files.get(id).unwrap().clone().name },
+            br { },
+            img {
+                height: "300px",
+                src: source_files.get(id).unwrap().clone().path.to_str().unwrap_or("")
+            }
         }
     }
 }
