@@ -100,13 +100,22 @@ pub fn PresentationViewer(
     presentation_signal: Signal<RunningPresentation>,
     width: usize,
     title: Option<String>,
+    selected: Option<bool>,
 ) -> Element {
     let scale_percentage = ((width as f64 / 1024 as f64) * 100.0).round();
     let zoom_css_string = format!("zoom: {}%;", scale_percentage.to_string());
 
+    let css_class = use_memo(move || {
+        if selected == Some(true) {
+            "rounded-corners-active"
+        } else {
+            "rounded-corners-inactive"
+        }
+    });
+
     rsx! {
         div {
-            class: "rounded-corners presentation-preview inline-div",
+            class: format!("{} {}", css_class(), "presentation-preview inline-div"),
             style: format!("{}{}", "position: relative;width:1024px;height:576px;", zoom_css_string),
 
             PresentationRendererComponent {

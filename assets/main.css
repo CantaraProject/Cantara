@@ -179,10 +179,16 @@ div.inline-div {
     margin-bottom: 0;
 }
 
-.rounded-corners {
+.rounded-corners-inactive {
     border-radius: 2em;
     box-shadow: 0 0 1em 1em rgba(0, 0, 0, 0.3);
-    border: 18px solid rgb(12, 46, 112);
+    border: 18px solid var(--pico-secondary-border);
+}
+
+.rounded-corners-active {
+    border-radius: 2em;
+    box-shadow: 0 0 1em 1em rgba(0, 0, 0, 0.3);
+    border: 18px solid var(--pico-primary-border);
 }
 
 /* Do not scale the CSS size too much as the default pico css configuration would do */
