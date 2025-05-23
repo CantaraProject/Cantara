@@ -4,7 +4,7 @@ use crate::TEST_STATE;
 use crate::logic::presentation;
 use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
-use crate::shared_components::{ImageIcon, MusicIcon};
+use super::shared_components::{ImageIcon, MusicIcon};
 use crate::{Route, logic::settings::Settings, logic::sourcefiles::SourceFile};
 use dioxus::prelude::*;
 use dioxus_router::prelude::navigator;
@@ -15,6 +15,7 @@ use crate::logic::settings::PresentationDesign;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::*;
 use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
+use super::presentation_components::PresentationPage;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -488,7 +489,7 @@ fn start_presentation(
 ) {
     // Create the presentation
 
-    use crate::presentation_components::PresentationPage;
+    use super::presentation_components::PresentationPage;
     use dioxus::desktop::Config;
 
     if presentation::add_presentation(

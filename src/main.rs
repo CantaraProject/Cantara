@@ -13,22 +13,18 @@
 // Make sure that no terminal window is shown on windows
 #![windows_subsystem = "windows"]
 
-pub mod logic;
-pub mod presentation_components;
-pub mod selection_components;
-pub mod settings_components;
-pub mod shared_components;
-pub mod wizard_components;
+mod logic;
+mod components;
 
-use crate::settings_components::SettingsPage;
+use crate::components::settings_components::SettingsPage;
 use dioxus::prelude::*;
 use dioxus_motion::prelude::*;
 use logic::settings::*;
 use logic::sourcefiles::SourceFile;
 use logic::states::{self, RunningPresentation, SelectedItemRepresentation};
-use selection_components::Selection;
+use crate::components::selection_components::Selection;
 use sys_locale::get_locale;
-use wizard_components::Wizard;
+use crate::components::wizard_components::Wizard;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
