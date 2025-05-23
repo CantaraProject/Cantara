@@ -10,7 +10,8 @@ use dioxus::prelude::*;
 use dioxus_router::prelude::navigator;
 use rust_i18n::t;
 use std::rc::Rc;
-
+use dioxus::desktop::{tao, WindowCloseBehaviour};
+use dioxus::desktop::tao::window::Fullscreen;
 use crate::logic::settings::PresentationDesign;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::*;
@@ -503,7 +504,14 @@ fn start_presentation(
         let presentation_dom =
             VirtualDom::new(PresentationPage).with_root_context(*running_presentations);
 
-        dioxus::desktop::window().new_window(presentation_dom, Config::new().with_menu(None));
+        let window = tao::window::WindowBuilder::new()
+            .with_resizable(true)
+            .with_inner_size(tao::dpi::LogicalSize::new(900.0, 800.0))
+            .with_maximized(true)
+            .with_decorations(true)
+            .with_visible(true);
+
+        dioxus::desktop::window().new_window(presentation_dom, Config::new().with_menu(None).with_window(window));
     }
 }
 
