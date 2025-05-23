@@ -1,12 +1,12 @@
 //! This submodule contains shared components which can be reused among different parts of the program.
 
+use std::rc::Rc;
 use dioxus::html::u::height;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
 use dioxus_free_icons::icons::fa_solid_icons::{FaImage, FaMusic, FaPenToSquare};
 use rust_i18n::t;
-
 use crate::logic::presentation::create_amazing_grace_presentation;
 use crate::logic::settings::{PresentationDesign, PresentationDesignSettings};
 use crate::logic::states::RunningPresentation;
@@ -82,12 +82,20 @@ pub fn PresentationDesignSelecter(
                         None => "",
                     }),
                     key: number,
-                    onclick: move |_| active_item.set(Some(number)),
+                    tabindex: number,
+                    onclick: move |event| {
+                        active_item.set(Some(number));
+                        log::info!("Selected Presentation Design {}", number);
+                    },
                     PresentationViewer {
                         presentation_signal: *presentation,
                         width: viewer_width,
                         title: presentation().get_current_presentation_design().clone().name,
-                        selected: active_item() == Some(number)
+                        selected: active_item() == Some(number),
+                        onclick: move |event| {
+                            active_item.set(Some(number));
+                            log::info!("Selected Presentation Design {}", number);
+                        }
                     }
                 }
             }
@@ -101,6 +109,7 @@ pub fn PresentationViewer(
     width: usize,
     title: Option<String>,
     selected: Option<bool>,
+    onclick: Option<EventHandler<MouseData>>
 ) -> Element {
     let scale_percentage = ((width as f64 / 1024 as f64) * 100.0).round();
     let zoom_css_string = format!("zoom: {}%;", scale_percentage.to_string());
@@ -117,6 +126,14 @@ pub fn PresentationViewer(
         div {
             class: format!("{} {}", css_class(), "presentation-preview inline-div"),
             style: format!("{}{}", "position: relative;width:1024px;height:576px;", zoom_css_string),
+            onclick: move |event| {
+                if let Some(onclick) = onclick {
+                    match Rc::try_unwrap(event.clone().data) {
+                        Ok(data) => onclick.call(data),
+                        Err(_) => {}
+                    }
+                }
+            },
 
             PresentationRendererComponent {
                 running_presentation: presentation_signal

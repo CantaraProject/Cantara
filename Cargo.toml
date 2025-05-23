@@ -30,6 +30,7 @@ sys-locale = "=0.3.2"
 cantara-songlib = "0.1.3"
 rgb = { version = "0.8.50", features = ["serde"] }
 once_cell = "1.21.3"
+log = "0.4.27"
 
 [features]
 default = ["desktop"]
