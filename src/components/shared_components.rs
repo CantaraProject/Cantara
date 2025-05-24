@@ -1,7 +1,9 @@
 //! This submodule contains shared components which can be reused among different parts of the program.
 
+use std::ops::Deref;
 use std::rc::Rc;
 use dioxus::html::u::height;
+use dioxus::logger::tracing;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
@@ -83,19 +85,12 @@ pub fn PresentationDesignSelecter(
                     }),
                     key: number,
                     tabindex: number,
-                    onclick: move |event| {
-                        active_item.set(Some(number));
-                        log::info!("Selected Presentation Design {}", number);
-                    },
-                    PresentationViewer {
+                    SelectablePresentationViewer {
                         presentation_signal: *presentation,
                         width: viewer_width,
                         title: presentation().get_current_presentation_design().clone().name,
-                        selected: active_item() == Some(number),
-                        onclick: move |event| {
-                            active_item.set(Some(number));
-                            log::info!("Selected Presentation Design {}", number);
-                        }
+                        index: number,
+                        current_selection: active_item,
                     }
                 }
             }
@@ -103,22 +98,62 @@ pub fn PresentationDesignSelecter(
     }
 }
 
+/// A wrapper component around the PresentationViewer which allows selecting it
 #[component]
-pub fn PresentationViewer(
+pub fn SelectablePresentationViewer(
     presentation_signal: Signal<RunningPresentation>,
     width: usize,
     title: Option<String>,
-    selected: Option<bool>,
-    onclick: Option<EventHandler<MouseData>>
+    index: usize,
+    current_selection: Signal<Option<usize>>,
 ) -> Element {
-    let scale_percentage = ((width as f64 / 1024 as f64) * 100.0).round();
+    let mut selected = use_signal(move || Some(*current_selection.read() == Some(index)));
+
+    use_effect(move || {
+        selected.set(Some(*current_selection.read() == Some(index)));
+    });
+
+    rsx! {
+        PresentationViewer {
+            presentation_signal,
+            width,
+            title,
+            selected: selected,
+            onclick: move |_| {
+                tracing::debug!("Selected Presentation: {}", index);
+                current_selection.set(Some(index));
+            }
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Props)]
+struct PresentationViewerProps {
+    presentation_signal: Signal<RunningPresentation>,
+    width: usize,
+    title: Option<String>,
+    selected: Option<Signal<Option<bool>>>,
+    onclick: Option<EventHandler<MouseEvent>>,
+}
+
+
+#[component]
+pub fn PresentationViewer(
+    props: PresentationViewerProps
+) -> Element {
+    let scale_percentage = ((props.width as f64 / 1024 as f64) * 100.0).round();
     let zoom_css_string = format!("zoom: {}%;", scale_percentage.to_string());
 
     let css_class = use_memo(move || {
-        if selected == Some(true) {
-            "rounded-corners-active"
-        } else {
-            "rounded-corners-inactive"
+        match props.selected {
+            Some(selected) => {
+                if *selected.read() == Some(true) {
+                    "rounded-corners-active"
+                } else {
+                    "rounded-corners-inactive"
+                }
+            },
+            None => "rounded-corners-inactive"
         }
     });
 
@@ -127,19 +162,17 @@ pub fn PresentationViewer(
             class: format!("{} {}", css_class(), "presentation-preview inline-div"),
             style: format!("{}{}", "position: relative;width:1024px;height:576px;", zoom_css_string),
             onclick: move |event| {
-                if let Some(onclick) = onclick {
-                    match Rc::try_unwrap(event.clone().data) {
-                        Ok(data) => onclick.call(data),
-                        Err(_) => {}
-                    }
+                match props.onclick {
+                    Some(onclick) => onclick.call(event),
+                    None => {}
                 }
             },
 
             PresentationRendererComponent {
-                running_presentation: presentation_signal
+                running_presentation: props.presentation_signal
             }
 
-            if let Some(title) = title {
+            if let Some(title) = props.title {
                 div {
                     class: "presentation-title",
                     style: "zoom:100%!important;position: absolute;top: 0;right: 0;display: flex;align-items: center;justify-content: center;font-size: 30pt;background-color:black;color:white;",
