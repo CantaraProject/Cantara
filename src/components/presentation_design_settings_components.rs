@@ -34,7 +34,7 @@ pub fn PresentationDesignSettingsPage() -> Element {
                 class: "bottom-bar",
                 button {
                     onclick: move |_| {
-                        nav.replace(crate::Route::SettingsPage);
+                        nav.replace(crate::Route::SettingsPage {});
                     },
                     { t!("settings.close") }
                 }

@@ -1,13 +1,12 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
-use crate::{
-    logic::settings::*
-
-};
+use dioxus::logger::tracing;
+use crate::{logic::settings::*, Route};
 use dioxus::prelude::*;
 use rfd::FileDialog;
 use super::shared_components::{PresentationDesignSelecter, DeleteIcon, EditIcon, ExamplePresentationViewer};
 use rust_i18n::t;
+use dioxus_motion::prelude::*;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -23,6 +22,7 @@ pub fn SettingsPage() -> Element {
     use_effect(move || {
         if *presentation_designs.read() != settings.read().presentation_designs {
             settings.write().presentation_designs = presentation_designs.read().clone();
+            tracing::debug!("Updated presentation designs, length: {}", presentation_designs.read().len());
         }
     });
 
@@ -35,10 +35,8 @@ pub fn SettingsPage() -> Element {
             }
             main {
                 class: "container-fluid content height-100",
-                SettingsContent {}
-                hr { }
-                PresentationSettings {
-                    presentation_designs: presentation_designs
+                SettingsContent {
+                    presentation_designs
                 }
             }
             footer {
@@ -47,19 +45,25 @@ pub fn SettingsPage() -> Element {
 
                     onclick: move |_| {
                         settings.read().save();
-                        nav.replace(crate::Route::Selection);
+                        nav.replace(crate::Route::Selection {});
                     },
                     { t!("settings.close") }
                 }
             }
         }
+        AnimatedOutlet::<Route> {}
     }
+
 }
 
 #[component]
-fn SettingsContent() -> Element {
+fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Element {
     rsx! {
         RepositorySettings {}
+        hr { }
+        PresentationSettings {
+            presentation_designs: presentation_designs
+        }
     }
 }
 
@@ -148,18 +152,60 @@ fn RepositorySettings() -> Element {
 
 #[component]
 fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -> Element {
-    let selected_presentation_design: Signal<Option<usize>> = use_signal(|| Some(0));
+    let selected_presentation_design_index: Signal<Option<usize>> = use_signal(|| Some(0));
+
+    let mut selected_presentation_design: Signal<Option<PresentationDesign>> = use_signal(|| None);
+
+    // Update the selected_presentation_design signal whenever the index changes
+    use_effect(move || {
+        selected_presentation_design.set(match *selected_presentation_design_index.read() {
+            Some(index) => match presentation_designs.read().get(index) {
+                Some(design) => Some(design.clone()),
+                None => None
+            },
+            None => None
+        });
+    });
+
+    // Update the presentation_designs signal whenever the selected_presentation_design changes
+    use_effect(move || {
+        if selected_presentation_design.read().is_some() {
+            if let Some(index) = *selected_presentation_design_index.read() {
+                // Todo: Find out why this causes infinity loops
+                /* match presentation_designs.get_mut(index) {
+                    Some(mut mut_ref) => {
+                        *mut_ref = selected_presentation_design().unwrap()
+                    },
+                    None => {}
+                }; */
+            }
+        }
+    });
 
     rsx! {
         hgroup {
             h4 { { t!("settings.presentation_headline") } }
             p { { t!("settings.presentation_description") } }
         }
-
-        PresentationDesignSelecter {
-            presentation_designs: presentation_designs,
-            viewer_width: 400,
-            active_item: selected_presentation_design
+        div {
+            class: "grid",
+            div {
+                PresentationDesignSelecter {
+                    presentation_designs: presentation_designs,
+                    viewer_width: 400,
+                    active_item: selected_presentation_design_index
+                }
+            }
+            div {
+                "Hello World"
+            }
         }
+    }
+}
+
+#[component]
+fn PresentationDesignCard(presentation_design: PresentationDesign) -> Element {
+    rsx! {
+
     }
 }

@@ -104,7 +104,7 @@ fn WizardPage(step: Signal<u8>) -> Element {
         3 => rsx! { ThirdStep {} },
 
         _ => {
-            nav.replace(Route::Selection);
+            nav.replace(Route::Selection {});
             rsx! {}
         }
     }

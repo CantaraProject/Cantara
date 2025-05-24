@@ -16,6 +16,7 @@ use crate::logic::settings::PresentationDesign;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::*;
 use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
+use dioxus_motion::prelude::*;
 use super::presentation_components::PresentationPage;
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -127,7 +128,7 @@ pub fn Selection() -> Element {
                     class: "no-padding width-100",
                     role: "group",
                     button {
-                        onclick: move |_| { nav.push(crate::Route::SettingsPage); },
+                        onclick: move |_| { nav.push(crate::Route::SettingsPage {}); },
                         class: "outline secondary smaller-buttons",
                         span {
                             class: "desktop-only",
@@ -166,7 +167,9 @@ pub fn Selection() -> Element {
                 active_detailed_item_id: active_detailed_item_id,
             }
         }
+        AnimatedOutlet::<Route> {}
     }
+    
 }
 
 #[component]

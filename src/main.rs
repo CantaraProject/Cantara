@@ -18,6 +18,7 @@ mod components;
 
 use crate::components::settings_components::SettingsPage;
 use dioxus::prelude::*;
+use dioxus_router::prelude::*;
 use dioxus_motion::prelude::*;
 use logic::settings::*;
 use logic::sourcefiles::SourceFile;
@@ -49,17 +50,17 @@ pub enum Route {
     /// The selection route allows the user to select songs or other elements for the presentation
     #[route("/")]
     #[transition(Fade)]
-    Selection,
+    Selection {},
 
     /// The wizard is shown when the program is run for the first time (no configuration file exists)
     #[route("/wizard")]
     #[transition(SlideLeft)]
-    Wizard,
+    Wizard {},
 
     /// The settings page is shown when explicitly called
     #[route("/settings")]
     #[transition(Fade)]
-    SettingsPage
+    SettingsPage {}
 }
 
 fn main() {
@@ -137,7 +138,6 @@ fn App() -> Element {
         document::Meta { name: "color-scheme", content: "light dark" }
         document::Meta { name: "content-language", content: locale }
 
-        Router::<Route> {}
-
+        Router::<Route> { }
     }
 }
