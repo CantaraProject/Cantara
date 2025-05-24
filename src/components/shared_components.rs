@@ -127,25 +127,20 @@ pub fn SelectablePresentationViewer(
     }
 }
 
-#[derive(PartialEq, Clone, Props)]
-struct PresentationViewerProps {
+
+#[component]
+pub fn PresentationViewer(
     presentation_signal: Signal<RunningPresentation>,
     width: usize,
     title: Option<String>,
     selected: Option<Signal<Option<bool>>>,
     onclick: Option<EventHandler<MouseEvent>>,
-}
-
-
-#[component]
-pub fn PresentationViewer(
-    props: PresentationViewerProps
 ) -> Element {
-    let scale_percentage = ((props.width as f64 / 1024 as f64) * 100.0).round();
+    let scale_percentage = ((width as f64 / 1024 as f64) * 100.0).round();
     let zoom_css_string = format!("zoom: {}%;", scale_percentage.to_string());
 
     let css_class = use_memo(move || {
-        match props.selected {
+        match selected {
             Some(selected) => {
                 if *selected.read() == Some(true) {
                     "rounded-corners-active"
@@ -162,17 +157,17 @@ pub fn PresentationViewer(
             class: format!("{} {}", css_class(), "presentation-preview inline-div"),
             style: format!("{}{}", "position: relative;width:1024px;height:576px;", zoom_css_string),
             onclick: move |event| {
-                match props.onclick {
+                match onclick {
                     Some(onclick) => onclick.call(event),
                     None => {}
                 }
             },
 
             PresentationRendererComponent {
-                running_presentation: props.presentation_signal
+                running_presentation: presentation_signal
             }
 
-            if let Some(title) = props.title {
+            if let Some(title) = title {
                 div {
                     class: "presentation-title",
                     style: "zoom:100%!important;position: absolute;top: 0;right: 0;display: flex;align-items: center;justify-content: center;font-size: 30pt;background-color:black;color:white;",
