@@ -4,7 +4,7 @@ use dioxus::logger::tracing;
 use crate::{logic::settings::*, Route};
 use dioxus::prelude::*;
 use rfd::FileDialog;
-use super::shared_components::{PresentationDesignSelecter, DeleteIcon, EditIcon, ExamplePresentationViewer};
+use super::shared_components::{PresentationDesignSelecter, DeleteIcon, EditIcon};
 use rust_i18n::t;
 use dioxus_motion::prelude::*;
 
@@ -168,19 +168,18 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
     });
 
     // Update the presentation_designs signal whenever the selected_presentation_design changes
-    use_effect(move || {
-        if selected_presentation_design.read().is_some() {
-            if let Some(index) = *selected_presentation_design_index.read() {
-                // Todo: Find out why this causes infinity loops
-                /* match presentation_designs.get_mut(index) {
-                    Some(mut mut_ref) => {
-                        *mut_ref = selected_presentation_design().unwrap()
-                    },
+    let update_selected_design = move || {
+        match *selected_presentation_design_index.read() {
+            Some(index) => match selected_presentation_design.read().clone() {
+                Some(design) => match presentation_designs.write().get_mut(index) {
+                    Some(writable_pd_ref) => *writable_pd_ref = design.clone(),
                     None => {}
-                }; */
-            }
+                },
+                None => {}
+            },
+            None => {}
         }
-    });
+    };
 
     rsx! {
         hgroup {
@@ -197,7 +196,12 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                 }
             }
             div {
-                "Hello World"
+                if selected_presentation_design.read().is_some() {
+                    article {
+                        h6  { { selected_presentation_design().unwrap().name } }
+                        button { { t!("general.edit") } }
+                    }
+                }
             }
         }
     }

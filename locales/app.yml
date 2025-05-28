@@ -136,3 +136,6 @@ general:
   close:
     en: Close
     de: Schließen
+  edit:
+    en: Edit
+    de: Bearbeiten
