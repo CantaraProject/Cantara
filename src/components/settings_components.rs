@@ -11,6 +11,10 @@ use dioxus_motion::prelude::*;
 rust_i18n::i18n!("locales", fallback = "en");
 
 /// This page contains the general settings for Cantara
+
+/// The component representing the settings page in Cantara. It loads the settings from persistance
+/// and provides the structure of the settings page. It is the entry component for the other components
+/// of this module.
 #[component]
 pub fn SettingsPage() -> Element {
     let nav = use_navigator();
@@ -56,6 +60,8 @@ pub fn SettingsPage() -> Element {
 
 }
 
+/// This components provides the settings component and is designed as a middleware between the
+/// [SettingsPage] and its children.
 #[component]
 fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Element {
     rsx! {
@@ -67,6 +73,7 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
     }
 }
 
+/// Implements the logic for adding, editing and deleting repositories
 #[component]
 fn RepositorySettings() -> Element {
     let mut settings = use_settings();
@@ -150,6 +157,7 @@ fn RepositorySettings() -> Element {
     }
 }
 
+/// Component for modifying the presentation design settings
 #[component]
 fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -> Element {
     let selected_presentation_design_index: Signal<Option<usize>> = use_signal(|| Some(0));

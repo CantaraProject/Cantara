@@ -134,6 +134,7 @@ fn App() -> Element {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Script { src: POSITIONING_JS }
         document::Title { "Cantara" }
+
         document::Meta { name: "viewport", content: "width=device-width, initial-scale=1" }
         document::Meta { name: "color-scheme", content: "light dark" }
         document::Meta { name: "content-language", content: locale }
