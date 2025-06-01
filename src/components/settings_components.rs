@@ -1,12 +1,12 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
+use super::shared_components::{DeleteIcon, EditIcon, PresentationDesignSelecter};
+use crate::{Route, logic::settings::*};
 use dioxus::logger::tracing;
-use crate::{logic::settings::*, Route};
 use dioxus::prelude::*;
-use rfd::FileDialog;
-use super::shared_components::{PresentationDesignSelecter, DeleteIcon, EditIcon};
-use rust_i18n::t;
 use dioxus_motion::prelude::*;
+use rfd::FileDialog;
+use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -26,7 +26,10 @@ pub fn SettingsPage() -> Element {
     use_effect(move || {
         if *presentation_designs.read() != settings.read().presentation_designs {
             settings.write().presentation_designs = presentation_designs.read().clone();
-            tracing::debug!("Updated presentation designs, length: {}", presentation_designs.read().len());
+            tracing::debug!(
+                "Updated presentation designs, length: {}",
+                presentation_designs.read().len()
+            );
         }
     });
 
@@ -57,7 +60,6 @@ pub fn SettingsPage() -> Element {
         }
         AnimatedOutlet::<Route> {}
     }
-
 }
 
 /// This components provides the settings component and is designed as a middleware between the
@@ -169,24 +171,22 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
         selected_presentation_design.set(match *selected_presentation_design_index.read() {
             Some(index) => match presentation_designs.read().get(index) {
                 Some(design) => Some(design.clone()),
-                None => None
+                None => None,
             },
-            None => None
+            None => None,
         });
     });
 
     // Update the presentation_designs signal whenever the selected_presentation_design changes
-    let update_selected_design = move || {
-        match *selected_presentation_design_index.read() {
-            Some(index) => match selected_presentation_design.read().clone() {
-                Some(design) => match presentation_designs.write().get_mut(index) {
-                    Some(writable_pd_ref) => *writable_pd_ref = design.clone(),
-                    None => {}
-                },
+    let update_selected_design = move || match *selected_presentation_design_index.read() {
+        Some(index) => match selected_presentation_design.read().clone() {
+            Some(design) => match presentation_designs.write().get_mut(index) {
+                Some(writable_pd_ref) => *writable_pd_ref = design.clone(),
                 None => {}
             },
             None => {}
-        }
+        },
+        None => {}
     };
 
     rsx! {
@@ -217,7 +217,5 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
 
 #[component]
 fn PresentationDesignCard(presentation_design: PresentationDesign) -> Element {
-    rsx! {
-
-    }
+    rsx! {}
 }

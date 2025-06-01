@@ -1,7 +1,9 @@
 //! This submodule contains shared components which can be reused among different parts of the program.
 
-use std::ops::Deref;
-use std::rc::Rc;
+use super::presentation_components::PresentationRendererComponent;
+use crate::logic::presentation::create_amazing_grace_presentation;
+use crate::logic::settings::{PresentationDesign, PresentationDesignSettings};
+use crate::logic::states::RunningPresentation;
 use cantara_songlib::slides::SlideSettings;
 use dioxus::html::u::height;
 use dioxus::logger::tracing;
@@ -10,10 +12,8 @@ use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
 use dioxus_free_icons::icons::fa_solid_icons::{FaImage, FaMusic, FaPenToSquare};
 use rust_i18n::t;
-use crate::logic::presentation::create_amazing_grace_presentation;
-use crate::logic::settings::{PresentationDesign, PresentationDesignSettings};
-use crate::logic::states::RunningPresentation;
-use super::presentation_components::PresentationRendererComponent;
+use std::ops::Deref;
+use std::rc::Rc;
 
 #[component]
 pub fn DeleteIcon() -> Element {
@@ -66,12 +66,15 @@ pub fn PresentationDesignSelecter(
 
     use_effect(move || {
         for design in presentation_designs() {
-            let presentation = use_signal(||
-                create_amazing_grace_presentation(&design, &match song_slide_settings {
-                    Some(slide_settings_signal) => slide_settings_signal(),
-                    None => SlideSettings::default()
-                })
-            );
+            let presentation = use_signal(|| {
+                create_amazing_grace_presentation(
+                    &design,
+                    &match song_slide_settings {
+                        Some(slide_settings_signal) => slide_settings_signal(),
+                        None => SlideSettings::default(),
+                    },
+                )
+            });
             presentations.push(presentation);
         }
     });
@@ -128,7 +131,6 @@ pub fn SelectablePresentationViewer(
     }
 }
 
-
 #[component]
 pub fn PresentationViewer(
     presentation_signal: Signal<RunningPresentation>,
@@ -140,17 +142,15 @@ pub fn PresentationViewer(
     let scale_percentage = ((width as f64 / 1024 as f64) * 100.0).round();
     let zoom_css_string = format!("zoom: {}%;", scale_percentage.to_string());
 
-    let css_class = use_memo(move || {
-        match selected {
-            Some(selected) => {
-                if *selected.read() == Some(true) {
-                    "rounded-corners-active"
-                } else {
-                    "rounded-corners-inactive"
-                }
-            },
-            None => "rounded-corners-inactive"
+    let css_class = use_memo(move || match selected {
+        Some(selected) => {
+            if *selected.read() == Some(true) {
+                "rounded-corners-active"
+            } else {
+                "rounded-corners-inactive"
+            }
         }
+        None => "rounded-corners-inactive",
     });
 
     rsx! {
@@ -187,16 +187,15 @@ pub fn ExamplePresentationViewer(
     width: usize,
     increase_font_size_in_percent: Option<usize>,
 ) -> Element {
-    let presentation_signal =
-        use_signal(|| 
-            create_amazing_grace_presentation(
-                &presentation_design,
-                &match song_slide_settings {
-                    Some(slide_settings_signal) => slide_settings_signal(),
-                    None => SlideSettings::default()
-                }
-            )
-        );
+    let presentation_signal = use_signal(|| {
+        create_amazing_grace_presentation(
+            &presentation_design,
+            &match song_slide_settings {
+                Some(slide_settings_signal) => slide_settings_signal(),
+                None => SlideSettings::default(),
+            },
+        )
+    });
 
     rsx! {
         PresentationViewer {

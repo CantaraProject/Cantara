@@ -6,11 +6,11 @@ use super::{
     states::{RunningPresentation, SelectedItemRepresentation, SlideChapter},
 };
 
+use crate::logic::settings::PresentationDesignSettings;
 use cantara_songlib::importer::classic_song::slides_from_classic_song;
 use cantara_songlib::slides::{Slide, SlideSettings};
 use dioxus::prelude::*;
 use std::{error::Error, path::PathBuf};
-use crate::logic::settings::PresentationDesignSettings;
 
 /// This song provides Amazing Grace as a default song which can be used for creating example presentations
 const AMAZING_GRACE_SONG: &str = "#title: Amazing Grace
@@ -45,7 +45,6 @@ fn create_presentation_slides(
     let mut presentation: Vec<Slide> = vec![];
 
     if selected_item.source_file.file_type == SourceFileType::Song {
-
         let slide_settings = selected_item
             .slide_settings_option
             .clone()
@@ -84,12 +83,12 @@ pub fn add_presentation(
             .presentation_design_option
             .clone()
             .unwrap_or(default_presentation_design.clone());
-        
+
         let used_slide_settings = selected_item
             .slide_settings_option
             .clone()
             .unwrap_or(default_slide_settings.clone());
-        
+
         match create_presentation_slides(selected_item, &used_slide_settings) {
             Ok(slides) => presentation.push(SlideChapter {
                 slides,
@@ -116,7 +115,7 @@ pub fn add_presentation(
 /// Creates an example presentation with the song Amazing Grace and a given presentation design
 pub fn create_amazing_grace_presentation(
     presentation_design: &PresentationDesign,
-    slide_settings: &SlideSettings
+    slide_settings: &SlideSettings,
 ) -> RunningPresentation {
     let slides = slides_from_classic_song(
         AMAZING_GRACE_SONG,
@@ -129,10 +128,10 @@ pub fn create_amazing_grace_presentation(
         file_type: SourceFileType::Song,
     };
     let slide_chapter = SlideChapter::new(
-        slides, 
-        source_file, 
+        slides,
+        source_file,
         Some(presentation_design.clone()),
-        Some(slide_settings.clone())
+        Some(slide_settings.clone()),
     );
 
     RunningPresentation::new(vec![slide_chapter])
@@ -159,7 +158,7 @@ mod tests {
                 file_type: SourceFileType::Song,
             },
             presentation_design_option: None,
-            slide_settings_option: None
+            slide_settings_option: None,
         };
         assert!(create_presentation_slides(&select_item, &SlideSettings::default()).is_ok());
     }

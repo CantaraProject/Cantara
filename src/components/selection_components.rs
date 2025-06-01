@@ -1,24 +1,24 @@
 //! This module includes the components for song selection
 
+use super::presentation_components::PresentationPage;
+use super::shared_components::{ImageIcon, MusicIcon};
 use crate::TEST_STATE;
 use crate::logic::presentation;
+use crate::logic::settings::PresentationDesign;
 use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
-use super::shared_components::{ImageIcon, MusicIcon};
 use crate::{Route, logic::settings::Settings, logic::sourcefiles::SourceFile};
-use dioxus::prelude::*;
-use dioxus_router::prelude::navigator;
-use rust_i18n::t;
-use std::rc::Rc;
 use cantara_songlib::slides::SlideSettings;
-use dioxus::desktop::{tao, WindowCloseBehaviour};
 use dioxus::desktop::tao::window::Fullscreen;
-use crate::logic::settings::PresentationDesign;
+use dioxus::desktop::{WindowCloseBehaviour, tao};
+use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::*;
 use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
 use dioxus_motion::prelude::*;
-use super::presentation_components::PresentationPage;
+use dioxus_router::prelude::navigator;
+use rust_i18n::t;
+use std::rc::Rc;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -45,8 +45,14 @@ pub fn Selection() -> Element {
             None => PresentationDesign::default(),
         });
 
-    let default_song_slide_settings_memo =
-        use_memo(move || settings.read().song_slide_settings.get(0).unwrap_or(&SlideSettings::default()).clone());
+    let default_song_slide_settings_memo = use_memo(move || {
+        settings
+            .read()
+            .song_slide_settings
+            .get(0)
+            .unwrap_or(&SlideSettings::default())
+            .clone()
+    });
 
     use_effect(move || {
         if !settings.read().wizard_completed {
@@ -173,7 +179,6 @@ pub fn Selection() -> Element {
         }
         AnimatedOutlet::<Route> {}
     }
-    
 }
 
 #[component]
@@ -505,7 +510,7 @@ fn start_presentation(
         selected_items,
         running_presentations,
         default_presentation_design,
-        default_slide_settings
+        default_slide_settings,
     )
     .is_some()
     {
@@ -520,7 +525,10 @@ fn start_presentation(
             .with_decorations(true)
             .with_visible(true);
 
-        dioxus::desktop::window().new_window(presentation_dom, Config::new().with_menu(None).with_window(window));
+        dioxus::desktop::window().new_window(
+            presentation_dom,
+            Config::new().with_menu(None).with_window(window),
+        );
     }
 }
 

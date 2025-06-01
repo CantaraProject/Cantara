@@ -3,9 +3,9 @@ use std::{fs, path::PathBuf};
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use cantara_songlib::slides::{Slide, SlideSettings};
-use crate::logic::settings::PresentationDesignSettings;
 use super::{settings::PresentationDesign, sourcefiles::SourceFile};
+use crate::logic::settings::PresentationDesignSettings;
+use cantara_songlib::slides::{Slide, SlideSettings};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Settings {
@@ -261,7 +261,7 @@ impl SlideChapter {
             slides,
             source_file,
             presentation_design_option: presentation_design,
-            slide_settings_option: slide_settings
+            slide_settings_option: slide_settings,
         }
     }
 }

@@ -183,7 +183,7 @@ pub struct PresentationDesign {
     pub description: String,
 
     /// Presentation Design settings for that PresentationDesign
-    pub presentation_design_settings: PresentationDesignSettings
+    pub presentation_design_settings: PresentationDesignSettings,
 }
 
 impl Default for PresentationDesign {

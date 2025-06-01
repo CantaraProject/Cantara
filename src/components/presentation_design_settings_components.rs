@@ -1,12 +1,12 @@
 //! This module provides components for adjusting the presentation designs
 
+use crate::logic::settings::{PresentationDesign, use_settings};
 use dioxus::core_macro::{component, rsx};
 use dioxus::dioxus_core::Element;
 use dioxus::hooks::{use_effect, use_signal};
 use dioxus::prelude::*;
 use dioxus_router::hooks::use_navigator;
 use rust_i18n::t;
-use crate::logic::settings::{use_settings, PresentationDesign};
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -18,7 +18,7 @@ pub fn PresentationDesignSettingsPage() -> Element {
 
     let presentation_designs: Signal<Vec<PresentationDesign>> =
         use_signal(|| settings.read().presentation_designs.clone());
-    
+
     rsx! {
         div {
             class: "wrapper",
