@@ -105,6 +105,12 @@ settings:
   presentation_description:
     en: Setup how the presentation should look like. Click on one of the presentation designs below to adjust its settings, or create a new one.
     de: Hier kann eingestellt werden, wie die Präsentation aussehen soll. Klicken Sie dazu auf eines der Präsentationsdesigns oder legen Sie ein neues an.
+  presentation_designs:
+    en: Presentation Designs
+    de: Präsentationsdesigns
+  presentation_designs_edit_header:
+    en: Edit Presentation Design %{title}
+    de: Präsentationsdesign %{title} bearbeiten
 
 presentation:
   title:

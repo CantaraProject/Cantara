@@ -194,7 +194,15 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                 if selected_presentation_design.read().is_some() {
                     article {
                         h6  { { selected_presentation_design().unwrap().name } }
-                        button { { t!("general.edit") } }
+                        button {
+                            onclick: move |_| {
+                                let nav = use_navigator();
+                                nav.push(Route::PresentationDesignSettingsPage {
+                                    index: selected_presentation_design_index.read().unwrap() as u16
+                                });
+                            }, 
+                            { t!("general.edit") } 
+                        }
                     }
                 }
             }
