@@ -1,6 +1,6 @@
 //! This module contains the logic and structures for managing, loading and saving the program's settings.
 
-use cantara_songlib::slides::{Slide, SlideSettings};
+use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
 use rgb::*;
 use serde::{Deserialize, Serialize};
@@ -354,25 +354,22 @@ impl Default for TopBottomLeftRight {
 
 /// A size value representing a CSS file
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Default)]
 pub enum CssSize {
     Px(f32),
     Em(f32),
     Percentage(f32),
+    #[default]
     Null,
 }
 
-impl Default for CssSize {
-    fn default() -> Self {
-        CssSize::Null
-    }
-}
 
 impl CssSize {
     pub fn to_css_string(&self) -> String {
         match self {
-            CssSize::Px(size) => format!("{}px", size.to_string()),
-            CssSize::Em(size) => format!("{}em", size.to_string()),
-            CssSize::Percentage(size) => format!("{}%", size.to_string()),
+            CssSize::Px(size) => format!("{}px", size),
+            CssSize::Em(size) => format!("{}em", size),
+            CssSize::Percentage(size) => format!("{}%", size),
             CssSize::Null => "0".to_string(),
         }
     }

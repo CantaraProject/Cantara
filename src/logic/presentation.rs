@@ -6,7 +6,6 @@ use super::{
     states::{RunningPresentation, SelectedItemRepresentation, SlideChapter},
 };
 
-use crate::logic::settings::PresentationDesignSettings;
 use cantara_songlib::importer::classic_song::slides_from_classic_song;
 use cantara_songlib::slides::{Slide, SlideSettings};
 use dioxus::prelude::*;
@@ -142,7 +141,6 @@ mod tests {
     use std::{path::PathBuf, str::FromStr};
 
     use crate::logic::{
-        settings::PresentationDesign,
         sourcefiles::{SourceFile, SourceFileType},
         states::SelectedItemRepresentation,
     };

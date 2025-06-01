@@ -21,7 +21,6 @@ use crate::components::settings_components::SettingsPage;
 use crate::components::wizard_components::Wizard;
 use dioxus::prelude::*;
 use dioxus_motion::prelude::*;
-use dioxus_router::prelude::*;
 use logic::settings::*;
 use logic::sourcefiles::SourceFile;
 use logic::states::{self, RunningPresentation, SelectedItemRepresentation};

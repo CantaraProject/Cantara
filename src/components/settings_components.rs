@@ -114,7 +114,7 @@ fn RepositorySettings() -> Element {
                                     };
                                     if new_name.is_some() {
                                         let new_name_unwrapped = new_name.clone().unwrap();
-                                        if new_name_unwrapped.trim() != "" && new_name_unwrapped != "null".to_string() {
+                                        if new_name_unwrapped.trim() != "" && new_name_unwrapped != *"null" {
                                             settings.repositories.get_mut(index).unwrap().name = new_name_unwrapped.trim().to_string();
                                         }
                                     }
@@ -169,25 +169,13 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
     // Update the selected_presentation_design signal whenever the index changes
     use_effect(move || {
         selected_presentation_design.set(match *selected_presentation_design_index.read() {
-            Some(index) => match presentation_designs.read().get(index) {
-                Some(design) => Some(design.clone()),
-                None => None,
-            },
+            Some(index) => presentation_designs.read().get(index).cloned(),
             None => None,
         });
     });
 
     // Update the presentation_designs signal whenever the selected_presentation_design changes
-    let update_selected_design = move || match *selected_presentation_design_index.read() {
-        Some(index) => match selected_presentation_design.read().clone() {
-            Some(design) => match presentation_designs.write().get_mut(index) {
-                Some(writable_pd_ref) => *writable_pd_ref = design.clone(),
-                None => {}
-            },
-            None => {}
-        },
-        None => {}
-    };
+    let update_selected_design = move || if let Some(index) = *selected_presentation_design_index.read() { if let Some(design) = selected_presentation_design.read().clone() { if let Some(writable_pd_ref) = presentation_designs.write().get_mut(index) { *writable_pd_ref = design.clone() } } };
 
     rsx! {
         hgroup {

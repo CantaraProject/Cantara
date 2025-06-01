@@ -2,18 +2,14 @@
 
 use super::presentation_components::PresentationRendererComponent;
 use crate::logic::presentation::create_amazing_grace_presentation;
-use crate::logic::settings::{PresentationDesign, PresentationDesignSettings};
+use crate::logic::settings::PresentationDesign;
 use crate::logic::states::RunningPresentation;
 use cantara_songlib::slides::SlideSettings;
-use dioxus::html::u::height;
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
 use dioxus_free_icons::icons::fa_solid_icons::{FaImage, FaMusic, FaPenToSquare};
-use rust_i18n::t;
-use std::ops::Deref;
-use std::rc::Rc;
 
 #[component]
 pub fn DeleteIcon() -> Element {
@@ -62,7 +58,7 @@ pub fn PresentationDesignSelecter(
     viewer_width: usize,
     active_item: Signal<Option<usize>>,
 ) -> Element {
-    let mut presentations: Signal<Vec<Signal<RunningPresentation>>> = use_signal(|| vec![]);
+    let mut presentations: Signal<Vec<Signal<RunningPresentation>>> = use_signal(std::vec::Vec::new);
 
     use_effect(move || {
         for design in presentation_designs() {
@@ -139,8 +135,8 @@ pub fn PresentationViewer(
     selected: Option<Signal<Option<bool>>>,
     onclick: Option<EventHandler<MouseEvent>>,
 ) -> Element {
-    let scale_percentage = ((width as f64 / 1024 as f64) * 100.0).round();
-    let zoom_css_string = format!("zoom: {}%;", scale_percentage.to_string());
+    let scale_percentage = ((width as f64 / 1024_f64) * 100.0).round();
+    let zoom_css_string = format!("zoom: {}%;", scale_percentage);
 
     let css_class = use_memo(move || match selected {
         Some(selected) => {
@@ -158,10 +154,7 @@ pub fn PresentationViewer(
             class: format!("{} {}", css_class(), "presentation-preview inline-div"),
             style: format!("{}{}", "position: relative;width:1024px;height:576px;", zoom_css_string),
             onclick: move |event| {
-                match onclick {
-                    Some(onclick) => onclick.call(event),
-                    None => {}
-                }
+                if let Some(onclick) = onclick { onclick.call(event) }
             },
 
             PresentationRendererComponent {

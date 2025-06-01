@@ -1,6 +1,5 @@
 //! This module includes the components for song selection
 
-use super::presentation_components::PresentationPage;
 use super::shared_components::{ImageIcon, MusicIcon};
 use crate::TEST_STATE;
 use crate::logic::presentation;
@@ -9,8 +8,7 @@ use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
 use crate::{Route, logic::settings::Settings, logic::sourcefiles::SourceFile};
 use cantara_songlib::slides::SlideSettings;
-use dioxus::desktop::tao::window::Fullscreen;
-use dioxus::desktop::{WindowCloseBehaviour, tao};
+use dioxus::desktop::tao;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::*;
@@ -40,7 +38,7 @@ pub fn Selection() -> Element {
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
 
     let default_presentation_design_memo =
-        use_memo(move || match settings.read().presentation_designs.get(0) {
+        use_memo(move || match settings.read().presentation_designs.first() {
             Some(design) => design.clone(),
             None => PresentationDesign::default(),
         });
@@ -48,8 +46,7 @@ pub fn Selection() -> Element {
     let default_song_slide_settings_memo = use_memo(move || {
         settings
             .read()
-            .song_slide_settings
-            .get(0)
+            .song_slide_settings.first()
             .unwrap_or(&SlideSettings::default())
             .clone()
     });
@@ -484,7 +481,7 @@ fn SourceDetailView(
                 footer {
                     button {
                         onclick: move |_| { active_detailed_item_id.set(None) },
-                        { { t!("general.close") } }
+                        { t!("general.close") }
                     }
                 }
             }

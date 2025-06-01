@@ -4,7 +4,6 @@ use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::{settings::PresentationDesign, sourcefiles::SourceFile};
-use crate::logic::settings::PresentationDesignSettings;
 use cantara_songlib::slides::{Slide, SlideSettings};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Default)]
