@@ -10,6 +10,7 @@ use dioxus::prelude::*;
 use dioxus_router::prelude::navigator;
 use rust_i18n::t;
 use std::rc::Rc;
+use cantara_songlib::slides::SlideSettings;
 use dioxus::desktop::{tao, WindowCloseBehaviour};
 use dioxus::desktop::tao::window::Fullscreen;
 use crate::logic::settings::PresentationDesign;
@@ -38,11 +39,14 @@ pub fn Selection() -> Element {
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
 
-    let default_presentation_design_signal =
-        use_signal(|| match settings.read().presentation_designs.get(0) {
+    let default_presentation_design_memo =
+        use_memo(move || match settings.read().presentation_designs.get(0) {
             Some(design) => design.clone(),
             None => PresentationDesign::default(),
         });
+
+    let default_song_slide_settings_memo =
+        use_memo(move || settings.read().song_slide_settings.get(0).unwrap_or(&SlideSettings::default()).clone());
 
     use_effect(move || {
         if !settings.read().wizard_completed {
@@ -151,7 +155,7 @@ pub fn Selection() -> Element {
                     },
                     button {
                         class: "primary smaller-buttons",
-                        onclick: move |_| start_presentation(&selected_items.read().clone(), &mut running_presentations, &default_presentation_design_signal()),
+                        onclick: move |_| start_presentation(&selected_items.read().clone(), &mut running_presentations, &default_presentation_design_memo(), &default_song_slide_settings_memo()),
                         span {
                             class: "desktop-only",
                             { t!("selection.start_presentation") }
@@ -490,6 +494,7 @@ fn start_presentation(
     selected_items: &Vec<SelectedItemRepresentation>,
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
+    default_slide_settings: &SlideSettings,
 ) {
     // Create the presentation
 
@@ -500,6 +505,7 @@ fn start_presentation(
         selected_items,
         running_presentations,
         default_presentation_design,
+        default_slide_settings
     )
     .is_some()
     {

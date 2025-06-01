@@ -2,6 +2,7 @@
 
 use std::ops::Deref;
 use std::rc::Rc;
+use cantara_songlib::slides::SlideSettings;
 use dioxus::html::u::height;
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
@@ -37,10 +38,7 @@ pub fn MusicIcon(width: Option<u32>) -> Element {
     rsx! {
         Icon {
             icon: FaMusic,
-            width: match width {
-                Some(w) => w,
-                None => 20
-            },
+            width: width.unwrap_or(20),
         }
     }
 }
@@ -50,10 +48,7 @@ pub fn ImageIcon(width: Option<u32>) -> Element {
     rsx! {
         Icon {
             icon: FaImage,
-            width: match width {
-                Some(w) => w,
-                None => 20
-            },
+            width: width.unwrap_or(20),
         }
     }
 }
@@ -62,6 +57,7 @@ pub fn ImageIcon(width: Option<u32>) -> Element {
 #[component]
 pub fn PresentationDesignSelecter(
     presentation_designs: Signal<Vec<PresentationDesign>>,
+    song_slide_settings: Option<Signal<SlideSettings>>,
     default_selection: Option<usize>,
     viewer_width: usize,
     active_item: Signal<Option<usize>>,
@@ -70,7 +66,12 @@ pub fn PresentationDesignSelecter(
 
     use_effect(move || {
         for design in presentation_designs() {
-            let presentation = use_signal(|| create_amazing_grace_presentation(&design));
+            let presentation = use_signal(||
+                create_amazing_grace_presentation(&design, &match song_slide_settings {
+                    Some(slide_settings_signal) => slide_settings_signal(),
+                    None => SlideSettings::default()
+                })
+            );
             presentations.push(presentation);
         }
     });
@@ -178,15 +179,24 @@ pub fn PresentationViewer(
     }
 }
 
-/// Provides an Example Presentation Viewer in 16:9 format scailed down to a fixed with
+/// Provides an Example Presentation Viewer in 16:9 format scaled down to a fixed with
 #[component]
 pub fn ExamplePresentationViewer(
     presentation_design: PresentationDesign,
+    song_slide_settings: Option<Signal<SlideSettings>>,
     width: usize,
     increase_font_size_in_percent: Option<usize>,
 ) -> Element {
     let presentation_signal =
-        use_signal(|| create_amazing_grace_presentation(&presentation_design));
+        use_signal(|| 
+            create_amazing_grace_presentation(
+                &presentation_design,
+                &match song_slide_settings {
+                    Some(slide_settings_signal) => slide_settings_signal(),
+                    None => SlideSettings::default()
+                }
+            )
+        );
 
     rsx! {
         PresentationViewer {

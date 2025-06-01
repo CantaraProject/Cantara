@@ -3,8 +3,8 @@ use std::{fs, path::PathBuf};
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use cantara_songlib::slides::Slide;
-
+use cantara_songlib::slides::{Slide, SlideSettings};
+use crate::logic::settings::PresentationDesignSettings;
 use super::{settings::PresentationDesign, sourcefiles::SourceFile};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Default)]
@@ -72,8 +72,11 @@ pub struct SelectedItemRepresentation {
     /// The source file of the selected item
     pub source_file: SourceFile,
 
-    /// The [PresentationDesign] as an option. If [None], the default [PresentationDesign] will be used.
+    /// The [PresentationDesignSettings] as an option. If [None], the default [PresentationDesign] will be used.
     pub presentation_design_option: Option<PresentationDesign>,
+
+    /// The [PresentationDesign] as an option. If [None], the default [PresentationDesign] will be used.
+    pub slide_settings_option: Option<SlideSettings>,
 }
 
 impl SelectedItemRepresentation {
@@ -81,6 +84,7 @@ impl SelectedItemRepresentation {
         SelectedItemRepresentation {
             source_file,
             presentation_design_option: None,
+            slide_settings_option: None,
         }
     }
 }
@@ -133,10 +137,23 @@ impl RunningPresentation {
                 .presentation
                 .get(pos.chapter())
                 .unwrap()
-                .presentation_design
+                .presentation_design_option
                 .clone()
                 .unwrap_or(PresentationDesign::default()),
             None => PresentationDesign::default(),
+        }
+    }
+
+    pub fn get_current_slide_settings(&self) -> SlideSettings {
+        match self.position.clone() {
+            Some(pos) => self
+                .presentation
+                .get(pos.chapter())
+                .unwrap()
+                .slide_settings_option
+                .clone()
+                .unwrap_or(SlideSettings::default()),
+            None => SlideSettings::default(),
         }
     }
 }
@@ -229,7 +246,8 @@ impl RunningPresentationPosition {
 pub struct SlideChapter {
     pub slides: Vec<Slide>,
     pub source_file: SourceFile,
-    pub presentation_design: Option<PresentationDesign>,
+    pub presentation_design_option: Option<PresentationDesign>,
+    pub slide_settings_option: Option<SlideSettings>,
 }
 
 impl SlideChapter {
@@ -237,11 +255,13 @@ impl SlideChapter {
         slides: Vec<Slide>,
         source_file: SourceFile,
         presentation_design: Option<PresentationDesign>,
+        slide_settings: Option<SlideSettings>,
     ) -> Self {
         SlideChapter {
             slides,
             source_file,
-            presentation_design,
+            presentation_design_option: presentation_design,
+            slide_settings_option: slide_settings
         }
     }
 }

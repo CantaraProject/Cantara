@@ -1,6 +1,6 @@
 //! This module contains the logic and structures for managing, loading and saving the program's settings.
 
-use cantara_songlib::slides::SlideSettings;
+use cantara_songlib::slides::{Slide, SlideSettings};
 use dioxus::prelude::*;
 use rgb::*;
 use serde::{Deserialize, Serialize};
@@ -31,9 +31,14 @@ pub struct Settings {
     pub wizard_completed: bool,
 
     /// The configured presentation designs in Cantara.
-    /// The default one is added as default.
+    /// There is a default added when none is found.
     #[serde(default = "default_presentation_design_vec")]
     pub presentation_designs: Vec<PresentationDesign>,
+
+    /// The configured song slide settings in Cantara
+    /// There is a default added when none is found.
+    #[serde(default = "default_song_slide_vec")]
+    pub song_slide_settings: Vec<SlideSettings>,
 }
 
 impl Default for Settings {
@@ -42,13 +47,19 @@ impl Default for Settings {
             repositories: vec![],
             wizard_completed: false,
             presentation_designs: default_presentation_design_vec(),
+            song_slide_settings: default_song_slide_vec(),
         }
     }
 }
 
-/// This creates the default presentation designs if there are none available
+/// This creates the default presentation designs
 fn default_presentation_design_vec() -> Vec<PresentationDesign> {
     vec![PresentationDesign::default()]
+}
+
+/// This creates the default slide settings
+fn default_song_slide_vec() -> Vec<SlideSettings> {
+    vec![SlideSettings::default()]
 }
 
 impl Settings {
@@ -172,10 +183,7 @@ pub struct PresentationDesign {
     pub description: String,
 
     /// Presentation Design settings for that PresentationDesign
-    pub presentation_design_settings: PresentationDesignSettings,
-
-    /// Settings for the slide creation process
-    pub slide_settings: SlideSettings,
+    pub presentation_design_settings: PresentationDesignSettings
 }
 
 impl Default for PresentationDesign {
@@ -184,7 +192,6 @@ impl Default for PresentationDesign {
             name: "Default".to_string(),
             description: "".to_string(),
             presentation_design_settings: PresentationDesignSettings::default(),
-            slide_settings: SlideSettings::default(),
         }
     }
 }

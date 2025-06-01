@@ -7,9 +7,10 @@ use super::{
 };
 
 use cantara_songlib::importer::classic_song::slides_from_classic_song;
-use cantara_songlib::slides::Slide;
+use cantara_songlib::slides::{Slide, SlideSettings};
 use dioxus::prelude::*;
 use std::{error::Error, path::PathBuf};
+use crate::logic::settings::PresentationDesignSettings;
 
 /// This song provides Amazing Grace as a default song which can be used for creating example presentations
 const AMAZING_GRACE_SONG: &str = "#title: Amazing Grace
@@ -39,19 +40,20 @@ and drives away his fear.";
 /// Creates a presentation from a selected_item_representation and a presentation_design
 fn create_presentation_slides(
     selected_item: &SelectedItemRepresentation,
-    default_presentation_design: &PresentationDesign,
+    default_song_slide_settings: &SlideSettings,
 ) -> Result<Vec<Slide>, Box<dyn Error>> {
     let mut presentation: Vec<Slide> = vec![];
 
     if selected_item.source_file.file_type == SourceFileType::Song {
-        let presentation_design = selected_item
-            .presentation_design_option
+
+        let slide_settings = selected_item
+            .slide_settings_option
             .clone()
-            .unwrap_or(default_presentation_design.clone());
+            .unwrap_or(default_song_slide_settings.clone());
 
         match cantara_songlib::create_presentation_from_file(
             selected_item.source_file.path.clone(),
-            presentation_design.slide_settings.clone(),
+            slide_settings,
         ) {
             Ok(slides) => presentation.extend(slides),
             Err(err) => return Err(err),
@@ -67,6 +69,7 @@ pub fn add_presentation(
     selected_items: &Vec<SelectedItemRepresentation>,
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
+    default_slide_settings: &SlideSettings,
 ) -> Option<usize> {
     // Right now, we only allow one running presentation at the same time.
     // Later, Cantara is going to support multiple presentations.
@@ -81,11 +84,18 @@ pub fn add_presentation(
             .presentation_design_option
             .clone()
             .unwrap_or(default_presentation_design.clone());
-        match create_presentation_slides(selected_item, &used_presentation_design) {
+        
+        let used_slide_settings = selected_item
+            .slide_settings_option
+            .clone()
+            .unwrap_or(default_slide_settings.clone());
+        
+        match create_presentation_slides(selected_item, &used_slide_settings) {
             Ok(slides) => presentation.push(SlideChapter {
                 slides,
                 source_file: selected_item.source_file.clone(),
-                presentation_design: Some(used_presentation_design),
+                presentation_design_option: Some(used_presentation_design),
+                slide_settings_option: Some(used_slide_settings),
             }),
             Err(_) => {
                 // TODO: Implement error handling, the user should get a message if an error occurs...
@@ -106,10 +116,11 @@ pub fn add_presentation(
 /// Creates an example presentation with the song Amazing Grace and a given presentation design
 pub fn create_amazing_grace_presentation(
     presentation_design: &PresentationDesign,
+    slide_settings: &SlideSettings
 ) -> RunningPresentation {
     let slides = slides_from_classic_song(
         AMAZING_GRACE_SONG,
-        &presentation_design.slide_settings,
+        slide_settings,
         "Amazing Grace".to_string(),
     );
     let source_file = SourceFile {
@@ -117,7 +128,12 @@ pub fn create_amazing_grace_presentation(
         path: PathBuf::new(),
         file_type: SourceFileType::Song,
     };
-    let slide_chapter = SlideChapter::new(slides, source_file, Some(presentation_design.clone()));
+    let slide_chapter = SlideChapter::new(
+        slides, 
+        source_file, 
+        Some(presentation_design.clone()),
+        Some(slide_settings.clone())
+    );
 
     RunningPresentation::new(vec![slide_chapter])
 }
@@ -143,7 +159,8 @@ mod tests {
                 file_type: SourceFileType::Song,
             },
             presentation_design_option: None,
+            slide_settings_option: None
         };
-        assert!(create_presentation_slides(&select_item, &PresentationDesign::default()).is_ok());
+        assert!(create_presentation_slides(&select_item, &SlideSettings::default()).is_ok());
     }
 }
