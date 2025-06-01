@@ -12,7 +12,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 
 /// This page contains the general settings for Cantara
 #[component]
-pub fn PresentationDesignSettingsPage() -> Element {
+pub fn PresentationDesignSettingsPage(index: u16) -> Element {
     let nav = use_navigator();
     let settings = use_settings();
 

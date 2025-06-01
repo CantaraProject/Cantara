@@ -4,7 +4,7 @@ use super::shared_components::{DeleteIcon, EditIcon, PresentationDesignSelecter}
 use crate::{Route, logic::settings::*};
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
-use dioxus_motion::prelude::*;
+use dioxus_router::prelude::*;
 use rfd::FileDialog;
 use rust_i18n::t;
 
@@ -58,7 +58,6 @@ pub fn SettingsPage() -> Element {
                 }
             }
         }
-        AnimatedOutlet::<Route> {}
     }
 }
 

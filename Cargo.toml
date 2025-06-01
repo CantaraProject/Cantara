@@ -19,7 +19,6 @@ dioxus-free-icons = { version = "0.9", features = [
     "font-awesome-regular",
     "font-awesome-solid",
 ] }
-dioxus-motion = { version = "0.3.1", optional = true, default-features = false }
 
 rust-i18n = "3.1.4"
 serde = "1.0.219"
@@ -34,13 +33,11 @@ log = "0.4.27"
 
 [features]
 default = ["desktop"]
-web = ["dioxus/web", "dioxus-motion/web", "dioxus-motion/transitions"]
+web = ["dioxus/web"]
 desktop = [
     "dioxus/desktop",
-    "dioxus-motion/desktop",
-    "dioxus-motion/transitions",
 ]
-mobile = ["dioxus/mobile", "dioxus-motion/desktop", "dioxus-motion/transitions"]
+mobile = ["dioxus/mobile"]
 
 [profile]
 

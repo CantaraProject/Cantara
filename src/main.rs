@@ -16,11 +16,12 @@
 mod components;
 mod logic;
 
+use crate::components::presentation_design_settings_components::PresentationDesignSettingsPage;
 use crate::components::selection_components::Selection;
 use crate::components::settings_components::SettingsPage;
 use crate::components::wizard_components::Wizard;
 use dioxus::prelude::*;
-use dioxus_motion::prelude::*;
+use dioxus_router::prelude::*;
 use logic::settings::*;
 use logic::sourcefiles::SourceFile;
 use logic::states::{self, RunningPresentation, SelectedItemRepresentation};
@@ -43,23 +44,24 @@ pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
 /// The test state for debugging purposes (will be removed in the final version)
 static TEST_STATE: GlobalSignal<String> = Global::new(|| "test".to_string());
 
-#[derive(Routable, PartialEq, Clone, MotionTransitions)]
+#[derive(Routable, PartialEq, Clone)]
 #[rustfmt::skip]
 pub enum Route {
     /// The selection route allows the user to select songs or other elements for the presentation
     #[route("/")]
-    #[transition(Fade)]
     Selection {},
 
     /// The wizard is shown when the program is run for the first time (no configuration file exists)
     #[route("/wizard")]
-    #[transition(SlideLeft)]
     Wizard {},
 
     /// The settings page is shown when explicitly called
     #[route("/settings")]
-    #[transition(Fade)]
-    SettingsPage {}
+    SettingsPage {},
+
+    /// The presentation design settings page with a dynamic index
+    #[route("/settings/design/:index")]
+    PresentationDesignSettingsPage { index: u16 },
 }
 
 fn main() {

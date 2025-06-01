@@ -13,8 +13,7 @@ use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::*;
 use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
-use dioxus_motion::prelude::*;
-use dioxus_router::prelude::navigator;
+use dioxus_router::prelude::*;
 use rust_i18n::t;
 use std::rc::Rc;
 
@@ -174,7 +173,6 @@ pub fn Selection() -> Element {
                 active_detailed_item_id: active_detailed_item_id,
             }
         }
-        AnimatedOutlet::<Route> {}
     }
 }
 
