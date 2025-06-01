@@ -58,7 +58,8 @@ pub fn PresentationDesignSelecter(
     viewer_width: usize,
     active_item: Signal<Option<usize>>,
 ) -> Element {
-    let mut presentations: Signal<Vec<Signal<RunningPresentation>>> = use_signal(std::vec::Vec::new);
+    let mut presentations: Signal<Vec<Signal<RunningPresentation>>> =
+        use_signal(std::vec::Vec::new);
 
     use_effect(move || {
         for design in presentation_designs() {

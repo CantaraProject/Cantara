@@ -17,23 +17,26 @@ pub fn PresentationDesignSettingsPage(index: u16) -> Element {
     let settings = use_settings();
 
     let selected_presentation_design_option: Signal<Option<PresentationDesign>> =
-        use_signal(|| match settings.read().presentation_designs.clone().get(index as usize) {
-            Some(design) => Some(design.clone()),
-            None => None,
+        use_signal(|| {
+            settings
+                .read()
+                .presentation_designs
+                .clone()
+                .get(index as usize)
+                .cloned()
         });
-        
+
     if selected_presentation_design_option.read().is_none() {
         // If no selected design is available, redirect to the settings page
         nav.replace(crate::Route::SettingsPage {});
         return rsx! {};
     }
-    
+
     // From here on, the selected_presentation_design is guaranteed to be Some
-    
-    let selected_presentation_design = use_memo(move || {
-        selected_presentation_design_option.read().clone().unwrap()
-    });
-    
+
+    let selected_presentation_design =
+        use_memo(move || selected_presentation_design_option.read().clone().unwrap());
+
     rsx! {
         div {
             class: "wrapper",

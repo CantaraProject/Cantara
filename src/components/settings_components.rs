@@ -174,7 +174,15 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
     });
 
     // Update the presentation_designs signal whenever the selected_presentation_design changes
-    let update_selected_design = move || if let Some(index) = *selected_presentation_design_index.read() { if let Some(design) = selected_presentation_design.read().clone() { if let Some(writable_pd_ref) = presentation_designs.write().get_mut(index) { *writable_pd_ref = design.clone() } } };
+    let update_selected_design = move || {
+        if let Some(index) = *selected_presentation_design_index.read() {
+            if let Some(design) = selected_presentation_design.read().clone() {
+                if let Some(writable_pd_ref) = presentation_designs.write().get_mut(index) {
+                    *writable_pd_ref = design.clone()
+                }
+            }
+        }
+    };
 
     rsx! {
         hgroup {
@@ -200,8 +208,8 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                                 nav.push(Route::PresentationDesignSettingsPage {
                                     index: selected_presentation_design_index.read().unwrap() as u16
                                 });
-                            }, 
-                            { t!("general.edit") } 
+                            },
+                            { t!("general.edit") }
                         }
                     }
                 }

@@ -353,8 +353,7 @@ impl Default for TopBottomLeftRight {
 }
 
 /// A size value representing a CSS file
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
 pub enum CssSize {
     Px(f32),
     Em(f32),
@@ -362,7 +361,6 @@ pub enum CssSize {
     #[default]
     Null,
 }
-
 
 impl CssSize {
     pub fn to_css_string(&self) -> String {

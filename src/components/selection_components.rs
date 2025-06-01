@@ -45,7 +45,8 @@ pub fn Selection() -> Element {
     let default_song_slide_settings_memo = use_memo(move || {
         settings
             .read()
-            .song_slide_settings.first()
+            .song_slide_settings
+            .first()
             .unwrap_or(&SlideSettings::default())
             .clone()
     });
