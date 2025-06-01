@@ -5,7 +5,7 @@ This repository contains a rewrite of [Cantara](https://github.com/reckel-jm/can
 
 *Work is currently in progress.* Contributions are welcome!
 
-Cantara is a song presentation software which allows to quickly create beautiful presentations with song lyrics, chords (yet to come), sheets (yet to come) and more. 
+Cantara is a song presentation software which allows to quickly create beautiful presentations with song lyrics, chords (yet to come), sheets (yet to come) and more. The current version is used in churches or small groups to present song lyrics and chords on a projector or a screen for a congregation or a group of people.
 
 ### Implementation Status of this Repository
 
