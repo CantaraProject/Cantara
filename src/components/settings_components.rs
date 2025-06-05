@@ -199,18 +199,10 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                 }
             }
             div {
-                if selected_presentation_design.read().is_some() {
-                    article {
-                        h6  { { selected_presentation_design().unwrap().name } }
-                        button {
-                            onclick: move |_| {
-                                let nav = use_navigator();
-                                nav.push(Route::PresentationDesignSettingsPage {
-                                    index: selected_presentation_design_index.read().unwrap() as u16
-                                });
-                            },
-                            { t!("general.edit") }
-                        }
+                if let Some(selected_presentation) = selected_presentation_design() {
+                    PresentationDesignCard {
+                        presentation_design: selected_presentation,
+                        index: selected_presentation_design_index()
                     }
                 }
             }
@@ -218,7 +210,30 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
     }
 }
 
+/// Displays an article with some details and actions (if available) for a presentation design
 #[component]
-fn PresentationDesignCard(presentation_design: PresentationDesign) -> Element {
-    rsx! {}
+fn PresentationDesignCard(
+    /// The presentation design which should be displayed.
+    presentation_design: PresentationDesign,
+
+    /// The index of the presentation design (optional). Only if present, editing and removing of
+    /// presentation designs will be possible.
+    index: Option<usize>) -> Element {
+    rsx! {
+        article {
+            h6  { { presentation_design.name } }
+            p { { presentation_design.description  } }
+            if let Some(index) = index {
+                button {
+                    onclick: move |_| {
+                        let nav = use_navigator();
+                        nav.push(Route::PresentationDesignSettingsPage {
+                            index: index as u16
+                        });
+                    },
+                    { t!("general.edit") }
+                }
+            }
+        }
+    }
 }
