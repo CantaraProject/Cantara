@@ -145,3 +145,12 @@ general:
   edit:
     en: Edit
     de: Bearbeiten
+  meta_information:
+    en: Meta Information
+    de: Metainformationen
+  name:
+    en: Name
+    de: Name
+  description:
+    en: Description
+    de: Beschreibung
