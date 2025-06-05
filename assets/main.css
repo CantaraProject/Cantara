@@ -191,22 +191,8 @@ div.inline-div {
     border: 18px solid var(--pico-primary-border);
 }
 
-/* Do not scale the CSS size too much as the default pico css configuration would do */
-@media (min-width: 1024px) {
-    :root,
-    :host {
-        --pico-font-size: 106.25%;
-    }
-}
-@media (min-width: 1280px) {
-    :root,
-    :host {
-        --pico-font-size: 106.25%;
-    }
-}
-@media (min-width: 1536px) {
-    :root,
-    :host {
-        --pico-font-size: 106.25%;
-    }
+/* Do not scale the CSS size as the default pico css configuration would do */
+:root,
+:host {
+    --pico-font-size: 100%;
 }
