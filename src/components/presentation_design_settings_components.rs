@@ -84,11 +84,11 @@ pub fn PresentationDesignMetaSettings(
     let mut pd = use_signal(|| presentation_design);
 
     rsx! {
-        h3 { "Meta information" }
+        h3 { { t!("general.meta_information") } }
         form {
             fieldset {
                 label {
-                    "Name",
+                    { t!("general.name") },
                     input {
                         value: pd().name,
                         onchange: move |event| {
@@ -99,7 +99,7 @@ pub fn PresentationDesignMetaSettings(
                 }
 
                 label {
-                    "Description",
+                    { t!("general.description") },
                     input {
                         value: pd().description,
                         onchange: move |event| {
