@@ -49,7 +49,8 @@ pub fn PresentationDesignSettingsPage(
             }
             main {
                 class: "container-fluid content height-100",
-                PresentationDesignMetaSettings {
+                
+                MetaSettings {
                     presentation_design: selected_presentation_design(),
                     on_pd_changed: move |pd: PresentationDesign| {
                         let mut settings_write = settings.write();
@@ -57,6 +58,11 @@ pub fn PresentationDesignSettingsPage(
                         origin_pd.name = pd.name;
                         origin_pd.description = pd.description;
                     }
+                }
+                
+                BackgroundSettings {
+                    presentation_design: selected_presentation_design(),
+                    on_pd_changed: move |pd: PresentationDesign| {}
                 }
             }
             footer {
@@ -72,9 +78,10 @@ pub fn PresentationDesignSettingsPage(
     }
 }
 
+/// This component allow the setting up of meta settings for presentation designs
 #[component]
-pub fn PresentationDesignMetaSettings(
-    /// The presentation design which Meta information shuold be able to be edited
+fn MetaSettings(
+    /// The presentation design which Meta information should be able to be edited
     presentation_design: PresentationDesign,
 
     /// A closure which is called each time when the presentation design has been changed
@@ -111,4 +118,25 @@ pub fn PresentationDesignMetaSettings(
             }
         }
     }
+}
+
+#[component]
+fn BackgroundSettings(
+    /// The presentation design which Meta information should be able to be edited
+    presentation_design: PresentationDesign,
+
+    /// A closure which is called each time when the presentation design has been changed
+    on_pd_changed: EventHandler<PresentationDesign>,
+) -> Element {
+    rsx!(
+        h3 { "Background" }
+        form {
+            fieldset {
+                label { "Color" }
+                input {
+                    type: "color"
+                }
+            }
+        }
+    )
 }
