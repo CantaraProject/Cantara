@@ -4,9 +4,12 @@ use crate::logic::settings::{PresentationDesign, use_settings, PresentationDesig
 use dioxus::core_macro::{component, rsx};
 use dioxus::dioxus_core::Element;
 use dioxus::hooks::use_signal;
+use dioxus::html::completions::CompleteWithBraces::button;
+use dioxus::logger::tracing;
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
 use rust_i18n::t;
+use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -62,7 +65,7 @@ pub fn PresentationDesignSettingsPage(
 
                 if let PresentationDesignSettings::Template(pd_template) = selected_presentation_design().presentation_design_settings {
                     hr { }
-                    BackgroundSettings {
+                    DesignTemplateSettings {
                         presentation_design_template: pd_template,
                         onchange: move |new_pdt: PresentationDesignTemplate| {
                             let mut settings_write = settings.write();
@@ -130,7 +133,7 @@ fn MetaSettings(
 }
 
 #[component]
-fn BackgroundSettings(
+fn DesignTemplateSettings(
     /// The presentation design which Meta information should be able to be edited
     presentation_design_template: PresentationDesignTemplate,
 
@@ -139,21 +142,86 @@ fn BackgroundSettings(
     onchange: EventHandler<PresentationDesignTemplate>,
 ) -> Element {
     let mut pdt = use_signal(|| presentation_design_template);
+    let mut use_background_image: Signal<bool> = use_signal(|| match pdt().background_image {
+        None => false,
+        Some(_) => true,
+    });
 
     rsx!(
-        h3 { { t!("settings.background") } }
+        h3 { { t!("settings.presentation_design_configuration") } }
+        h4 { { t!("settings.background") } }
         form {
             fieldset {
-                label { { t!("settings.color") } }
-                input {
-                    type: "color",
-                    value: pdt().get_background_color_as_hex_string(),
-                    onchange: move |event| {
-                        _ = pdt.write().set_background_color_from_hex_str(&event.value());
-                        onchange.call(pdt());
+                label {
+                    { t!("settings.color") }
+                    input {
+                        type: "color",
+                        value: pdt().get_background_color_as_hex_string(),
+                        onchange: move |event| {
+                            _ = pdt.write().set_background_color_from_hex_str(&event.value());
+                            onchange.call(pdt());
+                        }
                     }
                 }
+
+                label {
+                    input {
+                        type: "checkbox",
+                        role: "switch",
+                        checked: use_background_image,
+                        onchange: move |event| {
+                            use_background_image.set(event.checked());
+                        }
+                    }
+                    { t!("settings.use_background_image") }
+                }
+
+                if use_background_image() {
+                    PictureSelector { }
+                }
+
             }
         }
     )
+}
+
+/// A component which allows the selection of a picture
+#[component]
+fn PictureSelector(
+    default_selection_index: Option<usize>,
+
+    /// The event will be called if a picture has been selected
+    onchange: Option<EventHandler<ImageSourceFile>>
+) -> Element {
+    let mut source_files: Signal<Vec<SourceFile>> = use_context();
+    let image_source_files: Memo<Vec<ImageSourceFile>> = use_memo(move || {
+        source_files().into_iter()
+            .filter_map(|source_file| ImageSourceFile::new(source_file))
+            .collect()
+    });
+    let mut selection_index = use_signal(|| default_selection_index);
+
+    rsx! {
+        for (idx, source_file) in image_source_files().iter().enumerate() {
+            button {
+                role: "button",
+                class: if let Some(index) = selection_index() {
+                    if index == idx { "outline" } else { "outline secondary" }
+                } else { "outline secondary" },
+                "data-tooltip": source_file.clone().into_inner().name,
+                onclick: move |event| {
+                    selection_index.set(Some(idx.clone()));
+                    if let Some(onchange_event) = onchange {
+                        onchange_event.call(source_file.clone());
+                    }
+                    event.prevent_default();
+                },
+                img {
+                    max_width: "180px",
+                    height: "100px",
+                    src: source_file.clone().into_inner().path.to_str().unwrap_or("").to_string(),
+                }
+            }
+        }
+    }
 }
