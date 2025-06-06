@@ -393,6 +393,34 @@ fn get_last_dir(path: &str) -> Option<&str> {
         .filter(|s| !s.is_empty()) // Ensure it's not empty
 }
 
+/// Converts an [RGB8] value to a hex string
+fn rgb_to_hex_string(rgb: RGB8) -> String {
+    format!("#{:02X}{:02X}{:02X}", rgb.r, rgb.g, rgb.b)
+}
+
+/// Converts a hexadecimal color expression as string to an [RGB8] if possible
+fn hex_string_to_rgb(hex_string: &str) -> Option<RGB8> {
+    // Remove optional leading '#' and convert to uppercase for consistency
+    let hex = hex_string.trim_start_matches('#').to_uppercase();
+
+    // Check if the string is exactly 6 characters long
+    if hex.len() != 6 {
+        return None;
+    }
+
+    // Verify all characters are valid hexadecimal digits
+    if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+
+    // Parse each pair of characters as a u8 value
+    let red = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
+
+    Some(RGB8::new(red, green, blue))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,5 +431,16 @@ mod tests {
         let settings = get_settings_folder().unwrap();
         dbg!(&settings);
         println!("Settings folder: {:?}", settings);
+    }
+    
+    #[test]
+    fn test_color_conversion() {
+        let color_hex_black = "#000000";
+        let color_hex_white = "#FFFFFF";
+        let color_hex_red = "#ff0000";
+        
+        assert_eq!(RGB8::new(0, 0, 0), hex_string_to_rgb(color_hex_black).unwrap());
+        assert_eq!(RGB8::new(255, 255, 255), hex_string_to_rgb(color_hex_white).unwrap());
+        assert_eq!(RGB8::new(255, 0, 0), hex_string_to_rgb(color_hex_red).unwrap());
     }
 }
