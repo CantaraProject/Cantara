@@ -1,6 +1,6 @@
 //! This module provides components for adjusting the presentation designs
 
-use crate::logic::settings::{PresentationDesign, use_settings};
+use crate::logic::settings::{PresentationDesign, use_settings, PresentationDesignTemplate, PresentationDesignSettings};
 use dioxus::core_macro::{component, rsx};
 use dioxus::dioxus_core::Element;
 use dioxus::hooks::use_signal;
@@ -59,11 +59,20 @@ pub fn PresentationDesignSettingsPage(
                         origin_pd.description = pd.description;
                     }
                 }
-                
-                BackgroundSettings {
-                    presentation_design: selected_presentation_design(),
-                    on_pd_changed: move |pd: PresentationDesign| {}
+
+                if let PresentationDesignSettings::Template(pd_template) = selected_presentation_design().presentation_design_settings {
+                    hr { }
+                    BackgroundSettings {
+                        presentation_design_template: pd_template,
+                        onchange: move |new_pdt: PresentationDesignTemplate| {
+                            let mut settings_write = settings.write();
+                            if let PresentationDesignSettings::Template(pdt) = &mut settings_write.presentation_designs.get_mut(index as usize).unwrap().presentation_design_settings {
+                                *pdt = new_pdt.clone();
+                            }
+                        }
+                    }
                 }
+
             }
             footer {
                 class: "bottom-bar",
@@ -123,18 +132,26 @@ fn MetaSettings(
 #[component]
 fn BackgroundSettings(
     /// The presentation design which Meta information should be able to be edited
-    presentation_design: PresentationDesign,
+    presentation_design_template: PresentationDesignTemplate,
 
-    /// A closure which is called each time when the presentation design has been changed
-    on_pd_changed: EventHandler<PresentationDesign>,
+    /// An event which is called each time when the presentation design template has been changed
+    /// by the component
+    onchange: EventHandler<PresentationDesignTemplate>,
 ) -> Element {
+    let mut pdt = use_signal(|| presentation_design_template);
+
     rsx!(
-        h3 { "Background" }
+        h3 { { t!("settings.background") } }
         form {
             fieldset {
-                label { "Color" }
+                label { { t!("settings.color") } }
                 input {
-                    type: "color"
+                    type: "color",
+                    value: pdt().get_background_color_as_hex_string(),
+                    onchange: move |event| {
+                        _ = pdt.write().set_background_color_from_hex_str(&event.value());
+                        onchange.call(pdt());
+                    }
                 }
             }
         }
