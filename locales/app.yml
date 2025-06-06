@@ -111,12 +111,18 @@ settings:
   presentation_designs_edit_header:
     en: Edit Presentation Design %{title}
     de: Präsentationsdesign %{title} bearbeiten
+  presentation_design_configuration:
+    en: Design Configuration
+    de: Konfiguration des Aussehens
   background:
     en: Background
     de: Hintergrund
   color:
     en: Color
     de: Farbe
+  use_background_image:
+    en: Use a background image
+    de: Ein Hintergrundbild verwenden
 
 presentation:
   title:
