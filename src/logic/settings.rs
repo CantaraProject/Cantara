@@ -232,13 +232,13 @@ pub struct PresentationDesignTemplate {
 
     /// The padding of the presentation (top, bottom, left, right)
     pub padding: TopBottomLeftRight,
-    
+
     /// An optional background picture
-    background_image: Option<ImageSourceFile>
+    pub background_image: Option<ImageSourceFile>
 }
 
 impl PresentationDesignTemplate {
-    
+
     /// Returns the background color as an RGB string which can be used in CSS
     /// for example: pure black would equal to (0, 0, 0)
     pub fn get_background_as_rgb_string(&self) -> String {
@@ -247,13 +247,13 @@ impl PresentationDesignTemplate {
             self.background_color.r, self.background_color.g, self.background_color.b
         )
     }
-    
+
     /// Returns the background color as a hexadecimal string
     /// for example: pure black would equal to #000000
     pub fn get_background_color_as_hex_string(&self) -> String {
         rgb_to_hex_string(&self.background_color)
     }
-    
+
     /// Set the background color from a hex str if the hex string is valid.
     /// Returns `Ok(())` if the setting was successfully and `Err(())` if the validation of the string failed.
     pub fn set_background_color_from_hex_str(&mut self, hex_string: &str) -> Result<(), ()> {
@@ -265,7 +265,7 @@ impl PresentationDesignTemplate {
             None => Err(())
         }
     }
-    
+
 }
 
 impl Default for PresentationDesignTemplate {
