@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::logic::sourcefiles::{SourceFile, get_source_files};
+use crate::logic::sourcefiles::{SourceFile, get_source_files, ImageSourceFile};
 
 /// Returns the settings of the program
 ///
@@ -232,6 +232,9 @@ pub struct PresentationDesignTemplate {
 
     /// The padding of the presentation (top, bottom, left, right)
     pub padding: TopBottomLeftRight,
+    
+    /// An optional background picture
+    background_image: Option<ImageSourceFile>
 }
 
 impl PresentationDesignTemplate {
@@ -274,6 +277,7 @@ impl Default for PresentationDesignTemplate {
             background_color: Rgb::new(0, 0, 0),
             background_transparancy: 0,
             padding: default_padding(),
+            background_image: None,
         }
     }
 }
