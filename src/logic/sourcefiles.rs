@@ -149,7 +149,6 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
 pub struct ImageSourceFile(SourceFile);
 
 impl ImageSourceFile {
-
     // Constructor that enforces the FileType::Image constraint
     pub fn new(source_file: SourceFile) -> Option<Self> {
         if matches!(source_file.file_type, SourceFileType::Image) {

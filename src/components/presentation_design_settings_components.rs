@@ -1,6 +1,9 @@
 //! This module provides components for adjusting the presentation designs
 
-use crate::logic::settings::{PresentationDesign, use_settings, PresentationDesignTemplate, PresentationDesignSettings};
+use crate::logic::settings::{
+    PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate, use_settings,
+};
+use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 use dioxus::core_macro::{component, rsx};
 use dioxus::dioxus_core::Element;
 use dioxus::hooks::use_signal;
@@ -9,7 +12,6 @@ use dioxus::logger::tracing;
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
 use rust_i18n::t;
-use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -18,7 +20,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 pub fn PresentationDesignSettingsPage(
     /// The index of the presentation design
     index: u16,
-    ) -> Element {
+) -> Element {
     let nav = navigator();
     let mut settings = use_settings();
 
@@ -52,7 +54,7 @@ pub fn PresentationDesignSettingsPage(
             }
             main {
                 class: "container-fluid content height-100",
-                
+
                 MetaSettings {
                     presentation_design: selected_presentation_design(),
                     on_pd_changed: move |pd: PresentationDesign| {
@@ -99,7 +101,6 @@ fn MetaSettings(
     /// A closure which is called each time when the presentation design has been changed
     on_pd_changed: EventHandler<PresentationDesign>,
 ) -> Element {
-
     let mut pd = use_signal(|| presentation_design);
 
     rsx! {
@@ -195,11 +196,12 @@ fn PictureSelector(
     default_selection_index: Option<usize>,
 
     /// The event will be called if a picture has been selected
-    onchange: Option<EventHandler<ImageSourceFile>>
+    onchange: Option<EventHandler<ImageSourceFile>>,
 ) -> Element {
     let mut source_files: Signal<Vec<SourceFile>> = use_context();
     let image_source_files: Memo<Vec<ImageSourceFile>> = use_memo(move || {
-        source_files().into_iter()
+        source_files()
+            .into_iter()
             .filter_map(|source_file| ImageSourceFile::new(source_file))
             .collect()
     });
@@ -233,7 +235,6 @@ fn PictureSelectorItem(
     onclick: EventHandler<ImageSourceFile>,
     active: bool,
 ) -> Element {
-
     // We need a source file signal here due to the use in the closure
     let sourcefile_signal = use_signal(|| source_file);
     rsx! {

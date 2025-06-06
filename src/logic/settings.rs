@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::logic::sourcefiles::{SourceFile, get_source_files, ImageSourceFile};
+use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, get_source_files};
 
 /// Returns the settings of the program
 ///
@@ -234,11 +234,10 @@ pub struct PresentationDesignTemplate {
     pub padding: TopBottomLeftRight,
 
     /// An optional background picture
-    pub background_image: Option<ImageSourceFile>
+    pub background_image: Option<ImageSourceFile>,
 }
 
 impl PresentationDesignTemplate {
-
     /// Returns the background color as an RGB string which can be used in CSS
     /// for example: pure black would equal to (0, 0, 0)
     pub fn get_background_as_rgb_string(&self) -> String {
@@ -261,11 +260,10 @@ impl PresentationDesignTemplate {
             Some(rgb) => {
                 self.background_color = rgb;
                 Ok(())
-            },
-            None => Err(())
+            }
+            None => Err(()),
         }
     }
-
 }
 
 impl Default for PresentationDesignTemplate {
@@ -465,8 +463,17 @@ mod tests {
         let color_hex_white = "#FFFFFF";
         let color_hex_red = "#ff0000";
 
-        assert_eq!(RGB8::new(0, 0, 0), hex_string_to_rgb(color_hex_black).unwrap());
-        assert_eq!(RGB8::new(255, 255, 255), hex_string_to_rgb(color_hex_white).unwrap());
-        assert_eq!(RGB8::new(255, 0, 0), hex_string_to_rgb(color_hex_red).unwrap());
+        assert_eq!(
+            RGB8::new(0, 0, 0),
+            hex_string_to_rgb(color_hex_black).unwrap()
+        );
+        assert_eq!(
+            RGB8::new(255, 255, 255),
+            hex_string_to_rgb(color_hex_white).unwrap()
+        );
+        assert_eq!(
+            RGB8::new(255, 0, 0),
+            hex_string_to_rgb(color_hex_red).unwrap()
+        );
     }
 }

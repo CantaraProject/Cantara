@@ -218,7 +218,8 @@ fn PresentationDesignCard(
 
     /// The index of the presentation design (optional). Only if present, editing and removing of
     /// presentation designs will be possible.
-    index: Option<usize>) -> Element {
+    index: Option<usize>,
+) -> Element {
     rsx! {
         article {
             h6  { { presentation_design.name } }
