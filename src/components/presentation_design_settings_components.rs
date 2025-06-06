@@ -177,9 +177,13 @@ fn DesignTemplateSettings(
                 }
 
                 if use_background_image() {
-                    PictureSelector { }
+                    PictureSelector {
+                        onchange: move |background_image| {
+                            pdt.write().background_image = Some(background_image);
+                            onchange.call(pdt());
+                        }
+                    }
                 }
-
             }
         }
     )
@@ -203,24 +207,48 @@ fn PictureSelector(
 
     rsx! {
         for (idx, source_file) in image_source_files().iter().enumerate() {
-            button {
-                role: "button",
-                class: if let Some(index) = selection_index() {
-                    if index == idx { "outline" } else { "outline secondary" }
-                } else { "outline secondary" },
-                "data-tooltip": source_file.clone().into_inner().name,
-                onclick: move |event| {
-                    selection_index.set(Some(idx.clone()));
+            PictureSelectorItem {
+                source_file: source_file.clone(),
+                height: "130px",
+                max_width: "200px",
+                active: if let Some(selection_index) = selection_index() {
+                    if selection_index == idx { true } else { false }
+                } else { false },
+                onclick: move |isf| {
+                    selection_index.set(Some(idx));
                     if let Some(onchange_event) = onchange {
-                        onchange_event.call(source_file.clone());
+                        onchange_event.call(isf);
                     }
-                    event.prevent_default();
-                },
-                img {
-                    max_width: "180px",
-                    height: "100px",
-                    src: source_file.clone().into_inner().path.to_str().unwrap_or("").to_string(),
                 }
+            }
+        }
+    }
+}
+
+#[component]
+fn PictureSelectorItem(
+    max_width: String,
+    height: String,
+    source_file: ImageSourceFile,
+    onclick: EventHandler<ImageSourceFile>,
+    active: bool,
+) -> Element {
+
+    // We need a source file signal here due to the use in the closure
+    let sourcefile_signal = use_signal(|| source_file);
+    rsx! {
+        button {
+            role: "button",
+            class: if active { "outline" } else { "outline secondary" },
+            "data-tooltip": sourcefile_signal().into_inner().name,
+            onclick: move |event| {
+                onclick.call(sourcefile_signal());
+                event.prevent_default();
+            },
+            img {
+                max_width: "180px",
+                height: "100px",
+                src: sourcefile_signal().into_inner().path.to_str().unwrap_or("").to_string(),
             }
         }
     }
