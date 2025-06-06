@@ -121,10 +121,10 @@ pub struct Repository {
     /// A user given name for the repository which makes it easier to identify it
     pub name: String,
 
-    /// Whether or not the repository is removable
+    /// Whether the repository is removable
     pub removable: bool,
 
-    /// Whether or not the user has writing permissions to the repository
+    /// Whether the user has writing permissions to the repository
     pub writing_permissions: bool,
 
     /// The type of the repository-linked to it are additional information
