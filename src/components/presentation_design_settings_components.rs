@@ -7,8 +7,6 @@ use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 use dioxus::core_macro::{component, rsx};
 use dioxus::dioxus_core::Element;
 use dioxus::hooks::use_signal;
-use dioxus::html::completions::CompleteWithBraces::button;
-use dioxus::logger::tracing;
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
 use rust_i18n::t;
@@ -59,7 +57,7 @@ pub fn PresentationDesignSettingsPage(
                     presentation_design: selected_presentation_design(),
                     on_pd_changed: move |pd: PresentationDesign| {
                         let mut settings_write = settings.write();
-                        let mut origin_pd = settings_write.presentation_designs.get_mut(index as usize).unwrap();
+                        let origin_pd = settings_write.presentation_designs.get_mut(index as usize).unwrap();
                         origin_pd.name = pd.name;
                         origin_pd.description = pd.description;
                     }
@@ -143,10 +141,7 @@ fn DesignTemplateSettings(
     onchange: EventHandler<PresentationDesignTemplate>,
 ) -> Element {
     let mut pdt = use_signal(|| presentation_design_template);
-    let mut use_background_image: Signal<bool> = use_signal(|| match pdt().background_image {
-        None => false,
-        Some(_) => true,
-    });
+    let mut use_background_image: Signal<bool> = use_signal(|| pdt().background_image.is_some());
 
     rsx!(
         h3 { { t!("settings.presentation_design_configuration") } }
@@ -198,11 +193,11 @@ fn PictureSelector(
     /// The event will be called if a picture has been selected
     onchange: Option<EventHandler<ImageSourceFile>>,
 ) -> Element {
-    let mut source_files: Signal<Vec<SourceFile>> = use_context();
+    let source_files: Signal<Vec<SourceFile>> = use_context();
     let image_source_files: Memo<Vec<ImageSourceFile>> = use_memo(move || {
         source_files()
             .into_iter()
-            .filter_map(|source_file| ImageSourceFile::new(source_file))
+            .filter_map(ImageSourceFile::new)
             .collect()
     });
     let mut selection_index = use_signal(|| default_selection_index);
@@ -214,7 +209,7 @@ fn PictureSelector(
                 height: "130px",
                 max_width: "200px",
                 active: if let Some(selection_index) = selection_index() {
-                    if selection_index == idx { true } else { false }
+                    selection_index == idx
                 } else { false },
                 onclick: move |isf| {
                     selection_index.set(Some(idx));
