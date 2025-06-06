@@ -126,7 +126,7 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
                     "jpeg" => Some(SourceFileType::Image),
                     _ => None,
                 };
-            if file_type_option.is_some() {
+            if let Some(source_file_type) = file_type_option {
                 source_files.push(SourceFile {
                     name: file
                         .clone()
@@ -136,12 +136,37 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
                         .unwrap_or("")
                         .to_string(),
                     path: file.clone(),
-                    file_type: file_type_option.unwrap(),
+                    file_type: source_file_type,
                 })
             }
         });
 
     source_files
+}
+
+/// This is a wrapper around source file which ensures that the [SourceFile] is an image
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ImageSourceFile(SourceFile);
+
+impl ImageSourceFile {
+    // Constructor that enforces the FileType::Image constraint
+    pub fn new(source_file: SourceFile) -> Option<Self> {
+        if matches!(source_file.file_type, SourceFileType::Image) {
+            Some(ImageSourceFile(source_file))
+        } else {
+            None
+        }
+    }
+
+    // Accessor to get the inner SourceFile
+    pub fn into_inner(self) -> SourceFile {
+        self.0
+    }
+
+    // Optional: Reference accessor for convenience
+    pub fn as_source(&self) -> &SourceFile {
+        &self.0
+    }
 }
 
 #[cfg(test)]

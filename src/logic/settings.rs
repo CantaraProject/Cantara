@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::logic::sourcefiles::{SourceFile, get_source_files};
+use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, get_source_files};
 
 /// Returns the settings of the program
 ///
@@ -121,10 +121,10 @@ pub struct Repository {
     /// A user given name for the repository which makes it easier to identify it
     pub name: String,
 
-    /// Whether or not the repository is removable
+    /// Whether the repository is removable
     pub removable: bool,
 
-    /// Whether or not the user has writing permissions to the repository
+    /// Whether the user has writing permissions to the repository
     pub writing_permissions: bool,
 
     /// The type of the repository-linked to it are additional information
@@ -232,14 +232,37 @@ pub struct PresentationDesignTemplate {
 
     /// The padding of the presentation (top, bottom, left, right)
     pub padding: TopBottomLeftRight,
+
+    /// An optional background picture
+    pub background_image: Option<ImageSourceFile>,
 }
 
 impl PresentationDesignTemplate {
+    /// Returns the background color as an RGB string which can be used in CSS
+    /// for example: pure black would equal to (0, 0, 0)
     pub fn get_background_as_rgb_string(&self) -> String {
         format!(
             "{}, {}, {}",
             self.background_color.r, self.background_color.g, self.background_color.b
         )
+    }
+
+    /// Returns the background color as a hexadecimal string
+    /// for example: pure black would equal to #000000
+    pub fn get_background_color_as_hex_string(&self) -> String {
+        rgb_to_hex_string(&self.background_color)
+    }
+
+    /// Set the background color from a hex str if the hex string is valid.
+    /// Returns `Ok(())` if the setting was successfully and `Err(())` if the validation of the string failed.
+    pub fn set_background_color_from_hex_str(&mut self, hex_string: &str) -> Result<(), ()> {
+        match hex_string_to_rgb(hex_string) {
+            Some(rgb) => {
+                self.background_color = rgb;
+                Ok(())
+            }
+            None => Err(()),
+        }
     }
 }
 
@@ -252,6 +275,7 @@ impl Default for PresentationDesignTemplate {
             background_color: Rgb::new(0, 0, 0),
             background_transparancy: 0,
             padding: default_padding(),
+            background_image: None,
         }
     }
 }
@@ -393,6 +417,34 @@ fn get_last_dir(path: &str) -> Option<&str> {
         .filter(|s| !s.is_empty()) // Ensure it's not empty
 }
 
+/// Converts an [RGB8] value to a hex string
+fn rgb_to_hex_string(rgb: &RGB8) -> String {
+    format!("#{:02X}{:02X}{:02X}", rgb.r, rgb.g, rgb.b)
+}
+
+/// Converts a hexadecimal color expression as string to an [RGB8] if possible
+fn hex_string_to_rgb(hex_string: &str) -> Option<RGB8> {
+    // Remove optional leading '#' and convert to uppercase for consistency
+    let hex = hex_string.trim_start_matches('#').to_uppercase();
+
+    // Check if the string is exactly 6 characters long
+    if hex.len() != 6 {
+        return None;
+    }
+
+    // Verify all characters are valid hexadecimal digits
+    if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+
+    // Parse each pair of characters as a u8 value
+    let red = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
+
+    Some(RGB8::new(red, green, blue))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,5 +455,25 @@ mod tests {
         let settings = get_settings_folder().unwrap();
         dbg!(&settings);
         println!("Settings folder: {:?}", settings);
+    }
+
+    #[test]
+    fn test_color_conversion() {
+        let color_hex_black = "#000000";
+        let color_hex_white = "#FFFFFF";
+        let color_hex_red = "#ff0000";
+
+        assert_eq!(
+            RGB8::new(0, 0, 0),
+            hex_string_to_rgb(color_hex_black).unwrap()
+        );
+        assert_eq!(
+            RGB8::new(255, 255, 255),
+            hex_string_to_rgb(color_hex_white).unwrap()
+        );
+        assert_eq!(
+            RGB8::new(255, 0, 0),
+            hex_string_to_rgb(color_hex_red).unwrap()
+        );
     }
 }
