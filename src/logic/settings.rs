@@ -235,12 +235,34 @@ pub struct PresentationDesignTemplate {
 }
 
 impl PresentationDesignTemplate {
+    
+    /// Returns the background color as an RGB string which can be used in CSS
+    /// for example: pure black would equal to (0, 0, 0)
     pub fn get_background_as_rgb_string(&self) -> String {
         format!(
             "{}, {}, {}",
             self.background_color.r, self.background_color.g, self.background_color.b
         )
     }
+    
+    /// Returns the background color as a hexadecimal string
+    /// for example: pure black would equal to #000000
+    pub fn get_background_color_as_hex_string(&self) -> String {
+        rgb_to_hex_string(&self.background_color)
+    }
+    
+    /// Set the background color from a hex str if the hex string is valid.
+    /// Returns `Ok(())` if the setting was successfully and `Err(())` if the validation of the string failed.
+    pub fn set_background_color_from_hex_str(&mut self, hex_string: &str) -> Result<(), ()> {
+        match hex_string_to_rgb(hex_string) {
+            Some(rgb) => {
+                self.background_color = rgb;
+                Ok(())
+            },
+            None => Err(())
+        }
+    }
+    
 }
 
 impl Default for PresentationDesignTemplate {
@@ -394,7 +416,7 @@ fn get_last_dir(path: &str) -> Option<&str> {
 }
 
 /// Converts an [RGB8] value to a hex string
-fn rgb_to_hex_string(rgb: RGB8) -> String {
+fn rgb_to_hex_string(rgb: &RGB8) -> String {
     format!("#{:02X}{:02X}{:02X}", rgb.r, rgb.g, rgb.b)
 }
 
@@ -432,13 +454,13 @@ mod tests {
         dbg!(&settings);
         println!("Settings folder: {:?}", settings);
     }
-    
+
     #[test]
     fn test_color_conversion() {
         let color_hex_black = "#000000";
         let color_hex_white = "#FFFFFF";
         let color_hex_red = "#ff0000";
-        
+
         assert_eq!(RGB8::new(0, 0, 0), hex_string_to_rgb(color_hex_black).unwrap());
         assert_eq!(RGB8::new(255, 255, 255), hex_string_to_rgb(color_hex_white).unwrap());
         assert_eq!(RGB8::new(255, 0, 0), hex_string_to_rgb(color_hex_red).unwrap());
