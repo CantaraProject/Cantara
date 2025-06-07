@@ -126,6 +126,9 @@ settings:
   background_image_transparency:
     en: Background Image Transparency
     de: Transparenz des Hintergrundbilds
+  padding:
+    en: Padding
+    de: Randabstand des Inhalts
 
 presentation:
   title:
