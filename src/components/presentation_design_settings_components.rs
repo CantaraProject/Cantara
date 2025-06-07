@@ -10,6 +10,7 @@ use dioxus::hooks::use_signal;
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
 use rust_i18n::t;
+use std::path::PathBuf;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -173,10 +174,20 @@ fn DesignTemplateSettings(
                 }
 
                 if use_background_image() {
-                    PictureSelector {
-                        onchange: move |background_image| {
-                            pdt.write().background_image = Some(background_image);
-                            onchange.call(pdt());
+                    if let Some(background_image) = pdt().background_image {
+                        PictureSelector {
+                            onchange: move |background_image| {
+                                pdt.write().background_image = Some(background_image);
+                                onchange.call(pdt());
+                            },
+                            already_selected_image_path: background_image.into_inner().path,
+                        }
+                    } else {
+                        PictureSelector {
+                            onchange: move |background_image| {
+                                pdt.write().background_image = Some(background_image);
+                                onchange.call(pdt());
+                            }
                         }
                     }
                 }
@@ -189,6 +200,9 @@ fn DesignTemplateSettings(
 #[component]
 fn PictureSelector(
     default_selection_index: Option<usize>,
+
+    /// This can be given if an image is already set up. It will then be selected as default.
+    already_selected_image_path: Option<PathBuf>,
 
     /// The event will be called if a picture has been selected
     onchange: Option<EventHandler<ImageSourceFile>>,
@@ -210,7 +224,8 @@ fn PictureSelector(
                 max_width: "200px",
                 active: if let Some(selection_index) = selection_index() {
                     selection_index == idx
-                } else { false },
+                } else if Some(source_file.clone().into_inner().path) == already_selected_image_path { true }
+                else { false },
                 onclick: move |isf| {
                     selection_index.set(Some(idx));
                     if let Some(onchange_event) = onchange {
