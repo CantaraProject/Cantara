@@ -194,14 +194,14 @@ fn DesignTemplateSettings(
                     label {
                         span { { format!("{}: {}%",
                             t!("settings.background_image_transparency"),
-                                pdt.read().background_transparancy) } }
+                                pdt.read().background_transparency) } }
                         input {
                             type: "range",
                             min: 0,
                             max: 100,
-                            value: pdt.read().background_transparancy,
+                            value: pdt.read().background_transparency,
                             onchange: move |event| {
-                                pdt.write().background_transparancy = event.value().parse().unwrap_or(0);
+                                pdt.write().background_transparency = event.value().parse().unwrap_or(0);
                                 onchange.call(pdt());
                             }
                         }

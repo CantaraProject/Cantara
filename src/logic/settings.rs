@@ -228,7 +228,7 @@ pub struct PresentationDesignTemplate {
     pub background_color: RGB8,
 
     /// The background color transparancy towards an image (0-255)
-    pub background_transparancy: u8,
+    pub background_transparency: u8,
 
     /// The padding of the presentation (top, bottom, left, right)
     pub padding: TopBottomLeftRight,
@@ -273,7 +273,7 @@ impl Default for PresentationDesignTemplate {
             vertical_alignment: VerticalAlign::default(),
             spoiler_content_fontsize_factor: 0.6,
             background_color: Rgb::new(0, 0, 0),
-            background_transparancy: 0,
+            background_transparency: 0,
             padding: default_padding(),
             background_image: None,
         }
