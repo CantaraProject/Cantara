@@ -245,10 +245,10 @@ fn PictureSelector(
                     selection_index == idx
                 } else if Some(source_file.clone().into_inner().path) == already_selected_image_path { true }
                 else { false },
-                onclick: move |isf| {
+                onclick: move |image_source_file| {
                     selection_index.set(Some(idx));
                     if let Some(onchange_event) = onchange {
-                        onchange_event.call(isf);
+                        onchange_event.call(image_source_file);
                     }
                 }
             }
