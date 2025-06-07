@@ -123,6 +123,9 @@ settings:
   use_background_image:
     en: Use a background image
     de: Ein Hintergrundbild verwenden
+  background_image_transparency:
+    en: Background Image Transparency
+    de: Transparenz des Hintergrundbilds
 
 presentation:
   title:
