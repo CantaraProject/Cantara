@@ -190,7 +190,26 @@ fn DesignTemplateSettings(
                             }
                         }
                     }
+
+                    label {
+                        span { { format!("{}: {}%",
+                            t!("settings.background_image_transparency"),
+                                pdt.read().background_transparancy) } }
+                        input {
+                            type: "range",
+                            min: 0,
+                            max: 100,
+                            value: pdt.read().background_transparancy,
+                            onchange: move |event| {
+                                pdt.write().background_transparancy = event.value().parse().unwrap_or(0);
+                                onchange.call(pdt());
+                            }
+                        }
+
+                    }
                 }
+
+
             }
         }
     )
@@ -237,6 +256,7 @@ fn PictureSelector(
     }
 }
 
+/// A component representing a single item (picture) in the [PictureSelector] component
 #[component]
 fn PictureSelectorItem(
     max_width: String,
