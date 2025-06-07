@@ -407,6 +407,27 @@ impl CssSize {
     pub fn null() -> Self {
         CssSize::Null
     }
+    
+    /// Gets the inner float independent of the unit
+    pub fn get_float(&self) -> f32 {
+        match self { 
+            CssSize::Px(x) => *x,
+            CssSize::Em(x) => *x,
+            CssSize::Percentage(x) => *x,
+            CssSize::Null => 0.0,
+        }
+    }
+    
+    /// Sets a float and keeps the unit
+    /// If the enum is [Null], it will turn into a [CssSize::Px].
+    pub fn set_float(&mut self, value: f32) {
+        match self { 
+            CssSize::Px(x) => *x = value,
+            CssSize::Em(x) => *x = value,
+            CssSize::Percentage(x) => *x = value,
+            CssSize::Null => *self = CssSize::Px(value),
+        }
+    }
 }
 
 /// Gets the last dir from a given path as String

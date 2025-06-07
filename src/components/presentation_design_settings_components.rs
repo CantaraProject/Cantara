@@ -1,8 +1,6 @@
 //! This module provides components for adjusting the presentation designs
 
-use crate::logic::settings::{
-    PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate, use_settings,
-};
+use crate::logic::settings::{PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate, use_settings, TopBottomLeftRight, CssSize};
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 use dioxus::core_macro::{component, rsx};
 use dioxus::dioxus_core::Element;
@@ -208,8 +206,15 @@ fn DesignTemplateSettings(
 
                     }
                 }
+            }
+        }
 
-
+        h4 { { t!("settings.padding") } }
+        PaddingInput {
+            default_padding: pdt().padding,
+            onchange: move |data| {
+                pdt.write().padding = data;
+                onchange.call(pdt());
             }
         }
     )
@@ -280,6 +285,124 @@ fn PictureSelectorItem(
                 max_width: "180px",
                 height: "100px",
                 src: sourcefile_signal().into_inner().path.to_str().unwrap_or("").to_string(),
+            }
+        }
+    }
+}
+
+/// A component which allows the setting of padding (left, right, top, bottom)
+#[component]
+fn PaddingInput(
+    default_padding: TopBottomLeftRight,
+    onchange: EventHandler<TopBottomLeftRight>
+) -> Element {
+    let mut padding: Signal<TopBottomLeftRight> = use_signal(|| default_padding);
+
+    rsx!(
+        div {
+            class: "grid",
+            div {
+                label {
+                    "Left",
+                    fieldset {
+                        role: "group",
+                        NumberedValidatedLengthInput {
+                            value: padding().left,
+                            placeholder: "left",
+                            onchange: move |value| {
+                                padding.write().left = value;
+                                onchange.call(padding());
+                            }
+                        }
+                    },
+                }
+            }
+            div {
+                label {
+                    "Right",
+                    fieldset {
+                        role: "group",
+                        NumberedValidatedLengthInput {
+                            value: padding().right,
+                            placeholder: "right",
+                            onchange: move |value| {
+                                padding.write().right = value;
+                                onchange.call(padding());
+                            }
+                        }
+                    },
+                }
+            }
+        }
+        div {
+            class: "grid",
+            div {
+                label {
+                    "Top",
+                    fieldset {
+                        role: "group",
+                        NumberedValidatedLengthInput {
+                            value: padding().top,
+                            placeholder: "top",
+                            onchange: move |value| {
+                                padding.write().top = value;
+                                onchange.call(padding());
+                            }
+                        }
+                    },
+                }
+            }
+            div {
+                label {
+                    "Bottom",
+                    fieldset {
+                        role: "group",
+                        NumberedValidatedLengthInput {
+                            value: padding().bottom,
+                            placeholder: "bottom",
+                            onchange: move |value| {
+                                padding.write().bottom = value;
+                                onchange.call(padding());
+                            }
+                        }
+                    },
+                }
+            }
+        }
+    )
+}
+
+#[component]
+fn NumberedValidatedLengthInput(
+    value: CssSize,
+    placeholder: String,
+    onchange: EventHandler<CssSize>
+) -> Element {
+    let mut value_signal = use_signal(|| value);
+    rsx! {
+        input {
+            placeholder,
+            value: value_signal.read().get_float(),
+            inputmode: "numeric",
+            onchange: move |event| {
+                value_signal.write().set_float(event.value().parse().unwrap_or(0.0));
+                onchange.call(value_signal());
+            }
+        }
+        select {
+            name: "unit",
+            required: true,
+            option {
+                selected: matches!(value_signal(), CssSize::Px(_)),
+                "px"
+            }
+            option {
+                selected: matches!(value_signal(), CssSize::Em(_)),
+                "em"
+            }
+            option {
+                selected: matches!(value_signal(), CssSize::Percentage(_)),
+                "%"
             }
         }
     }
