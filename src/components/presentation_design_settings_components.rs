@@ -9,6 +9,7 @@ use dioxus::prelude::*;
 use dioxus_router::prelude::*;
 use rust_i18n::t;
 use std::path::PathBuf;
+use dioxus::logger::tracing;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -310,7 +311,7 @@ fn PaddingInput(
                             value: padding().left,
                             placeholder: "left",
                             onchange: move |value| {
-                                padding.write().left = value;
+                                padding.write().left = get_nullified_css_size(value);
                                 onchange.call(padding());
                             }
                         }
@@ -326,7 +327,7 @@ fn PaddingInput(
                             value: padding().right,
                             placeholder: "right",
                             onchange: move |value| {
-                                padding.write().right = value;
+                                padding.write().right = get_nullified_css_size(value);
                                 onchange.call(padding());
                             }
                         }
@@ -344,8 +345,8 @@ fn PaddingInput(
                         NumberedValidatedLengthInput {
                             value: padding().top,
                             placeholder: "top",
-                            onchange: move |value| {
-                                padding.write().top = value;
+                            onchange: move |value: CssSize| {
+                                padding.write().top = get_nullified_css_size(value);
                                 onchange.call(padding());
                             }
                         }
@@ -360,8 +361,9 @@ fn PaddingInput(
                         NumberedValidatedLengthInput {
                             value: padding().bottom,
                             placeholder: "bottom",
-                            onchange: move |value| {
-                                padding.write().bottom = value;
+                            onchange: move |value: CssSize| {
+                                // If the content is null, we will set it accordingly
+                                padding.write().bottom = get_nullified_css_size(value);
                                 onchange.call(padding());
                             }
                         }
@@ -392,8 +394,17 @@ fn NumberedValidatedLengthInput(
         select {
             name: "unit",
             required: true,
+            onchange: move |event: Event<FormData>| {
+                match event.value().as_str() {
+                    "px" => value_signal.set(CssSize::Px(value_signal().get_float())),
+                    "em" => value_signal.set(CssSize::Em(value_signal().get_float())),
+                    "%"  => value_signal.set(CssSize::Percentage(value_signal().get_float())),
+                    _    => value_signal.set(CssSize::Px(value_signal().get_float()))
+                };
+                onchange.call(value_signal());
+            },
             option {
-                selected: matches!(value_signal(), CssSize::Px(_)),
+                selected: matches!(value_signal(), CssSize::Px(_)) || value_signal() == CssSize::Null,
                 "px"
             }
             option {
@@ -405,5 +416,13 @@ fn NumberedValidatedLengthInput(
                 "%"
             }
         }
+    }
+}
+
+/// Returns a [CssSize::Null] if the value is `0.0`. Else, the original value is cloned.
+fn get_nullified_css_size(css_size: CssSize) -> CssSize {
+    match css_size.get_float() {
+        0.0 => CssSize::Null,
+        _ => css_size.clone(),
     }
 }
