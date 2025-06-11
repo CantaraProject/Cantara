@@ -190,6 +190,7 @@ fn DesignTemplateSettings(
                         }
                     }
 
+                    // Adjust the background image transparency over a range input
                     label {
                         span { { format!("{}: {}%",
                             t!("settings.background_image_transparency"),
@@ -199,7 +200,7 @@ fn DesignTemplateSettings(
                             min: 0,
                             max: 100,
                             value: pdt.read().background_transparency,
-                            onchange: move |event| {
+                            oninput: move |event| {
                                 pdt.write().background_transparency = event.value().parse().unwrap_or(0);
                                 onchange.call(pdt());
                             }
