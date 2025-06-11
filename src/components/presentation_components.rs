@@ -99,7 +99,7 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
         );
 
     let css_presentation_background_color =
-        use_memo(move || current_pds.read().clone().get_background_as_rgb_string());
+        use_memo(move || current_pds().get_background_as_rgb_string());
     let css_headline_font_size = use_memo(move || {
         current_pds
             .read()
@@ -150,6 +150,8 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             .horizontal_alignment
             .to_css_string()
     });
+    
+    let background_image_used: Memo<bool> = use_memo(move || current_pds().background_image.is_some());
 
     let custom_css_style: Memo<String> = use_memo(move || {
         format!(
