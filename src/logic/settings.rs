@@ -316,7 +316,7 @@ impl Default for FontRepresentation {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Default)]
 pub enum HorizontalAlign {
     Left,
 

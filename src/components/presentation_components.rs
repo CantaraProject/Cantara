@@ -2,6 +2,7 @@
 
 use cantara_songlib::slides::*;
 use dioxus::prelude::*;
+use rgb::RGBA8;
 use rust_i18n::t;
 
 use crate::{
@@ -11,6 +12,8 @@ use crate::{
         states::RunningPresentation,
     },
 };
+use crate::logic::css::CssHandler;
+use crate::logic::settings::{CssSize, HorizontalAlign};
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
@@ -98,74 +101,82 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             },
         );
 
+    let background_image_used: Memo<bool> = use_memo(move || current_pds().background_image.is_some());
+
     let css_presentation_background_color =
-        use_memo(move || current_pds().get_background_as_rgb_string());
+        use_memo(move || current_pds().background_color);
     let css_headline_font_size = use_memo(move || {
-        current_pds
+        CssSize::Px(current_pds
             .read()
             .main_content_fonts
             .first()
             .unwrap_or(&FontRepresentation::default())
-            .headline_font_size
+            .headline_font_size as f32)
     });
     let css_main_content_font_size = use_memo(move || {
-        current_pds
+        CssSize::Px(current_pds
             .read()
             .main_content_fonts
             .first()
             .unwrap_or(&FontRepresentation::default())
-            .font_size
+            .font_size as f32)
     });
     let css_spoiler_font_size = use_memo(move || {
-        current_pds
+        CssSize::Px(current_pds
             .read()
             .main_content_fonts
             .first()
             .unwrap_or(&FontRepresentation::default())
-            .spoiler_font_size
+            .spoiler_font_size as f32)
     });
-    let css_main_text_color: Memo<String> = use_memo(move || {
+    let css_main_text_color: Memo<RGBA8> = use_memo(move || {
         current_pds
             .read()
             .clone()
             .main_content_fonts
             .first()
             .unwrap()
-            .get_color_as_rgba_string()
+            .color
     });
-    let css_padding_left: Memo<String> =
-        use_memo(move || current_pds.read().padding.left.to_css_string());
-    let css_padding_right: Memo<String> =
-        use_memo(move || current_pds.read().padding.right.to_css_string());
-    let css_padding_top: Memo<String> =
-        use_memo(move || current_pds.read().padding.top.to_css_string());
-    let css_padding_bottom: Memo<String> =
-        use_memo(move || current_pds.read().padding.bottom.to_css_string());
-    let css_text_align: Memo<String> = use_memo(move || {
+    let css_padding_left: Memo<CssSize> =
+        use_memo(move || current_pds().padding.left);
+    let css_padding_right: Memo<CssSize> =
+        use_memo(move || current_pds().padding.right);
+    let css_padding_top: Memo<CssSize> =
+        use_memo(move || current_pds().padding.top);
+    let css_padding_bottom: Memo<CssSize> =
+        use_memo(move || current_pds().padding.bottom);
+    let css_text_align: Memo<HorizontalAlign> = use_memo(move || {
         current_pds
             .read()
             .main_content_fonts
             .first()
             .unwrap()
             .horizontal_alignment
-            .to_css_string()
+            .clone()
     });
-    
-    let background_image_used: Memo<bool> = use_memo(move || current_pds().background_image.is_some());
 
-    let custom_css_style: Memo<String> = use_memo(move || {
-        format!(
-            "{};{};{};{};{};{};",
-            format!(
-                "background-color: rgb({});",
-                css_presentation_background_color()
-            ),
-            format!("padding-left: {};", css_padding_left()),
-            format!("padding-right: {}", css_padding_right()),
-            format!("padding-top: {}", css_padding_top()),
-            format!("padding-bottom: {}", css_padding_bottom()),
-            format!("color: rgba({})!important", css_main_text_color)
-        )
+    let custom_css_style: Memo<CssHandler> = use_memo(move || {
+        let mut handler = CssHandler::new();
+
+        handler.background_color(current_pds().background_color);
+        handler.padding_left(current_pds().padding.left);
+        handler.padding_right(current_pds().padding.right);
+        handler.padding_top(current_pds().padding.top);
+        handler.padding_bottom(current_pds().padding.bottom);
+        handler.text_align(css_text_align());
+        handler.set_important(true);
+        handler.color(
+            current_pds
+                .read()
+                .clone()
+                .main_content_fonts
+                .first()
+                .unwrap()
+                .color
+        );
+
+        handler
     });
 
     rsx! {
@@ -173,7 +184,7 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
         document::Script { src: PRESENTATION_JS }
         div {
             class: "presentation",
-            style: custom_css_style(),
+            style: custom_css_style.read().to_string(),
 
             tabindex: 0,
             onkeydown: move |event: Event<KeyboardData>| {
@@ -228,16 +239,28 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
 #[component]
 fn TitleSlideComponent(
     title_slide: TitleSlide,
-    css_headline_font_size: String,
-    css_text_color: String,
-    css_text_align: String,
+    css_headline_font_size: CssSize,
+    css_text_color: RGBA8,
+    css_text_align: HorizontalAlign,
 ) -> Element {
+
+    // Build the CSS
+    let css_handler: Memo<CssHandler> = use_memo(move || {
+        let mut handler = CssHandler::new();
+        handler.set_important(true);
+        handler.font_size(css_headline_font_size.clone());
+        handler.color(css_text_color);
+        handler.text_align(css_text_align.clone());
+        handler
+    });
+    let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
+
     rsx! {
         div {
             id: "headline",
-            style: format!("font-size: {}px!important;color: rgba({})!important;text-align: {}!important;", css_headline_font_size, css_text_color, css_text_align),
+            style: css_handler_string(),
             p {
-                style: format!("font-size: {}px!important;color: rgba({})!important;text-align: {}!important;", css_headline_font_size, css_text_color, css_text_align),
+                style: css_handler_string(),
                 { title_slide.title_text }
             }
         }
@@ -248,10 +271,10 @@ fn TitleSlideComponent(
 fn SingleLanguageMainContentSlideRenderer(
     main_slide: SingleLanguageMainContentSlide,
     current_pds: PresentationDesignTemplate,
-    css_main_content_size: String,
-    css_spoiler_content_size: String,
-    css_text_color: String,
-    css_text_align: String,
+    css_main_content_size: CssSize,
+    css_spoiler_content_size: CssSize,
+    css_text_color: RGBA8,
+    css_text_align: HorizontalAlign,
 ) -> Element {
     let number_of_main_content_lines = {
         let cloned_main_slide = main_slide.clone();
@@ -260,13 +283,26 @@ fn SingleLanguageMainContentSlideRenderer(
         lines.len()
     };
 
+    let css_handler: Memo<CssHandler> = use_memo(move || {
+        let mut handler = CssHandler::new();
+
+        handler.set_important(true);
+        handler.font_size(css_main_content_size.clone());
+        handler.color(css_text_color);
+        handler.text_align(css_text_align);
+
+        handler
+    });
+
+    let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
+
     rsx! {
         div {
             div {
                 class: "main-content",
-                style: format!("font-size: {}px!important;color: rgba({})!important;text-align: {}!important;", css_main_content_size, css_text_color, css_text_align),
+                style: css_handler_string(),
                 p {
-                    style: format!("font-size: {}px;color: rgba({})!important;text-align: {}!important;", css_main_content_size, css_text_color, css_text_align),
+                    style: css_handler_string(),
                     for (num, line) in main_slide.clone().main_text().split("\n").enumerate() {
                         { line }
                         if num < number_of_main_content_lines -1 {
@@ -278,9 +314,9 @@ fn SingleLanguageMainContentSlideRenderer(
             if let Some(spoiler_content) = Some(main_slide.spoiler_text()) {
                 div {
                     class: "spoiler-content",
-                    style: format!("font-size: {}px!important;color: rgba({})!important;text-align: {}!important;", css_spoiler_content_size, css_text_color, css_text_align),
+                    style: css_handler_string(),
                     p {
-                        style: format!("font-size: {}px!important;color: rgba({})!important;text-align: {}!important;", css_spoiler_content_size, css_text_color, css_text_align),
+                        style: css_handler_string(),
                         { spoiler_content }
                     }
                 }
