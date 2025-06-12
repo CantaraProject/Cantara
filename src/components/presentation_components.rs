@@ -156,27 +156,29 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             .clone()
     });
 
-    let custom_css_style: Memo<CssHandler> = use_memo(move || {
-        let mut handler = CssHandler::new();
+    // The CSS handler ([CssHandler]) takes all CSS arguments and builds the string from it.
+    // We build it in a memo for the sake of consistency.
+    let css_handler: Memo<CssHandler> = use_memo(move || {
+        let mut css = CssHandler::new();
 
-        handler.background_color(current_pds().background_color);
-        handler.padding_left(current_pds().padding.left);
-        handler.padding_right(current_pds().padding.right);
-        handler.padding_top(current_pds().padding.top);
-        handler.padding_bottom(current_pds().padding.bottom);
-        handler.text_align(css_text_align());
-        handler.set_important(true);
-        handler.color(
+        css.background_color(current_pds().background_color);
+        css.padding_left(current_pds().padding.left);
+        css.padding_right(current_pds().padding.right);
+        css.padding_top(current_pds().padding.top);
+        css.padding_bottom(current_pds().padding.bottom);
+        css.text_align(css_text_align());
+        css.set_important(true);
+        css.color(
             current_pds
                 .read()
                 .clone()
                 .main_content_fonts
                 .first()
-                .unwrap()
+                .unwrap_or(&FontRepresentation::default())
                 .color
         );
 
-        handler
+        css
     });
 
     rsx! {
@@ -184,7 +186,7 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
         document::Script { src: PRESENTATION_JS }
         div {
             class: "presentation",
-            style: custom_css_style.read().to_string(),
+            style: css_handler.read().to_string(),
 
             tabindex: 0,
             onkeydown: move |event: Event<KeyboardData>| {
@@ -246,12 +248,12 @@ fn TitleSlideComponent(
 
     // Build the CSS
     let css_handler: Memo<CssHandler> = use_memo(move || {
-        let mut handler = CssHandler::new();
-        handler.set_important(true);
-        handler.font_size(css_headline_font_size.clone());
-        handler.color(css_text_color);
-        handler.text_align(css_text_align.clone());
-        handler
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        css.font_size(css_headline_font_size.clone());
+        css.color(css_text_color);
+        css.text_align(css_text_align.clone());
+        css
     });
     let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
 
@@ -284,14 +286,14 @@ fn SingleLanguageMainContentSlideRenderer(
     };
 
     let css_handler: Memo<CssHandler> = use_memo(move || {
-        let mut handler = CssHandler::new();
+        let mut css = CssHandler::new();
 
-        handler.set_important(true);
-        handler.font_size(css_main_content_size.clone());
-        handler.color(css_text_color);
-        handler.text_align(css_text_align);
+        css.set_important(true);
+        css.font_size(css_main_content_size.clone());
+        css.color(css_text_color);
+        css.text_align(css_text_align);
 
-        handler
+        css
     });
 
     let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
