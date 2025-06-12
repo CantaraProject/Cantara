@@ -316,7 +316,7 @@ impl Default for FontRepresentation {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum HorizontalAlign {
     Left,
 
@@ -377,7 +377,7 @@ impl Default for TopBottomLeftRight {
 }
 
 /// A size value representing a CSS file
-#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum CssSize {
     Px(f32),
     Em(f32),
