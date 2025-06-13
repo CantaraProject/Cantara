@@ -129,6 +129,35 @@ settings:
   padding:
     en: Padding
     de: Randabstand des Inhalts
+  horizontal_alignment:
+    title:
+      en: Horizontal Alignment
+      de: Horizontale Ausrichtung
+    left:
+      en: Left
+      de: Linksbündig
+    centered:
+      en: Centered
+      de: Zentriert
+    right:
+      en: Right
+      de: Rechtsbündig
+  vertical_alignment:
+    title:
+      en: Vertical Alignment
+      de: Vertikale Ausrichtung
+    description:
+      en: The vertical alignment of the slide content
+      de: Die vertikale Ausrichtung des Inhalts
+    top:
+      en: Top
+      de: Oben
+    middle:
+      en: Middle
+      de: Mittig
+    bottom:
+      en: Bottom
+      de: Unten
 
 presentation:
   title:

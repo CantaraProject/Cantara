@@ -380,6 +380,7 @@ impl Default for TopBottomLeftRight {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum CssSize {
     Px(f32),
+    Pt(f32),
     Em(f32),
     Percentage(f32),
     #[default]
@@ -390,6 +391,7 @@ impl CssSize {
     pub fn to_css_string(&self) -> String {
         match self {
             CssSize::Px(size) => format!("{}px", size),
+            CssSize::Pt(size) => format!("{}pt", size),
             CssSize::Em(size) => format!("{}em", size),
             CssSize::Percentage(size) => format!("{}%", size),
             CssSize::Null => "0".to_string(),
@@ -400,6 +402,7 @@ impl CssSize {
     pub fn is_null(&self) -> bool {
         matches!(self, CssSize::Null)
             || matches!(self, CssSize::Px(0.0))
+            || matches!(self, CssSize::Pt(0.0))
             || matches!(self, CssSize::Em(0.0))
             || matches!(self, CssSize::Percentage(0.0))
     }
@@ -412,6 +415,7 @@ impl CssSize {
     pub fn get_float(&self) -> f32 {
         match self { 
             CssSize::Px(x) => *x,
+            CssSize::Pt(x) => *x,
             CssSize::Em(x) => *x,
             CssSize::Percentage(x) => *x,
             CssSize::Null => 0.0,
@@ -423,6 +427,7 @@ impl CssSize {
     pub fn set_float(&mut self, value: f32) {
         match self { 
             CssSize::Px(x) => *x = value,
+            CssSize::Pt(x) => *x = value,
             CssSize::Em(x) => *x = value,
             CssSize::Percentage(x) => *x = value,
             CssSize::Null => *self = CssSize::Px(value),
