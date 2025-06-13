@@ -1,6 +1,6 @@
 //! This module provides components for adjusting the presentation designs
 
-use crate::logic::settings::{PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate, use_settings, TopBottomLeftRight, CssSize};
+use crate::logic::settings::{PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate, use_settings, TopBottomLeftRight, CssSize, VerticalAlign};
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 use dioxus::core_macro::{component, rsx};
 use dioxus::dioxus_core::Element;
@@ -131,6 +131,9 @@ fn MetaSettings(
     }
 }
 
+/// This component implements the actual settings for any presentation design which is a
+/// design template.
+/// Include further settings components here.
 #[component]
 fn DesignTemplateSettings(
     /// The presentation design which Meta information should be able to be edited
@@ -216,6 +219,16 @@ fn DesignTemplateSettings(
             default_padding: pdt().padding,
             onchange: move |data| {
                 pdt.write().padding = data;
+                onchange.call(pdt());
+            }
+        }
+
+        // Here the settings for the vertical alignment of the content are included
+        h5 { { t!("settings.vertical_alignment.title") } }
+        VerticalAlignmentSelector {
+            default: pdt().vertical_alignment,
+            onchange: move |data| {
+                pdt.write().vertical_alignment = data;
                 onchange.call(pdt());
             }
         }
@@ -398,6 +411,7 @@ fn NumberedValidatedLengthInput(
             onchange: move |event: Event<FormData>| {
                 match event.value().as_str() {
                     "px" => value_signal.set(CssSize::Px(value_signal().get_float())),
+                    "pt" => value_signal.set(CssSize::Pt(value_signal().get_float())),
                     "em" => value_signal.set(CssSize::Em(value_signal().get_float())),
                     "%"  => value_signal.set(CssSize::Percentage(value_signal().get_float())),
                     _    => value_signal.set(CssSize::Px(value_signal().get_float()))
@@ -407,6 +421,10 @@ fn NumberedValidatedLengthInput(
             option {
                 selected: matches!(value_signal(), CssSize::Px(_)) || value_signal() == CssSize::Null,
                 "px"
+            }
+            option {
+                selected: matches!(value_signal(), CssSize::Px(_)) || value_signal() == CssSize::Null,
+                "pt"
             }
             option {
                 selected: matches!(value_signal(), CssSize::Em(_)),
@@ -426,4 +444,44 @@ fn get_nullified_css_size(css_size: CssSize) -> CssSize {
         0.0 => CssSize::Null,
         _ => css_size.clone(),
     }
+}
+
+/// A component for selecting the vertical alignment (left, right, centered)
+#[component]
+fn VerticalAlignmentSelector(
+    default: VerticalAlign,
+    onchange: EventHandler<VerticalAlign>
+) -> Element {
+    let mut value_signal = use_signal(|| default);
+    rsx!(
+        select {
+            name: "vertical_align",
+            required: true,
+            aria_label: t!("settings.vertical_alignment.description").to_string(),
+            onchange: move |event| {
+                match event.value().as_str() {
+                    "top" => value_signal.set(VerticalAlign::Top),
+                    "middle" => value_signal.set(VerticalAlign::Middle),
+                    "bottom" => value_signal.set(VerticalAlign::Bottom),
+                    other => tracing::error!("Invalid option for vertical alignment selected, the value is: {}", other)
+                    };
+                onchange.call(value_signal());
+            },
+            option {
+                value: "top",
+                selected: value_signal() == VerticalAlign::Top,
+                { { t!("settings.vertical_alignment.top") } }
+            }
+            option {
+                value: "middle",
+                selected: value_signal() == VerticalAlign::Middle,
+                { { t!("settings.vertical_alignment.middle") } }
+            }
+            option {
+                value: "bottom",
+                selected: value_signal() == VerticalAlign::Bottom,
+                { { t!("settings.vertical_alignment.bottom") } }
+            }
+        }
+    )
 }
