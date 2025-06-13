@@ -132,6 +132,13 @@ impl CssHandler {
             CssValue::Float(opacity)
         )
     }
+    
+    pub fn z_index(&mut self, index: i32) {
+        self.push(
+            "z-index".to_string(),
+            CssValue::Int(index)
+        )
+    }
 }
 
 impl Display for CssHandler {

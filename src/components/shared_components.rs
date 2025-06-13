@@ -165,7 +165,7 @@ pub fn PresentationViewer(
             if let Some(title) = title {
                 div {
                     class: "presentation-title",
-                    style: "zoom:100%!important;position: absolute;top: 0;right: 0;display: flex;align-items: center;justify-content: center;font-size: 30pt;background-color:black;color:white;",
+                    style: "zoom:100%!important;position: absolute;top: 0;right: 0;display: flex;align-items: center;justify-content: center;font-size: 30pt;background-color:black;color:white;z-index:99!important;",
                     { title }
                 }
             }

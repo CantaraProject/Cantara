@@ -23,6 +23,7 @@ html, body {
     right: 0;
     position: absolute;
     overflow-y: hidden;
+    z-index: 1;
 }
 
 .background {
@@ -34,10 +35,12 @@ html, body {
     right: 0;
     position: absolute;
     overflow-y: hidden;
+    z-index: -1;
 }
 
 .presentation p {
     margin: 0;
+    z-index: 1;
 }
 
 .presentation:focus {
@@ -66,6 +69,10 @@ html, body {
 /* Fade in Animation */
 .presentation-fade-in {
     animation: presentationFadeIn 400ms ease-in-out;
+}
+
+.slide-container {
+    z-index: 2!important;
 }
 
 @keyframes presentationFadeIn {
