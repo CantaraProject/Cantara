@@ -190,7 +190,7 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             css.background_size("cover");
             css.background_position("center");
             css.background_repeat("no-repeat");
-            css.opacity(pds.background_transparency as f32 / 100.0f32);
+            css.opacity(1.0 - pds.background_transparency as f32 / 100.0f32);
         }
         css.to_string()
     });
@@ -272,6 +272,7 @@ fn TitleSlideComponent(
         css.color(css_text_color);
         css.text_align(css_text_align.clone());
         css.opacity(1.0);
+        css.z_index(2);
         css
     });
     let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
@@ -312,6 +313,7 @@ fn SingleLanguageMainContentSlideRenderer(
         css.color(css_text_color);
         css.text_align(css_text_align);
         css.opacity(1.0);
+        css.z_index(2);
         css
     });
 
