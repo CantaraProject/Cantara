@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::iter;
+use std::path::PathBuf;
 use rgb::{RGB8, RGBA8};
 use crate::logic::settings::{CssSize, HorizontalAlign};
 
@@ -90,6 +91,47 @@ impl CssHandler {
             CssValue::HorizontalAlign(align)
         )
     }
+    
+    pub fn background_image(&mut self, url: &str) {
+        self.push(
+            "background-image".to_string(),
+            CssValue::Url(url.to_string())
+        )
+    }
+
+    pub fn background_size(&mut self, content: &str) {
+        self.push(
+            "background-size".to_string(),
+            CssValue::String(content.to_string())
+        )
+    }
+
+    pub fn background_position(&mut self, content: &str) {
+        self.push(
+            "background-position".to_string(),
+            CssValue::String(content.to_string())
+        )
+    }
+
+    pub fn background_repeat(&mut self, content: &str) {
+        self.push(
+            "background-repeat".to_string(),
+            CssValue::String(content.to_string())
+        )
+    }
+    
+    pub fn opacity(&mut self, opacity: f32) {
+        let opacity = match opacity {
+            x if x < 0.0 => 0.0,
+            x if x > 1.0 => 1.0,
+            x => x,
+        };
+        
+        self.push(
+            "opacity".to_string(),
+            CssValue::Float(opacity)
+        )
+    }
 }
 
 impl Display for CssHandler {
@@ -141,7 +183,7 @@ impl Display for CssValue {
             CssValue::String(s) => write!(f, "{}", s),
             CssValue::Rgb(rgb) => write!(f, "rgb({}, {}, {})", rgb.r, rgb.g, rgb.b),
             CssValue::Rgba(rgba) => write!(f, "rgba({}, {}, {}, {})", rgba.r, rgba.g, rgba.b, rgba.a),
-            CssValue::Url(s) => write!(f, "url({})", s),
+            CssValue::Url(s) => write!(f, "url('{}')", s),
             CssValue::Int(i) => write!(f, "{}", i),
             CssValue::Float(float) => write!(f, "{}", float),
             CssValue::CssSize(css_size) => write!(f, "{}", css_size.to_css_string()),
@@ -149,6 +191,8 @@ impl Display for CssValue {
         }
     }
 }
+
+
 
 #[cfg(test)]
 mod tests {
@@ -170,5 +214,11 @@ mod tests {
             handler.to_string().as_str(), 
             "background-color:rgb(100, 100, 100);color:rgba(255, 255, 255, 255)!important;padding-left:20px;padding-right:20px;padding-top:20px;padding-bottom:20px;"
         );
+    }
+    
+    #[test]
+    fn test_empty_handler_css() {
+        let mut handler = CssHandler::new();
+        assert_eq!(handler.to_string().as_str(), "");
     }
 }

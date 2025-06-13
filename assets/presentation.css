@@ -25,11 +25,30 @@ html, body {
     overflow-y: hidden;
 }
 
+.background {
+    outline: none;
+    margin: 0;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    position: absolute;
+    overflow-y: hidden;
+}
+
 .presentation p {
     margin: 0;
 }
 
 .presentation:focus {
+    outline: none;
+}
+
+.background p {
+    margin: 0;
+}
+
+.background:focus {
     outline: none;
 }
 

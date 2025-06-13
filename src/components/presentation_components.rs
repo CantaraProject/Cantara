@@ -181,6 +181,20 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
         css
     });
 
+    let background_css: Memo<String> = use_memo(move || {
+        let mut css: CssHandler = CssHandler::new();
+        let pds = current_pds();
+
+        if let Some(image) = pds.background_image {
+            css.background_image(image.as_source().path.to_str().unwrap_or_default());
+            css.background_size("cover");
+            css.background_position("center");
+            css.background_repeat("no-repeat");
+            css.opacity(pds.background_transparency as f32 / 100.0f32);
+        }
+        css.to_string()
+    });
+
     rsx! {
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Script { src: PRESENTATION_JS }
@@ -205,6 +219,10 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             onmounted: move |_| {
                 presentation_is_visible.set(true);
             },
+            div {
+                class: "background",
+                style: background_css()
+            }
             if presentation_is_visible() {
                 div {
                     class: "slide-container presentation-fade-in",
@@ -253,6 +271,7 @@ fn TitleSlideComponent(
         css.font_size(css_headline_font_size.clone());
         css.color(css_text_color);
         css.text_align(css_text_align.clone());
+        css.opacity(1.0);
         css
     });
     let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
@@ -292,7 +311,7 @@ fn SingleLanguageMainContentSlideRenderer(
         css.font_size(css_main_content_size.clone());
         css.color(css_text_color);
         css.text_align(css_text_align);
-
+        css.opacity(1.0);
         css
     });
 
