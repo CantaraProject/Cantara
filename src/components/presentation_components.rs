@@ -80,7 +80,7 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
                     background-color: black);
                 ",
                 p {
-                    { "No presentation data found:" },
+                    { "No presentation data found." },
                 }
             }
         };
