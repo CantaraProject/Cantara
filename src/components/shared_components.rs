@@ -52,33 +52,36 @@ pub fn ImageIcon(width: Option<u32>) -> Element {
 /// A component which displays multiple presentation designs in an "Amazing Grace" presentation and allows to select one
 #[component]
 pub fn PresentationDesignSelecter(
-    presentation_designs: Signal<Vec<PresentationDesign>>,
-    song_slide_settings: Option<Signal<SlideSettings>>,
+    presentation_designs: Vec<PresentationDesign>,
+    song_slide_settings: Option<SlideSettings>,
     default_selection: Option<usize>,
     viewer_width: usize,
     active_item: Signal<Option<usize>>,
 ) -> Element {
-    let mut presentations: Signal<Vec<Signal<RunningPresentation>>> =
-        use_signal(std::vec::Vec::new);
+    let song_slide_settings_signal = use_signal(|| song_slide_settings);
+    let mut presentation_designs_signal = use_signal(|| presentation_designs);
 
-    use_effect(move || {
-        for design in presentation_designs() {
-            let presentation = use_signal(|| {
-                create_amazing_grace_presentation(
-                    &design,
-                    &match song_slide_settings {
-                        Some(slide_settings_signal) => slide_settings_signal(),
-                        None => SlideSettings::default(),
-                    },
-                )
-            });
-            presentations.push(presentation);
-        }
-    });
+    let mut presentations: Signal<Vec<RunningPresentation>> =
+        use_signal(move || {
+            let mut presentation_signals = vec![];
+            for design in presentation_designs_signal() {
+                let presentation =
+                    create_amazing_grace_presentation(
+                        &design,
+                        &match song_slide_settings_signal() {
+                            Some(slide_settings_signal) => slide_settings_signal,
+                            None => SlideSettings::default(),
+                        },
+                    );
+                presentation_signals.push(presentation);
+            }
+            presentation_signals
+        });
+
     rsx! {
         div {
             class: "presentation-design-selecter",
-            for (number, presentation) in presentations().iter().enumerate() {
+            for (number, presentation) in presentations().into_iter().enumerate() {
                 span {
                     class: format!("presentation-design-selecter-item {}", match active_item() {
                         Some(active_item) => if active_item == number { "active" } else { "" },
@@ -87,9 +90,9 @@ pub fn PresentationDesignSelecter(
                     key: number,
                     tabindex: number,
                     SelectablePresentationViewer {
-                        presentation_signal: *presentation,
+                        presentation: presentation,
                         width: viewer_width,
-                        title: presentation().get_current_presentation_design().clone().name,
+                        title: presentation_designs_signal().get(number).unwrap().name.clone(),
                         index: number,
                         current_selection: active_item,
                     }
@@ -102,7 +105,7 @@ pub fn PresentationDesignSelecter(
 /// A wrapper component around the PresentationViewer which allows selecting it
 #[component]
 pub fn SelectablePresentationViewer(
-    presentation_signal: Signal<RunningPresentation>,
+    presentation: RunningPresentation,
     width: usize,
     title: Option<String>,
     index: usize,
@@ -116,7 +119,7 @@ pub fn SelectablePresentationViewer(
 
     rsx! {
         PresentationViewer {
-            presentation_signal,
+            presentation,
             width,
             title,
             selected: selected,
@@ -130,7 +133,7 @@ pub fn SelectablePresentationViewer(
 
 #[component]
 pub fn PresentationViewer(
-    presentation_signal: Signal<RunningPresentation>,
+    presentation: RunningPresentation,
     width: usize,
     title: Option<String>,
     selected: Option<Signal<Option<bool>>>,
@@ -138,6 +141,8 @@ pub fn PresentationViewer(
 ) -> Element {
     let scale_percentage = ((width as f64 / 1024_f64) * 100.0).round();
     let zoom_css_string = format!("zoom: {}%;", scale_percentage);
+
+    let presentation_signal = use_signal(|| presentation);
 
     let css_class = use_memo(move || match selected {
         Some(selected) => {
@@ -193,8 +198,21 @@ pub fn ExamplePresentationViewer(
 
     rsx! {
         PresentationViewer {
-            presentation_signal: presentation_signal,
+            presentation: presentation_signal(),
             width: width,
         }
     }
+}
+
+/// A helper function which generates the Java Script code for a dialog box with 'yes' and 'no'
+/// (or 'abort' button).
+/// Due to Dioxus' structures, the `document::eval` still has to be called from within the component.
+///
+/// # Arguments
+/// - `promt`: The question or message which should be shown to the user as [String]
+///
+/// # Returns
+/// - The JavaScript code to create a dialog box with Yes|No options and the prompt as message.
+pub fn js_yes_no_box(promt: String) -> String {
+    format!("return confirm('{}');", promt)
 }

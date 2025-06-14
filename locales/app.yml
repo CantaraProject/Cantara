@@ -192,6 +192,9 @@ general:
   edit:
     en: Edit
     de: Bearbeiten
+  delete:
+    en: Delete
+    de: Löschen
   meta_information:
     en: Meta Information
     de: Metainformationen
@@ -201,3 +204,11 @@ general:
   description:
     en: Description
     de: Beschreibung
+  duplicate:
+    en: Duplicate
+    de: Duplizieren
+
+dialogs:
+  confirm_deletion:
+    en: Are you sure that you would like to delete this element?
+    de: Sind Sie sicher, dass Sie das Element löschen möchten?

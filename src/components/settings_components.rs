@@ -1,6 +1,6 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
-use super::shared_components::{DeleteIcon, EditIcon, PresentationDesignSelecter};
+use super::shared_components::{js_yes_no_box, DeleteIcon, EditIcon, PresentationDesignSelecter};
 use crate::{Route, logic::settings::*};
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
@@ -23,15 +23,9 @@ pub fn SettingsPage() -> Element {
     let presentation_designs: Signal<Vec<PresentationDesign>> =
         use_signal(|| settings.read().presentation_designs.clone());
 
-    use_effect(move || {
-        if *presentation_designs.read() != settings.read().presentation_designs {
-            settings.write().presentation_designs = presentation_designs.read().clone();
-            tracing::debug!(
-                "Updated presentation designs, length: {}",
-                presentation_designs.read().len()
-            );
-        }
-    });
+    let mut update_presentation_design_settings = move || {
+        settings.write().presentation_designs = presentation_designs.read().clone();
+    };
 
     rsx! {
         div {
@@ -51,6 +45,7 @@ pub fn SettingsPage() -> Element {
                 button {
 
                     onclick: move |_| {
+                        update_presentation_design_settings();
                         settings.read().save();
                         nav.replace(crate::Route::Selection {});
                     },
@@ -96,7 +91,7 @@ fn RepositorySettings() -> Element {
             h3 { { t!("settings.repositories_headline") } },
             p { { t!("settings.repositories_description") } }
         }
-        for (index, repository) in settings.read().repositories.clone().iter().enumerate() {
+        for (index, repository) in settings.read().repositories.clone().into_iter().enumerate() {
             article {
                 class: "listed-article",
                 h6 {
@@ -175,10 +170,10 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
 
     // Update the presentation_designs signal whenever the selected_presentation_design changes
     let update_selected_design = move || {
-        if let Some(index) = *selected_presentation_design_index.read() {
-            if let Some(design) = selected_presentation_design.read().clone() {
+        if let Some(index) = selected_presentation_design_index() {
+            if let Some(design) = selected_presentation_design() {
                 if let Some(writable_pd_ref) = presentation_designs.write().get_mut(index) {
-                    *writable_pd_ref = design.clone()
+                    *writable_pd_ref = design;
                 }
             }
         }
@@ -193,7 +188,7 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
             class: "grid",
             div {
                 PresentationDesignSelecter {
-                    presentation_designs: presentation_designs,
+                    presentation_designs: presentation_designs(),
                     viewer_width: 400,
                     active_item: selected_presentation_design_index
                 }
@@ -202,7 +197,12 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                 if let Some(selected_presentation) = selected_presentation_design() {
                     PresentationDesignCard {
                         presentation_design: selected_presentation,
-                        index: selected_presentation_design_index()
+                        index: selected_presentation_design_index(),
+                        onclone: move |_| {
+                            if let Some(presentation_design) = selected_presentation_design() {
+                                presentation_designs.write().push(presentation_design);
+                            }
+                        }
                     }
                 }
             }
@@ -219,6 +219,9 @@ fn PresentationDesignCard(
     /// The index of the presentation design (optional). Only if present, editing and removing of
     /// presentation designs will be possible.
     index: Option<usize>,
+
+    /// An event which is called if the user would like to clone the selected presentation design
+    onclone: EventHandler<()>,
 ) -> Element {
     rsx! {
         article {
@@ -233,6 +236,31 @@ fn PresentationDesignCard(
                         });
                     },
                     { t!("general.edit") }
+                }
+                button {
+                    class: "secondary",
+                    onclick: move |_| {
+                        onclone.call(());
+                    },
+                    { t!("general.duplicate") }
+                }
+                button {
+                    class: "secondary",
+                    onclick: move |event| {
+                        event.prevent_default();
+                        let js: String = t!("dialogs.confirm_deletion").to_string();
+                        async move {
+                            match document::eval(&js_yes_no_box(js)).await {
+                                Ok(value) => match value.as_bool().unwrap_or(false) {
+                                    true => tracing::debug!("Deletion confirmed."),
+                                    false => tracing::debug!("Deletion aborted.")
+                                },
+                                Err(error) => tracing::error!("Failed to evaluate message box response: {}", error)
+                            }
+                        }
+
+                    },
+                    { t!("general.delete") }
                 }
             }
         }
