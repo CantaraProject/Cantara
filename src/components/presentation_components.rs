@@ -12,8 +12,8 @@ use crate::{
         states::RunningPresentation,
     },
 };
-use crate::logic::css::CssHandler;
-use crate::logic::settings::{CssSize, HorizontalAlign};
+use crate::logic::css::{CssHandler, PlaceItems};
+use crate::logic::settings::{CssSize, HorizontalAlign, VerticalAlign};
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
@@ -101,8 +101,6 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             },
         );
 
-    let background_image_used: Memo<bool> = use_memo(move || current_pds().background_image.is_some());
-
     let css_presentation_background_color =
         use_memo(move || current_pds().background_color);
     let css_headline_font_size = use_memo(move || {
@@ -155,6 +153,13 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             .horizontal_alignment
             .clone()
     });
+    let css_place_items: Memo<PlaceItems> = use_memo(move || {
+        match current_pds.read().vertical_alignment {
+            VerticalAlign::Top => PlaceItems::StartStretch,
+            VerticalAlign::Middle => PlaceItems::CenterStretch,
+            VerticalAlign::Bottom => PlaceItems::EndStretch
+        }
+    });
 
     // The CSS handler ([CssHandler]) takes all CSS arguments and builds the string from it.
     // We build it in a memo for the sake of consistency.
@@ -177,6 +182,7 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
                 .unwrap_or(&FontRepresentation::default())
                 .color
         );
+        css.place_items(css_place_items());
 
         css
     });
