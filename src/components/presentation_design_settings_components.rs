@@ -470,17 +470,17 @@ fn VerticalAlignmentSelector(
             option {
                 value: "top",
                 selected: value_signal() == VerticalAlign::Top,
-                { { t!("settings.vertical_alignment.top") } }
+                { t!("settings.vertical_alignment.top") }
             }
             option {
                 value: "middle",
                 selected: value_signal() == VerticalAlign::Middle,
-                { { t!("settings.vertical_alignment.middle") } }
+                { t!("settings.vertical_alignment.middle") }
             }
             option {
                 value: "bottom",
                 selected: value_signal() == VerticalAlign::Bottom,
-                { { t!("settings.vertical_alignment.bottom") } }
+                { t!("settings.vertical_alignment.bottom") }
             }
         }
     )

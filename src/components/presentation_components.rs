@@ -151,7 +151,6 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             .first()
             .unwrap()
             .horizontal_alignment
-            .clone()
     });
     let css_place_items: Memo<PlaceItems> = use_memo(move || {
         match current_pds.read().vertical_alignment {
@@ -276,7 +275,7 @@ fn TitleSlideComponent(
         css.set_important(true);
         css.font_size(css_headline_font_size.clone());
         css.color(css_text_color);
-        css.text_align(css_text_align.clone());
+        css.text_align(css_text_align);
         css.opacity(1.0);
         css.z_index(2);
         css
