@@ -1,6 +1,6 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
-use super::shared_components::{js_yes_no_box, DeleteIcon, EditIcon, PresentationDesignSelector};
+use super::shared_components::{DeleteIcon, EditIcon, PresentationDesignSelector, js_yes_no_box};
 use crate::{Route, logic::settings::*};
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
@@ -147,7 +147,8 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
     let mut selected_presentation_design = use_signal(|| None::<PresentationDesign>);
 
     use_effect(move || {
-        let new_value = selected_presentation_design_index().and_then(|index| presentation_designs.read().get(index).cloned());
+        let new_value = selected_presentation_design_index()
+            .and_then(|index| presentation_designs.read().get(index).cloned());
         selected_presentation_design.set(new_value);
     });
 

@@ -1,15 +1,15 @@
 //! Shared components reusable across different parts of the program.
 
+use crate::components::presentation_components::PresentationRendererComponent;
 use crate::logic::presentation::create_amazing_grace_presentation;
 use crate::logic::settings::PresentationDesign;
 use crate::logic::states::RunningPresentation;
 use cantara_songlib::slides::SlideSettings;
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
+use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
 use dioxus_free_icons::icons::fa_solid_icons::{FaImage, FaMusic, FaPenToSquare};
-use dioxus_free_icons::Icon;
-use crate::components::presentation_components::PresentationRendererComponent;
 
 #[component]
 pub fn DeleteIcon() -> Element {
@@ -95,7 +95,13 @@ pub fn PresentationViewer(
 ) -> Element {
     let scale_percentage = ((width as f64 / 1024.0) * 100.0).round();
     let zoom_css = format!("zoom: {}%;", scale_percentage);
-    let css_class = selected.map_or("rounded-corners-inactive", |s| if s { "rounded-corners-active" } else { "rounded-corners-inactive" });
+    let css_class = selected.map_or("rounded-corners-inactive", |s| {
+        if s {
+            "rounded-corners-active"
+        } else {
+            "rounded-corners-inactive"
+        }
+    });
 
     rsx! {
         div {

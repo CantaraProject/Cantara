@@ -1,15 +1,18 @@
 //! This module provides components for adjusting the presentation designs
 
-use crate::logic::settings::{PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate, use_settings, TopBottomLeftRight, CssSize, VerticalAlign};
+use crate::logic::settings::{
+    CssSize, PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate,
+    TopBottomLeftRight, VerticalAlign, use_settings,
+};
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 use dioxus::core_macro::{component, rsx};
 use dioxus::dioxus_core::Element;
 use dioxus::hooks::use_signal;
+use dioxus::logger::tracing;
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
 use rust_i18n::t;
 use std::path::PathBuf;
-use dioxus::logger::tracing;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -309,7 +312,7 @@ fn PictureSelectorItem(
 #[component]
 fn PaddingInput(
     default_padding: TopBottomLeftRight,
-    onchange: EventHandler<TopBottomLeftRight>
+    onchange: EventHandler<TopBottomLeftRight>,
 ) -> Element {
     let mut padding: Signal<TopBottomLeftRight> = use_signal(|| default_padding);
 
@@ -392,7 +395,7 @@ fn PaddingInput(
 fn NumberedValidatedLengthInput(
     value: CssSize,
     placeholder: String,
-    onchange: EventHandler<CssSize>
+    onchange: EventHandler<CssSize>,
 ) -> Element {
     let mut value_signal = use_signal(|| value);
     rsx! {
@@ -450,7 +453,7 @@ fn get_nullified_css_size(css_size: CssSize) -> CssSize {
 #[component]
 fn VerticalAlignmentSelector(
     default: VerticalAlign,
-    onchange: EventHandler<VerticalAlign>
+    onchange: EventHandler<VerticalAlign>,
 ) -> Element {
     let mut value_signal = use_signal(|| default);
     rsx!(

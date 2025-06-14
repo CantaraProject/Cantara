@@ -410,10 +410,10 @@ impl CssSize {
     pub fn null() -> Self {
         CssSize::Null
     }
-    
+
     /// Gets the inner float independent of the unit
     pub fn get_float(&self) -> f32 {
-        match self { 
+        match self {
             CssSize::Px(x) => *x,
             CssSize::Pt(x) => *x,
             CssSize::Em(x) => *x,
@@ -421,11 +421,11 @@ impl CssSize {
             CssSize::Null => 0.0,
         }
     }
-    
+
     /// Sets a float and keeps the unit
     /// If the enum is [Null], it will turn into a [CssSize::Px].
     pub fn set_float(&mut self, value: f32) {
-        match self { 
+        match self {
             CssSize::Px(x) => *x = value,
             CssSize::Pt(x) => *x = value,
             CssSize::Em(x) => *x = value,
