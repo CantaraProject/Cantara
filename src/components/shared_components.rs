@@ -49,6 +49,11 @@ pub fn ImageIcon(width: Option<u32>) -> Element {
     }
 }
 
+/// This global signal ensures that there is a runtime unique index for each presentation shown in a
+/// [PresentationDesignSelecter].
+static GLOBAL_PRESENTATION_INDEX: GlobalSignal<usize> = Global::new(|| 0);
+
+
 /// A component which displays multiple presentation designs in an "Amazing Grace" presentation and allows to select one
 #[component]
 pub fn PresentationDesignSelecter(
@@ -60,19 +65,26 @@ pub fn PresentationDesignSelecter(
 ) -> Element {
     let song_slide_settings_signal = use_signal(move || song_slide_settings.clone());
 
-    let mut presentations: Signal<Vec<RunningPresentation>> = use_signal(|| vec![]);
+    let mut presentations: Memo<Vec<RunningPresentation>> = use_memo(move || {
+        tracing::debug!("Recreate presentations");
+        let mut presentations = vec![];
 
-    use_effect(move || {
-        presentations.write().clear();
         for design in presentation_designs.read().iter() {
             let presentation =
                 create_amazing_grace_presentation(
-                    design,
+                    &design,
                     &song_slide_settings_signal().unwrap_or_else(|| SlideSettings::default()),
                 );
-            presentations.write().push(presentation);
+            presentations.push(presentation);
         }
+
+        presentations
     });
+
+    let mut get_global_index = move || {
+        *GLOBAL_PRESENTATION_INDEX.write() = (*GLOBAL_PRESENTATION_INDEX.read() + 1);
+        *GLOBAL_PRESENTATION_INDEX.read()
+    };
 
     rsx! {
         div {
@@ -83,8 +95,8 @@ pub fn PresentationDesignSelecter(
                         Some(active_item) => if active_item == number { "active" } else { "" },
                         None => "",
                     }),
-                    key: number,
                     tabindex: number,
+                    key: get_global_index(),
                     if let Some(design) = presentation_designs.read().get(number).clone() {
                         SelectablePresentationViewer {
                             presentation: presentation,
@@ -92,6 +104,7 @@ pub fn PresentationDesignSelecter(
                             title: design.name.clone(),
                             index: number,
                             current_selection: active_item,
+                            key: get_global_index()
                         }
                     }
                 }
