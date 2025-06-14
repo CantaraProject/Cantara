@@ -1,9 +1,6 @@
 //! This module contains structures for building CSS rules which can be used to build a CSS string.
 
-use std::collections::HashMap;
 use std::fmt::Display;
-use std::iter;
-use std::path::PathBuf;
 use rgb::{RGB8, RGBA8};
 use crate::logic::settings::{CssSize, HorizontalAlign};
 
@@ -121,11 +118,7 @@ impl CssHandler {
     }
     
     pub fn opacity(&mut self, opacity: f32) {
-        let opacity = match opacity {
-            x if x < 0.0 => 0.0,
-            x if x > 1.0 => 1.0,
-            x => x,
-        };
+        let opacity = opacity.clamp(0.0, 1.0);
         
         self.push(
             "opacity".to_string(),
@@ -249,7 +242,7 @@ mod tests {
     
     #[test]
     fn test_empty_handler_css() {
-        let mut handler = CssHandler::new();
+        let handler = CssHandler::new();
         assert_eq!(handler.to_string().as_str(), "");
     }
 }
