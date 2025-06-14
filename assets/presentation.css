@@ -24,6 +24,7 @@ html, body {
     position: absolute;
     overflow-y: hidden;
     z-index: 1;
+    display: grid; /* Use Grid */
 }
 
 .background {

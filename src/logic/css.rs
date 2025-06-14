@@ -139,6 +139,13 @@ impl CssHandler {
             CssValue::Int(index)
         )
     }
+    
+    pub fn place_items(&mut self, place_items: PlaceItems) {
+        self.push(
+            "place-items".to_string(),
+            CssValue::PlaceItems(place_items)
+        )
+    }
 }
 
 impl Display for CssHandler {
@@ -182,6 +189,7 @@ pub enum CssValue {
     Float(f32),
     CssSize(CssSize),
     HorizontalAlign(HorizontalAlign),
+    PlaceItems(PlaceItems)
 }
 
 impl Display for CssValue {
@@ -195,11 +203,27 @@ impl Display for CssValue {
             CssValue::Float(float) => write!(f, "{}", float),
             CssValue::CssSize(css_size) => write!(f, "{}", css_size.to_css_string()),
             CssValue::HorizontalAlign(align) => write!(f, "{}", align.to_css_string()),
+            CssValue::PlaceItems(place_items) => write!(f, "{}", place_items),
         }
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlaceItems {
+    StartStretch,
+    CenterStretch,
+    EndStretch,
+}
 
+impl Display for PlaceItems {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            PlaceItems::StartStretch => "start stretch",
+            PlaceItems::CenterStretch => "center stretch",
+            PlaceItems::EndStretch => "end stretch",
+        })
+    }
+}
 
 #[cfg(test)]
 mod tests {
