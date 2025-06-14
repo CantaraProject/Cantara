@@ -52,31 +52,27 @@ pub fn ImageIcon(width: Option<u32>) -> Element {
 /// A component which displays multiple presentation designs in an "Amazing Grace" presentation and allows to select one
 #[component]
 pub fn PresentationDesignSelecter(
-    presentation_designs: Vec<PresentationDesign>,
+    presentation_designs: Signal<Vec<PresentationDesign>>,
     song_slide_settings: Option<SlideSettings>,
     default_selection: Option<usize>,
     viewer_width: usize,
     active_item: Signal<Option<usize>>,
 ) -> Element {
-    let song_slide_settings_signal = use_signal(|| song_slide_settings);
-    let mut presentation_designs_signal = use_signal(|| presentation_designs);
+    let song_slide_settings_signal = use_signal(move || song_slide_settings.clone());
 
-    let mut presentations: Signal<Vec<RunningPresentation>> =
-        use_signal(move || {
-            let mut presentation_signals = vec![];
-            for design in presentation_designs_signal() {
-                let presentation =
-                    create_amazing_grace_presentation(
-                        &design,
-                        &match song_slide_settings_signal() {
-                            Some(slide_settings_signal) => slide_settings_signal,
-                            None => SlideSettings::default(),
-                        },
-                    );
-                presentation_signals.push(presentation);
-            }
-            presentation_signals
-        });
+    let mut presentations: Signal<Vec<RunningPresentation>> = use_signal(|| vec![]);
+
+    use_effect(move || {
+        presentations.write().clear();
+        for design in presentation_designs.read().iter() {
+            let presentation =
+                create_amazing_grace_presentation(
+                    design,
+                    &song_slide_settings_signal().unwrap_or_else(|| SlideSettings::default()),
+                );
+            presentations.write().push(presentation);
+        }
+    });
 
     rsx! {
         div {
@@ -89,12 +85,14 @@ pub fn PresentationDesignSelecter(
                     }),
                     key: number,
                     tabindex: number,
-                    SelectablePresentationViewer {
-                        presentation: presentation,
-                        width: viewer_width,
-                        title: presentation_designs_signal().get(number).unwrap().name.clone(),
-                        index: number,
-                        current_selection: active_item,
+                    if let Some(design) = presentation_designs.read().get(number).clone() {
+                        SelectablePresentationViewer {
+                            presentation: presentation,
+                            width: viewer_width,
+                            title: design.name.clone(),
+                            index: number,
+                            current_selection: active_item,
+                        }
                     }
                 }
             }

@@ -1,5 +1,6 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
+use dioxus::html::completions::CompleteWithBraces::pre;
 use super::shared_components::{js_yes_no_box, DeleteIcon, EditIcon, PresentationDesignSelecter};
 use crate::{Route, logic::settings::*};
 use dioxus::logger::tracing;
@@ -26,6 +27,10 @@ pub fn SettingsPage() -> Element {
     let mut update_presentation_design_settings = move || {
         settings.write().presentation_designs = presentation_designs.read().clone();
     };
+
+    use_effect(move || {
+        settings.write().presentation_designs = presentation_designs.read().clone();
+    });
 
     rsx! {
         div {
@@ -188,7 +193,7 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
             class: "grid",
             div {
                 PresentationDesignSelecter {
-                    presentation_designs: presentation_designs(),
+                    presentation_designs,
                     viewer_width: 400,
                     active_item: selected_presentation_design_index
                 }
@@ -201,6 +206,15 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                         onclone: move |_| {
                             if let Some(presentation_design) = selected_presentation_design() {
                                 presentation_designs.write().push(presentation_design);
+                                tracing::debug!("Cloned. Presentation Designs has now a length of: {}", presentation_designs.read().len());
+                            }
+                        },
+                        ondelete: move |_| {
+                            if let Some(index) = *selected_presentation_design_index.read() {
+                                if index < presentation_designs.read().len() {
+                                    presentation_designs.write().remove(index);
+                                    tracing::debug!("Deleted design {}. New length: {}", index, presentation_designs.read().len());
+                                }
                             }
                         }
                     }
@@ -222,6 +236,10 @@ fn PresentationDesignCard(
 
     /// An event which is called if the user would like to clone the selected presentation design
     onclone: EventHandler<()>,
+
+    /// An event which is called if the user would like to delete the selected presentation design
+    /// and has confirmed his decision already
+    ondelete: EventHandler<()>
 ) -> Element {
     rsx! {
         article {
@@ -252,7 +270,10 @@ fn PresentationDesignCard(
                         async move {
                             match document::eval(&js_yes_no_box(js)).await {
                                 Ok(value) => match value.as_bool().unwrap_or(false) {
-                                    true => tracing::debug!("Deletion confirmed."),
+                                    true => {
+                                        tracing::debug!("Deletion confirmed.");
+                                        ondelete.call(());
+                                    },
                                     false => tracing::debug!("Deletion aborted.")
                                 },
                                 Err(error) => tracing::error!("Failed to evaluate message box response: {}", error)
