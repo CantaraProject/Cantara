@@ -33,7 +33,7 @@ pub fn ImageIcon(width: Option<u32>) -> Element {
 
 /// A component displaying multiple presentation designs in an "Amazing Grace" presentation.
 #[component]
-pub fn PresentationDesignSelecter(
+pub fn PresentationDesignSelector(
     presentation_designs: Signal<Vec<PresentationDesign>>,
     song_slide_settings: Option<SlideSettings>,
     viewer_width: usize,
@@ -43,10 +43,10 @@ pub fn PresentationDesignSelecter(
 
     rsx! {
         div {
-            class: "presentation-design-selecter",
+            class: "presentation-design-selector",
             for (index, design) in presentation_designs.read().iter().enumerate() {
                 span {
-                    class: format!("presentation-design-selecter-item {}", if active_item() == Some(index) { "active" } else { "" }),
+                    class: format!("presentation-design-selector-item {}", if active_item() == Some(index) { "active" } else { "" }),
                     tabindex: index,
                     key: index,
                     SelectablePresentationViewer {
