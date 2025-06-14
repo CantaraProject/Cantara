@@ -158,6 +158,9 @@ settings:
     bottom:
       en: Bottom
       de: Unten
+    add_folder:
+      en: Add Folder...
+      de: Verzeichnis hinzufügen...
 
 presentation:
   title:
