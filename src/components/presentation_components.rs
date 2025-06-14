@@ -5,6 +5,8 @@ use dioxus::prelude::*;
 use rgb::RGBA8;
 use rust_i18n::t;
 
+use crate::logic::css::{CssHandler, PlaceItems};
+use crate::logic::settings::{CssSize, HorizontalAlign, VerticalAlign};
 use crate::{
     MAIN_CSS,
     logic::{
@@ -12,8 +14,6 @@ use crate::{
         states::RunningPresentation,
     },
 };
-use crate::logic::css::{CssHandler, PlaceItems};
-use crate::logic::settings::{CssSize, HorizontalAlign, VerticalAlign};
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
@@ -101,31 +101,36 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             },
         );
 
-    let css_presentation_background_color =
-        use_memo(move || current_pds().background_color);
+    let css_presentation_background_color = use_memo(move || current_pds().background_color);
     let css_headline_font_size = use_memo(move || {
-        CssSize::Px(current_pds
-            .read()
-            .main_content_fonts
-            .first()
-            .unwrap_or(&FontRepresentation::default())
-            .headline_font_size as f32)
+        CssSize::Px(
+            current_pds
+                .read()
+                .main_content_fonts
+                .first()
+                .unwrap_or(&FontRepresentation::default())
+                .headline_font_size as f32,
+        )
     });
     let css_main_content_font_size = use_memo(move || {
-        CssSize::Px(current_pds
-            .read()
-            .main_content_fonts
-            .first()
-            .unwrap_or(&FontRepresentation::default())
-            .font_size as f32)
+        CssSize::Px(
+            current_pds
+                .read()
+                .main_content_fonts
+                .first()
+                .unwrap_or(&FontRepresentation::default())
+                .font_size as f32,
+        )
     });
     let css_spoiler_font_size = use_memo(move || {
-        CssSize::Px(current_pds
-            .read()
-            .main_content_fonts
-            .first()
-            .unwrap_or(&FontRepresentation::default())
-            .spoiler_font_size as f32)
+        CssSize::Px(
+            current_pds
+                .read()
+                .main_content_fonts
+                .first()
+                .unwrap_or(&FontRepresentation::default())
+                .spoiler_font_size as f32,
+        )
     });
     let css_main_text_color: Memo<RGBA8> = use_memo(move || {
         current_pds
@@ -136,14 +141,10 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             .unwrap()
             .color
     });
-    let css_padding_left: Memo<CssSize> =
-        use_memo(move || current_pds().padding.left);
-    let css_padding_right: Memo<CssSize> =
-        use_memo(move || current_pds().padding.right);
-    let css_padding_top: Memo<CssSize> =
-        use_memo(move || current_pds().padding.top);
-    let css_padding_bottom: Memo<CssSize> =
-        use_memo(move || current_pds().padding.bottom);
+    let css_padding_left: Memo<CssSize> = use_memo(move || current_pds().padding.left);
+    let css_padding_right: Memo<CssSize> = use_memo(move || current_pds().padding.right);
+    let css_padding_top: Memo<CssSize> = use_memo(move || current_pds().padding.top);
+    let css_padding_bottom: Memo<CssSize> = use_memo(move || current_pds().padding.bottom);
     let css_text_align: Memo<HorizontalAlign> = use_memo(move || {
         current_pds
             .read()
@@ -152,13 +153,12 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             .unwrap()
             .horizontal_alignment
     });
-    let css_place_items: Memo<PlaceItems> = use_memo(move || {
-        match current_pds.read().vertical_alignment {
+    let css_place_items: Memo<PlaceItems> =
+        use_memo(move || match current_pds.read().vertical_alignment {
             VerticalAlign::Top => PlaceItems::StartStretch,
             VerticalAlign::Middle => PlaceItems::CenterStretch,
-            VerticalAlign::Bottom => PlaceItems::EndStretch
-        }
-    });
+            VerticalAlign::Bottom => PlaceItems::EndStretch,
+        });
 
     // The CSS handler ([CssHandler]) takes all CSS arguments and builds the string from it.
     // We build it in a memo for the sake of consistency.
@@ -179,7 +179,7 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
                 .main_content_fonts
                 .first()
                 .unwrap_or(&FontRepresentation::default())
-                .color
+                .color,
         );
         css.place_items(css_place_items());
 
@@ -268,7 +268,6 @@ fn TitleSlideComponent(
     css_text_color: RGBA8,
     css_text_align: HorizontalAlign,
 ) -> Element {
-
     // Build the CSS
     let css_handler: Memo<CssHandler> = use_memo(move || {
         let mut css = CssHandler::new();
