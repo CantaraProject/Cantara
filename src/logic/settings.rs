@@ -228,7 +228,7 @@ pub struct PresentationDesignTemplate {
     pub background_color: RGB8,
 
     /// The background color transparancy towards an image (0-255)
-    pub background_transparancy: u8,
+    pub background_transparency: u8,
 
     /// The padding of the presentation (top, bottom, left, right)
     pub padding: TopBottomLeftRight,
@@ -273,7 +273,7 @@ impl Default for PresentationDesignTemplate {
             vertical_alignment: VerticalAlign::default(),
             spoiler_content_fontsize_factor: 0.6,
             background_color: Rgb::new(0, 0, 0),
-            background_transparancy: 0,
+            background_transparency: 0,
             padding: default_padding(),
             background_image: None,
         }
@@ -316,7 +316,7 @@ impl Default for FontRepresentation {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Default)]
 pub enum HorizontalAlign {
     Left,
 
@@ -377,9 +377,10 @@ impl Default for TopBottomLeftRight {
 }
 
 /// A size value representing a CSS file
-#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum CssSize {
     Px(f32),
+    Pt(f32),
     Em(f32),
     Percentage(f32),
     #[default]
@@ -390,6 +391,7 @@ impl CssSize {
     pub fn to_css_string(&self) -> String {
         match self {
             CssSize::Px(size) => format!("{}px", size),
+            CssSize::Pt(size) => format!("{}pt", size),
             CssSize::Em(size) => format!("{}em", size),
             CssSize::Percentage(size) => format!("{}%", size),
             CssSize::Null => "0".to_string(),
@@ -400,12 +402,36 @@ impl CssSize {
     pub fn is_null(&self) -> bool {
         matches!(self, CssSize::Null)
             || matches!(self, CssSize::Px(0.0))
+            || matches!(self, CssSize::Pt(0.0))
             || matches!(self, CssSize::Em(0.0))
             || matches!(self, CssSize::Percentage(0.0))
     }
 
     pub fn null() -> Self {
         CssSize::Null
+    }
+
+    /// Gets the inner float independent of the unit
+    pub fn get_float(&self) -> f32 {
+        match self {
+            CssSize::Px(x) => *x,
+            CssSize::Pt(x) => *x,
+            CssSize::Em(x) => *x,
+            CssSize::Percentage(x) => *x,
+            CssSize::Null => 0.0,
+        }
+    }
+
+    /// Sets a float and keeps the unit
+    /// If the enum is [Null], it will turn into a [CssSize::Px].
+    pub fn set_float(&mut self, value: f32) {
+        match self {
+            CssSize::Px(x) => *x = value,
+            CssSize::Pt(x) => *x = value,
+            CssSize::Em(x) => *x = value,
+            CssSize::Percentage(x) => *x = value,
+            CssSize::Null => *self = CssSize::Px(value),
+        }
     }
 }
 

@@ -23,13 +23,36 @@ html, body {
     right: 0;
     position: absolute;
     overflow-y: hidden;
+    z-index: 1;
+    display: grid; /* Use Grid */
+}
+
+.background {
+    outline: none;
+    margin: 0;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    position: absolute;
+    overflow-y: hidden;
+    z-index: -1;
 }
 
 .presentation p {
     margin: 0;
+    z-index: 1;
 }
 
 .presentation:focus {
+    outline: none;
+}
+
+.background p {
+    margin: 0;
+}
+
+.background:focus {
     outline: none;
 }
 
@@ -47,6 +70,10 @@ html, body {
 /* Fade in Animation */
 .presentation-fade-in {
     animation: presentationFadeIn 400ms ease-in-out;
+}
+
+.slide-container {
+    z-index: 2!important;
 }
 
 @keyframes presentationFadeIn {

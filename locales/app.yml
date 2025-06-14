@@ -123,6 +123,44 @@ settings:
   use_background_image:
     en: Use a background image
     de: Ein Hintergrundbild verwenden
+  background_image_transparency:
+    en: Background Image Transparency
+    de: Transparenz des Hintergrundbilds
+  padding:
+    en: Padding
+    de: Randabstand des Inhalts
+  horizontal_alignment:
+    title:
+      en: Horizontal Alignment
+      de: Horizontale Ausrichtung
+    left:
+      en: Left
+      de: Linksbündig
+    centered:
+      en: Centered
+      de: Zentriert
+    right:
+      en: Right
+      de: Rechtsbündig
+  vertical_alignment:
+    title:
+      en: Vertical Alignment
+      de: Vertikale Ausrichtung
+    description:
+      en: The vertical alignment of the slide content
+      de: Die vertikale Ausrichtung des Inhalts
+    top:
+      en: Top
+      de: Oben
+    middle:
+      en: Middle
+      de: Mittig
+    bottom:
+      en: Bottom
+      de: Unten
+    add_folder:
+      en: Add Folder...
+      de: Verzeichnis hinzufügen...
 
 presentation:
   title:
@@ -157,6 +195,9 @@ general:
   edit:
     en: Edit
     de: Bearbeiten
+  delete:
+    en: Delete
+    de: Löschen
   meta_information:
     en: Meta Information
     de: Metainformationen
@@ -166,3 +207,11 @@ general:
   description:
     en: Description
     de: Beschreibung
+  duplicate:
+    en: Duplicate
+    de: Duplizieren
+
+dialogs:
+  confirm_deletion:
+    en: Are you sure that you would like to delete this element?
+    de: Sind Sie sicher, dass Sie das Element löschen möchten?
