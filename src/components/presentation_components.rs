@@ -103,34 +103,31 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
 
     let css_presentation_background_color = use_memo(move || current_pds().background_color);
     let css_headline_font_size = use_memo(move || {
-        CssSize::Px(
-            current_pds
-                .read()
-                .main_content_fonts
-                .first()
-                .unwrap_or(&FontRepresentation::default())
-                .headline_font_size as f32,
-        )
+        current_pds
+            .read()
+            .main_content_fonts
+            .first()
+            .unwrap_or(&FontRepresentation::default())
+            .headline_font_size
+            .clone()
     });
     let css_main_content_font_size = use_memo(move || {
-        CssSize::Px(
-            current_pds
-                .read()
-                .main_content_fonts
-                .first()
-                .unwrap_or(&FontRepresentation::default())
-                .font_size as f32,
-        )
+        current_pds
+            .read()
+            .main_content_fonts
+            .first()
+            .unwrap_or(&FontRepresentation::default())
+            .font_size
+            .clone()
     });
     let css_spoiler_font_size = use_memo(move || {
-        CssSize::Px(
-            current_pds
-                .read()
-                .main_content_fonts
-                .first()
-                .unwrap_or(&FontRepresentation::default())
-                .spoiler_font_size as f32,
-        )
+        current_pds
+            .read()
+            .main_content_fonts
+            .first()
+            .unwrap_or(&FontRepresentation::default())
+            .spoiler_font_size
+            .clone()
     });
     let css_main_text_color: Memo<RGBA8> = use_memo(move || {
         current_pds

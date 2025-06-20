@@ -280,15 +280,31 @@ impl Default for PresentationDesignTemplate {
     }
 }
 
+/// Represents a font representation for an element in the presentation
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct FontRepresentation {
+    /// The font family. If 'None', the web default will be displayed.
     pub font_family: Option<String>,
-    pub font_size: usize,
-    pub headline_font_size: usize,
-    pub spoiler_font_size: usize,
+    
+    /// The font size for normal paragraphs, song lyrics etc.
+    pub font_size: CssSize,
+    
+    /// The font size for headlines inside this element
+    pub headline_font_size: CssSize,
+    
+    /// The font size for spoiler content
+    pub spoiler_font_size: CssSize,
+    
+    /// Whether to show a shadow around the font
     pub shadow: bool,
+    
+    /// The height of the line (distance above and below)
     pub line_height: f64,
+    
+    /// The color of the font
     pub color: RGBA8,
+    
+    /// The horizontal alignment of the block
     pub horizontal_alignment: HorizontalAlign,
 }
 
@@ -305,9 +321,9 @@ impl Default for FontRepresentation {
     fn default() -> Self {
         FontRepresentation {
             font_family: None,
-            font_size: 36,
-            headline_font_size: 44,
-            spoiler_font_size: 18,
+            font_size: CssSize::Pt(32.0),
+            headline_font_size: CssSize::Pt(44.0),
+            spoiler_font_size: CssSize::Pt(18.0),
             shadow: false,
             line_height: 1.2,
             color: Rgba::new(255, 255, 255, 255),
