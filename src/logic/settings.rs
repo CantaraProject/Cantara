@@ -8,7 +8,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-
+use crate::logic::css::CssFontFamily;
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, get_source_files};
 
 /// Returns the settings of the program
@@ -284,26 +284,26 @@ impl Default for PresentationDesignTemplate {
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct FontRepresentation {
     /// The font family. If 'None', the web default will be displayed.
-    pub font_family: Option<String>,
-    
-    /// The font size for normal paragraphs, song lyrics etc.
+    pub font_family: Option<CssFontFamily>,
+
+    /// The font size for normal paragraphs, song lyrics, etc.
     pub font_size: CssSize,
-    
+
     /// The font size for headlines inside this element
     pub headline_font_size: CssSize,
-    
+
     /// The font size for spoiler content
     pub spoiler_font_size: CssSize,
-    
+
     /// Whether to show a shadow around the font
     pub shadow: bool,
-    
+
     /// The height of the line (distance above and below)
     pub line_height: f64,
-    
+
     /// The color of the font
     pub color: RGBA8,
-    
+
     /// The horizontal alignment of the block
     pub horizontal_alignment: HorizontalAlign,
 }
