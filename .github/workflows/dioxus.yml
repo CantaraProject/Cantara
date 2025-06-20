@@ -1,5 +1,8 @@
 name: Build and publish Cantara
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [master]
