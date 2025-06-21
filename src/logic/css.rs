@@ -122,6 +122,10 @@ impl CssHandler {
     pub fn line_height(&mut self, line_height: f32) {
         self.push("line-height".to_string(), CssValue::Float(line_height))
     }
+    
+    pub fn min_height(&mut self, min_height: CssSize) {
+        self.push("min-height".to_string(), CssValue::CssSize(min_height))
+    }
 }
 
 impl Display for CssHandler {
