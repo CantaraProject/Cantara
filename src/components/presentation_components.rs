@@ -44,7 +44,10 @@ pub fn PresentationPage() -> Element {
 /// The actual presentation rendering component which can be used to render presentations accordingly
 /// It takes a signal and rewrites to it when the presentation position changes
 #[component]
-pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresentation>) -> Element {
+pub fn PresentationRendererComponent(
+    /// The running presentation as a signal: This will be changed by the component if the user moves the current slide
+    running_presentation: Signal<RunningPresentation>
+) -> Element {
     let current_slide: Memo<Option<Slide>> =
         use_memo(move || running_presentation.read().get_current_slide());
 
@@ -214,6 +217,9 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
                     class: "slide-container presentation-fade-in",
                     key: "{current_slide_number}",
                     {
+                        // This match controls which slide will be rendered depending on the SlideContent
+                        // If the slide content is unknown, an error message with will be shown.
+                        // This is intentional and *should not* happen in production.
                         match current_slide.read().clone().unwrap().slide_content.clone() {
                             SlideContent::Title(title_slide) => rsx! {
                                 TitleSlideComponent {
