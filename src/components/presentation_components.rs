@@ -266,9 +266,17 @@ fn TitleSlideComponent(
 
 #[component]
 fn SingleLanguageMainContentSlideRenderer(
+    /// The slide as a [SingleLanguageMainContentSlide]
     main_slide: SingleLanguageMainContentSlide,
+
+    /// The [FontRepresentation] for the main content font.
     main_content_font: FontRepresentation,
+
+    /// The [FontRepresentation] for the spoiler content font.
     spoiler_content_font: FontRepresentation,
+
+    /// The distance between the main content and the spoiler, default is `0`.
+    distance: Option<CssSize>,
 ) -> Element {
     let number_of_main_content_lines = {
         let cloned_main_slide = main_slide.clone();
@@ -286,7 +294,7 @@ fn SingleLanguageMainContentSlideRenderer(
         css.extend(&CssHandler::from(main_content_font.clone()));
         css
     });
-    
+
     let spoiler_css: Memo<CssHandler> = use_memo(move || {
         let mut css = CssHandler::new();
 

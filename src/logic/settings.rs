@@ -375,6 +375,9 @@ pub struct FontRepresentation {
 
     /// The horizontal alignment of the block
     pub horizontal_alignment: HorizontalAlign,
+    
+    /// The distance between the main content and the spoiler content
+    pub main_content_spoiler_content_padding: CssSize,
 }
 
 impl FontRepresentation {
@@ -401,6 +404,7 @@ impl Default for FontRepresentation {
             line_height: 1.2,
             color: Rgba::new(255, 255, 255, 255),
             horizontal_alignment: HorizontalAlign::default(),
+            main_content_spoiler_content_padding: CssSize::Px(20.0),
         }
     }
 }
