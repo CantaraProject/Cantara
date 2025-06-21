@@ -102,38 +102,22 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
         );
 
     let css_presentation_background_color = use_memo(move || current_pds().background_color);
-    let css_headline_font_size = use_memo(move || {
-        current_pds
-            .read()
-            .main_content_fonts
-            .first()
-            .unwrap_or(&FontRepresentation::default())
-            .headline_font_size
-            .clone()
-    });
+
     let css_main_content_font_size = use_memo(move || {
         current_pds
             .read()
-            .main_content_fonts
+            .fonts
             .first()
             .unwrap_or(&FontRepresentation::default())
             .font_size
             .clone()
     });
-    let css_spoiler_font_size = use_memo(move || {
-        current_pds
-            .read()
-            .main_content_fonts
-            .first()
-            .unwrap_or(&FontRepresentation::default())
-            .spoiler_font_size
-            .clone()
-    });
+
     let css_main_text_color: Memo<RGBA8> = use_memo(move || {
         current_pds
             .read()
             .clone()
-            .main_content_fonts
+            .fonts
             .first()
             .unwrap()
             .color
@@ -145,7 +129,7 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
     let css_text_align: Memo<HorizontalAlign> = use_memo(move || {
         current_pds
             .read()
-            .main_content_fonts
+            .fonts
             .first()
             .unwrap()
             .horizontal_alignment
@@ -173,7 +157,7 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             current_pds
                 .read()
                 .clone()
-                .main_content_fonts
+                .fonts
                 .first()
                 .unwrap_or(&FontRepresentation::default())
                 .color,
@@ -234,19 +218,14 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
                             SlideContent::Title(title_slide) => rsx! {
                                 TitleSlideComponent {
                                     title_slide: title_slide.clone(),
-                                    css_headline_font_size: css_headline_font_size(),
-                                    css_text_color: css_main_text_color(),
-                                    css_text_align: css_text_align()
+                                    title_font_representation: current_pds.read().get_default_headline_font()
                                 }
                             },
                             SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
                                 SingleLanguageMainContentSlideRenderer {
                                     main_slide: main_slide.clone(),
-                                    current_pds: current_pds.read().clone(),
-                                    css_main_content_size: css_main_content_font_size(),
-                                    css_spoiler_content_size: css_spoiler_font_size(),
-                                    css_text_color: css_main_text_color(),
-                                    css_text_align: css_text_align()
+                                    main_content_font: current_pds.read().get_default_font(),
+                                    spoiler_content_font: current_pds.read().get_default_spoiler_font()
                                 }
                             },
                             _ => rsx! { p { "No content provided" } }
@@ -261,19 +240,14 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
 #[component]
 fn TitleSlideComponent(
     title_slide: TitleSlide,
-    css_headline_font_size: CssSize,
-    css_text_color: RGBA8,
-    css_text_align: HorizontalAlign,
+    title_font_representation: FontRepresentation,
 ) -> Element {
     // Build the CSS
     let css_handler: Memo<CssHandler> = use_memo(move || {
         let mut css = CssHandler::new();
-        css.set_important(true);
-        css.font_size(css_headline_font_size.clone());
-        css.color(css_text_color);
-        css.text_align(css_text_align);
         css.opacity(1.0);
         css.z_index(2);
+        css.extend(&CssHandler::from(title_font_representation.clone()));
         css
     });
     let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
@@ -293,11 +267,8 @@ fn TitleSlideComponent(
 #[component]
 fn SingleLanguageMainContentSlideRenderer(
     main_slide: SingleLanguageMainContentSlide,
-    current_pds: PresentationDesignTemplate,
-    css_main_content_size: CssSize,
-    css_spoiler_content_size: CssSize,
-    css_text_color: RGBA8,
-    css_text_align: HorizontalAlign,
+    main_content_font: FontRepresentation,
+    spoiler_content_font: FontRepresentation,
 ) -> Element {
     let number_of_main_content_lines = {
         let cloned_main_slide = main_slide.clone();
@@ -306,27 +277,33 @@ fn SingleLanguageMainContentSlideRenderer(
         lines.len()
     };
 
-    let css_handler: Memo<CssHandler> = use_memo(move || {
+    let main_css: Memo<CssHandler> = use_memo(move || {
         let mut css = CssHandler::new();
 
         css.set_important(true);
-        css.font_size(css_main_content_size.clone());
-        css.color(css_text_color);
-        css.text_align(css_text_align);
         css.opacity(1.0);
         css.z_index(2);
+        css.extend(&CssHandler::from(main_content_font.clone()));
         css
     });
+    
+    let spoiler_css: Memo<CssHandler> = use_memo(move || {
+        let mut css = CssHandler::new();
 
-    let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
+        css.set_important(true);
+        css.opacity(1.0);
+        css.z_index(2);
+        css.extend(&CssHandler::from(spoiler_content_font.clone()));
+        css
+    });
 
     rsx! {
         div {
             div {
                 class: "main-content",
-                style: css_handler_string(),
+                style: main_css.read().to_string(),
                 p {
-                    style: css_handler_string(),
+                    style: main_css.read().to_string(),
                     for (num, line) in main_slide.clone().main_text().split("\n").enumerate() {
                         { line }
                         if num < number_of_main_content_lines -1 {
@@ -338,9 +315,9 @@ fn SingleLanguageMainContentSlideRenderer(
             if let Some(spoiler_content) = Some(main_slide.spoiler_text()) {
                 div {
                     class: "spoiler-content",
-                    style: css_handler_string(),
+                    style: spoiler_css.to_string(),
                     p {
-                        style: css_handler_string(),
+                        style: spoiler_css.to_string(),
                         { spoiler_content }
                     }
                 }
