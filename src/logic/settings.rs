@@ -8,7 +8,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-
+use crate::logic::css::{CssFontFamily, CssString};
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, get_source_files};
 
 /// Returns the settings of the program
@@ -215,8 +215,14 @@ impl Default for PresentationDesignSettings {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct PresentationDesignTemplate {
-    /// The font configuration for the main content
-    pub main_content_fonts: Vec<FontRepresentation>,
+    /// The font configuration for all kinds of contents
+    pub fonts: Vec<FontRepresentation>,
+
+    /// The index of the font configuration for default headlines
+    headline_index: Option<u16>,
+
+    /// The index of the font configuration for default spoilers
+    spoiler_index: Option<u16>,
 
     /// The vertical alignment of the content
     pub vertical_alignment: VerticalAlign,
@@ -264,12 +270,81 @@ impl PresentationDesignTemplate {
             None => Err(()),
         }
     }
+
+    pub fn headline_index(&self) -> Option<u16> {
+        self.headline_index
+    }
+
+    pub fn spoiler_index(&self) -> Option<u16> {
+        self.spoiler_index
+    }
+    
+    /// Sets the headline index if it does exist.
+    /// If it does not exist, no change will occur.
+    pub fn set_headline_index(&mut self, headline_index: Option<u16>) {
+        match headline_index {
+            Some(index) => {
+                if (index as usize) < self.fonts.len() {
+                    self.headline_index = Some(index);
+                }
+            },
+            None => self.headline_index = None
+        }
+    }
+
+    /// Sets the spoiler index if it does exist.
+    /// If it does not exist, no change will occur.
+    pub fn set_spoiler_index(&mut self, spoiler_index: Option<u16>) {
+        match spoiler_index {
+            Some(index) => {
+                if (index as usize) < self.fonts.len() {
+                    self.spoiler_index = Some(index);
+                }
+            },
+            None => self.spoiler_index = None
+        }
+    }
+    
+    /// Gets the default [FontRepresentation] (the first element of the `fonts` vector or the configured default 
+    /// font as a fallback
+    pub fn get_default_font(&self) -> FontRepresentation {
+        match self.fonts.get(0) {
+            Some(font) => font.clone(),
+            None => FontRepresentation::default(),
+        }
+    }
+
+    /// Gets the default font [FontRepresentation] for the spoiler part.
+    /// If none is defined, the system default will be returned as a fallback.
+    pub fn get_default_spoiler_font(&self) -> FontRepresentation {
+        match self.spoiler_index {
+            Some(spoiler_index) => match self.fonts.get(spoiler_index as usize) {
+                Some(font) => font.clone(),
+                None => FontRepresentation::default_spoiler(),
+            },
+            None => FontRepresentation::default_spoiler(),
+        }
+    }
+
+    /// Gets the default font [FontRepresentation] for the headline part.
+    /// If none is defined, the system default will be returned as a fallback.
+    pub fn get_default_headline_font(&self) -> FontRepresentation {
+        match self.headline_index {
+            Some(headline_index) => match self.fonts.get(headline_index as usize) {
+                Some(font) => font.clone(),
+                None => FontRepresentation::default(),
+            },
+            None => FontRepresentation::default(),
+        }
+    }
 }
 
 impl Default for PresentationDesignTemplate {
     fn default() -> Self {
         PresentationDesignTemplate {
-            main_content_fonts: vec![FontRepresentation::default()],
+            fonts: vec![FontRepresentation::default(), FontRepresentation::default_spoiler()],
+            headline_index: Some(0),
+            spoiler_index: Some(1),
             vertical_alignment: VerticalAlign::default(),
             spoiler_content_fontsize_factor: 0.6,
             background_color: Rgb::new(0, 0, 0),
@@ -280,16 +355,29 @@ impl Default for PresentationDesignTemplate {
     }
 }
 
+/// Represents a font representation for an element in the presentation
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct FontRepresentation {
-    pub font_family: Option<String>,
-    pub font_size: usize,
-    pub headline_font_size: usize,
-    pub spoiler_font_size: usize,
+    /// The font family. If 'None', the web default will be displayed.
+    pub font_family: Option<CssFontFamily>,
+
+    /// The font size for normal paragraphs, song lyrics, etc.
+    pub font_size: CssSize,
+
+    /// Whether to show a shadow around the font
     pub shadow: bool,
+
+    /// The height of the line (distance above and below)
     pub line_height: f64,
+
+    /// The color of the font
     pub color: RGBA8,
+
+    /// The horizontal alignment of the block
     pub horizontal_alignment: HorizontalAlign,
+    
+    /// The distance between the main content and the spoiler content
+    pub main_content_spoiler_content_padding: CssSize,
 }
 
 impl FontRepresentation {
@@ -299,23 +387,29 @@ impl FontRepresentation {
             self.color.r, self.color.g, self.color.b, self.color.a
         )
     }
+
+    pub fn default_spoiler() -> Self {
+        let mut default = Self::default();
+        default.font_size.set_float(default.font_size.get_float()*0.7);
+        default
+    }
 }
 
 impl Default for FontRepresentation {
     fn default() -> Self {
         FontRepresentation {
             font_family: None,
-            font_size: 36,
-            headline_font_size: 44,
-            spoiler_font_size: 18,
+            font_size: CssSize::Pt(32.0),
             shadow: false,
             line_height: 1.2,
             color: Rgba::new(255, 255, 255, 255),
             horizontal_alignment: HorizontalAlign::default(),
+            main_content_spoiler_content_padding: CssSize::Px(20.0),
         }
     }
 }
 
+/// The horizontal alignment of a block
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Default)]
 pub enum HorizontalAlign {
     Left,
@@ -326,8 +420,8 @@ pub enum HorizontalAlign {
     Right,
 }
 
-impl HorizontalAlign {
-    pub fn to_css_string(&self) -> String {
+impl CssString for HorizontalAlign {
+    fn to_css_string(&self) -> String {
         match self {
             HorizontalAlign::Left => "left".to_string(),
             HorizontalAlign::Centered => "center".to_string(),
@@ -387,8 +481,8 @@ pub enum CssSize {
     Null,
 }
 
-impl CssSize {
-    pub fn to_css_string(&self) -> String {
+impl CssString for CssSize {
+    fn to_css_string(&self) -> String {
         match self {
             CssSize::Px(size) => format!("{}px", size),
             CssSize::Pt(size) => format!("{}pt", size),
@@ -397,6 +491,9 @@ impl CssSize {
             CssSize::Null => "0".to_string(),
         }
     }
+}
+
+impl CssSize {
 
     /// Checks if the size is null or zero
     pub fn is_null(&self) -> bool {
