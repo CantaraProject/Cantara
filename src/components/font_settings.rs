@@ -1,12 +1,12 @@
 //! This module contains the functions for changing the font settings as defined in the [FontRepresentation] struct.
 
+use crate::components::shared_components::NumberedValidatedLengthInput;
+use crate::logic::settings::{CssSize, FontRepresentation};
 use dioxus::html::input::placeholder;
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
 use rgb::RGB8;
-use crate::logic::settings::{CssSize, FontRepresentation};
 use rust_i18n::t;
-use crate::components::shared_components::NumberedValidatedLengthInput;
 
 use crate::logic::conversions::*;
 

@@ -46,7 +46,7 @@ pub fn PresentationPage() -> Element {
 #[component]
 pub fn PresentationRendererComponent(
     /// The running presentation as a signal: This will be changed by the component if the user moves the current slide
-    running_presentation: Signal<RunningPresentation>
+    running_presentation: Signal<RunningPresentation>,
 ) -> Element {
     let current_slide: Memo<Option<Slide>> =
         use_memo(move || running_presentation.read().get_current_slide());
@@ -116,15 +116,8 @@ pub fn PresentationRendererComponent(
             .clone()
     });
 
-    let css_main_text_color: Memo<RGBA8> = use_memo(move || {
-        current_pds
-            .read()
-            .clone()
-            .fonts
-            .first()
-            .unwrap()
-            .color
-    });
+    let css_main_text_color: Memo<RGBA8> =
+        use_memo(move || current_pds.read().clone().fonts.first().unwrap().color);
     let css_padding_left: Memo<CssSize> = use_memo(move || current_pds().padding.left);
     let css_padding_right: Memo<CssSize> = use_memo(move || current_pds().padding.right);
     let css_padding_top: Memo<CssSize> = use_memo(move || current_pds().padding.top);
