@@ -161,6 +161,19 @@ settings:
     add_folder:
       en: Add Folder...
       de: Verzeichnis hinzufügen...
+  fonts:
+    title:
+      en: Font Settings
+      de: Einstellung des Schriftbilds
+    size:
+      en: Font Size
+      de: Schriftgröße
+    set_main:
+      en: Main Font
+      de: Hauptschrift
+    set_spoiler:
+      en: Spoiler Font
+      de: Spoilerschrift
 
 presentation:
   title:

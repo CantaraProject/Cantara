@@ -2,7 +2,7 @@
 
 use crate::components::presentation_components::PresentationRendererComponent;
 use crate::logic::presentation::create_amazing_grace_presentation;
-use crate::logic::settings::PresentationDesign;
+use crate::logic::settings::{CssSize, PresentationDesign};
 use crate::logic::states::RunningPresentation;
 use cantara_songlib::slides::SlideSettings;
 use dioxus::logger::tracing;
@@ -146,4 +146,58 @@ pub fn ExamplePresentationViewer(
 /// Generates JavaScript for a yes/no dialog box.
 pub fn js_yes_no_box(prompt: String) -> String {
     format!("return confirm('{}');", prompt)
+}
+
+#[component]
+pub fn NumberedValidatedLengthInput(
+    value: CssSize,
+    placeholder: String,
+    onchange: EventHandler<CssSize>,
+) -> Element {
+    let mut value_signal = use_signal(|| value);
+    rsx! {
+        input {
+            placeholder,
+            value: value_signal.read().get_float(),
+            inputmode: "numeric",
+            onchange: move |event| {
+                value_signal.write().set_float(event.value().parse().unwrap_or(0.0));
+                onchange.call(value_signal());
+            }
+        }
+        select {
+            name: "unit",
+            required: true,
+            onchange: move |event: Event<FormData>| {
+                match event.value().as_str() {
+                    "px" => value_signal.set(CssSize::Px(value_signal().get_float())),
+                    "pt" => value_signal.set(CssSize::Pt(value_signal().get_float())),
+                    "em" => value_signal.set(CssSize::Em(value_signal().get_float())),
+                    "%"  => value_signal.set(CssSize::Percentage(value_signal().get_float())),
+                    _    => value_signal.set(CssSize::Px(value_signal().get_float()))
+                };
+                onchange.call(value_signal());
+            },
+            option {
+                key: "px",
+                selected: matches!(value_signal(), CssSize::Px(_)) || value_signal() == CssSize::Null,
+                "px"
+            }
+            option {
+                key: "pt",
+                selected: matches!(value_signal(), CssSize::Pt(_)),
+                "pt"
+            }
+            option {
+                key: "em",
+                selected: matches!(value_signal(), CssSize::Em(_)),
+                "em"
+            }
+            option {
+                key: "%",
+                selected: matches!(value_signal(), CssSize::Percentage(_)),
+                "%"
+            }
+        }
+    }
 }
