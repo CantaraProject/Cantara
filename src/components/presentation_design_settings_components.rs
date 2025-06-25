@@ -13,6 +13,8 @@ use dioxus::prelude::*;
 use dioxus_router::prelude::*;
 use rust_i18n::t;
 use std::path::PathBuf;
+use crate::components::font_settings::FontRepresentationsComponent;
+use crate::components::shared_components::NumberedValidatedLengthInput;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -235,6 +237,16 @@ fn DesignTemplateSettings(
                 onchange.call(pdt());
             }
         }
+
+        h3 { { t!("settings.fonts.title") } }
+
+        FontRepresentationsComponent {
+            fonts: pdt().fonts,
+            onchange: move |data| {
+                pdt.write().fonts = data;
+                onchange.call(pdt());
+            }
+        }
     )
 }
 
@@ -391,55 +403,7 @@ fn PaddingInput(
     )
 }
 
-#[component]
-fn NumberedValidatedLengthInput(
-    value: CssSize,
-    placeholder: String,
-    onchange: EventHandler<CssSize>,
-) -> Element {
-    let mut value_signal = use_signal(|| value);
-    rsx! {
-        input {
-            placeholder,
-            value: value_signal.read().get_float(),
-            inputmode: "numeric",
-            onchange: move |event| {
-                value_signal.write().set_float(event.value().parse().unwrap_or(0.0));
-                onchange.call(value_signal());
-            }
-        }
-        select {
-            name: "unit",
-            required: true,
-            onchange: move |event: Event<FormData>| {
-                match event.value().as_str() {
-                    "px" => value_signal.set(CssSize::Px(value_signal().get_float())),
-                    "pt" => value_signal.set(CssSize::Pt(value_signal().get_float())),
-                    "em" => value_signal.set(CssSize::Em(value_signal().get_float())),
-                    "%"  => value_signal.set(CssSize::Percentage(value_signal().get_float())),
-                    _    => value_signal.set(CssSize::Px(value_signal().get_float()))
-                };
-                onchange.call(value_signal());
-            },
-            option {
-                selected: matches!(value_signal(), CssSize::Px(_)) || value_signal() == CssSize::Null,
-                "px"
-            }
-            option {
-                selected: matches!(value_signal(), CssSize::Px(_)) || value_signal() == CssSize::Null,
-                "pt"
-            }
-            option {
-                selected: matches!(value_signal(), CssSize::Em(_)),
-                "em"
-            }
-            option {
-                selected: matches!(value_signal(), CssSize::Percentage(_)),
-                "%"
-            }
-        }
-    }
-}
+
 
 /// Returns a [CssSize::Null] if the value is `0.0`. Else, the original value is cloned.
 fn get_nullified_css_size(css_size: CssSize) -> CssSize {
