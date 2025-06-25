@@ -1,5 +1,7 @@
 //! This module provides components for adjusting the presentation designs
 
+use crate::components::font_settings::FontRepresentationsComponent;
+use crate::components::shared_components::NumberedValidatedLengthInput;
 use crate::logic::settings::{
     CssSize, PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate,
     TopBottomLeftRight, VerticalAlign, use_settings,
@@ -13,8 +15,6 @@ use dioxus::prelude::*;
 use dioxus_router::prelude::*;
 use rust_i18n::t;
 use std::path::PathBuf;
-use crate::components::font_settings::FontRepresentationsComponent;
-use crate::components::shared_components::NumberedValidatedLengthInput;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -402,8 +402,6 @@ fn PaddingInput(
         }
     )
 }
-
-
 
 /// Returns a [CssSize::Null] if the value is `0.0`. Else, the original value is cloned.
 fn get_nullified_css_size(css_size: CssSize) -> CssSize {
