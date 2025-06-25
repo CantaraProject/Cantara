@@ -308,7 +308,7 @@ impl PresentationDesignTemplate {
     /// Gets the default [FontRepresentation] (the first element of the `fonts` vector or the configured default
     /// font as a fallback
     pub fn get_default_font(&self) -> FontRepresentation {
-        match self.fonts.get(0) {
+        match self.fonts.first() {
             Some(font) => font.clone(),
             None => FontRepresentation::default(),
         }

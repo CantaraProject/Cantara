@@ -2,7 +2,6 @@
 
 use crate::components::shared_components::NumberedValidatedLengthInput;
 use crate::logic::settings::{CssSize, FontRepresentation};
-use dioxus::html::input::placeholder;
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
 use rgb::RGB8;
