@@ -74,7 +74,6 @@ body {
     align-items: center;
     margin: auto;
     align-self: center;
-    align-self: center;
     text-align: center;
     max-height: 80%;
 }
@@ -195,4 +194,36 @@ div.inline-div {
 :root,
 :host {
     --pico-font-size: 100%;
+}
+
+.badge {
+    background-color: var(--pico-del-color);
+    color: var(--pico-background-color);
+    padding: 4px 8px;
+    text-align: center;
+    border-radius: 10px;
+}
+
+.badge-inactive {
+    background-color: var(--pico-secondary-background);
+    color: var(--pico-secondary-inverse);
+    padding: 4px 8px;
+    text-align: center;
+    border-radius: 10px;
+}
+
+.badge-2 {
+    background-color: rgb(255, 163, 72);
+    color: white;
+    padding: 4px 8px;
+    text-align: center;
+    border-radius: 10px;
+}
+
+.badge-3 {
+    background-color: rgb(162, 60, 193);
+    color: white;
+    padding: 4px 8px;
+    text-align: center;
+    border-radius: 10px;
 }
