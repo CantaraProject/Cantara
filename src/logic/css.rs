@@ -2,8 +2,8 @@
 
 use crate::logic::settings::{CssSize, FontRepresentation, HorizontalAlign};
 use rgb::{RGB8, RGBA8};
-use std::fmt::Display;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
 /// A handler representing a CSS declaration of an object
 #[derive(Debug, Clone, PartialEq)]
@@ -122,6 +122,10 @@ impl CssHandler {
     pub fn line_height(&mut self, line_height: f32) {
         self.push("line-height".to_string(), CssValue::Float(line_height))
     }
+
+    pub fn min_height(&mut self, min_height: CssSize) {
+        self.push("min-height".to_string(), CssValue::CssSize(min_height))
+    }
 }
 
 impl Display for CssHandler {
@@ -168,7 +172,7 @@ pub enum CssValue {
     CssSize(CssSize),
     HorizontalAlign(HorizontalAlign),
     PlaceItems(PlaceItems),
-    FontFamily(CssFontFamily)
+    FontFamily(CssFontFamily),
 }
 
 impl Display for CssValue {
@@ -244,12 +248,11 @@ impl Default for CssFontFamily {
 }
 
 impl CssFontFamily {
-
     /// Create the [CssFontFamily] with the builder pattern
     pub fn with_family(family: String) -> Self {
         Self {
             family: Some(family),
-            genereric_family: GenericFontFamily::default()
+            genereric_family: GenericFontFamily::default(),
         }
     }
 
@@ -257,7 +260,7 @@ impl CssFontFamily {
     pub fn without_family() -> Self {
         CssFontFamily {
             family: None,
-            genereric_family: GenericFontFamily::SansSerif
+            genereric_family: GenericFontFamily::SansSerif,
         }
     }
 
@@ -272,7 +275,9 @@ impl CssFontFamily {
 impl CssString for CssFontFamily {
     fn to_css_string(&self) -> String {
         match &self.family {
-            Some(family_name) => format!("{}, {}", family_name, self.genereric_family.to_css_string()),
+            Some(family_name) => {
+                format!("{}, {}", family_name, self.genereric_family.to_css_string())
+            }
             None => self.genereric_family.to_css_string(),
         }
     }
@@ -281,12 +286,13 @@ impl CssString for CssFontFamily {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default, Debug)]
 pub enum GenericFontFamily {
     Serif,
-    #[default] SansSerif,
+    #[default]
+    SansSerif,
     Monospace,
     Cursive,
     Fantasy,
     SystemUi,
-    Inherit
+    Inherit,
 }
 
 impl CssString for GenericFontFamily {

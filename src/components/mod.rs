@@ -16,3 +16,5 @@ pub mod settings_components;
 pub mod shared_components;
 
 pub mod wizard_components;
+
+mod font_settings;
