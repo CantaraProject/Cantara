@@ -44,7 +44,10 @@ pub fn PresentationPage() -> Element {
 /// The actual presentation rendering component which can be used to render presentations accordingly
 /// It takes a signal and rewrites to it when the presentation position changes
 #[component]
-pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresentation>) -> Element {
+pub fn PresentationRendererComponent(
+    /// The running presentation as a signal: This will be changed by the component if the user moves the current slide
+    running_presentation: Signal<RunningPresentation>,
+) -> Element {
     let current_slide: Memo<Option<Slide>> =
         use_memo(move || running_presentation.read().get_current_slide());
 
@@ -113,15 +116,8 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
             .clone()
     });
 
-    let css_main_text_color: Memo<RGBA8> = use_memo(move || {
-        current_pds
-            .read()
-            .clone()
-            .fonts
-            .first()
-            .unwrap()
-            .color
-    });
+    let css_main_text_color: Memo<RGBA8> =
+        use_memo(move || current_pds.read().clone().fonts.first().unwrap().color);
     let css_padding_left: Memo<CssSize> = use_memo(move || current_pds().padding.left);
     let css_padding_right: Memo<CssSize> = use_memo(move || current_pds().padding.right);
     let css_padding_top: Memo<CssSize> = use_memo(move || current_pds().padding.top);
@@ -214,6 +210,9 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
                     class: "slide-container presentation-fade-in",
                     key: "{current_slide_number}",
                     {
+                        // This match controls which slide will be rendered depending on the SlideContent
+                        // If the slide content is unknown, an error message with will be shown.
+                        // This is intentional and *should not* happen in production.
                         match current_slide.read().clone().unwrap().slide_content.clone() {
                             SlideContent::Title(title_slide) => rsx! {
                                 TitleSlideComponent {
@@ -227,6 +226,9 @@ pub fn PresentationRendererComponent(running_presentation: Signal<RunningPresent
                                     main_content_font: current_pds.read().get_default_font(),
                                     spoiler_content_font: current_pds.read().get_default_spoiler_font()
                                 }
+                            },
+                            SlideContent::Empty(empty_slide) => rsx! {
+                                EmptySlideComponent {}
                             },
                             _ => rsx! { p { "No content provided" } }
                         }
@@ -254,7 +256,7 @@ fn TitleSlideComponent(
 
     rsx! {
         div {
-            id: "headline",
+            class: "headline",
             style: css_handler_string(),
             p {
                 style: css_handler_string(),
@@ -275,7 +277,7 @@ fn SingleLanguageMainContentSlideRenderer(
     /// The [FontRepresentation] for the spoiler content font.
     spoiler_content_font: FontRepresentation,
 
-    /// The distance between the main content and the spoiler, default is `0`.
+    /// The distance between the main content and the spoiler, default is `4 em`.
     distance: Option<CssSize>,
 ) -> Element {
     let number_of_main_content_lines = {
@@ -292,6 +294,15 @@ fn SingleLanguageMainContentSlideRenderer(
         css.opacity(1.0);
         css.z_index(2);
         css.extend(&CssHandler::from(main_content_font.clone()));
+        css
+    });
+
+    let distance_css: Memo<CssHandler> = use_memo(move || {
+        let mut css = CssHandler::new();
+
+        css.set_important(true);
+        css.min_height(distance.clone().unwrap_or(CssSize::Em(4.0)));
+
         css
     });
 
@@ -320,16 +331,34 @@ fn SingleLanguageMainContentSlideRenderer(
                     }
                 }
             }
-            if let Some(spoiler_content) = Some(main_slide.spoiler_text()) {
+            if let Some(spoiler_content) = main_slide.spoiler_text() {
+                div {
+                    class: "distance",
+                    style: distance_css.read().to_string(),
+                }
                 div {
                     class: "spoiler-content",
-                    style: spoiler_css.to_string(),
+                    style: spoiler_css.read().to_string(),
                     p {
-                        style: spoiler_css.to_string(),
-                        { spoiler_content }
+                        style: spoiler_css.read().to_string(),
+                        for (num, line) in spoiler_content.split("\n").enumerate() {
+                            { line }
+                            if num < spoiler_content.split("\n").count() - 1 {
+                                br { }
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+#[component]
+fn EmptySlideComponent() -> Element {
+    rsx! {
+        div {
+            class: "empty-content",
         }
     }
 }

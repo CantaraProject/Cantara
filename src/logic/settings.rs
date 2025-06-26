@@ -1,5 +1,7 @@
 //! This module contains the logic and structures for managing, loading and saving the program's settings.
 
+use crate::logic::css::{CssFontFamily, CssString};
+use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, get_source_files};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
 use rgb::*;
@@ -8,8 +10,6 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use crate::logic::css::{CssFontFamily, CssString};
-use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, get_source_files};
 
 /// Returns the settings of the program
 ///
@@ -278,7 +278,7 @@ impl PresentationDesignTemplate {
     pub fn spoiler_index(&self) -> Option<u16> {
         self.spoiler_index
     }
-    
+
     /// Sets the headline index if it does exist.
     /// If it does not exist, no change will occur.
     pub fn set_headline_index(&mut self, headline_index: Option<u16>) {
@@ -287,8 +287,8 @@ impl PresentationDesignTemplate {
                 if (index as usize) < self.fonts.len() {
                     self.headline_index = Some(index);
                 }
-            },
-            None => self.headline_index = None
+            }
+            None => self.headline_index = None,
         }
     }
 
@@ -300,15 +300,15 @@ impl PresentationDesignTemplate {
                 if (index as usize) < self.fonts.len() {
                     self.spoiler_index = Some(index);
                 }
-            },
-            None => self.spoiler_index = None
+            }
+            None => self.spoiler_index = None,
         }
     }
-    
-    /// Gets the default [FontRepresentation] (the first element of the `fonts` vector or the configured default 
+
+    /// Gets the default [FontRepresentation] (the first element of the `fonts` vector or the configured default
     /// font as a fallback
     pub fn get_default_font(&self) -> FontRepresentation {
-        match self.fonts.get(0) {
+        match self.fonts.first() {
             Some(font) => font.clone(),
             None => FontRepresentation::default(),
         }
@@ -342,7 +342,10 @@ impl PresentationDesignTemplate {
 impl Default for PresentationDesignTemplate {
     fn default() -> Self {
         PresentationDesignTemplate {
-            fonts: vec![FontRepresentation::default(), FontRepresentation::default_spoiler()],
+            fonts: vec![
+                FontRepresentation::default(),
+                FontRepresentation::default_spoiler(),
+            ],
             headline_index: Some(0),
             spoiler_index: Some(1),
             vertical_alignment: VerticalAlign::default(),
@@ -375,7 +378,7 @@ pub struct FontRepresentation {
 
     /// The horizontal alignment of the block
     pub horizontal_alignment: HorizontalAlign,
-    
+
     /// The distance between the main content and the spoiler content
     pub main_content_spoiler_content_padding: CssSize,
 }
@@ -390,7 +393,9 @@ impl FontRepresentation {
 
     pub fn default_spoiler() -> Self {
         let mut default = Self::default();
-        default.font_size.set_float(default.font_size.get_float()*0.7);
+        default
+            .font_size
+            .set_float(default.font_size.get_float() * 0.7);
         default
     }
 }
@@ -494,7 +499,6 @@ impl CssString for CssSize {
 }
 
 impl CssSize {
-
     /// Checks if the size is null or zero
     pub fn is_null(&self) -> bool {
         matches!(self, CssSize::Null)
