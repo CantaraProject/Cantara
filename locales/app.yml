@@ -90,6 +90,9 @@ settings:
   repositories_remote_dir:
     en: Remote directory
     de: Entferntes Verzeichnis
+  add_folder:
+    en: Add Folder
+    de: Verzeichnis hinzufügen
   settings_button:
     en: Settings...
     de: Einstellungen...
@@ -174,6 +177,18 @@ settings:
     set_spoiler:
       en: Spoiler Font
       de: Spoilerschrift
+    primary_font:
+      en: Primary Font
+      de: Primärschrift
+    secondary_font:
+      en: Secondary Font
+      de: Sekundärschriftart
+    spoiler_font:
+      en: Spoiler Font
+      de: Spoilerschrift
+    meta_font:
+      en: Meta information font
+      de: Font für Metainformationen
 
 presentation:
   title:

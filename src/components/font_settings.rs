@@ -28,6 +28,10 @@ pub fn FontRepresentationsComponent(
             for (idx, font) in fonts().into_iter().enumerate() {
                 SingleFontRepresentationComponent {
                     font: font,
+                    is_primary: match idx {
+                        0 => true,
+                        _ => false
+                    },
                     onchange: move |new_font| {
                         match fonts.write().get_mut(idx) {
                             Some(reference) => {
@@ -56,10 +60,44 @@ fn SingleFontRepresentationComponent(
 
     /// An event which will be triggered when the font has been updated
     onchange: EventHandler<FontRepresentation>,
+
+    /// Whether the font should be marked as primary
+    is_primary: Option<bool>,
+
+    /// Whether the font should be marked as spoiler font
+    is_spoiler: Option<bool>,
+
+    /// Whether the font should be marked as meta font
+    is_meta: Option<bool>
 ) -> Element {
     let mut font = use_signal(|| font);
 
     rsx!(
+        if is_primary.unwrap_or(false) {
+            div {
+                class: "badge",
+                { t!("settings.fonts.primary_font") }
+            }
+        }
+        else if let Some(true) = is_spoiler {
+            div {
+                class: "badge-2",
+                { t!("settings.fonts.spoiler_font") }
+            }
+        }
+        else if let Some(true) = is_meta {
+            div {
+                class: "badge-3",
+                { t!("settings.fonts.meta_font") }
+            }
+        }
+        else {
+            div {
+                class: "badge-inactive",
+                { t!("settings.fonts.secondary_font") }
+            }
+        }
+
         form {
             label {
                 { t!("settings.fonts.size") }
