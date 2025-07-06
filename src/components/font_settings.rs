@@ -36,6 +36,10 @@ pub fn FontRepresentationsComponent(
                         3.. => idx == fonts_count()-2,
                         _ => idx == fonts_count()-1
                     },
+                    is_meta: match fonts_count() {
+                        3.. => idx == fonts_count()-1,
+                        _ => false
+                    },
                     onchange: move |new_font| {
                         match fonts.write().get_mut(idx) {
                             Some(reference) => {
