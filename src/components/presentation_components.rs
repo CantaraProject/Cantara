@@ -80,7 +80,7 @@ pub fn PresentationRendererComponent(
                     margin:0;
                     width:100%;
                     height:100%;
-                    background-color: black);
+                    background-color: black;
                 ",
                 p {
                     { "No presentation data found." },
@@ -224,7 +224,8 @@ pub fn PresentationRendererComponent(
                                 SingleLanguageMainContentSlideRenderer {
                                     main_slide: main_slide.clone(),
                                     main_content_font: current_pds.read().get_default_font(),
-                                    spoiler_content_font: current_pds.read().get_default_spoiler_font()
+                                    spoiler_content_font: current_pds.read().get_default_spoiler_font(),
+                                    distance: current_pds().main_content_spoiler_content_padding,
                                 }
                             },
                             SlideContent::Empty(empty_slide) => rsx! {
