@@ -17,6 +17,12 @@ pub fn FontRepresentationsComponent(
     /// The font representation as a vector
     fonts: Vec<FontRepresentation>,
 
+    /// The index of the font configuration for default spoilers
+    spoiler_index: Option<Option<u16>>,
+
+    /// The index of the font configuration for default meta-block
+    meta_index: Option<Option<u16>>,
+
     /// The event which will be triggered if the given font representation has been changed by the user
     onchange: EventHandler<Vec<FontRepresentation>>,
 ) -> Element {
@@ -32,14 +38,8 @@ pub fn FontRepresentationsComponent(
                         0 => true,
                         _ => false
                     },
-                    is_spoiler: match fonts_count() {
-                        3.. => idx == fonts_count()-2,
-                        _ => idx == fonts_count()-1
-                    },
-                    is_meta: match fonts_count() {
-                        3.. => idx == fonts_count()-1,
-                        _ => false
-                    },
+                    is_spoiler: spoiler_index == Some(Some(idx as u16)),
+                    is_meta: meta_index == Some(Some(idx as u16)),
                     onchange: move |new_font| {
                         match fonts.write().get_mut(idx) {
                             Some(reference) => {

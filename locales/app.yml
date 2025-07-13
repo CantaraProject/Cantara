@@ -164,6 +164,9 @@ settings:
     add_folder:
       en: Add Folder...
       de: Verzeichnis hinzufügen...
+  main_spoiler_content_distance:
+    en: Distance between the main content and the spoiler
+    de: Abstand zwischen Hauptinhalt und Spoiler
   fonts:
     title:
       en: Font Settings

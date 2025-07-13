@@ -222,7 +222,10 @@ pub struct PresentationDesignTemplate {
     headline_index: Option<u16>,
 
     /// The index of the font configuration for default spoilers
-    spoiler_index: Option<u16>,
+    pub spoiler_index: Option<u16>,
+
+    /// The index of the font configuration for default meta-block
+    pub meta_index: Option<u16>,
 
     /// The vertical alignment of the content
     pub vertical_alignment: VerticalAlign,
@@ -241,6 +244,9 @@ pub struct PresentationDesignTemplate {
 
     /// An optional background picture
     pub background_image: Option<ImageSourceFile>,
+
+    /// The distance between the main content and the spoiler content
+    pub main_content_spoiler_content_padding: CssSize,
 }
 
 impl PresentationDesignTemplate {
@@ -254,7 +260,7 @@ impl PresentationDesignTemplate {
     }
 
     /// Returns the background color as a hexadecimal string
-    /// for example: pure black would equal to #000000
+    /// for example, pure black would equal to #000000
     pub fn get_background_color_as_hex_string(&self) -> String {
         rgb_to_hex_string(&self.background_color)
     }
@@ -337,6 +343,18 @@ impl PresentationDesignTemplate {
             None => FontRepresentation::default(),
         }
     }
+
+    /// Gets the default font [FontRepresentation] for the meta part.
+    /// If none is defined, the system default will be returned as a fallback.
+    pub fn get_default_meta_font(&self) -> FontRepresentation {
+        match self.meta_index {
+            Some(meta_index) => match self.fonts.get(meta_index as usize) {
+                Some(font) => font.clone(),
+                None => FontRepresentation::default_meta(),
+            },
+            None => FontRepresentation::default_meta(),
+        }
+    }
 }
 
 impl Default for PresentationDesignTemplate {
@@ -345,15 +363,18 @@ impl Default for PresentationDesignTemplate {
             fonts: vec![
                 FontRepresentation::default(),
                 FontRepresentation::default_spoiler(),
+                FontRepresentation::default_meta(),
             ],
             headline_index: Some(0),
             spoiler_index: Some(1),
+            meta_index: Some(2),
             vertical_alignment: VerticalAlign::default(),
             spoiler_content_fontsize_factor: 0.6,
             background_color: Rgb::new(0, 0, 0),
             background_transparency: 0,
             padding: default_padding(),
             background_image: None,
+            main_content_spoiler_content_padding: CssSize::Px(20.0),
         }
     }
 }
@@ -379,9 +400,9 @@ pub struct FontRepresentation {
     /// The horizontal alignment of the block
     pub horizontal_alignment: HorizontalAlign,
 
-    /// The distance between the main content and the spoiler content
-    pub main_content_spoiler_content_padding: CssSize,
+
 }
+
 
 impl FontRepresentation {
     pub fn get_color_as_rgba_string(&self) -> String {
@@ -398,6 +419,16 @@ impl FontRepresentation {
             .set_float(default.font_size.get_float() * 0.7);
         default
     }
+
+    fn default_meta() -> FontRepresentation {
+        let mut default = Self::default();
+        default
+            .font_size
+            .set_float(default.font_size.get_float() * 0.5);
+        default
+    }
+
+
 }
 
 impl Default for FontRepresentation {
@@ -409,7 +440,6 @@ impl Default for FontRepresentation {
             line_height: 1.2,
             color: Rgba::new(255, 255, 255, 255),
             horizontal_alignment: HorizontalAlign::default(),
-            main_content_spoiler_content_padding: CssSize::Px(20.0),
         }
     }
 }

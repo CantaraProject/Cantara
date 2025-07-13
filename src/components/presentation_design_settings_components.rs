@@ -156,6 +156,8 @@ fn DesignTemplateSettings(
         h4 { { t!("settings.background") } }
         form {
             fieldset {
+
+                // Background color
                 label {
                     { t!("settings.color") }
                     input {
@@ -168,6 +170,7 @@ fn DesignTemplateSettings(
                     }
                 }
 
+                // Use background image
                 label {
                     input {
                         type: "checkbox",
@@ -219,12 +222,27 @@ fn DesignTemplateSettings(
             }
         }
 
+        // Padding
         h4 { { t!("settings.padding") } }
         PaddingInput {
             default_padding: pdt().padding,
             onchange: move |data| {
                 pdt.write().padding = data;
                 onchange.call(pdt());
+            }
+        }
+
+        // Distance between the main content and spoiler content
+        h4 { { t!("settings.main_spoiler_content_distance") } }
+        fieldset {
+            role: "group",
+            NumberedValidatedLengthInput {
+                value: pdt().main_content_spoiler_content_padding,
+                placeholder: "".to_string(),
+                onchange: move |new_value| {
+                    pdt.write().main_content_spoiler_content_padding = new_value;
+                    onchange.call(pdt());
+                }
             }
         }
 
@@ -238,10 +256,13 @@ fn DesignTemplateSettings(
             }
         }
 
+        // Adjust individual font settings
         h3 { { t!("settings.fonts.title") } }
 
         FontRepresentationsComponent {
             fonts: pdt().fonts,
+            spoiler_index: pdt().spoiler_index(),
+            meta_index: pdt().meta_index,
             onchange: move |data| {
                 pdt.write().fonts = data;
                 onchange.call(pdt());
