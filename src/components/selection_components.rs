@@ -122,7 +122,8 @@ fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<SearchRe
 fn SearchResults(
     search_results: Signal<Vec<SearchResult>>, 
     query: Signal<String>,
-    selected_items: Signal<Vec<SelectedItemRepresentation>>
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    search_visible: Signal<bool>
 ) -> Element {
     let results = search_results.read().clone();
     if results.is_empty() {
@@ -135,15 +136,31 @@ fn SearchResults(
         div {
             class: "search-results scrollable-container",
             tabindex: 0,
+            // Prevent clicks inside search results from closing them
+            onclick: move |event| {
+                event.stop_propagation();
+            },
             onkeydown: move |event: Event<KeyboardData>| {
-                let key = event.key().to_string();
-                if key.len() == 1 {
-                    if let Some(digit) = key.chars().next().and_then(|c| c.to_digit(10)) {
+                let key = event.key();
+
+                // Handle Escape key to close search results
+                if key == Key::Escape {
+                    search_visible.set(false);
+                    event.stop_propagation();
+                    return;
+                }
+
+                // Handle number keys for quick selection
+                let key_str = key.to_string();
+                if key_str.len() == 1 {
+                    if let Some(digit) = key_str.chars().next().and_then(|c| c.to_digit(10)) {
                         let index = if digit == 0 { 9 } else { (digit as usize) - 1 };
                         if index < results.len() {
                             selected_items.write().push(
                                 SelectedItemRepresentation::new_with_sourcefile(results[index].source_file.clone())
                             );
+                            // Close search results after selection
+                            search_visible.set(false);
                             event.stop_propagation();
                         }
                     }
@@ -179,6 +196,8 @@ fn SearchResults(
                                     selected_items.write().push(
                                         SelectedItemRepresentation::new_with_sourcefile(source_file.clone())
                                     );
+                                    // Close search results after selection
+                                    search_visible.set(false);
                                 },
                                 // For title matches, we'll manually split and highlight
                                 if is_title_match {
@@ -286,6 +305,7 @@ pub fn Selection() -> Element {
 
     let filter_string: Signal<String> = use_signal(|| "".to_string());
     let mut search_results: Signal<Vec<SearchResult>> = use_signal(Vec::new);
+    let mut search_visible: Signal<bool> = use_signal(|| false);
 
     let mut source_files: Signal<Vec<SourceFile>> = use_context();
     let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
@@ -302,20 +322,12 @@ pub fn Selection() -> Element {
         let query = filter_string.read().clone();
         if !query.is_empty() {
             let results = search_source_files(&source_files.read(), &query);
+            let has_results = !results.is_empty();
             search_results.set(results);
+            search_visible.set(has_results);
         } else {
             search_results.set(Vec::new());
-        }
-    });
-
-    // Update search results when filter_string changes
-    use_effect(move || {
-        let query = filter_string.read().clone();
-        if !query.is_empty() {
-            let results = search_source_files(&source_files.read(), &query);
-            search_results.set(results);
-        } else {
-            search_results.set(Vec::new());
+            search_visible.set(false);
         }
     });
 
@@ -357,15 +369,24 @@ pub fn Selection() -> Element {
                 }
             }
 
-            // Display search results if there are any
-            SearchResults {
-                search_results: search_results,
-                query: filter_string,
-                selected_items: selected_items
+            // Display search results if there are any and search_visible is true
+            if search_visible() {
+                SearchResults {
+                    search_results: search_results,
+                    query: filter_string,
+                    selected_items: selected_items,
+                    search_visible: search_visible
+                }
             }
             main {
                 id: "selection-content",
                 class: "content content-background height-100",
+                // Close search results when clicking on the main content
+                onclick: move |_| {
+                    if search_visible() {
+                        search_visible.set(false);
+                    }
+                },
                 onmounted: move |_| async move {
                     // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
                     let _ = document::eval("adjustDivHeight();").await;
