@@ -26,8 +26,18 @@ function adjustDivHeight() {
 function inputFocus(event) {
   let input = document.getElementById("searchinput");
   let key = event.key;
+  let searchResults = document.querySelector(".search-results");
 
-  if (/^\p{L}$/u.test(event.key) && input) {
+  // Check if the key is a number (0-9) and search results are displayed
+  if (/^[0-9]$/.test(key) && searchResults && searchResults.children.length > 0) {
+    // Don't focus on the search input for number keys when search results are displayed
+    // The number key press will be handled by the Rust code
+    event.preventDefault();
+    return;
+  }
+
+  // For letter keys, focus on the search input as before
+  if (/^\p{L}$/u.test(key) && input) {
     input.focus();
   }
 }

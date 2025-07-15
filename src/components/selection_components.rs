@@ -134,9 +134,24 @@ fn SearchResults(
     rsx! {
         div {
             class: "search-results scrollable-container",
+            tabindex: 0,
+            onkeydown: move |event: Event<KeyboardData>| {
+                let key = event.key().to_string();
+                if key.len() == 1 {
+                    if let Some(digit) = key.chars().next().and_then(|c| c.to_digit(10)) {
+                        let index = if digit == 0 { 9 } else { (digit as usize) - 1 };
+                        if index < results.len() {
+                            selected_items.write().push(
+                                SelectedItemRepresentation::new_with_sourcefile(results[index].source_file.clone())
+                            );
+                            event.stop_propagation();
+                        }
+                    }
+                }
+            },
             h3 { {t!("search.results")} }
 
-            for result in results.iter() {
+            for (index, result) in results.iter().enumerate() {
                 {
                     let source_file = result.source_file.clone();
                     let matched_content = result.matched_content.clone();
@@ -146,6 +161,17 @@ fn SearchResults(
                         div {
                             class: "search-result",
                             style: "margin-bottom: 10px; padding: 5px; border-bottom: 1px solid #eee;",
+                            // Show number for first 10 results
+                            if index < 10 {
+                                div {
+                                    style: "display: inline-block; margin-right: 5px; font-weight: bold; color: #666;",
+                                    // Use 0 for the 10th item
+                                    {
+                                        let number = if index == 9 { "0" } else { &(index + 1).to_string() };
+                                        t!("search.result_number", number => number)
+                                    }
+                                }
+                            }
                             div {
                                 class: "search-result-title",
                                 style: "font-weight: bold; cursor: pointer;",
