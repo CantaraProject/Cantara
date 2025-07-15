@@ -108,6 +108,9 @@ settings:
   remote_repository_url_valid:
     en: The URL is valid.
     de: Die URL ist gültig.
+  source_files_count:
+    en: "Source files: %{count}"
+    de: "Quelldateien: %{count}"
   settings_button:
     en: Settings...
     de: Einstellungen...
