@@ -30,6 +30,9 @@ cantara-songlib = "0.1.3"
 rgb = { version = "0.8.50", features = ["serde"] }
 once_cell = "1.21.3"
 log = "0.4.27"
+reqwest = { version = "0.11", features = ["json", "blocking"] }
+zip = "0.6"
+tempfile = "3.10"
 
 [features]
 default = ["desktop"]

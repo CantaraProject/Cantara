@@ -93,6 +93,21 @@ settings:
   add_folder:
     en: Add Folder
     de: Verzeichnis hinzufügen
+  add_remote_repository:
+    en: Add Remote Repository
+    de: Entferntes Repository hinzufügen
+  repositories_remote_zip:
+    en: Remote ZIP Repository
+    de: Entferntes ZIP-Repository
+  remote_repository_url:
+    en: URL to ZIP file
+    de: URL zur ZIP-Datei
+  remote_repository_url_invalid:
+    en: The URL is invalid. Please enter a valid URL to a ZIP file.
+    de: Die URL ist ungültig. Bitte geben Sie eine gültige URL zu einer ZIP-Datei ein.
+  remote_repository_url_valid:
+    en: The URL is valid.
+    de: Die URL ist gültig.
   settings_button:
     en: Settings...
     de: Einstellungen...
