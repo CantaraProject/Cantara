@@ -134,7 +134,6 @@ fn SearchResults(
     rsx! {
         div {
             class: "search-results scrollable-container",
-            style: "max-height: 300px; overflow-y: auto; margin-top: 10px; border: 1px solid #ccc; border-radius: 4px; padding: 10px;",
             h3 { {t!("search.results")} }
 
             for result in results.iter() {
@@ -323,6 +322,7 @@ pub fn Selection() -> Element {
     rsx! {
         div {
             class: "wrapper",
+            style: "position: relative;",
             header {
                 class: "top-bar no-padding",
                 SearchInput {
