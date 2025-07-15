@@ -38,6 +38,11 @@ pub fn SettingsPage() -> Element {
                     onclick: move |_| {
                         settings.write().presentation_designs = presentation_designs.read().clone();
                         settings.read().save();
+
+                        // Clean up any temporary directories before navigating away
+                        // This helps ensure that resources are properly cleaned up
+                        settings.read().cleanup_all_repositories();
+
                         nav.replace(Route::Selection {});
                     },
                     { t!("settings.close") }
@@ -63,12 +68,44 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
 #[component]
 fn RepositorySettings() -> Element {
     let mut settings = use_settings();
+    let mut repository_file_counts: Signal<Vec<(usize, usize)>> = use_signal(Vec::new);
+
+    // Load file counts for each repository
+    use_effect(move || {
+        let repositories = settings.read().repositories.clone();
+
+        use_future(move || {
+            let repos = repositories.clone();
+            async move {
+                let mut counts = Vec::new();
+                for (idx, repo) in repos.iter().enumerate() {
+                    let count = repo.get_source_file_count_async().await;
+                    counts.push((idx, count));
+                }
+                repository_file_counts.set(counts);
+            }
+        });
+    });
 
     let mut select_directory = move || {
         if let Some(path) = FileDialog::new().pick_folder() {
             if path.is_dir() && path.exists() {
                 let chosen_directory = path.to_str().unwrap_or_default().to_string();
                 settings.write().add_repository_folder(chosen_directory);
+
+                // Trigger a refresh of the file counts
+                let repositories = settings.read().repositories.clone();
+                use_future(move || {
+                    let repos = repositories.clone();
+                    async move {
+                        let mut counts = Vec::new();
+                        for (idx, repo) in repos.iter().enumerate() {
+                            let count = repo.get_source_file_count_async().await;
+                            counts.push((idx, count));
+                        }
+                        repository_file_counts.set(counts);
+                    }
+                });
             }
         }
     };
@@ -105,7 +142,25 @@ fn RepositorySettings() -> Element {
                             span {
                                 style: "float:right",
                                 onclick: move |_| {
+                                    // Clean up the repository before removing it
+                                    let repo = settings.read().repositories[index].clone();
+                                    repo.cleanup();
+
                                     settings.write().repositories.remove(index);
+
+                                    // Trigger a refresh of the file counts
+                                    let repositories = settings.read().repositories.clone();
+                                    use_future(move || {
+                                        let repos = repositories.clone();
+                                        async move {
+                                            let mut counts = Vec::new();
+                                            for (idx, repo) in repos.iter().enumerate() {
+                                                let count = repo.get_source_file_count_async().await;
+                                                counts.push((idx, count));
+                                            }
+                                            repository_file_counts.set(counts);
+                                        }
+                                    });
                                 },
                                 DeleteIcon {}
                             }
@@ -129,13 +184,79 @@ fn RepositorySettings() -> Element {
                             }
                         }
                     }
+                    RepositoryType::RemoteZip(string) => {
+                        rsx! {
+                            div { { t!("settings.repositories_remote_zip") }
+                                br {}
+                                { string.clone() }
+                            }
+                        }
+                    }
+                }
+                // Display source file count
+                {
+                    let file_count = repository_file_counts.read().iter()
+                        .find(|(idx, _)| *idx == index)
+                        .map(|(_, count)| *count)
+                        .unwrap_or(0);
+
+                    rsx! {
+                        div {
+                            style: "margin-top: 10px; font-style: italic;",
+                            { t!("settings.source_files_count", count = file_count) }
+                        }
+                    }
                 }
             }
         }
-        button {
-            class: "smaller-buttons",
-            onclick: move |_| select_directory(),
-            { t!("settings.add_folder") }
+        div {
+            class: "grid",
+            button {
+                class: "smaller-buttons",
+                onclick: move |_| select_directory(),
+                { t!("settings.add_folder") }
+            }
+            button {
+                class: "smaller-buttons",
+                onclick: move |_| {
+                    async move {
+                        let prompt_text = t!("settings.remote_repository_url").to_string();
+                        let js_prompt = format!("return prompt('{}', '');", prompt_text);
+                        let url = match document::eval(&js_prompt).await {
+                            Ok(str) => Some(str.to_string().replace("\"", "")),
+                            Err(_) => None,
+                        };
+
+                        if let Some(url) = url {
+                            if !url.trim().is_empty() && url != "null" {
+                                // Basic URL validation
+                                if url.starts_with("http://") || url.starts_with("https://") {
+                                    // Add the repository
+                                    settings.write().add_remote_zip_repository_url(url.trim().to_string());
+
+                                    // Trigger a refresh of the file counts
+                                    let repositories = settings.read().repositories.clone();
+                                    let mut counts = Vec::new();
+                                    for (idx, repo) in repositories.iter().enumerate() {
+                                        let count = repo.get_source_file_count_async().await;
+                                        counts.push((idx, count));
+                                    }
+                                    repository_file_counts.set(counts);
+
+                                    // Show success message
+                                    let success_msg = t!("settings.remote_repository_url_valid").to_string();
+                                    let _ = document::eval(&js_yes_no_box(success_msg)).await;
+                                } else {
+                                    // Show error message
+                                    let error_msg = t!("settings.remote_repository_url_invalid").to_string();
+                                    let _ = document::eval(&js_yes_no_box(error_msg)).await;
+                                }
+                            }
+                        }
+                    }
+                },
+                { t!("settings.add_remote_repository") }
+            }
         }
     }
 }
