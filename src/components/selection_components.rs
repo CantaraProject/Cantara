@@ -15,9 +15,244 @@ use dioxus_free_icons::icons::fa_regular_icons::*;
 use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
 use dioxus_router::prelude::*;
 use rust_i18n::t;
-use std::rc::Rc;
+use std::{fs, rc::Rc};
 
 rust_i18n::i18n!("locales", fallback = "en");
+
+/// Helper function to read the content of a source file
+fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
+    if source_file.file_type == SourceFileType::Song {
+        match fs::read_to_string(&source_file.path) {
+            Ok(content) => Some(content),
+            Err(_) => None,
+        }
+    } else {
+        None
+    }
+}
+
+/// Struct to represent a search result
+#[derive(Clone, PartialEq)]
+struct SearchResult {
+    source_file: SourceFile,
+    matched_content: Option<String>,
+    is_title_match: bool,
+}
+
+/// Helper function to perform fuzzy search on source files
+fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<SearchResult> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    let query = query.to_lowercase();
+    let mut results = Vec::new();
+
+    for source_file in source_files {
+        let name_lower = source_file.name.to_lowercase();
+        let is_title_match = name_lower.contains(&query);
+
+        // Check if the query matches the title
+        if is_title_match {
+            results.push(SearchResult {
+                source_file: source_file.clone(),
+                matched_content: None,
+                is_title_match: true,
+            });
+            continue;
+        }
+
+        // Check if the query matches the content (for song files)
+        if source_file.file_type == SourceFileType::Song {
+            if let Some(content) = read_source_file_content(source_file) {
+                let content_lower = content.to_lowercase();
+                if content_lower.contains(&query) {
+                    // Find the context around the match
+                    let match_index = content_lower.find(&query).unwrap();
+
+                    // Convert byte indices to char indices for safe slicing
+                    let content_chars: Vec<char> = content.chars().collect();
+                    let content_lower_chars: Vec<char> = content_lower.chars().collect();
+
+                    // Find the character index corresponding to the byte index
+                    let mut char_count: usize = 0;
+                    let mut match_char_index: usize = 0;
+
+                    for (i, c) in content_lower.char_indices() {
+                        if i == match_index {
+                            match_char_index = char_count;
+                            break;
+                        }
+                        char_count += 1;
+                    }
+
+                    // Calculate safe character indices for the context
+                    let start_char = match_char_index.saturating_sub(30);
+                    let end_char = (match_char_index + query.chars().count() + 30).min(content_chars.len());
+
+                    // Create the context string from character indices
+                    let context: String = content_chars[start_char..end_char].iter().collect();
+
+                    results.push(SearchResult {
+                        source_file: source_file.clone(),
+                        matched_content: Some(context),
+                        is_title_match: false,
+                    });
+                }
+            }
+        }
+    }
+
+    // Sort results: title matches first, then content matches
+    results.sort_by(|a, b| {
+        if a.is_title_match && !b.is_title_match {
+            std::cmp::Ordering::Less
+        } else if !a.is_title_match && b.is_title_match {
+            std::cmp::Ordering::Greater
+        } else {
+            a.source_file.name.cmp(&b.source_file.name)
+        }
+    });
+
+    results
+}
+
+/// Component to display search results
+#[component]
+fn SearchResults(
+    search_results: Signal<Vec<SearchResult>>, 
+    query: Signal<String>,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>
+) -> Element {
+    let results = search_results.read().clone();
+    if results.is_empty() {
+        return rsx! { div {} };
+    }
+
+    let query_str = query.read().clone();
+
+    rsx! {
+        div {
+            class: "search-results scrollable-container",
+            style: "max-height: 300px; overflow-y: auto; margin-top: 10px; border: 1px solid #ccc; border-radius: 4px; padding: 10px;",
+            h3 { {t!("search.results")} }
+
+            for result in results.iter() {
+                {
+                    let source_file = result.source_file.clone();
+                    let matched_content = result.matched_content.clone();
+                    let is_title_match = result.is_title_match;
+
+                    rsx! {
+                        div {
+                            class: "search-result",
+                            style: "margin-bottom: 10px; padding: 5px; border-bottom: 1px solid #eee;",
+                            div {
+                                class: "search-result-title",
+                                style: "font-weight: bold; cursor: pointer;",
+                                onclick: move |_| {
+                                    selected_items.write().push(
+                                        SelectedItemRepresentation::new_with_sourcefile(source_file.clone())
+                                    );
+                                },
+                                // For title matches, we'll manually split and highlight
+                                if is_title_match {
+                                    {
+                                        let title = source_file.name.clone();
+                                        let title_lower = title.to_lowercase();
+                                        let query_lower = query_str.to_lowercase();
+
+                                        if let Some(pos) = title_lower.find(&query_lower) {
+                                            // Convert to character indices for safe slicing
+                                            let title_chars: Vec<char> = title.chars().collect();
+
+                                            // Find the character index corresponding to the byte index
+                                            let mut char_pos: usize = 0;
+                                            for (i, _) in title_lower.char_indices() {
+                                                if i == pos {
+                                                    break;
+                                                }
+                                                char_pos += 1;
+                                            }
+
+                                            // Calculate the end position in character indices
+                                            let query_char_len = query_lower.chars().count();
+                                            let char_end = char_pos + query_char_len;
+
+                                            // Create the substrings using character indices
+                                            let before: String = title_chars[0..char_pos].iter().collect();
+                                            let highlight: String = title_chars[char_pos..char_end].iter().collect();
+                                            let after: String = title_chars[char_end..].iter().collect();
+
+                                            rsx! {
+                                                span { {before} }
+                                                span { 
+                                                    style: "background-color: yellow; font-weight: bold;",
+                                                    {highlight} 
+                                                }
+                                                span { {after} }
+                                            }
+                                        } else {
+                                            rsx! { span { {title.clone()} } }
+                                        }
+                                    }
+                                } else {
+                                    span { {source_file.name.clone()} }
+                                }
+                            }
+
+                            if let Some(content) = matched_content {
+                                div {
+                                    class: "search-result-content",
+                                    style: "margin-top: 5px; font-size: 0.9em; color: #666;",
+                                    // For content matches, we'll manually split and highlight
+                                    {
+                                        let content_lower = content.to_lowercase();
+                                        let query_lower = query_str.to_lowercase();
+
+                                        if let Some(pos) = content_lower.find(&query_lower) {
+                                            // Convert to character indices for safe slicing
+                                            let content_chars: Vec<char> = content.chars().collect();
+
+                                            // Find the character index corresponding to the byte index
+                                            let mut char_pos: usize = 0;
+                                            for (i, _) in content_lower.char_indices() {
+                                                if i == pos {
+                                                    break;
+                                                }
+                                                char_pos += 1;
+                                            }
+
+                                            // Calculate the end position in character indices
+                                            let query_char_len = query_lower.chars().count();
+                                            let char_end = char_pos + query_char_len;
+
+                                            // Create the substrings using character indices
+                                            let before: String = content_chars[0..char_pos].iter().collect();
+                                            let highlight: String = content_chars[char_pos..char_end].iter().collect();
+                                            let after: String = content_chars[char_end..].iter().collect();
+
+                                            rsx! {
+                                                span { "..." {before} }
+                                                span { 
+                                                    style: "background-color: yellow; font-weight: bold;",
+                                                    {highlight} 
+                                                }
+                                                span { {after} "..." }
+                                            }
+                                        } else {
+                                            rsx! { span { "..." {content.clone()} "..." } }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[component]
 pub fn Selection() -> Element {
@@ -25,6 +260,7 @@ pub fn Selection() -> Element {
     let settings: Signal<Settings> = use_context();
 
     let filter_string: Signal<String> = use_signal(|| "".to_string());
+    let mut search_results: Signal<Vec<SearchResult>> = use_signal(Vec::new);
 
     let mut source_files: Signal<Vec<SourceFile>> = use_context();
     let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
@@ -35,6 +271,28 @@ pub fn Selection() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
+
+    // Update search results when filter_string changes
+    use_effect(move || {
+        let query = filter_string.read().clone();
+        if !query.is_empty() {
+            let results = search_source_files(&source_files.read(), &query);
+            search_results.set(results);
+        } else {
+            search_results.set(Vec::new());
+        }
+    });
+
+    // Update search results when filter_string changes
+    use_effect(move || {
+        let query = filter_string.read().clone();
+        if !query.is_empty() {
+            let results = search_source_files(&source_files.read(), &query);
+            search_results.set(results);
+        } else {
+            search_results.set(Vec::new());
+        }
+    });
 
     let default_presentation_design_memo =
         use_memo(move || match settings.read().presentation_designs.first() {
@@ -71,6 +329,13 @@ pub fn Selection() -> Element {
                     input_signal: filter_string,
                     element_signal: input_element_signal
                 }
+            }
+
+            // Display search results if there are any
+            SearchResults {
+                search_results: search_results,
+                query: filter_string,
+                selected_items: selected_items
             }
             main {
                 id: "selection-content",
