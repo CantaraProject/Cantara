@@ -71,6 +71,12 @@ wizard:
 search:
   en: Search...
   de: Suchen...
+  results:
+    en: Search Results
+    de: Suchergebnisse
+  result_number:
+    en: "Press %{number} to select"
+    de: "Drücke %{number} zum Auswählen"
 settings:
   repositories_headline:
     en: Repositories
