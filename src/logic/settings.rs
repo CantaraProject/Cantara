@@ -204,6 +204,16 @@ impl Repository {
             repository_type: RepositoryType::RemoteZip(url),
         }
     }
+
+    /// Get the count of source files in this repository
+    pub fn get_source_file_count(&self) -> usize {
+        self.repository_type.get_files().len()
+    }
+
+    /// Get the count of source files in this repository asynchronously
+    pub async fn get_source_file_count_async(&self) -> usize {
+        self.repository_type.get_files_async().await.len()
+    }
 }
 
 /// The enum represents the different types of repositories.
