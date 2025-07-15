@@ -10,10 +10,13 @@ use std::{
     fs,
     path::{Path, PathBuf},
     io::{self, Write},
+    cell::RefCell,
+    collections::HashMap,
 };
 use reqwest::{blocking::Client, Client as AsyncClient};
 use zip::ZipArchive;
 use tempfile::TempDir;
+use once_cell::sync::Lazy;
 
 /// Returns the settings of the program
 ///
@@ -67,6 +70,15 @@ fn default_song_slide_vec() -> Vec<SlideSettings> {
 }
 
 impl Settings {
+    /// Cleans up all temporary resources associated with all repositories
+    pub fn cleanup_all_repositories(&self) {
+        for repo in &self.repositories {
+            repo.cleanup();
+        }
+        // Also clean up any orphaned temporary directories
+        RepositoryType::cleanup_all_temp_dirs();
+    }
+
     /// Load settings from storage or creates a new default settings if
     /// the program is run for the first time.
     pub fn load() -> Self {
@@ -179,6 +191,13 @@ pub struct Repository {
 }
 
 impl Repository {
+    /// Cleans up any temporary resources associated with this repository
+    pub fn cleanup(&self) {
+        if let RepositoryType::RemoteZip(url) = &self.repository_type {
+            RepositoryType::cleanup_temp_dir(url);
+        }
+    }
+
     pub fn new_local_folder(name: String, path: String) -> Self {
         Repository {
             name,
@@ -231,7 +250,35 @@ pub enum RepositoryType {
     RemoteZip(String),
 }
 
+// This struct holds the temporary directory for a remote ZIP repository
+// It's not included in serialization/deserialization
+thread_local! {
+    static TEMP_DIRS: std::cell::RefCell<std::collections::HashMap<String, tempfile::TempDir>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
 impl RepositoryType {
+    /// Cleans up the temporary directory for a specific URL
+    pub fn cleanup_temp_dir(url: &str) {
+        TEMP_DIRS.with(|temp_dirs| {
+            let mut temp_dirs = temp_dirs.borrow_mut();
+            if temp_dirs.remove(url).is_some() {
+                log::info!("Cleaned up temporary directory for URL: {}", url);
+            }
+        });
+    }
+
+    /// Cleans up all temporary directories
+    pub fn cleanup_all_temp_dirs() {
+        TEMP_DIRS.with(|temp_dirs| {
+            let mut temp_dirs = temp_dirs.borrow_mut();
+            let urls: Vec<String> = temp_dirs.keys().cloned().collect();
+            for url in urls {
+                temp_dirs.remove(&url);
+                log::info!("Cleaned up temporary directory for URL: {}", url);
+            }
+        });
+    }
+
     /// Get files which are provided by the repository.
     pub fn get_files(&self) -> Vec<SourceFile> {
         match self {
@@ -239,18 +286,35 @@ impl RepositoryType {
                 get_source_files(Path::new(&path_string))
             }
             RepositoryType::RemoteZip(url) => {
-                // For backward compatibility, use the blocking version
-                match self.download_and_extract_zip(url) {
-                    Ok(temp_dir) => {
-                        let files = get_source_files(temp_dir.path());
-                        // The temp_dir will be automatically deleted when it goes out of scope
-                        files
+                // Check if we already have a temporary directory for this URL
+                let mut files = vec![];
+
+                TEMP_DIRS.with(|temp_dirs| {
+                    let mut temp_dirs = temp_dirs.borrow_mut();
+
+                    // If we already have a temporary directory for this URL, use it
+                    if let Some(temp_dir) = temp_dirs.get(url) {
+                        log::info!("Using existing temporary directory for URL: {}", url);
+                        files = get_source_files(temp_dir.path());
+                    } else {
+                        // Otherwise, download and extract the ZIP file
+                        log::info!("Downloading and extracting ZIP file from URL: {}", url);
+                        match self.download_and_extract_zip(url) {
+                            Ok(temp_dir) => {
+                                let path = temp_dir.path().to_path_buf();
+                                log::info!("Extracted ZIP file to temporary directory: {:?}", path);
+                                files = get_source_files(&path);
+                                // Store the temporary directory so it persists
+                                temp_dirs.insert(url.clone(), temp_dir);
+                            }
+                            Err(e) => {
+                                log::error!("Failed to download or extract ZIP file: {}", e);
+                            }
+                        }
                     }
-                    Err(e) => {
-                        log::error!("Failed to download or extract ZIP file: {}", e);
-                        vec![]
-                    }
-                }
+                });
+
+                files
             }
             _ => vec![],
         }
@@ -264,17 +328,41 @@ impl RepositoryType {
                 get_source_files(Path::new(&path_string))
             }
             RepositoryType::RemoteZip(url) => {
-                match self.download_and_extract_zip_async(url).await {
-                    Ok(temp_dir) => {
-                        let files = get_source_files(temp_dir.path());
-                        // The temp_dir will be automatically deleted when it goes out of scope
-                        files
+                // Check if we already have a temporary directory for this URL
+                let mut files = vec![];
+
+                TEMP_DIRS.with(|temp_dirs| {
+                    let mut temp_dirs = temp_dirs.borrow_mut();
+
+                    // If we already have a temporary directory for this URL, use it
+                    if let Some(temp_dir) = temp_dirs.get(url) {
+                        log::info!("Using existing temporary directory for URL: {}", url);
+                        files = get_source_files(temp_dir.path());
                     }
-                    Err(e) => {
-                        log::error!("Failed to download or extract ZIP file: {}", e);
-                        vec![]
+                });
+
+                // If we don't have a temporary directory yet, download and extract the ZIP file
+                if files.is_empty() {
+                    log::info!("Downloading and extracting ZIP file from URL: {}", url);
+                    match self.download_and_extract_zip_async(url).await {
+                        Ok(temp_dir) => {
+                            let path = temp_dir.path().to_path_buf();
+                            log::info!("Extracted ZIP file to temporary directory: {:?}", path);
+                            files = get_source_files(&path);
+
+                            // Store the temporary directory so it persists
+                            TEMP_DIRS.with(|temp_dirs| {
+                                let mut temp_dirs = temp_dirs.borrow_mut();
+                                temp_dirs.insert(url.clone(), temp_dir);
+                            });
+                        }
+                        Err(e) => {
+                            log::error!("Failed to download or extract ZIP file: {}", e);
+                        }
                     }
                 }
+
+                files
             }
             _ => vec![],
         }
