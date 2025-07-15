@@ -44,6 +44,9 @@ fn SearchResults(
             onclick: move |event| {
                 event.stop_propagation();
             },
+            onmounted: move |element| {
+                let _ = element.set_focus(true);
+            },
             onkeydown: move |event: Event<KeyboardData>| {
                 let key = event.key();
 
@@ -52,22 +55,6 @@ fn SearchResults(
                     search_visible.set(false);
                     event.stop_propagation();
                     return;
-                }
-
-                // Handle number keys for quick selection
-                let key_str = key.to_string();
-                if key_str.len() == 1 {
-                    if let Some(digit) = key_str.chars().next().and_then(|c| c.to_digit(10)) {
-                        let index = if digit == 0 { 9 } else { (digit as usize) - 1 };
-                        if index < results.len() {
-                            selected_items.write().push(
-                                SelectedItemRepresentation::new_with_sourcefile(results[index].source_file.clone())
-                            );
-                            // Close search results after selection
-                            search_visible.set(false);
-                            event.stop_propagation();
-                        }
-                    }
                 }
             },
             h3 { {t!("search.results")} }
@@ -212,7 +199,7 @@ pub fn Selection() -> Element {
     let mut search_visible: Signal<bool> = use_signal(|| false);
 
     let mut source_files: Signal<Vec<SourceFile>> = use_context();
-    let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
+    let mut selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_selection_filter: Signal<SelectionFilterOptions> =
@@ -265,6 +252,28 @@ pub fn Selection() -> Element {
         div {
             class: "wrapper",
             style: "position: relative;",
+            // Add onkeydown handler to the wrapper div to handle number key presses globally
+            onkeydown: move |event: Event<KeyboardData>| {
+                // Handle number keys for quick selection when search results are visible
+                if search_visible() {
+                    let key_str = event.key().to_string();
+                    if key_str.len() == 1 {
+                        if let Some(digit) = key_str.chars().next().and_then(|c| c.to_digit(10)) {
+                            let index = if digit == 0 { 9 } else { (digit as usize) - 1 };
+                            let results = search_results.read();
+                            if index < results.len() {
+                                selected_items.write().push(
+                                    SelectedItemRepresentation::new_with_sourcefile(results[index].source_file.clone())
+                                );
+                                // Close search results after selection
+                                search_visible.set(false);
+                                event.stop_propagation();
+                                return;
+                            }
+                        }
+                    }
+                }
+            },
             header {
                 class: "top-bar no-padding",
                 SearchInput {
@@ -295,7 +304,13 @@ pub fn Selection() -> Element {
                     // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
                     let _ = document::eval("adjustDivHeight();").await;
                 },
-                onkeydown: move |_| async move {
+                onkeydown: move |event: Event<KeyboardData>| async move {
+                    // Don't focus search input if a number key is pressed and search results are visible
+                    let key = event.key().to_string();
+                    if search_visible() && key.len() == 1 && key.chars().next().map_or(false, |c| c.is_digit(10)) {
+                        return;
+                    }
+
                     if let Some(searchinput) = input_element_signal() {
                         let _ = searchinput.set_focus(true).await;
                     }
