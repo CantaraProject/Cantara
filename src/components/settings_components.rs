@@ -38,6 +38,11 @@ pub fn SettingsPage() -> Element {
                     onclick: move |_| {
                         settings.write().presentation_designs = presentation_designs.read().clone();
                         settings.read().save();
+
+                        // Clean up any temporary directories before navigating away
+                        // This helps ensure that resources are properly cleaned up
+                        settings.read().cleanup_all_repositories();
+
                         nav.replace(Route::Selection {});
                     },
                     { t!("settings.close") }
@@ -137,6 +142,10 @@ fn RepositorySettings() -> Element {
                             span {
                                 style: "float:right",
                                 onclick: move |_| {
+                                    // Clean up the repository before removing it
+                                    let repo = settings.read().repositories[index].clone();
+                                    repo.cleanup();
+
                                     settings.write().repositories.remove(index);
 
                                     // Trigger a refresh of the file counts
