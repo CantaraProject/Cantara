@@ -129,13 +129,55 @@ fn RepositorySettings() -> Element {
                             }
                         }
                     }
+                    RepositoryType::RemoteZip(string) => {
+                        rsx! {
+                            div { { t!("settings.repositories_remote_zip") }
+                                br {}
+                                { string.clone() }
+                            }
+                        }
+                    }
                 }
             }
         }
-        button {
-            class: "smaller-buttons",
-            onclick: move |_| select_directory(),
-            { t!("settings.add_folder") }
+        div {
+            class: "grid",
+            button {
+                class: "smaller-buttons",
+                onclick: move |_| select_directory(),
+                { t!("settings.add_folder") }
+            }
+            button {
+                class: "smaller-buttons",
+                onclick: move |_| {
+                    async move {
+                        let prompt_text = t!("settings.remote_repository_url").to_string();
+                        let js_prompt = format!("return prompt('{}', '');", prompt_text);
+                        let url = match document::eval(&js_prompt).await {
+                            Ok(str) => Some(str.to_string().replace("\"", "")),
+                            Err(_) => None,
+                        };
+
+                        if let Some(url) = url {
+                            if !url.trim().is_empty() && url != "null" {
+                                // Basic URL validation
+                                if url.starts_with("http://") || url.starts_with("https://") {
+                                    // Add the repository
+                                    settings.write().add_remote_zip_repository_url(url.trim().to_string());
+                                    // Show success message
+                                    let success_msg = t!("settings.remote_repository_url_valid").to_string();
+                                    let _ = document::eval(&js_yes_no_box(success_msg)).await;
+                                } else {
+                                    // Show error message
+                                    let error_msg = t!("settings.remote_repository_url_invalid").to_string();
+                                    let _ = document::eval(&js_yes_no_box(error_msg)).await;
+                                }
+                            }
+                        }
+                    }
+                },
+                { t!("settings.add_remote_repository") }
+            }
         }
     }
 }
