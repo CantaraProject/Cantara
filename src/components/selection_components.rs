@@ -3,10 +3,10 @@
 use super::shared_components::{ImageIcon, MusicIcon};
 use crate::TEST_STATE;
 use crate::logic::presentation;
+use crate::logic::search::{SearchResult, read_source_file_content, search_source_files};
 use crate::logic::settings::PresentationDesign;
 use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
-use crate::logic::search::{SearchResult, search_source_files, read_source_file_content};
 use crate::{Route, logic::settings::Settings, logic::sourcefiles::SourceFile};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::desktop::tao;
@@ -20,14 +20,13 @@ use std::rc::Rc;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
-
 /// Component to display search results
 #[component]
 fn SearchResults(
-    search_results: Signal<Vec<SearchResult>>, 
+    search_results: Signal<Vec<SearchResult>>,
     query: Signal<String>,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
-    search_visible: Signal<bool>
+    search_visible: Signal<bool>,
 ) -> Element {
     let results = search_results.read().clone();
     if results.is_empty() {
@@ -121,9 +120,9 @@ fn SearchResults(
 
                                             rsx! {
                                                 span { {before} }
-                                                span { 
+                                                span {
                                                     style: "background-color: yellow; font-weight: bold;",
-                                                    {highlight} 
+                                                    {highlight}
                                                 }
                                                 span { {after} }
                                             }
@@ -169,9 +168,9 @@ fn SearchResults(
 
                                             rsx! {
                                                 span { "..." {before} }
-                                                span { 
+                                                span {
                                                     style: "background-color: yellow; font-weight: bold;",
-                                                    {highlight} 
+                                                    {highlight}
                                                 }
                                                 span { {after} "..." }
                                             }

@@ -4,19 +4,19 @@ use crate::logic::css::{CssFontFamily, CssString};
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, get_source_files};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
+use once_cell::sync::Lazy;
+use reqwest::{Client as AsyncClient, blocking::Client};
 use rgb::*;
 use serde::{Deserialize, Serialize};
 use std::{
-    fs,
-    path::{Path, PathBuf},
-    io::{self, Write},
     cell::RefCell,
     collections::HashMap,
+    fs,
+    io::{self, Write},
+    path::{Path, PathBuf},
 };
-use reqwest::{blocking::Client, Client as AsyncClient};
-use zip::ZipArchive;
 use tempfile::TempDir;
-use once_cell::sync::Lazy;
+use zip::ZipArchive;
 
 /// Returns the settings of the program
 ///
@@ -46,6 +46,10 @@ pub struct Settings {
     /// There is a default added when none is found.
     #[serde(default = "default_song_slide_vec")]
     pub song_slide_settings: Vec<SlideSettings>,
+
+    /// A boolean variable which determines if presentations should start in fullscreen mode by default.
+    #[serde(default = "default_always_start_fullscreen")]
+    pub always_start_fullscreen: bool,
 }
 
 impl Default for Settings {
@@ -55,6 +59,7 @@ impl Default for Settings {
             wizard_completed: false,
             presentation_designs: default_presentation_design_vec(),
             song_slide_settings: default_song_slide_vec(),
+            always_start_fullscreen: default_always_start_fullscreen(),
         }
     }
 }
@@ -67,6 +72,11 @@ fn default_presentation_design_vec() -> Vec<PresentationDesign> {
 /// This creates the default slide settings
 fn default_song_slide_vec() -> Vec<SlideSettings> {
     vec![SlideSettings::default()]
+}
+
+/// This returns the default value for always_start_fullscreen
+fn default_always_start_fullscreen() -> bool {
+    false
 }
 
 impl Settings {
@@ -118,29 +128,33 @@ impl Settings {
     }
 
     /// Add a new remote ZIP repository given as URL to the settings.
-    /// 
+    ///
     /// # Arguments
     /// * `name` - A user-friendly name for the repository
     /// * `url` - The URL to the ZIP file
     pub fn add_remote_zip_repository(&mut self, name: String, url: String) {
-        self.repositories.push(Repository::new_remote_zip(name, url));
+        self.repositories
+            .push(Repository::new_remote_zip(name, url));
     }
 
     /// Add a new remote ZIP repository given as URL to the settings.
     /// The name will be derived from the URL if possible.
-    /// 
+    ///
     /// # Arguments
     /// * `url` - The URL to the ZIP file
     pub fn add_remote_zip_repository_url(&mut self, url: String) {
         // Extract a name from the URL (last part of the path before the extension)
-        let name = url.split('/').last()
+        let name = url
+            .split('/')
+            .last()
             .unwrap_or(&url)
             .split('.')
             .next()
             .unwrap_or(&url)
             .to_string();
 
-        self.repositories.push(Repository::new_remote_zip(name, url));
+        self.repositories
+            .push(Repository::new_remote_zip(name, url));
     }
 
     /// Get all elements of all repositories as a vector of [SourceFile]
@@ -208,11 +222,11 @@ impl Repository {
     }
 
     /// Creates a new repository that downloads and extracts a remote ZIP file.
-    /// 
+    ///
     /// # Arguments
     /// * `name` - A user-friendly name for the repository
     /// * `url` - The URL to the ZIP file
-    /// 
+    ///
     /// # Returns
     /// A new `Repository` instance configured to use a remote ZIP file
     pub fn new_remote_zip(name: String, url: String) -> Self {
@@ -372,7 +386,8 @@ impl RepositoryType {
     /// Returns the temporary directory if successful, or an error if the download or extraction fails.
     fn download_and_extract_zip(&self, url: &str) -> Result<TempDir, String> {
         // Create a temporary directory to store the downloaded ZIP file
-        let temp_dir = TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
+        let temp_dir =
+            TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
 
         // Create a temporary file path for the downloaded ZIP
         let zip_path = temp_dir.path().join("download.zip");
@@ -384,14 +399,18 @@ impl RepositoryType {
             .map_err(|e| format!("Failed to download ZIP file: {}", e))?;
 
         if !response.status().is_success() {
-            return Err(format!("Failed to download ZIP file: HTTP status {}", response.status()));
+            return Err(format!(
+                "Failed to download ZIP file: HTTP status {}",
+                response.status()
+            ));
         }
 
         // Create the file and write the response body to it
         let mut file = fs::File::create(&zip_path)
             .map_err(|e| format!("Failed to create temporary file: {}", e))?;
 
-        let content = response.bytes()
+        let content = response
+            .bytes()
             .map_err(|e| format!("Failed to read response body: {}", e))?;
 
         file.write_all(&content)
@@ -401,12 +420,13 @@ impl RepositoryType {
         let file = fs::File::open(&zip_path)
             .map_err(|e| format!("Failed to open downloaded ZIP file: {}", e))?;
 
-        let mut archive = ZipArchive::new(file)
-            .map_err(|e| format!("Failed to parse ZIP file: {}", e))?;
+        let mut archive =
+            ZipArchive::new(file).map_err(|e| format!("Failed to parse ZIP file: {}", e))?;
 
         // Extract the ZIP file
         for i in 0..archive.len() {
-            let mut file = archive.by_index(i)
+            let mut file = archive
+                .by_index(i)
                 .map_err(|e| format!("Failed to access ZIP entry: {}", e))?;
 
             let outpath = temp_dir.path().join(file.name());
@@ -442,7 +462,8 @@ impl RepositoryType {
     /// This is the async version of `download_and_extract_zip`.
     async fn download_and_extract_zip_async(&self, url: &str) -> Result<TempDir, String> {
         // Create a temporary directory to store the downloaded ZIP file
-        let temp_dir = TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
+        let temp_dir =
+            TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
 
         // Create a temporary file path for the downloaded ZIP
         let zip_path = temp_dir.path().join("download.zip");
@@ -455,14 +476,18 @@ impl RepositoryType {
             .map_err(|e| format!("Failed to download ZIP file: {}", e))?;
 
         if !response.status().is_success() {
-            return Err(format!("Failed to download ZIP file: HTTP status {}", response.status()));
+            return Err(format!(
+                "Failed to download ZIP file: HTTP status {}",
+                response.status()
+            ));
         }
 
         // Create the file and write the response body to it
         let mut file = fs::File::create(&zip_path)
             .map_err(|e| format!("Failed to create temporary file: {}", e))?;
 
-        let content = response.bytes()
+        let content = response
+            .bytes()
             .await
             .map_err(|e| format!("Failed to read response body: {}", e))?;
 
@@ -473,12 +498,13 @@ impl RepositoryType {
         let file = fs::File::open(&zip_path)
             .map_err(|e| format!("Failed to open downloaded ZIP file: {}", e))?;
 
-        let mut archive = ZipArchive::new(file)
-            .map_err(|e| format!("Failed to parse ZIP file: {}", e))?;
+        let mut archive =
+            ZipArchive::new(file).map_err(|e| format!("Failed to parse ZIP file: {}", e))?;
 
         // Extract the ZIP file
         for i in 0..archive.len() {
-            let mut file = archive.by_index(i)
+            let mut file = archive
+                .by_index(i)
                 .map_err(|e| format!("Failed to access ZIP entry: {}", e))?;
 
             let outpath = temp_dir.path().join(file.name());
@@ -744,10 +770,7 @@ pub struct FontRepresentation {
 
     /// The horizontal alignment of the block
     pub horizontal_alignment: HorizontalAlign,
-
-
 }
-
 
 impl FontRepresentation {
     pub fn get_color_as_rgba_string(&self) -> String {
@@ -772,8 +795,6 @@ impl FontRepresentation {
             .set_float(default.font_size.get_float() * 0.5);
         default
     }
-
-
 }
 
 impl Default for FontRepresentation {
