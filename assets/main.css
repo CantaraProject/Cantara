@@ -227,3 +227,19 @@ div.inline-div {
     text-align: center;
     border-radius: 10px;
 }
+
+.search-results {
+    position: absolute;
+    z-index: 1000;
+    width: 100%;
+    min-height: 300px;
+    overflow-y: auto;
+    top: 80px;
+    bottom: 0;
+    margin-top: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 10px;
+    background-color: var(--pico-background-color);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
