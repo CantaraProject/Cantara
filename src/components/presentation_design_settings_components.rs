@@ -178,6 +178,8 @@ fn DesignTemplateSettings(
                         checked: use_background_image,
                         onchange: move |event| {
                             use_background_image.set(event.checked());
+                            pdt.write().background_image = None;
+                            onchange.call(pdt());
                         }
                     }
                     { t!("settings.use_background_image") }
