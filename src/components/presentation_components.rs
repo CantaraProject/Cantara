@@ -35,8 +35,31 @@ pub fn PresentationPage() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Title { { t!("presentation.title")} }
-        PresentationRendererComponent {
-            running_presentation: running_presentation
+        // This div is needed for fullscreen mode
+        div {
+            tabindex: 0,
+            style: "
+                    all: initial;
+                    margin:0;
+                    width:100%;
+                    height:100%;
+                ",
+            onkeydown: move |event: Event<KeyboardData>| {
+                if event.key() == Key::F11 {
+                    use_future(move || async move {
+                        let _ = document::eval("
+                            if (document.fullscreenElement) {
+                                document.exitFullscreen();
+                            } else {
+                                document.documentElement.requestFullscreen();
+                            }
+                        ").await;
+                    });
+                }
+            },
+            PresentationRendererComponent {
+                running_presentation: running_presentation
+            }
         }
     }
 }
