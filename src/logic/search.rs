@@ -6,10 +6,7 @@ use std::fs;
 /// Helper function to read the content of a source file
 pub fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
     if source_file.file_type == SourceFileType::Song {
-        match fs::read_to_string(&source_file.path) {
-            Ok(content) => Some(content),
-            Err(_) => None,
-        }
+        fs::read_to_string(&source_file.path).ok()
     } else {
         None
     }
@@ -72,7 +69,8 @@ pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<Sear
 
                     // Calculate safe character indices for the context
                     let start_char = match_char_index.saturating_sub(30);
-                    let end_char = (match_char_index + query.chars().count() + 30).min(content_chars.len());
+                    let end_char =
+                        (match_char_index + query.chars().count() + 30).min(content_chars.len());
 
                     // Create the context string from character indices
                     let context: String = content_chars[start_char..end_char].iter().collect();
