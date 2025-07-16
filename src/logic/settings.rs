@@ -4,13 +4,10 @@ use crate::logic::css::{CssFontFamily, CssString};
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, get_source_files};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
-use once_cell::sync::Lazy;
 use reqwest::{Client as AsyncClient, blocking::Client};
 use rgb::*;
 use serde::{Deserialize, Serialize};
 use std::{
-    cell::RefCell,
-    collections::HashMap,
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
@@ -146,7 +143,7 @@ impl Settings {
         // Extract a name from the URL (last part of the path before the extension)
         let name = url
             .split('/')
-            .last()
+            .next_back()
             .unwrap_or(&url)
             .split('.')
             .next()
@@ -346,7 +343,7 @@ impl RepositoryType {
                 let mut files = vec![];
 
                 TEMP_DIRS.with(|temp_dirs| {
-                    let mut temp_dirs = temp_dirs.borrow_mut();
+                    let temp_dirs = temp_dirs.borrow_mut();
 
                     // If we already have a temporary directory for this URL, use it
                     if let Some(temp_dir) = temp_dirs.get(url) {
@@ -393,7 +390,7 @@ impl RepositoryType {
         let zip_path = temp_dir.path().join("download.zip");
 
         // Download the ZIP file
-        let mut response = Client::new()
+        let response = Client::new()
             .get(url)
             .send()
             .map_err(|e| format!("Failed to download ZIP file: {}", e))?;

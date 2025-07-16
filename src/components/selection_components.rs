@@ -3,7 +3,7 @@
 use super::shared_components::{ImageIcon, MusicIcon};
 use crate::TEST_STATE;
 use crate::logic::presentation;
-use crate::logic::search::{SearchResult, read_source_file_content, search_source_files};
+use crate::logic::search::{SearchResult, search_source_files};
 use crate::logic::settings::PresentationDesign;
 use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
@@ -53,7 +53,6 @@ fn SearchResults(
                 if key == Key::Escape {
                     search_visible.set(false);
                     event.stop_propagation();
-                    return;
                 }
             },
             h3 { {t!("search.results")} }
@@ -267,7 +266,6 @@ pub fn Selection() -> Element {
                                 // Close search results after selection
                                 search_visible.set(false);
                                 event.stop_propagation();
-                                return;
                             }
                         }
                     }
@@ -306,7 +304,7 @@ pub fn Selection() -> Element {
                 onkeydown: move |event: Event<KeyboardData>| async move {
                     // Don't focus search input if a number key is pressed and search results are visible
                     let key = event.key().to_string();
-                    if search_visible() && key.len() == 1 && key.chars().next().map_or(false, |c| c.is_digit(10)) {
+                    if search_visible() && key.len() == 1 && key.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                         return;
                     }
 

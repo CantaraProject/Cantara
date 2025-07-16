@@ -6,10 +6,7 @@ use std::fs;
 /// Helper function to read the content of a source file
 pub fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
     if source_file.file_type == SourceFileType::Song {
-        match fs::read_to_string(&source_file.path) {
-            Ok(content) => Some(content),
-            Err(_) => None,
-        }
+        fs::read_to_string(&source_file.path).ok()
     } else {
         None
     }
