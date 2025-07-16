@@ -6,6 +6,7 @@ use crate::logic::presentation;
 use crate::logic::settings::PresentationDesign;
 use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
+use crate::logic::search::{SearchResult, search_source_files, read_source_file_content};
 use crate::{Route, logic::settings::Settings, logic::sourcefiles::SourceFile};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::desktop::tao;
@@ -19,15 +20,186 @@ use std::rc::Rc;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+
+/// Component to display search results
+#[component]
+fn SearchResults(
+    search_results: Signal<Vec<SearchResult>>, 
+    query: Signal<String>,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    search_visible: Signal<bool>
+) -> Element {
+    let results = search_results.read().clone();
+    if results.is_empty() {
+        return rsx! { div {} };
+    }
+
+    let query_str = query.read().clone();
+
+    rsx! {
+        div {
+            class: "search-results scrollable-container",
+            tabindex: 0,
+            // Prevent clicks inside search results from closing them
+            onclick: move |event| {
+                event.stop_propagation();
+            },
+            onmounted: move |element| {
+                let _ = element.set_focus(true);
+            },
+            onkeydown: move |event: Event<KeyboardData>| {
+                let key = event.key();
+
+                // Handle Escape key to close search results
+                if key == Key::Escape {
+                    search_visible.set(false);
+                    event.stop_propagation();
+                    return;
+                }
+            },
+            h3 { {t!("search.results")} }
+
+            for (index, result) in results.iter().enumerate() {
+                {
+                    let source_file = result.source_file.clone();
+                    let matched_content = result.matched_content.clone();
+                    let is_title_match = result.is_title_match;
+
+                    rsx! {
+                        div {
+                            class: "search-result",
+                            style: "margin-bottom: 10px; padding: 5px; border-bottom: 1px solid #eee;",
+                            // Show number for first 10 results
+                            if index < 10 {
+                                div {
+                                    style: "display: inline-block; margin-right: 5px; font-weight: bold; color: #666;",
+                                    // Use 0 for the 10th item
+                                    {
+                                        let number = if index == 9 { "0" } else { &(index + 1).to_string() };
+                                        t!("search.result_number", number => number)
+                                    }
+                                }
+                            }
+                            div {
+                                class: "search-result-title",
+                                style: "font-weight: bold; cursor: pointer;",
+                                onclick: move |_| {
+                                    selected_items.write().push(
+                                        SelectedItemRepresentation::new_with_sourcefile(source_file.clone())
+                                    );
+                                    // Close search results after selection
+                                    search_visible.set(false);
+                                },
+                                // For title matches, we'll manually split and highlight
+                                if is_title_match {
+                                    {
+                                        let title = source_file.name.clone();
+                                        let title_lower = title.to_lowercase();
+                                        let query_lower = query_str.to_lowercase();
+
+                                        if let Some(pos) = title_lower.find(&query_lower) {
+                                            // Convert to character indices for safe slicing
+                                            let title_chars: Vec<char> = title.chars().collect();
+
+                                            // Find the character index corresponding to the byte index
+                                            let mut char_pos: usize = 0;
+                                            for (i, _) in title_lower.char_indices() {
+                                                if i == pos {
+                                                    break;
+                                                }
+                                                char_pos += 1;
+                                            }
+
+                                            // Calculate the end position in character indices
+                                            let query_char_len = query_lower.chars().count();
+                                            let char_end = char_pos + query_char_len;
+
+                                            // Create the substrings using character indices
+                                            let before: String = title_chars[0..char_pos].iter().collect();
+                                            let highlight: String = title_chars[char_pos..char_end].iter().collect();
+                                            let after: String = title_chars[char_end..].iter().collect();
+
+                                            rsx! {
+                                                span { {before} }
+                                                span { 
+                                                    style: "background-color: yellow; font-weight: bold;",
+                                                    {highlight} 
+                                                }
+                                                span { {after} }
+                                            }
+                                        } else {
+                                            rsx! { span { {title.clone()} } }
+                                        }
+                                    }
+                                } else {
+                                    span { {source_file.name.clone()} }
+                                }
+                            }
+
+                            if let Some(content) = matched_content {
+                                div {
+                                    class: "search-result-content",
+                                    style: "margin-top: 5px; font-size: 0.9em; color: #666;",
+                                    // For content matches, we'll manually split and highlight
+                                    {
+                                        let content_lower = content.to_lowercase();
+                                        let query_lower = query_str.to_lowercase();
+
+                                        if let Some(pos) = content_lower.find(&query_lower) {
+                                            // Convert to character indices for safe slicing
+                                            let content_chars: Vec<char> = content.chars().collect();
+
+                                            // Find the character index corresponding to the byte index
+                                            let mut char_pos: usize = 0;
+                                            for (i, _) in content_lower.char_indices() {
+                                                if i == pos {
+                                                    break;
+                                                }
+                                                char_pos += 1;
+                                            }
+
+                                            // Calculate the end position in character indices
+                                            let query_char_len = query_lower.chars().count();
+                                            let char_end = char_pos + query_char_len;
+
+                                            // Create the substrings using character indices
+                                            let before: String = content_chars[0..char_pos].iter().collect();
+                                            let highlight: String = content_chars[char_pos..char_end].iter().collect();
+                                            let after: String = content_chars[char_end..].iter().collect();
+
+                                            rsx! {
+                                                span { "..." {before} }
+                                                span { 
+                                                    style: "background-color: yellow; font-weight: bold;",
+                                                    {highlight} 
+                                                }
+                                                span { {after} "..." }
+                                            }
+                                        } else {
+                                            rsx! { span { "..." {content.clone()} "..." } }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn Selection() -> Element {
     let nav = navigator();
     let settings: Signal<Settings> = use_context();
 
     let filter_string: Signal<String> = use_signal(|| "".to_string());
+    let mut search_results: Signal<Vec<SearchResult>> = use_signal(Vec::new);
+    let mut search_visible: Signal<bool> = use_signal(|| false);
 
     let mut source_files: Signal<Vec<SourceFile>> = use_context();
-    let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
+    let mut selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_selection_filter: Signal<SelectionFilterOptions> =
@@ -35,6 +207,20 @@ pub fn Selection() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
+
+    // Update search results when filter_string changes
+    use_effect(move || {
+        let query = filter_string.read().clone();
+        if !query.is_empty() {
+            let results = search_source_files(&source_files.read(), &query);
+            let has_results = !results.is_empty();
+            search_results.set(results);
+            search_visible.set(has_results);
+        } else {
+            search_results.set(Vec::new());
+            search_visible.set(false);
+        }
+    });
 
     let default_presentation_design_memo =
         use_memo(move || match settings.read().presentation_designs.first() {
@@ -65,6 +251,29 @@ pub fn Selection() -> Element {
     rsx! {
         div {
             class: "wrapper",
+            style: "position: relative;",
+            // Add onkeydown handler to the wrapper div to handle number key presses globally
+            onkeydown: move |event: Event<KeyboardData>| {
+                // Handle number keys for quick selection when search results are visible
+                if search_visible() {
+                    let key_str = event.key().to_string();
+                    if key_str.len() == 1 {
+                        if let Some(digit) = key_str.chars().next().and_then(|c| c.to_digit(10)) {
+                            let index = if digit == 0 { 9 } else { (digit as usize) - 1 };
+                            let results = search_results.read();
+                            if index < results.len() {
+                                selected_items.write().push(
+                                    SelectedItemRepresentation::new_with_sourcefile(results[index].source_file.clone())
+                                );
+                                // Close search results after selection
+                                search_visible.set(false);
+                                event.stop_propagation();
+                                return;
+                            }
+                        }
+                    }
+                }
+            },
             header {
                 class: "top-bar no-padding",
                 SearchInput {
@@ -72,14 +281,36 @@ pub fn Selection() -> Element {
                     element_signal: input_element_signal
                 }
             }
+
+            // Display search results if there are any and search_visible is true
+            if search_visible() {
+                SearchResults {
+                    search_results: search_results,
+                    query: filter_string,
+                    selected_items: selected_items,
+                    search_visible: search_visible
+                }
+            }
             main {
                 id: "selection-content",
                 class: "content content-background height-100",
+                // Close search results when clicking on the main content
+                onclick: move |_| {
+                    if search_visible() {
+                        search_visible.set(false);
+                    }
+                },
                 onmounted: move |_| async move {
                     // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
                     let _ = document::eval("adjustDivHeight();").await;
                 },
-                onkeydown: move |_| async move {
+                onkeydown: move |event: Event<KeyboardData>| async move {
+                    // Don't focus search input if a number key is pressed and search results are visible
+                    let key = event.key().to_string();
+                    if search_visible() && key.len() == 1 && key.chars().next().map_or(false, |c| c.is_digit(10)) {
+                        return;
+                    }
+
                     if let Some(searchinput) = input_element_signal() {
                         let _ = searchinput.set_focus(true).await;
                     }
