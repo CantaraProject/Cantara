@@ -132,6 +132,12 @@ settings:
   presentation_description:
     en: Setup how the presentation should look like. Click on one of the presentation designs below to adjust its settings, or create a new one.
     de: Hier kann eingestellt werden, wie die Präsentation aussehen soll. Klicken Sie dazu auf eines der Präsentationsdesigns oder legen Sie ein neues an.
+  always_start_fullscreen_title:
+    en: Always Start Fullscreen by Default
+    de: Standardmäßig im Vollbildmodus starten
+  always_start_fullscreen_description:
+    en: When enabled, presentations will automatically start in fullscreen mode.
+    de: Wenn aktiviert, werden Präsentationen automatisch im Vollbildmodus gestartet.
   presentation_designs:
     en: Presentation Designs
     de: Präsentationsdesigns

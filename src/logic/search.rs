@@ -72,7 +72,8 @@ pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<Sear
 
                     // Calculate safe character indices for the context
                     let start_char = match_char_index.saturating_sub(30);
-                    let end_char = (match_char_index + query.chars().count() + 30).min(content_chars.len());
+                    let end_char =
+                        (match_char_index + query.chars().count() + 30).min(content_chars.len());
 
                     // Create the context string from character indices
                     let context: String = content_chars[start_char..end_char].iter().collect();
