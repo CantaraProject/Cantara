@@ -76,7 +76,7 @@ fn SingleFontRepresentationComponent(
     is_spoiler: Option<bool>,
 
     /// Whether the font should be marked as meta font
-    is_meta: Option<bool>
+    is_meta: Option<bool>,
 ) -> Element {
     let mut font = use_signal(|| font);
 

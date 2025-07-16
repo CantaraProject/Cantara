@@ -266,6 +266,7 @@ fn RepositorySettings() -> Element {
 fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -> Element {
     let mut selected_presentation_design_index = use_signal(|| Some(0));
     let mut selected_presentation_design = use_signal(|| None::<PresentationDesign>);
+    let mut settings = use_settings();
 
     use_effect(move || {
         let new_value = selected_presentation_design_index()
@@ -278,6 +279,32 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
             h4 { { t!("settings.presentation_headline") } }
             p { { t!("settings.presentation_description") } }
         }
+
+        // Always Start Fullscreen by Default switch
+        article {
+            class: "listed-article",
+            div {
+                div {
+                    h6 { { t!("settings.always_start_fullscreen_title") } }
+                    p { { t!("settings.always_start_fullscreen_description") } }
+                }
+                div {
+                    label {
+                        class: "switch",
+                        input {
+                            r#type: "checkbox",
+                            role: "switch",
+                            checked: settings.read().always_start_fullscreen,
+                            onchange: move |event| {
+                                settings.write().always_start_fullscreen = event.value().parse().unwrap_or(false);
+                            }
+                        }
+                        span { class: "slider" }
+                    }
+                }
+            }
+        }
+
         div {
             class: "grid",
             div {
