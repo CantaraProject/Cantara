@@ -284,7 +284,6 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
         article {
             class: "listed-article",
             div {
-                class: "grid",
                 div {
                     h6 { { t!("settings.always_start_fullscreen_title") } }
                     p { { t!("settings.always_start_fullscreen_description") } }
@@ -294,6 +293,7 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                         class: "switch",
                         input {
                             r#type: "checkbox",
+                            role: "switch",
                             checked: settings.read().always_start_fullscreen,
                             onchange: move |event| {
                                 settings.write().always_start_fullscreen = event.value().parse().unwrap_or(false);
