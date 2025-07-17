@@ -11,7 +11,7 @@ Cantara is a powerful song presentation software designed for churches and small
 
 - **Song Lyrics Presentation**: Display song lyrics with beautiful formatting
 - **Presentation Styling**: Customize the appearance of your presentations
-- **Multi-platform**: Works on Windows, macOS, and Linux
+- **Multi-platform**: Works on Windows, macOS, and Linux. Android, iOS, and Web are going to be implemented soon.
 - **User-friendly Interface**: Easy to use for both technical and non-technical users
 - **Repository Management**: Organize songs from multiple sources
 - **Remote Repository Support**: Download and use song collections from remote sources
