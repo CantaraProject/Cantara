@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 const MAX_DEPTH: usize = 6;
 
 /// Recursively finds all files in a directory whose filenames end with the given suffix,
-/// up to a recursion depth of 6.
+/// up to a recursion depth of the constant [MAX_DEPTH].
 ///
 /// # Arguments
 /// * `dir` - The starting directory path.
@@ -82,18 +82,37 @@ fn find_files_with_ending(dir: &Path, endings: Vec<&'static str>) -> Vec<PathBuf
     find_files_recursive(dir, &endings, 0)
 }
 
+/// This enum declares the generic types which a source file can by.
+/// One type can be represented by several different file formats.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SourceFileType {
+    /// A song to sing
     Song,
+
+    /// A presentation which can be displayed, but its content structure is not familiar to Cantara
     Presentation,
+
+    /// An image/picture which Cantara can display
     Image,
+
+    /// A video which Cantara can display
     Video,
 }
 
+/// A source file which contains content which Cantara can use to generate content from
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SourceFile {
+    /// The name of the source file. This is most likely the latest part of its file path without
+    /// the file ending, but it does not have to be the case. The name will be used to display the file
+    /// in the selection context.
     pub name: String,
+
+    /// The file path where Cantara can access the file, this does not necessarily be its origin.
+    /// For example, remote repositories might be accessible at any http/https URL, but in this case the file path
+    /// would be the temporary folder where Cantara has downloaded the repository content.
     pub path: PathBuf,
+
+    /// The file type of the file, indicating its content.
     pub file_type: SourceFileType,
 }
 
@@ -144,7 +163,7 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
     source_files
 }
 
-/// This is a wrapper around source file which ensures that the [SourceFile] is an image
+/// This is a wrapper around [SourceFile] which ensures that the [SourceFile] is an image
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ImageSourceFile(SourceFile);
 
