@@ -63,19 +63,10 @@ dx serve
 
 This will start a development server with hot reloading.
 
-## Project Structure
+## Project Structure and Documentation
 
-The codebase is organized as follows:
-
-- `src/components/`: UI components for the application
-  - Files ending with `_components.rs` contain Dioxus components and helper functions
-- `src/logic/`: Business logic of the program
-  - `settings.rs`: Settings management and presentation design
-  - `states.rs`: Application state management
-  - `sourcefiles.rs`: Source file handling
-  - `presentation.rs`: Presentation logic
-- `assets/`: CSS and other static assets
-- `locales/`: Internationalization files
+The project is documented with Rust's documentation features.
+Generate documentation with `cargo doc` to explore the structure and the meaning of the modules and symbols.
 
 ## Implementation Status
 
@@ -88,7 +79,7 @@ As this is a rewrite, the implementation status is not directly comparable to th
 | Chord Presentation | ❌ Not Implemented, in Progress |
 | Image Presentation | ❌ Not Implemented, in Progress |
 | PDF Presentation | ❌ Not Implemented, in Progress |
-| Search Functionality | ❌ Not Implemented, in Progress |
+| Search Functionality | ✅ Implemented |
 | Import SongText Files | ❌ Not Implemented, in Progress |
 | Export SongText Files | ❌ Not Implemented, in Progress |
 | Export pptx Files | ❌ Not Implemented, in Progress |
@@ -97,28 +88,22 @@ As this is a rewrite, the implementation status is not directly comparable to th
 
 Contributions are welcome! If you'd like to contribute to Cantara, please follow these steps:
 
-1. Fork the repository
-2. Create a new branch for your feature or bugfix
-3. Make your changes
-4. Write tests for your changes if applicable
-5. Run the existing tests to ensure your changes don't break anything
-6. Submit a pull request
+1. Fork the repository.
+2. Create a new branch for your feature or bugfix.
+3. Make your changes.
+4. Write tests for your changes if applicable.
+5. Run the existing tests to ensure your changes don't break anything.
+6. Submit a pull request.
 
 If you would like additional features for Cantara, please feel free to open an issue or a pull request.
 
 ### Code Style
 
-- Follow the Rust standard code style
-- Use meaningful variable and function names
-- Write clear and concise documentation comments
-- Use the `?` operator for error handling where appropriate
-- Avoid unwrap() calls in production code
+- Follow the Rust standard code style.
+- Use meaningful variable and function names.
+- Write clear and concise documentation comments.
+- Avoid `unwrap` calls in production code, you can use `ùnwrap_or_else` or `unwrap_or_default` instead.
 
 ## License
 
-This project is licensed under the terms of the license file included in the repository. See the [COPYING](COPYING) file for details.
-
-## Acknowledgements
-
-- [Dioxus](https://dioxuslabs.com/) - The Rust framework used for the UI
-- [cantara-songlib](https://crates.io/crates/cantara-songlib) - The library for parsing song files and generating slides
+This project is licensed under the terms of AGPL. See the [COPYING](COPYING) file for details.
