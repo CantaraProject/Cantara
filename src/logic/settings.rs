@@ -89,7 +89,7 @@ impl Settings {
     /// Load settings from storage or creates a new default settings if
     /// the program is run for the first time.
     pub fn load() -> Self {
-        match get_settings_file() {
+        let mut settings = match get_settings_file() {
             Some(file) => match std::fs::read_to_string(file) {
                 Ok(content) => match serde_json::from_str(&content) {
                     Ok(settings) => settings,
@@ -98,7 +98,12 @@ impl Settings {
                 Err(_) => Self::default(),
             },
             None => Self::default(),
-        }
+        };
+        
+        // Ensure that there are at least as many slide settings as presentation designs
+        settings.ensure_slide_settings_for_designs();
+        
+        settings
     }
 
     /// Save the current settings to storage.
@@ -182,6 +187,20 @@ impl Settings {
         source_files.dedup();
 
         source_files
+    }
+
+    /// Ensures that there are at least as many slide settings as presentation designs.
+    /// If there are fewer slide settings, adds default slide settings until there are enough.
+    pub fn ensure_slide_settings_for_designs(&mut self) {
+        let design_count = self.presentation_designs.len();
+        let slide_count = self.song_slide_settings.len();
+
+        if slide_count < design_count {
+            // Add default slide settings until there are at least as many as presentation designs
+            for _ in 0..(design_count - slide_count) {
+                self.song_slide_settings.push(SlideSettings::default());
+            }
+        }
     }
 }
 

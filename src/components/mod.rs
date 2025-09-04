@@ -59,4 +59,6 @@ pub mod shared_components;
 
 pub mod wizard_components;
 
+pub mod song_slide_settings_components;
+
 mod font_settings;
