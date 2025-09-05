@@ -122,6 +122,14 @@ fn SingleFontRepresentationComponent(
                 }
             }
 
+            LineHeightInput {
+                line_height: font().line_height,
+                onchange: move |new_line_height| {
+                    font.write().line_height = new_line_height;
+                    onchange.call(font());
+                }
+            }
+
             fieldset {
                 label {
                     { t!("settings.color") }
@@ -133,6 +141,32 @@ fn SingleFontRepresentationComponent(
                             font.write().color = new_color.into();
                             onchange.call(font());
                         }
+                    }
+                }
+            }
+        }
+    )
+}
+
+/// An input field to change the line height
+#[component]
+fn LineHeightInput(
+    line_height: f64,
+    onchange: EventHandler<f64>,
+) -> Element {
+    rsx!(
+        fieldset {
+            label {
+                { { format!("{}: {}", t!("settings.fonts.line_height"), line_height) } }
+                input {
+                    type: "range",
+                    min: "1",
+                    max: "2",
+                    step: 0.1,
+                    value: line_height,
+                    onchange: move |event| {
+                        let new_line_height = event.value().parse::<f64>().unwrap_or(1.0);
+                        onchange.call(new_line_height);
                     }
                 }
             }
