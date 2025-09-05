@@ -1,15 +1,61 @@
 //! This module provides search functionality for source files in Cantara.
 
 use crate::logic::sourcefiles::{SourceFile, SourceFileType};
+use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
-/// Helper function to read the content of a source file
-pub fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
-    if source_file.file_type == SourceFileType::Song {
-        fs::read_to_string(&source_file.path).ok()
-    } else {
-        None
+// Simple global cache for song file contents. Avoids re-reading from disk on every search.
+static SONG_CONTENT_CACHE: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
+
+fn cache() -> &'static Mutex<HashMap<PathBuf, String>> {
+    SONG_CONTENT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Clears the entire search cache. Call this to invalidate cached file contents.
+pub fn invalidate_search_cache() {
+    if let Some(m) = SONG_CONTENT_CACHE.get() {
+        if let Ok(mut map) = m.lock() {
+            map.clear();
+        }
     }
+}
+
+/// Optionally (re)populate the cache with the provided list of source files.
+/// This will read all Song files from disk and cache their contents.
+/// If a file can't be read, it will simply be skipped.
+pub fn refresh_search_cache(source_files: &[SourceFile]) {
+    let mut map = cache().lock().expect("cache poisoned");
+    map.clear();
+    for sf in source_files {
+        if sf.file_type == SourceFileType::Song {
+            if let Ok(content) = fs::read_to_string(&sf.path) {
+                map.insert(sf.path.clone(), content);
+            }
+        }
+    }
+}
+
+/// Helper function to read the content of a source file, using the cache for Song files
+pub fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
+    if source_file.file_type != SourceFileType::Song {
+        return None;
+    }
+
+    // Try cache first
+    if let Ok(mut map) = cache().lock() {
+        if let Some(cached) = map.get(&source_file.path) {
+            return Some(cached.clone());
+        }
+        // Not cached: read from disk and store
+        if let Ok(content) = fs::read_to_string(&source_file.path) {
+            map.insert(source_file.path.clone(), content.clone());
+            return Some(content);
+        }
+    }
+
+    None
 }
 
 /// Struct to represent a search result
@@ -53,13 +99,13 @@ pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<Sear
 
                     // Convert byte indices to char indices for safe slicing
                     let content_chars: Vec<char> = content.chars().collect();
-                    let content_lower_chars: Vec<char> = content_lower.chars().collect();
+                    let _content_lower_chars: Vec<char> = content_lower.chars().collect();
 
                     // Find the character index corresponding to the byte index
                     let mut char_count: usize = 0;
                     let mut match_char_index: usize = 0;
 
-                    for (i, c) in content_lower.char_indices() {
+                    for (i, _) in content_lower.char_indices() {
                         if i == match_index {
                             match_char_index = char_count;
                             break;
