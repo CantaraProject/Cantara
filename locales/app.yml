@@ -222,6 +222,9 @@ settings:
     meta_font:
       en: Meta information font
       de: Font für Metainformationen
+    line_height:
+      en: Line Height
+      de: Zeilenhöhe
 
 presentation:
   title:

@@ -1,7 +1,9 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
 use super::shared_components::{DeleteIcon, EditIcon, PresentationDesignSelector, js_yes_no_box};
+use super::song_slide_settings_components::SongSlideSettings;
 use crate::{Route, logic::settings::*};
+use cantara_songlib::slides::SlideSettings;
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
@@ -55,11 +57,19 @@ pub fn SettingsPage() -> Element {
 /// Middleware component between SettingsPage and its children.
 #[component]
 fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Element {
+    let mut settings = use_settings();
+    let song_slide_settings: Signal<Vec<SlideSettings>> =
+        use_signal(|| settings.read().song_slide_settings.clone());
+
     rsx! {
         RepositorySettings {}
         hr {}
         PresentationSettings {
             presentation_designs
+        }
+        hr {}
+        SongSlideSettings {
+            song_slide_settings
         }
     }
 }
@@ -324,13 +334,24 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                                 presentation_designs.write().push(design);
                                 let new_len = presentation_designs.read().len();
                                 tracing::debug!("Cloned design. New length: {}", new_len);
+                                
+                                // Ensure there are enough slide settings for all presentation designs
+                                settings.write().ensure_slide_settings_for_designs();
                             }
                         },
                         ondelete: move |_| {
                             if let Some(index) = selected_presentation_design_index() {
                                 if index < presentation_designs.read().len() {
+                                    // Also remove the corresponding slide setting if it exists
+                                    if index < settings.read().song_slide_settings.len() {
+                                        settings.write().song_slide_settings.remove(index);
+                                    }
+                                    
                                     presentation_designs.write().remove(index);
                                     selected_presentation_design_index.set(Some(0).filter(|_| !presentation_designs.read().is_empty()));
+                                    
+                                    // Ensure slide settings and presentation designs stay in sync
+                                    settings.write().ensure_slide_settings_for_designs();
                                 }
                             }
                         }

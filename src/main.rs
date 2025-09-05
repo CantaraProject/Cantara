@@ -19,6 +19,7 @@ mod logic;
 use crate::components::presentation_design_settings_components::PresentationDesignSettingsPage;
 use crate::components::selection_components::Selection;
 use crate::components::settings_components::SettingsPage;
+use crate::components::song_slide_settings_components::SongSlideSettingsPage;
 use crate::components::wizard_components::Wizard;
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
@@ -62,6 +63,10 @@ pub enum Route {
     /// The presentation design settings page with a dynamic index
     #[route("/settings/design/:index")]
     PresentationDesignSettingsPage { index: u16 },
+
+    /// The song slide settings page with a dynamic index
+    #[route("/settings/slide/:index")]
+    SongSlideSettingsPage { index: u16 },
 }
 
 fn main() {
