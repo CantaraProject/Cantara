@@ -539,14 +539,39 @@ fn SelectedItems(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     active_selected_item_id: Signal<Option<usize>>,
 ) -> Element {
+    // Track drag state for custom mouse-based reordering
+    let mut dragging_from: Signal<Option<usize>> = use_signal(|| None);
+    let mut hover_over: Signal<Option<usize>> = use_signal(|| None);
+
     rsx! {
         div {
             class: "selected-container",
+            onmouseup: move |_| {
+                if let (Some(from), Some(to)) = (dragging_from(), hover_over()) {
+                    if from != to {
+                        let mut items = selected_items.write();
+                        if from < items.len() && to < items.len() {
+                            let item = items.remove(from);
+                            let insert_at = if from < to { to - 1 } else { to };
+                            items.insert(insert_at, item);
+                        }
+                    }
+                }
+                dragging_from.set(None);
+                hover_over.set(None);
+            },
+            onmouseleave: move |_| {
+                // Cancel drag if pointer leaves container
+                dragging_from.set(None);
+                hover_over.set(None);
+            },
             for (number, _) in selected_items.read().iter().enumerate() {
                 SelectedItem {
                     selected_items: selected_items,
                     id: number,
-                    active_selected_item_id: active_selected_item_id
+                    active_selected_item_id: active_selected_item_id,
+                    dragging_from: dragging_from,
+                    hover_over: hover_over,
                 }
             }
         }
@@ -559,15 +584,29 @@ fn SelectedItem(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     id: usize,
     active_selected_item_id: Signal<Option<usize>>,
+    dragging_from: Signal<Option<usize>>,
+    hover_over: Signal<Option<usize>>,
 ) -> Element {
     rsx! {
         div {
             role: "button",
             class: "outline secondary selection_item",
-            style: "display: flex; align-items: left;",
+            style: "display: flex; align-items: left; cursor: grab;",
             tabindex: 0,
+            onmouseenter: move |_| {
+                if dragging_from.read().is_some() {
+                    hover_over.set(Some(id));
+                }
+            },
+            onmouseup: move |_| {
+                // If mouse is released over the same item, the container onmouseup will also handle it
+            },
             span {
                 style: "flex-grow: 1;",
+                onmousedown: move |_| {
+                    dragging_from.set(Some(id));
+                    hover_over.set(Some(id));
+                },
                 onclick: move |_| {
                     active_selected_item_id.set(Some(id))
                 },
