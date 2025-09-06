@@ -542,6 +542,9 @@ fn SelectedItems(
     // Track drag state for custom mouse-based reordering
     let mut dragging_from: Signal<Option<usize>> = use_signal(|| None);
     let mut hover_over: Signal<Option<usize>> = use_signal(|| None);
+    // Animation signals: target index to animate and a flip to retrigger animation
+    let mut anim_target: Signal<Option<usize>> = use_signal(|| None);
+    let mut anim_flip: Signal<bool> = use_signal(|| false);
 
     rsx! {
         div {
@@ -550,10 +553,15 @@ fn SelectedItems(
                 if let (Some(from), Some(to)) = (dragging_from(), hover_over()) {
                     if from != to {
                         let mut items = selected_items.write();
-                        if from < items.len() && to < items.len() {
+                        let len_before = items.len();
+                        if from < len_before && to <= len_before {
                             let item = items.remove(from);
-                            let insert_at = if from < to { to - 1 } else { to };
+                            let insert_at = if to > from { to - 1 } else { to };
+                            let final_index = insert_at;
                             items.insert(insert_at, item);
+                            // trigger animation on the moved item
+                            anim_target.set(Some(final_index));
+                            anim_flip.set(!anim_flip());
                         }
                     }
                 }
@@ -572,6 +580,22 @@ fn SelectedItems(
                     active_selected_item_id: active_selected_item_id,
                     dragging_from: dragging_from,
                     hover_over: hover_over,
+                    anim_target: anim_target,
+                    anim_flip: anim_flip,
+                }
+            }
+            // Bottom drop zone to allow moving below the last item
+            if dragging_from().is_some() {
+                div {
+                    style: {
+                        let active = hover_over() == Some(selected_items.read().len());
+                        let mut s = String::from("height: 12px; margin-top: 6px; border-top: 2px dashed #bbb;");
+                        if active { s.push_str(" border-color: #666;"); }
+                        s
+                    },
+                    onmouseenter: move |_| {
+                        hover_over.set(Some(selected_items.read().len()));
+                    },
                 }
             }
         }
@@ -586,12 +610,23 @@ fn SelectedItem(
     active_selected_item_id: Signal<Option<usize>>,
     dragging_from: Signal<Option<usize>>,
     hover_over: Signal<Option<usize>>,
+    anim_target: Signal<Option<usize>>,
+    anim_flip: Signal<bool>,
 ) -> Element {
     rsx! {
         div {
             role: "button",
             class: "outline secondary selection_item",
-            style: "display: flex; align-items: left; cursor: grab;",
+            style: {
+                let mut s = String::from("display: flex; align-items: left; cursor: grab; transition: background-color 300ms ease-out;");
+                if dragging_from().is_some() && hover_over() == Some(id) {
+                    s.push_str(" outline: 2px dashed #888; background-color: rgba(0,0,0,0.03);");
+                }
+                if anim_target() == Some(id) {
+                    s.push_str(" background-color: rgba(255,230,150,0.8);");
+                }
+                s
+            },
             tabindex: 0,
             onmouseenter: move |_| {
                 if dragging_from.read().is_some() {
@@ -604,6 +639,7 @@ fn SelectedItem(
             span {
                 style: "flex-grow: 1;",
                 onmousedown: move |_| {
+                    anim_target.set(None);
                     dragging_from.set(Some(id));
                     hover_over.set(Some(id));
                 },
