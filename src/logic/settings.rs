@@ -47,6 +47,10 @@ pub struct Settings {
     /// A boolean variable which determines if presentations should start in fullscreen mode by default.
     #[serde(default = "default_always_start_fullscreen")]
     pub always_start_fullscreen: bool,
+
+    /// Start in multiscreen mode when a second monitor is available
+    #[serde(default = "default_start_in_multiscreen")]
+    pub start_in_multiscreen_when_second_monitor_available: bool,
 }
 
 impl Default for Settings {
@@ -57,6 +61,7 @@ impl Default for Settings {
             presentation_designs: default_presentation_design_vec(),
             song_slide_settings: default_song_slide_vec(),
             always_start_fullscreen: default_always_start_fullscreen(),
+            start_in_multiscreen_when_second_monitor_available: default_start_in_multiscreen(),
         }
     }
 }
@@ -73,6 +78,11 @@ fn default_song_slide_vec() -> Vec<SlideSettings> {
 
 /// This returns the default value for always_start_fullscreen
 fn default_always_start_fullscreen() -> bool {
+    false
+}
+
+/// This returns the default value for start_in_multiscreen_when_second_monitor_available
+fn default_start_in_multiscreen() -> bool {
     false
 }
 
