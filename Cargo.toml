@@ -11,11 +11,11 @@ repository = "https://github.com/CantaraProject/Cantara"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = { version = "0.6.3", features = ["desktop"] }
-dioxus-router = { version = "0.6.3" }
+dioxus = { version = "0.7.0", features = ["desktop", "router"] }
 dirs = "6.0.0"
-rfd = "0.15.3"
-dioxus-free-icons = { version = "0.9", features = [
+rfd = { version = "0.15.4", default-features = false, features = ["tokio"] }
+
+dioxus-free-icons = { version = "0.10.0", features = [
     "font-awesome-regular",
     "font-awesome-solid",
 ] }
