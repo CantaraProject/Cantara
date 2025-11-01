@@ -12,7 +12,6 @@ use dioxus::dioxus_core::Element;
 use dioxus::hooks::use_signal;
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
-use dioxus_router::prelude::*;
 use rust_i18n::t;
 use std::path::PathBuf;
 
@@ -53,7 +52,9 @@ pub fn PresentationDesignSettingsPage(
             class: "wrapper",
             header {
                 class: "top-bar",
-                h2 { { t!("settings.presentation_designs_edit_header", title = selected_presentation_design().name) } }
+                h2 { { 
+                    t!("settings.presentation_designs_edit_header", title = selected_presentation_design().name).to_string() 
+                } }
             }
             main {
                 class: "container-fluid content height-100",
@@ -88,7 +89,7 @@ pub fn PresentationDesignSettingsPage(
                     onclick: move |_| {
                         nav.replace(crate::Route::SettingsPage {});
                     },
-                    { t!("settings.close") }
+                    { t!("settings.close").to_string() }
                 }
             }
         }
@@ -107,11 +108,11 @@ fn MetaSettings(
     let mut pd = use_signal(|| presentation_design);
 
     rsx! {
-        h3 { { t!("general.meta_information") } }
+        h3 { { t!("general.meta_information").to_string() } }
         form {
             fieldset {
                 label {
-                    { t!("general.name") },
+                    { t!("general.name").to_string() },
                     input {
                         value: pd().name,
                         onchange: move |event| {
@@ -122,7 +123,7 @@ fn MetaSettings(
                 }
 
                 label {
-                    { t!("general.description") },
+                    { t!("general.description").to_string() },
                     input {
                         value: pd().description,
                         onchange: move |event| {
@@ -152,14 +153,14 @@ fn DesignTemplateSettings(
     let mut use_background_image: Signal<bool> = use_signal(|| pdt().background_image.is_some());
 
     rsx!(
-        h3 { { t!("settings.presentation_design_configuration") } }
-        h4 { { t!("settings.background") } }
+        h3 { { t!("settings.presentation_design_configuration").to_string() } }
+        h4 { { t!("settings.background").to_string() } }
         form {
             fieldset {
 
                 // Background color
                 label {
-                    { t!("settings.color") }
+                    { t!("settings.color").to_string() }
                     input {
                         type: "color",
                         value: pdt().get_background_color_as_hex_string(),
@@ -182,7 +183,7 @@ fn DesignTemplateSettings(
                             onchange.call(pdt());
                         }
                     }
-                    { t!("settings.use_background_image") }
+                    { t!("settings.use_background_image").to_string() }
                 }
 
                 if use_background_image() {
@@ -225,7 +226,7 @@ fn DesignTemplateSettings(
         }
 
         // Padding
-        h4 { { t!("settings.padding") } }
+        h4 { { t!("settings.padding").to_string() } }
         PaddingInput {
             default_padding: pdt().padding,
             onchange: move |data| {
@@ -235,7 +236,7 @@ fn DesignTemplateSettings(
         }
 
         // Distance between the main content and spoiler content
-        h4 { { t!("settings.main_spoiler_content_distance") } }
+        h4 { { t!("settings.main_spoiler_content_distance").to_string() } }
         fieldset {
             role: "group",
             NumberedValidatedLengthInput {
@@ -249,7 +250,7 @@ fn DesignTemplateSettings(
         }
 
         // Here the settings for the vertical alignment of the content are included
-        h5 { { t!("settings.vertical_alignment.title") } }
+        h5 { { t!("settings.vertical_alignment.title").to_string() } }
         VerticalAlignmentSelector {
             default: pdt().vertical_alignment,
             onchange: move |data| {
@@ -259,7 +260,7 @@ fn DesignTemplateSettings(
         }
 
         // Adjust individual font settings
-        h3 { { t!("settings.fonts.title") } }
+        h3 { { t!("settings.fonts.title").to_string() } }
 
         FontRepresentationsComponent {
             fonts: pdt().fonts,
@@ -458,17 +459,17 @@ fn VerticalAlignmentSelector(
             option {
                 value: "top",
                 selected: value_signal() == VerticalAlign::Top,
-                { t!("settings.vertical_alignment.top") }
+                { t!("settings.vertical_alignment.top").to_string() }
             }
             option {
                 value: "middle",
                 selected: value_signal() == VerticalAlign::Middle,
-                { t!("settings.vertical_alignment.middle") }
+                { t!("settings.vertical_alignment.middle").to_string() }
             }
             option {
                 value: "bottom",
                 selected: value_signal() == VerticalAlign::Bottom,
-                { t!("settings.vertical_alignment.bottom") }
+                { t!("settings.vertical_alignment.bottom").to_string() }
             }
         }
     )
