@@ -6,7 +6,6 @@ use crate::{Route, logic::settings::*};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
-use dioxus_router::prelude::*;
 use rfd::FileDialog;
 use rust_i18n::t;
 
@@ -26,7 +25,7 @@ pub fn SettingsPage() -> Element {
             class: "wrapper",
             header {
                 class: "top-bar",
-                h2 { { t!("settings.settings") } }
+                h2 { { t!("settings.settings").to_string() } }
             }
             main {
                 class: "container-fluid content height-100",
@@ -47,7 +46,7 @@ pub fn SettingsPage() -> Element {
 
                         nav.replace(Route::Selection {});
                     },
-                    { t!("settings.close") }
+                    { t!("settings.close").to_string() }
                 }
             }
         }
@@ -122,8 +121,8 @@ fn RepositorySettings() -> Element {
 
     rsx! {
         hgroup {
-            h3 { { t!("settings.repositories_headline") } }
-            p { { t!("settings.repositories_description") } }
+            h3 { { t!("settings.repositories_headline").to_string() } }
+            p { { t!("settings.repositories_description").to_string() } }
         }
         for (index, repository) in settings.read().repositories.clone().into_iter().enumerate() {
             article {
@@ -180,7 +179,7 @@ fn RepositorySettings() -> Element {
                 match &repository.repository_type {
                     RepositoryType::LocaleFilePath(string) => {
                         rsx! {
-                            div { { t!("settings.repositories_local_dir") }
+                            div { { t!("settings.repositories_local_dir").to_string() }
                                 br {}
                                 pre { { string.clone() } }
                             }
@@ -188,7 +187,7 @@ fn RepositorySettings() -> Element {
                     }
                     RepositoryType::Remote(string) => {
                         rsx! {
-                            div { { t!("settings.repositories_remote_dir") }
+                            div { { t!("settings.repositories_remote_dir").to_string() }
                                 br {}
                                 { string.clone() }
                             }
@@ -196,7 +195,7 @@ fn RepositorySettings() -> Element {
                     }
                     RepositoryType::RemoteZip(string) => {
                         rsx! {
-                            div { { t!("settings.repositories_remote_zip") }
+                            div { { t!("settings.repositories_remote_zip").to_string() }
                                 br {}
                                 { string.clone() }
                             }
@@ -213,7 +212,7 @@ fn RepositorySettings() -> Element {
                     rsx! {
                         div {
                             style: "margin-top: 10px; font-style: italic;",
-                            { t!("settings.source_files_count", count = file_count) }
+                            { t!("settings.source_files_count", count = file_count).to_string() }
                         }
                     }
                 }
@@ -224,7 +223,7 @@ fn RepositorySettings() -> Element {
             button {
                 class: "smaller-buttons",
                 onclick: move |_| select_directory(),
-                { t!("settings.add_folder") }
+                { t!("settings.add_folder").to_string() }
             }
             button {
                 class: "smaller-buttons",
@@ -265,7 +264,7 @@ fn RepositorySettings() -> Element {
                         }
                     }
                 },
-                { t!("settings.add_remote_repository") }
+                { t!("settings.add_remote_repository").to_string() }
             }
         }
     }
@@ -286,8 +285,8 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
 
     rsx! {
         hgroup {
-            h4 { { t!("settings.presentation_headline") } }
-            p { { t!("settings.presentation_description") } }
+            h4 { { t!("settings.presentation_headline").to_string() } }
+            p { { t!("settings.presentation_description").to_string() } }
         }
 
         // Always Start Fullscreen by Default switch
@@ -295,8 +294,8 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
             class: "listed-article",
             div {
                 div {
-                    h6 { { t!("settings.always_start_fullscreen_title") } }
-                    p { { t!("settings.always_start_fullscreen_description") } }
+                    h6 { { t!("settings.always_start_fullscreen_title").to_string() } }
+                    p { { t!("settings.always_start_fullscreen_description").to_string() } }
                 }
                 div {
                     label {
@@ -380,12 +379,12 @@ fn PresentationDesignCard(
                     onclick: move |_| {
                         nav.push(Route::PresentationDesignSettingsPage { index: index as u16 });
                     },
-                    { t!("general.edit") }
+                    { t!("general.edit").to_string() }
                 }
                 button {
                     class: "secondary",
                     onclick: move |_| onclone.call(()),
-                    { t!("general.duplicate") }
+                    { t!("general.duplicate").to_string() }
                 }
                 button {
                     class: "secondary",
@@ -402,7 +401,7 @@ fn PresentationDesignCard(
                             }
                         }
                     },
-                    { t!("general.delete") }
+                    { t!("general.delete").to_string() }
                 }
             }
         }

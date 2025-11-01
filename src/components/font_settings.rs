@@ -84,31 +84,31 @@ fn SingleFontRepresentationComponent(
         if is_primary.unwrap_or(false) {
             div {
                 class: "badge",
-                { t!("settings.fonts.primary_font") }
+                { t!("settings.fonts.primary_font").to_string() }
             }
         }
         else if let Some(true) = is_spoiler {
             div {
                 class: "badge-2",
-                { t!("settings.fonts.spoiler_font") }
+                { t!("settings.fonts.spoiler_font").to_string() }
             }
         }
         else if let Some(true) = is_meta {
             div {
                 class: "badge-3",
-                { t!("settings.fonts.meta_font") }
+                { t!("settings.fonts.meta_font").to_string() }
             }
         }
         else {
             div {
                 class: "badge-inactive",
-                { t!("settings.fonts.secondary_font") }
+                { t!("settings.fonts.secondary_font").to_string() }
             }
         }
 
         form {
             label {
-                { t!("settings.fonts.size") }
+                { t!("settings.fonts.size").to_string() }
                 fieldset {
                     role: "group",
                     NumberedValidatedLengthInput {
@@ -132,7 +132,7 @@ fn SingleFontRepresentationComponent(
 
             fieldset {
                 label {
-                    { t!("settings.color") }
+                    { t!("settings.color").to_string() }
                     input {
                         type: "color",
                         value: font().color.to_hex(),
