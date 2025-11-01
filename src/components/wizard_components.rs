@@ -1,7 +1,6 @@
 use crate::logic::{settings::*, states::RuntimeInformation};
 
 use dioxus::prelude::*;
-use dioxus_router::prelude::navigator;
 use rust_i18n::t;
 
 use rfd::FileDialog;
@@ -34,7 +33,7 @@ pub fn Wizard() -> Element {
             header {
                 lang: locale,
                 class: "top-bar",
-                h1 { {t!("wizard.title")} }
+                h1 { { t!("wizard.title").to_string() } }
             }
             main {
                 lang: locale,
@@ -81,13 +80,13 @@ fn WizardButtons(step: Signal<u8>) -> Element {
                 class: "secondary",
                 disabled: step() <= 1,
                 onclick: move |_| decrease_step(),
-                { t!("wizard.back") }
+                { t!("wizard.back").to_string() }
             }
             button {
                 class: "primary",
                 disabled: !*wizard_status.is_done.read(),
                 onclick: move |_| increase_step(),
-                { t!("wizard.next") }
+                { t!("wizard.next").to_string() }
             }
         }
     }
@@ -174,7 +173,7 @@ fn SecondStep() -> Element {
     rsx! {
         div {
             class: "wizard-step",
-            h3 { { t!("wizard.second_step.title") } }
+            h3 { { t!("wizard.second_step.title").to_string() } }
             div {
                 class: "grid fade-in",
                 div {
@@ -188,13 +187,13 @@ fn SecondStep() -> Element {
                             onclick: move |_| {
                                 choose_directory();
                             },
-                            { t!("wizard.second_step.chose_directory") }
+                            { t!("wizard.second_step.chose_directory").to_string() }
                         }
                     }
                     if chosen_directory.read().is_empty().ne(&true) {
                         {
                             rsx! {
-                                p { { t!("wizard.second_step.dir_selected", dir=chosen_directory.read()) } }
+                                p { { t!("wizard.second_step.dir_selected", dir=chosen_directory.read()).to_string() } }
                             }
                         }
                     }
