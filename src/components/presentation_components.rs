@@ -34,7 +34,7 @@ pub fn PresentationPage() -> Element {
 
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
-        document::Title { { t!("presentation.title")} }
+        document::Title { { t!("presentation.title").to_string() } }
         // This div is needed for fullscreen mode
         div {
             tabindex: 0,
