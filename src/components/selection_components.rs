@@ -14,7 +14,6 @@ use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::*;
 use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
-use dioxus_router::prelude::*;
 use rust_i18n::t;
 use std::rc::Rc;
 
@@ -55,7 +54,7 @@ fn SearchResults(
                     event.stop_propagation();
                 }
             },
-            h3 { {t!("search.results")} }
+            h3 { { t!("search.results").to_string() } }
 
             for (index, result) in results.iter().enumerate() {
                 {
@@ -74,7 +73,7 @@ fn SearchResults(
                                     // Use 0 for the 10th item
                                     {
                                         let number = if index == 9 { "0" } else { &(index + 1).to_string() };
-                                        t!("search.result_number", number => number)
+                                        t!("search.result_number", number => number).to_string()
                                     }
                                 }
                             }
@@ -368,21 +367,21 @@ pub fn Selection() -> Element {
                         class: "outline secondary smaller-buttons",
                         span {
                             class: "desktop-only",
-                            { t!("settings.settings_button") }
+                            { t!("settings.settings_button").to_string() }
                         }
                     },
                     button {
                         class: "outline secondary smaller-buttons",
                         span {
                             class: "desktop-only",
-                            { t!("selection.import") }
+                            { t!("selection.import").to_string() }
                         }
                     },
                     button {
                         class: "outline secondary smaller-buttons",
                         span {
                             class: "desktop-only",
-                            { t!("selection.export") }
+                            { t!("selection.export").to_string() }
                         }
                     },
                     button {
@@ -390,7 +389,7 @@ pub fn Selection() -> Element {
                         onclick: move |_| start_presentation(&selected_items.read().clone(), &mut running_presentations, &default_presentation_design_memo(), &default_song_slide_settings_memo()),
                         span {
                             class: "desktop-only",
-                            { t!("selection.start_presentation") }
+                            { t!("selection.start_presentation").to_string() }
                         }
                     }
                 }
@@ -681,27 +680,27 @@ fn SourceDetailView(
             open: true,
             article {
                 header {
-                    p { { t!("selection.detail_view") } }
+                    p { { t!("selection.detail_view").to_string() } }
                 }
                 table {
                     tbody {
                         tr {
-                            td { strong { { t!("general.type") } } }
+                            td { strong { { t!("general.type").to_string() } } }
                             td {
                                 match item().file_type {
-                                    SourceFileType::Song => t!("general.song"),
-                                    SourceFileType::Image => t!("general.picture"),
-                                    SourceFileType::Presentation => t!("general.presentation"),
-                                    SourceFileType::Video => t!("general.video")
+                                    SourceFileType::Song => t!("general.song").to_string(),
+                                    SourceFileType::Image => t!("general.picture").to_string(),
+                                    SourceFileType::Presentation => t!("general.presentation").to_string(),
+                                    SourceFileType::Video => t!("general.video").to_string()
                                 }
                             }
                         }
                         tr {
-                            td { strong { { t!("general.title") } } }
+                            td { strong { { t!("general.title").to_string() } } }
                             td { { item.read().name.clone() } }
                         }
                         tr {
-                            td { strong { { t!("general.file_path") } } }
+                            td { strong { { t!("general.file_path").to_string() } } }
                             td { { path_string } }
                         }
                     }
@@ -709,7 +708,7 @@ fn SourceDetailView(
                 footer {
                     button {
                         onclick: move |_| { active_detailed_item_id.set(None) },
-                        { t!("general.close") }
+                        { t!("general.close").to_string() }
                     }
                 }
             }

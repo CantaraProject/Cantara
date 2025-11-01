@@ -8,7 +8,6 @@ use dioxus::dioxus_core::Element;
 use dioxus::hooks::use_signal;
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
-use dioxus_router::prelude::*;
 use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -47,7 +46,7 @@ pub fn SongSlideSettingsPage(
             class: "wrapper",
             header {
                 class: "top-bar",
-                h2 { { t!("settings.song_slide_settings_edit_header", title = index + 1) } }
+                h2 { { t!("settings.song_slide_settings_edit_header", title = index + 1).to_string() } }
             }
             main {
                 class: "container-fluid content height-100",
@@ -67,7 +66,7 @@ pub fn SongSlideSettingsPage(
                     onclick: move |_| {
                         nav.replace(crate::Route::SettingsPage {});
                     },
-                    { t!("settings.close") }
+                    { t!("settings.close").to_string() }
                 }
             }
         }
@@ -89,8 +88,8 @@ pub fn SongSlideSettings(song_slide_settings: Signal<Vec<SlideSettings>>) -> Ele
 
     rsx! {
         hgroup {
-            h4 { { t!("settings.song_slide_headline") } }
-            p { { t!("settings.song_slide_description") } }
+            h4 { { t!("settings.song_slide_headline").to_string() } }
+            p { { t!("settings.song_slide_description").to_string() } }
         }
 
         div {
@@ -157,12 +156,12 @@ fn SongSlideSettingsCard(
                     onclick: move |_| {
                         nav.push(crate::Route::SongSlideSettingsPage { index: index as u16 });
                     },
-                    { t!("general.edit") }
+                    { t!("general.edit").to_string() }
                 }
                 button {
                     class: "secondary",
                     onclick: move |_| onclone.call(()),
-                    { t!("general.duplicate") }
+                    { t!("general.duplicate").to_string() }
                 }
                 button {
                     class: "secondary",
@@ -179,7 +178,7 @@ fn SongSlideSettingsCard(
                             }
                         }
                     },
-                    { t!("general.delete") }
+                    { t!("general.delete").to_string() }
                 }
             }
         }
@@ -206,7 +205,7 @@ fn MetaSettings(
     };
 
     rsx! {
-        h3 { { t!("general.meta_information") } }
+        h3 { { t!("general.meta_information").to_string() } }
         form {
             fieldset {
                 // Title Slide setting

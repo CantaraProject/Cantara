@@ -48,7 +48,7 @@ pub fn PresentationDesignSelector(
                 span {
                     class: format!("presentation-design-selector-item {}", if active_item() == Some(index) { "active" } else { "" }),
                     tabindex: index,
-                    key: index,
+                    key: "{index}",
                     SelectablePresentationViewer {
                         presentation: create_amazing_grace_presentation(design, &song_slide_settings()),
                         width: viewer_width,
