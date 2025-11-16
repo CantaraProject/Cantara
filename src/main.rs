@@ -30,16 +30,16 @@ use sys_locale::get_locale;
 rust_i18n::i18n!("locales", fallback = "en");
 
 /// The CSS file provided by PicoCSS
-const PICO_CSS: Asset = asset!("/node_modules/@picocss/pico/css/pico.min.css");
+static PICO_CSS: Asset = asset!("/node_modules/@picocss/pico/css/pico.min.css");
 
 /// Cantara's own CSS file with additions to the PicoCSS definitions
-const MAIN_CSS: Asset = asset!("/assets/main.css");
+static MAIN_CSS: Asset = asset!("/assets/main.css");
 
 /// JavaScript helper functions which are used for styling and keyboard event handling
-const POSITIONING_JS: Asset = asset!("/assets/positioning.js");
+static POSITIONING_JS: Asset = asset!("/assets/positioning.js");
 
 /// The Cantara Logo
-pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
+pub static LOGO: Asset = asset!("/assets/cantara-logo_small.png");
 
 /// The test state for debugging purposes (will be removed in the final version)
 static TEST_STATE: GlobalSignal<String> = Global::new(|| "test".to_string());
@@ -71,6 +71,8 @@ pub enum Route {
 fn main() {
     #[cfg(feature = "desktop")]
     fn launch_app() {
+
+        /**
         #[cfg(target_os = "linux")]
         {
             if std::path::Path::new("/dev/dri").exists()
@@ -86,7 +88,7 @@ fn main() {
             unsafe {
                 std::env::set_var("GDK_BACKEND", "x11");
             }
-        }
+        } */
 
         use dioxus::desktop::tao;
         let window = tao::window::WindowBuilder::new()

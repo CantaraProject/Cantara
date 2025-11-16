@@ -11,7 +11,7 @@ repository = "https://github.com/CantaraProject/Cantara"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = { version = "0.7.0", features = ["desktop", "router"] }
+dioxus = { version = "0.7.0", features = ["desktop", "router"], git = "https://github.com/DioxusLabs/dioxus", branch = "jk/disable-dma-wayland" }
 dirs = "6.0.0"
 rfd = { version = "0.15.4", default-features = false, features = ["tokio"] }
 
@@ -60,5 +60,4 @@ debug = false
 lto = true
 codegen-units = 1
 panic = "abort"
-strip = true
 incremental = false
