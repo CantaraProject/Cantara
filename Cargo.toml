@@ -15,6 +15,9 @@ dioxus = { version = "0.7.3", features = ["desktop", "router"] }
 dirs = "6.0.0"
 rfd = { version = "0.15.4", default-features = false, features = ["tokio"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+rfd = { version = "0.15.4", default-features = false, features = ["tokio", "xdg-portal"] }
+
 dioxus-free-icons = { version = "0.10.0", features = [
     "font-awesome-regular",
     "font-awesome-solid",
