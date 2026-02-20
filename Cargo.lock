@@ -572,7 +572,6 @@ dependencies = [
  "dioxus-free-icons",
  "dirs 6.0.0",
  "log",
- "once_cell",
  "reqwest 0.13.2",
  "rfd 0.15.4",
  "rgb",
