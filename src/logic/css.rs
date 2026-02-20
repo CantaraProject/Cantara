@@ -80,6 +80,13 @@ impl CssHandler {
         )
     }
 
+    pub fn background_image_none(&mut self) {
+        self.push(
+            "background-image".to_string(),
+            CssValue::String("none".to_string()),
+        )
+    }
+
     pub fn background_size(&mut self, content: &str) {
         self.push(
             "background-size".to_string(),

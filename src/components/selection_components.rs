@@ -1,13 +1,15 @@
 //! This module includes the components for song selection
 
-use super::shared_components::{ImageIcon, MusicIcon};
+use super::shared_components::{ExamplePresentationViewer, ImageIcon, MusicIcon};
 use crate::TEST_STATE;
 use crate::logic::presentation;
 use crate::logic::search::{SearchResult, search_source_files};
 use crate::logic::settings::PresentationDesign;
 use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
-use crate::{Route, logic::settings::Settings, logic::sourcefiles::SourceFile};
+use crate::logic::settings::{Settings, use_settings};
+use crate::logic::sourcefiles::SourceFile;
+use crate::Route;
 use cantara_songlib::slides::SlideSettings;
 use dioxus::desktop::tao;
 use dioxus::prelude::*;
@@ -699,36 +701,148 @@ fn PresentationOptions(
 ) -> Element {
     let mut tab_state: Signal<PresentationOptionTabState> =
         use_signal(|| PresentationOptionTabState::General);
+    let settings = use_settings();
+
     use_effect(move || {
         if active_selected_item_id.read().is_some() {
             tab_state.set(PresentationOptionTabState::Specific);
         }
     });
+
+    let active_id = active_selected_item_id.read();
+    if active_id.is_none() {
+        return rsx! {};
+    }
+    let item_index = active_id.unwrap();
+
+    let preview_pd = use_memo(move || {
+        let items = selected_items.read();
+        let idx_opt = active_selected_item_id();
+        if let Some(idx) = idx_opt {
+            items
+                .get(idx)
+                .and_then(|item| item.presentation_design_option.clone())
+                .unwrap_or_else(|| settings.read().presentation_designs[0].clone())
+        } else {
+            settings.read().presentation_designs[0].clone()
+        }
+    });
+
+    let preview_ss = use_memo(move || {
+        let items = selected_items.read();
+        let idx_opt = active_selected_item_id();
+        if let Some(idx) = idx_opt {
+            items
+                .get(idx)
+                .and_then(|item| item.slide_settings_option.clone())
+                .unwrap_or_else(|| settings.read().song_slide_settings[0].clone())
+        } else {
+            settings.read().song_slide_settings[0].clone()
+        }
+    });
+
+    let mut current_ss_signal = use_signal(|| SlideSettings::default());
+    use_effect(move || {
+        current_ss_signal.set(preview_ss());
+    });
+
     rsx! {
-        if active_selected_item_id.read().is_some() {
-            div {
-                role: "group",
-                button {
-                    class: "smaller-buttons",
-                    class: if *tab_state.read() != PresentationOptionTabState::General {
-                        "secondary"
-                    },
-                    onclick: move |_| { tab_state.set(PresentationOptionTabState::General) },
-                    "General"
-                }
-                button {
-                    class: "smaller-buttons",
-                    class: if *tab_state.read() != PresentationOptionTabState::Specific {
-                        "secondary"
-                    },
-                    onclick: move |_| { tab_state.set(PresentationOptionTabState::Specific) },
-                    "Specific"
+        div {
+            role: "group",
+            button {
+                class: "smaller-buttons",
+                class: if *tab_state.read() != PresentationOptionTabState::General {
+                    "secondary"
+                },
+                onclick: move |_| { tab_state.set(PresentationOptionTabState::General) },
+                { t!("selection.presentation_options.tab.general").to_string() }
+            }
+            button {
+                class: "smaller-buttons",
+                class: if *tab_state.read() != PresentationOptionTabState::Specific {
+                    "secondary"
+                },
+                onclick: move |_| { tab_state.set(PresentationOptionTabState::Specific) },
+                { t!("selection.presentation_options.tab.specific").to_string() }
+            }
+        }
+
+        match *tab_state.read() {
+            PresentationOptionTabState::General => {
+                rsx! {
+                    p { { TEST_STATE.read().clone() } }
                 }
             }
-            p {
-                "The active selected number is: {active_selected_item_id.read().unwrap()}"
+            PresentationOptionTabState::Specific => {
+                let items = selected_items.read();
+                let item = items.get(item_index).cloned().unwrap();
+
+                rsx! {
+                    div {
+                        class: "grid",
+                        div {
+                            label { { t!("selection.presentation_options.design").to_string() } }
+                            select {
+                                onchange: move |evt| {
+                                    let val = evt.value();
+                                    let mut items = selected_items.write();
+                                    if val == "default" {
+                                        items[item_index].presentation_design_option = None;
+                                    } else if let Ok(idx) = val.parse::<usize>() {
+                                        items[item_index].presentation_design_option = Some(settings.read().presentation_designs[idx].clone());
+                                    }
+                                },
+                                option {
+                                    value: "default",
+                                    selected: item.presentation_design_option.is_none(),
+                                    { t!("selection.presentation_options.default").to_string() }
+                                }
+                                for (idx, pd) in settings.read().presentation_designs.iter().enumerate() {
+                                    option {
+                                        value: "{idx}",
+                                        selected: item.presentation_design_option.as_ref().map_or(false, |p| p.name == pd.name),
+                                        "{pd.name}"
+                                    }
+                                }
+                            }
+                        }
+                        div {
+                            label { { t!("selection.presentation_options.slide_settings").to_string() } }
+                            select {
+                                onchange: move |evt| {
+                                    let val = evt.value();
+                                    let mut items = selected_items.write();
+                                    if val == "default" {
+                                        items[item_index].slide_settings_option = None;
+                                    } else if let Ok(idx) = val.parse::<usize>() {
+                                        items[item_index].slide_settings_option = Some(settings.read().song_slide_settings[idx].clone());
+                                    }
+                                },
+                                option {
+                                    value: "default",
+                                    selected: item.slide_settings_option.is_none(),
+                                    { t!("selection.presentation_options.default").to_string() }
+                                }
+                                for (idx, _) in settings.read().song_slide_settings.iter().enumerate() {
+                                    option {
+                                        value: "{idx}",
+                                        selected: item.slide_settings_option.as_ref().map_or(false, |s| s == &settings.read().song_slide_settings[idx]),
+                                        { format!("{} {}", t!("selection.presentation_options.slide_settings").to_string(), idx + 1) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    div {
+                        style: "margin-top: 20px; display: flex; flex-direction: column; align-items: center;",
+                        ExamplePresentationViewer {
+                            presentation_design: preview_pd(),
+                            song_slide_settings: Some(current_ss_signal),
+                            width: 400,
+                        }
+                    }
+                }
             }
-            p { { TEST_STATE.read().clone() } }
         }
     }
 }

@@ -196,6 +196,9 @@ pub fn PresentationRendererComponent(
             css.background_position("center");
             css.background_repeat("no-repeat");
             css.opacity(1.0 - pds.background_transparency as f32 / 100.0f32);
+        } else {
+            css.background_image_none();
+            css.opacity(0.0);
         }
         css.to_string()
     });
