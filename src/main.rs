@@ -118,6 +118,21 @@ fn App() -> Element {
 
     rust_i18n::set_locale(&locale);
 
+    // On Linux (especially GNOME), system theme detection might fail in the WebView.
+    // We explicitly detect it and set the data-theme attribute for PicoCSS.
+    #[cfg(all(feature = "desktop", target_os = "linux"))]
+    use_effect(move || {
+        match dark_light::detect() {
+            dark_light::Mode::Dark => {
+                let _ = document::eval("document.documentElement.setAttribute('data-theme', 'dark')");
+            },
+            dark_light::Mode::Light => {
+                let _ = document::eval("document.documentElement.setAttribute('data-theme', 'light')");
+            },
+            _ => {}
+        }
+    });
+
     let cloned_locale = locale.clone();
     use_context_provider(|| states::RuntimeInformation {
         language: cloned_locale,
