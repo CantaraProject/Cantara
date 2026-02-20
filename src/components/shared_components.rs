@@ -103,13 +103,18 @@ pub fn PresentationViewer(
         }
     });
 
+    let mut presentation_signal = use_signal(|| presentation.clone());
+    if *presentation_signal.peek() != presentation {
+        presentation_signal.set(presentation.clone());
+    }
+
     rsx! {
         div {
             class: format!("{} presentation-preview inline-div", css_class),
             style: format!("position: relative; width: 1024px; height: 576px; {}", zoom_css),
             onclick: move |event| if let Some(onclick_event) = onclick { onclick_event.call(event) },
             PresentationRendererComponent {
-                running_presentation: use_signal(|| presentation)
+                running_presentation: presentation_signal
             }
             if let Some(title) = title {
                 div {

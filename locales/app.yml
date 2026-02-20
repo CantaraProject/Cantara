@@ -12,6 +12,23 @@ selection:
   detail_view:
     en: Detail View...
     de: Detailansicht
+  presentation_options:
+    tab:
+      general:
+        en: General
+        de: Allgemein
+      specific:
+        en: Specific
+        de: Spezifisch
+    design:
+      en: Presentation Design
+      de: Präsentations-Design
+    slide_settings:
+      en: Slide Settings
+      de: Folien-Einstellungen
+    default:
+      en: Default
+      de: Standard
 
 wizard:
   title:
