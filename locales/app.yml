@@ -161,6 +161,12 @@ settings:
   show_presenter_console_description:
     en: When enabled, a presenter console window opens alongside the presentation with slide text, preview, and controls.
     de: Wenn aktiviert, öffnet sich neben der Präsentation ein Fenster mit Folientext, Vorschau und Steuerung.
+  presenter_console_in_main_window_title:
+    en: Presenter Console in Main Window
+    de: Moderatorenkonsole im Hauptfenster
+  presenter_console_in_main_window_description:
+    en: When enabled, the presenter console is shown in the main window instead of opening a separate window.
+    de: Wenn aktiviert, wird die Moderatorenkonsole im Hauptfenster angezeigt, anstatt ein separates Fenster zu öffnen.
   detected_monitors:
     en: Detected Monitors
     de: Erkannte Bildschirme

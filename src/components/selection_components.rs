@@ -979,38 +979,45 @@ fn start_presentation(
 
         // Open presenter console if enabled
         if show_presenter_console {
-            let mut console_window_builder = tao::window::WindowBuilder::new()
-                .with_resizable(true)
-                .with_decorations(true)
-                .with_visible(true)
-                .with_title("Cantara - Presenter Console");
-
-            if let Some(ref monitor) = presenter_monitor {
-                console_window_builder = console_window_builder
-                    .with_position(tao::dpi::PhysicalPosition::new(
-                        monitor.position.0,
-                        monitor.position.1,
-                    ))
-                    .with_inner_size(tao::dpi::PhysicalSize::new(
-                        monitor.size.0,
-                        monitor.size.1,
-                    ))
-                    .with_maximized(true);
+            if settings_read.presenter_console_in_main_window {
+                // Navigate the main window to the presenter console route
+                let nav = navigator();
+                nav.push(crate::Route::PresenterConsolePage {});
             } else {
-                console_window_builder = console_window_builder
-                    .with_inner_size(tao::dpi::LogicalSize::new(900.0, 700.0))
-                    .with_maximized(true);
+                // Open presenter console as a separate window
+                let mut console_window_builder = tao::window::WindowBuilder::new()
+                    .with_resizable(true)
+                    .with_decorations(true)
+                    .with_visible(true)
+                    .with_title("Cantara - Presenter Console");
+
+                if let Some(ref monitor) = presenter_monitor {
+                    console_window_builder = console_window_builder
+                        .with_position(tao::dpi::PhysicalPosition::new(
+                            monitor.position.0,
+                            monitor.position.1,
+                        ))
+                        .with_inner_size(tao::dpi::PhysicalSize::new(
+                            monitor.size.0,
+                            monitor.size.1,
+                        ))
+                        .with_maximized(true);
+                } else {
+                    console_window_builder = console_window_builder
+                        .with_inner_size(tao::dpi::LogicalSize::new(900.0, 700.0))
+                        .with_maximized(true);
+                }
+
+                let console_dom =
+                    VirtualDom::new(PresenterConsolePage).with_root_context(*running_presentations);
+
+                dioxus::desktop::window().new_window(
+                    console_dom,
+                    Config::new()
+                        .with_menu(None)
+                        .with_window(console_window_builder),
+                );
             }
-
-            let console_dom =
-                VirtualDom::new(PresenterConsolePage).with_root_context(*running_presentations);
-
-            dioxus::desktop::window().new_window(
-                console_dom,
-                Config::new()
-                    .with_menu(None)
-                    .with_window(console_window_builder),
-            );
         }
     }
 }

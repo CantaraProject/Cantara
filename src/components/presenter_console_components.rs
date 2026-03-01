@@ -14,15 +14,22 @@ const PRESENTER_CONSOLE_CSS: Asset = asset!("/assets/presenter_console.css");
 rust_i18n::i18n!("locales", fallback = "en");
 
 /// The entry point for the presenter console window.
-/// Receives `running_presentations` via `with_root_context`.
+/// Works both as a routed page in the main window and as a standalone window
+/// (via `with_root_context`).
 #[component]
 pub fn PresenterConsolePage() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
+    let nav = navigator();
+
+    // Detect whether we are hosted in the main window (router available with known routes)
+    // vs. a separate window. In the main window the presenter console is reached via a route,
+    // so we can navigate back. In a separate window we close it.
+    let is_main_window = nav.can_go_back();
 
     let mut running_presentation: Signal<RunningPresentation> =
         use_signal(move || running_presentations.get(0).unwrap().clone());
 
-    // Sync changes from the main presentation window into the local signal
+    // Sync changes from the shared signal into the local signal
     use_effect(move || {
         let current = running_presentations.read();
         if let Some(rp) = current.first() {
@@ -53,7 +60,11 @@ pub fn PresenterConsolePage() -> Element {
 
     let mut quit_presentation = move || {
         running_presentations.write().clear();
-        dioxus::desktop::window().close();
+        if is_main_window {
+            nav.replace(crate::Route::Selection {});
+        } else {
+            dioxus::desktop::window().close();
+        }
     };
 
     rsx! {
@@ -86,7 +97,7 @@ pub fn PresenterConsolePage() -> Element {
 
             PresenterControlBar {
                 running_presentation: running_presentation,
-                running_presentations: running_presentations
+                on_quit: move |_| quit_presentation()
             }
         }
     }
@@ -223,7 +234,7 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
 #[component]
 fn PresenterControlBar(
     running_presentation: Signal<RunningPresentation>,
-    running_presentations: Signal<Vec<RunningPresentation>>,
+    on_quit: EventHandler<()>,
 ) -> Element {
     let rp = running_presentation.read();
     let current_total = rp
@@ -267,8 +278,7 @@ fn PresenterControlBar(
                 button {
                     class: "outline secondary",
                     onclick: move |_| {
-                        running_presentations.write().clear();
-                        dioxus::desktop::window().close();
+                        on_quit.call(());
                     },
                     { t!("presenter.quit").to_string() }
                 }

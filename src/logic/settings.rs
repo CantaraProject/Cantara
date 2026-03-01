@@ -59,6 +59,10 @@ pub struct Settings {
     /// Whether to show the presenter console when starting a presentation.
     #[serde(default = "default_show_presenter_console")]
     pub show_presenter_console: bool,
+
+    /// Whether to show the presenter console in the main window instead of a separate window.
+    #[serde(default = "default_presenter_console_in_main_window")]
+    pub presenter_console_in_main_window: bool,
 }
 
 impl Default for Settings {
@@ -72,6 +76,7 @@ impl Default for Settings {
             presentation_screen: None,
             presenter_screen: None,
             show_presenter_console: default_show_presenter_console(),
+            presenter_console_in_main_window: default_presenter_console_in_main_window(),
         }
     }
 }
@@ -93,6 +98,11 @@ fn default_always_start_fullscreen() -> bool {
 
 /// This returns the default value for show_presenter_console
 fn default_show_presenter_console() -> bool {
+    true
+}
+
+/// This returns the default value for presenter_console_in_main_window
+fn default_presenter_console_in_main_window() -> bool {
     true
 }
 

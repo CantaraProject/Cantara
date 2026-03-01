@@ -412,6 +412,33 @@ fn ScreenSettings() -> Element {
             }
         }
 
+        // Presenter console in main window toggle
+        if settings.read().show_presenter_console {
+            article {
+                class: "listed-article",
+                div {
+                    div {
+                        h6 { { t!("settings.presenter_console_in_main_window_title").to_string() } }
+                        p { { t!("settings.presenter_console_in_main_window_description").to_string() } }
+                    }
+                    div {
+                        label {
+                            class: "switch",
+                            input {
+                                r#type: "checkbox",
+                                role: "switch",
+                                checked: settings.read().presenter_console_in_main_window,
+                                onchange: move |event| {
+                                    settings.write().presenter_console_in_main_window = event.value().parse().unwrap_or(true);
+                                }
+                            }
+                            span { class: "slider" }
+                        }
+                    }
+                }
+            }
+        }
+
         // Detected monitors
         article {
             class: "listed-article",
