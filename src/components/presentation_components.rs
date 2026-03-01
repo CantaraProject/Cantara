@@ -6,6 +6,7 @@ use rgb::RGBA8;
 use rust_i18n::t;
 
 use crate::logic::css::{CssHandler, PlaceItems};
+use crate::logic::presentation::get_picture_path;
 use crate::logic::settings::{CssSize, HorizontalAlign, VerticalAlign};
 use crate::{
     MAIN_CSS,
@@ -440,11 +441,7 @@ fn EmptySlideComponent() -> Element {
 
 #[component]
 fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
-    // Extract the picture path via serde since the field is private
-    let path = serde_json::to_value(&picture_slide)
-        .ok()
-        .and_then(|v| v.get("picture_path").and_then(|p| p.as_str().map(String::from)))
-        .unwrap_or_default();
+    let path = get_picture_path(&picture_slide);
 
     let is_pdf = path.to_lowercase().ends_with(".pdf");
 

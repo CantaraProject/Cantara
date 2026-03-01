@@ -11,6 +11,15 @@ use cantara_songlib::slides::{Slide, SlideContent, SimplePictureSlide, SlideSett
 use dioxus::prelude::*;
 use std::{error::Error, path::PathBuf};
 
+/// Extracts the picture path from a [SimplePictureSlide] using serde,
+/// since the `picture_path` field is private in the external crate.
+pub fn get_picture_path(picture_slide: &SimplePictureSlide) -> String {
+    serde_json::to_value(picture_slide)
+        .ok()
+        .and_then(|v| v.get("picture_path").and_then(|p| p.as_str().map(String::from)))
+        .unwrap_or_default()
+}
+
 /// This song provides Amazing Grace as a default song which can be used for creating example presentations
 const AMAZING_GRACE_SONG: &str = "#title: Amazing Grace
 #author: John Newton
