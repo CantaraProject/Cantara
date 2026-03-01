@@ -76,8 +76,10 @@ pub fn PresenterConsolePage() -> Element {
             class: "presenter-console",
             tabindex: 0,
             onkeydown: move |event: Event<KeyboardData>| {
-                match event.key() {
-                    Key::ArrowRight => go_to_next_slide(),
+                let key = event.key();
+                match key {
+                    Key::ArrowRight | Key::Enter => go_to_next_slide(),
+                    Key::Character(ref c) if c == " " => go_to_next_slide(),
                     Key::ArrowLeft => go_to_previous_slide(),
                     Key::Escape => {
                         quit_presentation();
@@ -152,10 +154,21 @@ fn PresenterTextPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                             let is_active = ch_idx == current_chapter && sl_idx == current_slide;
                             rsx! {
                                 div {
+                                    // key forces Dioxus to remount when the active slide changes,
+                                    // ensuring onmounted fires on the newly-active element.
+                                    key: "{ch_idx}-{sl_idx}-{is_active}",
                                     class: if is_active { "presenter-slide-item active" } else { "presenter-slide-item" },
-                                    id: if is_active { "active-slide" },
                                     onclick: move |_| {
                                         running_presentation.write().jump_to(ch_idx, sl_idx);
+                                    },
+                                    onmounted: move |_| {
+                                        if is_active {
+                                            // Use JS scrollIntoView with block:'center' to
+                                            // vertically center the active slide in the panel.
+                                            let _ = document::eval(
+                                                "requestAnimationFrame(function() { var el = document.querySelector('.presenter-slide-item.active'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } });"
+                                            );
+                                        }
                                     },
                                     PresenterSlideTextContent {
                                         slide_content: slide.slide_content.clone()
@@ -230,7 +243,7 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
     }
 }
 
-/// Bottom control bar with navigation buttons and black screen toggle
+/// Bottom control bar with navigation buttons, chapter jump dropdown, and black screen toggle
 #[component]
 fn PresenterControlBar(
     running_presentation: Signal<RunningPresentation>,
@@ -244,6 +257,13 @@ fn PresenterControlBar(
         .unwrap_or(0);
     let total_slides = rp.total_slides();
     let is_black = rp.is_black_screen;
+    let current_chapter = rp.position.as_ref().map(|p| p.chapter()).unwrap_or(0);
+    let chapters: Vec<(usize, String)> = rp
+        .presentation
+        .iter()
+        .enumerate()
+        .map(|(i, ch)| (i, ch.source_file.name.clone()))
+        .collect();
 
     rsx! {
         footer {
@@ -267,6 +287,22 @@ fn PresenterControlBar(
                         running_presentation.write().next_slide();
                     },
                     { t!("presenter.next").to_string() }
+                }
+                // Chapter jump dropdown
+                select {
+                    class: "chapter-select",
+                    onchange: move |evt| {
+                        if let Ok(idx) = evt.value().parse::<usize>() {
+                            running_presentation.write().jump_to(idx, 0);
+                        }
+                    },
+                    for (idx, name) in chapters.iter() {
+                        option {
+                            value: "{idx}",
+                            selected: *idx == current_chapter,
+                            { name.clone() }
+                        }
+                    }
                 }
                 button {
                     class: if is_black { "contrast" } else { "outline secondary" },

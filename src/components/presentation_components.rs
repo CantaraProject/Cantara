@@ -67,16 +67,26 @@ pub fn PresentationPage() -> Element {
                     height:100%;
                 ",
             onkeydown: move |event: Event<KeyboardData>| {
-                if event.key() == Key::F11 {
-                    use_future(move || async move {
-                        let _ = document::eval("
-                            if (document.fullscreenElement) {
-                                document.exitFullscreen();
-                            } else {
-                                document.documentElement.requestFullscreen();
-                            }
-                        ").await;
-                    });
+                match event.key() {
+                    Key::F11 => {
+                        use_future(move || async move {
+                            let _ = document::eval("
+                                if (document.fullscreenElement) {
+                                    document.exitFullscreen();
+                                } else {
+                                    document.documentElement.requestFullscreen();
+                                }
+                            ").await;
+                        });
+                    }
+                    Key::Escape => {
+                        running_presentations.write().clear();
+                        dioxus::desktop::window().close();
+                    }
+                    Key::Character(ref c) if c == "b" || c == "B" => {
+                        running_presentation.write().toggle_black_screen();
+                    }
+                    _ => {}
                 }
             },
             PresentationRendererComponent {
@@ -237,8 +247,10 @@ pub fn PresentationRendererComponent(
 
             tabindex: 0,
             onkeydown: move |event: Event<KeyboardData>| {
-                match event.key() {
-                    Key::ArrowRight => go_to_next_slide(),
+                let key = event.key();
+                match key {
+                    Key::ArrowRight | Key::Enter => go_to_next_slide(),
+                    Key::Character(ref c) if c == " " => go_to_next_slide(),
                     Key::ArrowLeft => go_to_previous_slide(),
                     _ => {}
                 }

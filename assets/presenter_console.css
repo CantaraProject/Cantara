@@ -153,3 +153,12 @@
     text-align: center;
     color: var(--pico-color);
 }
+
+/* Chapter jump dropdown in control bar */
+.chapter-select {
+    margin: 0;
+    padding: 6px 10px;
+    font-size: 0.9rem;
+    max-width: 200px;
+    height: auto;
+}
