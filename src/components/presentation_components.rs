@@ -25,11 +25,28 @@ rust_i18n::i18n!("locales", fallback = "en");
 pub fn PresentationPage() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
-    let running_presentation: Signal<RunningPresentation> =
+    let mut running_presentation: Signal<RunningPresentation> =
         use_signal(move || running_presentations.get(0).unwrap().clone());
 
+    // Sync changes from the shared signal into the local signal (e.g. from presenter console)
     use_effect(move || {
-        *running_presentations.write().get_mut(0).unwrap() = running_presentation.read().clone();
+        let current = running_presentations.read();
+        if let Some(rp) = current.first() {
+            if *rp != *running_presentation.peek() {
+                running_presentation.set(rp.clone());
+            }
+        }
+    });
+
+    // Sync changes from this window back to the shared signal
+    use_effect(move || {
+        let local = running_presentation.read().clone();
+        let mut shared = running_presentations.write();
+        if let Some(first) = shared.first_mut() {
+            if *first != local {
+                *first = local;
+            }
+        }
     });
 
     rsx! {

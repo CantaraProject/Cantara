@@ -388,7 +388,7 @@ pub fn Selection() -> Element {
                     },
                     button {
                         class: "primary smaller-buttons",
-                        onclick: move |_| start_presentation(&selected_items.read().clone(), &mut running_presentations, &default_presentation_design_memo(), &default_song_slide_settings_memo()),
+                        onclick: move |_| start_presentation(&selected_items.read().clone(), &mut running_presentations, &default_presentation_design_memo(), &default_song_slide_settings_memo(), &settings.read()),
                         span {
                             class: "desktop-only",
                             { t!("selection.start_presentation").to_string() }
@@ -913,11 +913,11 @@ fn start_presentation(
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
+    settings_read: &Settings,
 ) {
     use super::presentation_components::PresentationPage;
     use super::presenter_console_components::PresenterConsolePage;
     use crate::logic::screens::{enumerate_monitors, resolve_monitor};
-    use crate::logic::settings::use_settings;
     use dioxus::desktop::Config;
 
     if presentation::add_presentation(
@@ -930,8 +930,6 @@ fn start_presentation(
     {
         let desktop = dioxus::desktop::window();
         let monitors = enumerate_monitors(&desktop);
-        let settings = use_settings();
-        let settings_read = settings.read();
 
         // Resolve presentation monitor (prefer non-primary)
         let presentation_monitor =
