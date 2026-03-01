@@ -220,9 +220,14 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
         }
         SlideContent::SimplePicture(picture_slide) => {
             let path = get_picture_path(&picture_slide);
-            let is_pdf = path.to_lowercase().ends_with(".pdf");
+            let base_path = path.split('#').next().unwrap_or(&path);
+            let is_pdf = base_path.to_lowercase().ends_with(".pdf");
             let label = if is_pdf {
-                t!("general.pdf").to_string()
+                // Extract page number from fragment (e.g. #page=2)
+                let page_info = path.split("#page=").nth(1)
+                    .map(|p| format!(" ({})", t!("general.pdf_page", page => p)))
+                    .unwrap_or_default();
+                format!("{}{}", t!("general.pdf"), page_info)
             } else {
                 t!("general.picture").to_string()
             };

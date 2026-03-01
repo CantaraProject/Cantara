@@ -443,7 +443,9 @@ fn EmptySlideComponent() -> Element {
 fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
     let path = get_picture_path(&picture_slide);
 
-    let is_pdf = path.to_lowercase().ends_with(".pdf");
+    // Check if this is a PDF; the path may contain a #page=N fragment
+    let base_path = path.split('#').next().unwrap_or(&path);
+    let is_pdf = base_path.to_lowercase().ends_with(".pdf");
 
     rsx! {
         div {

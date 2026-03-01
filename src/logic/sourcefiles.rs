@@ -235,7 +235,7 @@ pub mod tests {
     #[test]
     fn traverse_test_dir_pdf() {
         let dir = Path::new("testfiles");
-        assert_eq!(find_files_with_ending(dir, vec!["pdf"]).len(), 1);
+        assert_eq!(find_files_with_ending(dir, vec!["pdf"]).len(), 2);
     }
 
     #[test]
@@ -246,8 +246,7 @@ pub mod tests {
             .iter()
             .filter(|sf| sf.file_type == SourceFileType::Pdf)
             .collect();
-        assert_eq!(pdf_files.len(), 1);
-        assert_eq!(pdf_files[0].name, "Example");
+        assert_eq!(pdf_files.len(), 2);
     }
 
     #[test]

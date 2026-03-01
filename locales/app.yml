@@ -332,6 +332,9 @@ general:
   pdf:
     en: PDF
     de: PDF
+  pdf_page:
+    en: "Page %{page}"
+    de: "Seite %{page}"
   file_path:
     en: File Path
     de: Dateipfad

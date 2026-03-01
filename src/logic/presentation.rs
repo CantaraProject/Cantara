@@ -9,7 +9,7 @@ use super::{
 use cantara_songlib::importer::classic_song::slides_from_classic_song;
 use cantara_songlib::slides::{Slide, SlideContent, SimplePictureSlide, SlideSettings};
 use dioxus::prelude::*;
-use std::{error::Error, path::PathBuf};
+use std::{error::Error, path::{Path, PathBuf}};
 
 /// Extracts the picture path from a [SimplePictureSlide] using serde,
 /// since the `picture_path` field is private in the external crate.
@@ -18,6 +18,12 @@ pub fn get_picture_path(picture_slide: &SimplePictureSlide) -> String {
         .ok()
         .and_then(|v| v.get("picture_path").and_then(|p| p.as_str().map(String::from)))
         .unwrap_or_default()
+}
+
+/// Returns the number of pages in a PDF file using lopdf.
+fn get_pdf_page_count(path: &Path) -> Result<usize, Box<dyn Error>> {
+    let doc = lopdf::Document::load(path)?;
+    Ok(doc.get_pages().len())
 }
 
 /// This song provides Amazing Grace as a default song which can be used for creating example presentations
@@ -67,9 +73,7 @@ fn create_presentation_slides(
         }
     }
 
-    if selected_item.source_file.file_type == SourceFileType::Image
-        || selected_item.source_file.file_type == SourceFileType::Pdf
-    {
+    if selected_item.source_file.file_type == SourceFileType::Image {
         let path_str = selected_item
             .source_file
             .path
@@ -85,6 +89,29 @@ fn create_presentation_slides(
             slide_content: SlideContent::SimplePicture(picture_slide),
             linked_file: None,
         });
+    }
+
+    if selected_item.source_file.file_type == SourceFileType::Pdf {
+        let path_str = selected_item
+            .source_file
+            .path
+            .to_str()
+            .unwrap_or("")
+            .to_string();
+
+        let page_count = get_pdf_page_count(&selected_item.source_file.path)?;
+
+        for page in 1..=page_count {
+            // Encode the page number in the path as a fragment (e.g. file.pdf#page=1)
+            let page_path = format!("{}#page={}", path_str, page);
+            let picture_slide: SimplePictureSlide =
+                serde_json::from_value(serde_json::json!({"picture_path": page_path}))?;
+
+            presentation.push(Slide {
+                slide_content: SlideContent::SimplePicture(picture_slide),
+                linked_file: None,
+            });
+        }
     }
 
     Ok(presentation)
@@ -204,11 +231,42 @@ mod tests {
         let result = create_presentation_slides(&select_item, &SlideSettings::default());
         assert!(result.is_ok());
         let slides = result.unwrap();
+        // Example.pdf has 1 page, so 1 slide
         assert_eq!(slides.len(), 1);
         assert!(matches!(
             slides[0].slide_content,
             SlideContent::SimplePicture(_)
         ));
+        // Verify the page fragment is encoded in the path
+        if let SlideContent::SimplePicture(ref ps) = slides[0].slide_content {
+            let path = get_picture_path(ps);
+            assert!(path.ends_with("#page=1"));
+        }
+    }
+
+    #[test]
+    fn test_presentation_creation_from_multipage_pdf() {
+        let select_item = SelectedItemRepresentation {
+            source_file: SourceFile {
+                name: "MultiPage".to_string(),
+                path: PathBuf::from_str("testfiles/MultiPage.pdf").unwrap(),
+                file_type: SourceFileType::Pdf,
+            },
+            presentation_design_option: None,
+            slide_settings_option: None,
+        };
+        let result = create_presentation_slides(&select_item, &SlideSettings::default());
+        assert!(result.is_ok());
+        let slides = result.unwrap();
+        // MultiPage.pdf has 3 pages, so 3 slides
+        assert_eq!(slides.len(), 3);
+        for (i, slide) in slides.iter().enumerate() {
+            assert!(matches!(slide.slide_content, SlideContent::SimplePicture(_)));
+            if let SlideContent::SimplePicture(ref ps) = slide.slide_content {
+                let path = get_picture_path(ps);
+                assert!(path.ends_with(&format!("#page={}", i + 1)));
+            }
+        }
     }
 
     #[test]
