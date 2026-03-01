@@ -47,6 +47,18 @@ pub struct Settings {
     /// A boolean variable which determines if presentations should start in fullscreen mode by default.
     #[serde(default = "default_always_start_fullscreen")]
     pub always_start_fullscreen: bool,
+
+    /// The name of the monitor to use for presentations. None means automatic (prefer non-primary).
+    #[serde(default)]
+    pub presentation_screen: Option<String>,
+
+    /// The name of the monitor to use for the presenter console. None means automatic (prefer primary).
+    #[serde(default)]
+    pub presenter_screen: Option<String>,
+
+    /// Whether to show the presenter console when starting a presentation.
+    #[serde(default = "default_show_presenter_console")]
+    pub show_presenter_console: bool,
 }
 
 impl Default for Settings {
@@ -57,6 +69,9 @@ impl Default for Settings {
             presentation_designs: default_presentation_design_vec(),
             song_slide_settings: default_song_slide_vec(),
             always_start_fullscreen: default_always_start_fullscreen(),
+            presentation_screen: None,
+            presenter_screen: None,
+            show_presenter_console: default_show_presenter_console(),
         }
     }
 }
@@ -74,6 +89,11 @@ fn default_song_slide_vec() -> Vec<SlideSettings> {
 /// This returns the default value for always_start_fullscreen
 fn default_always_start_fullscreen() -> bool {
     false
+}
+
+/// This returns the default value for show_presenter_console
+fn default_show_presenter_console() -> bool {
+    true
 }
 
 impl Settings {

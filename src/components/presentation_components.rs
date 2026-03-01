@@ -82,6 +82,9 @@ pub fn PresentationRendererComponent(
 
     let mut presentation_is_visible = use_signal(|| false);
 
+    let is_black_screen =
+        use_memo(move || running_presentation.read().is_black_screen);
+
     let mut go_to_next_slide = move || {
         running_presentation.write().next_slide();
         presentation_is_visible.set(false);
@@ -227,6 +230,12 @@ pub fn PresentationRendererComponent(
             onmounted: move |_| {
                 presentation_is_visible.set(true);
             },
+            // Black screen overlay
+            if is_black_screen() {
+                div {
+                    style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: black; z-index: 1000;",
+                }
+            }
             div {
                 class: "background",
                 style: background_css()

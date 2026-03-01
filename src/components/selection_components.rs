@@ -905,8 +905,8 @@ fn SourceDetailView(
     }
 }
 
-/// Helper function to start a presentation from the selection page
-/// It will create the presentation and open the window
+/// Helper function to start a presentation from the selection page.
+/// Supports multi-screen placement and optional presenter console.
 #[cfg(feature = "desktop")]
 fn start_presentation(
     selected_items: &Vec<SelectedItemRepresentation>,
@@ -914,9 +914,10 @@ fn start_presentation(
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
 ) {
-    // Create the presentation
-
     use super::presentation_components::PresentationPage;
+    use super::presenter_console_components::PresenterConsolePage;
+    use crate::logic::screens::{enumerate_monitors, resolve_monitor};
+    use crate::logic::settings::use_settings;
     use dioxus::desktop::Config;
 
     if presentation::add_presentation(
@@ -927,21 +928,92 @@ fn start_presentation(
     )
     .is_some()
     {
-        // Create a new window if running on desktop
+        let desktop = dioxus::desktop::window();
+        let monitors = enumerate_monitors(&desktop);
+        let settings = use_settings();
+        let settings_read = settings.read();
+
+        // Resolve presentation monitor (prefer non-primary)
+        let presentation_monitor =
+            resolve_monitor(&monitors, &settings_read.presentation_screen, false);
+
+        // Resolve presenter monitor (prefer primary)
+        let presenter_monitor =
+            resolve_monitor(&monitors, &settings_read.presenter_screen, true);
+
+        let show_presenter_console = settings_read.show_presenter_console;
+        let always_fullscreen = settings_read.always_start_fullscreen;
+
+        // Build the presentation window
+        let mut presentation_window_builder = tao::window::WindowBuilder::new()
+            .with_resizable(true)
+            .with_visible(true);
+
+        if let Some(ref monitor) = presentation_monitor {
+            // Position on the target monitor
+            presentation_window_builder = presentation_window_builder
+                .with_position(tao::dpi::PhysicalPosition::new(
+                    monitor.position.0,
+                    monitor.position.1,
+                ))
+                .with_inner_size(tao::dpi::PhysicalSize::new(
+                    monitor.size.0,
+                    monitor.size.1,
+                ))
+                .with_decorations(false)
+                .with_maximized(true);
+        } else {
+            presentation_window_builder = presentation_window_builder
+                .with_inner_size(tao::dpi::LogicalSize::new(900.0, 800.0))
+                .with_maximized(true)
+                .with_decorations(!always_fullscreen);
+        }
+
         let presentation_dom =
             VirtualDom::new(PresentationPage).with_root_context(*running_presentations);
 
-        let window = tao::window::WindowBuilder::new()
-            .with_resizable(true)
-            .with_inner_size(tao::dpi::LogicalSize::new(900.0, 800.0))
-            .with_maximized(true)
-            .with_decorations(true)
-            .with_visible(true);
-
         dioxus::desktop::window().new_window(
             presentation_dom,
-            Config::new().with_menu(None).with_window(window),
+            Config::new()
+                .with_menu(None)
+                .with_window(presentation_window_builder),
         );
+
+        // Open presenter console if enabled
+        if show_presenter_console {
+            let mut console_window_builder = tao::window::WindowBuilder::new()
+                .with_resizable(true)
+                .with_decorations(true)
+                .with_visible(true)
+                .with_title("Cantara - Presenter Console");
+
+            if let Some(ref monitor) = presenter_monitor {
+                console_window_builder = console_window_builder
+                    .with_position(tao::dpi::PhysicalPosition::new(
+                        monitor.position.0,
+                        monitor.position.1,
+                    ))
+                    .with_inner_size(tao::dpi::PhysicalSize::new(
+                        monitor.size.0,
+                        monitor.size.1,
+                    ))
+                    .with_maximized(true);
+            } else {
+                console_window_builder = console_window_builder
+                    .with_inner_size(tao::dpi::LogicalSize::new(900.0, 700.0))
+                    .with_maximized(true);
+            }
+
+            let console_dom =
+                VirtualDom::new(PresenterConsolePage).with_root_context(*running_presentations);
+
+            dioxus::desktop::window().new_window(
+                console_dom,
+                Config::new()
+                    .with_menu(None)
+                    .with_window(console_window_builder),
+            );
+        }
     }
 }
 

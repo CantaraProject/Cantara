@@ -93,6 +93,8 @@ impl SelectedItemRepresentation {
 pub struct RunningPresentation {
     pub presentation: Vec<SlideChapter>,
     pub position: Option<RunningPresentationPosition>,
+    /// Whether the presentation is currently showing a black screen
+    pub is_black_screen: bool,
 }
 
 impl RunningPresentation {
@@ -101,6 +103,7 @@ impl RunningPresentation {
         RunningPresentation {
             presentation: presentation.clone(),
             position: RunningPresentationPosition::new(&presentation),
+            is_black_screen: false,
         }
     }
 
@@ -116,6 +119,37 @@ impl RunningPresentation {
         if let Some(ref mut pos) = self.position {
             let _ = pos.try_back(&self.presentation);
         }
+    }
+
+    /// Jump to a specific chapter and slide position
+    pub fn jump_to(&mut self, chapter: usize, slide: usize) {
+        if chapter < self.presentation.len() {
+            let chapter_slides = &self.presentation[chapter].slides;
+            if slide < chapter_slides.len() {
+                // Calculate the total slide number
+                let mut total: usize = 0;
+                for i in 0..chapter {
+                    total += self.presentation[i].slides.len();
+                }
+                total += slide;
+
+                self.position = Some(RunningPresentationPosition {
+                    chapter,
+                    chapter_slide: slide,
+                    slide_total: total,
+                });
+            }
+        }
+    }
+
+    /// Returns the total number of slides across all chapters
+    pub fn total_slides(&self) -> usize {
+        self.presentation.iter().map(|ch| ch.slides.len()).sum()
+    }
+
+    /// Toggle the black screen state
+    pub fn toggle_black_screen(&mut self) {
+        self.is_black_screen = !self.is_black_screen;
     }
 
     pub fn get_current_slide(&self) -> Option<Slide> {

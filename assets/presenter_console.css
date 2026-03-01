@@ -1,0 +1,155 @@
+/* Presenter Console Styles */
+
+.presenter-console {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100%;
+    overflow: hidden;
+    outline: none;
+}
+
+/* Header */
+.presenter-header {
+    padding: 10px 20px;
+    background-color: var(--pico-primary-background);
+    color: var(--pico-primary-inverse);
+    flex-shrink: 0;
+}
+
+.presenter-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--pico-primary-inverse);
+}
+
+/* Main content: text panel + preview panel side by side */
+.presenter-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    flex: 1;
+    overflow: hidden;
+    gap: 10px;
+    padding: 10px;
+}
+
+@media (max-width: 900px) {
+    .presenter-content {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr 1fr;
+    }
+}
+
+/* Text Panel (left side) */
+.presenter-text-panel {
+    overflow-y: auto;
+    padding: 10px;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    background-color: var(--pico-card-background-color);
+}
+
+.presenter-chapter {
+    margin-bottom: 15px;
+}
+
+.presenter-chapter-title {
+    margin: 0 0 8px 0;
+    padding: 5px 10px;
+    font-size: 0.95rem;
+    color: var(--pico-muted-color);
+    border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+.presenter-chapter-title.active {
+    color: var(--pico-primary);
+    font-weight: bold;
+    border-bottom-color: var(--pico-primary);
+}
+
+.presenter-slide-item {
+    padding: 8px 12px;
+    margin: 4px 0;
+    cursor: pointer;
+    border-radius: var(--pico-border-radius);
+    border-left: 3px solid transparent;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.presenter-slide-item:hover {
+    background-color: var(--pico-secondary-hover-background);
+}
+
+.presenter-slide-item.active {
+    background-color: var(--pico-primary-focus);
+    border-left-color: var(--pico-primary);
+    font-weight: 500;
+}
+
+.slide-text-content p {
+    margin: 2px 0;
+    font-size: 0.9rem;
+    line-height: 1.4;
+    white-space: pre-line;
+}
+
+.slide-text-spoiler {
+    color: var(--pico-muted-color);
+    font-style: italic;
+    font-size: 0.85rem !important;
+}
+
+.slide-text-title {
+    font-size: 1rem;
+}
+
+.slide-text-empty {
+    color: var(--pico-muted-color);
+}
+
+/* Preview Panel (right side) */
+.presenter-preview-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    background-color: var(--pico-card-background-color);
+    overflow: hidden;
+}
+
+.presenter-preview-panel h4 {
+    margin: 0 0 10px 0;
+    font-size: 0.95rem;
+    color: var(--pico-muted-color);
+}
+
+/* Control Bar */
+.presenter-control-bar {
+    padding: 10px 20px;
+    background-color: var(--pico-card-background-color);
+    border-top: 1px solid var(--pico-muted-border-color);
+    flex-shrink: 0;
+}
+
+.presenter-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.presenter-controls button {
+    margin: 0;
+    padding: 8px 16px;
+    font-size: 0.9rem;
+}
+
+.slide-counter {
+    font-size: 1rem;
+    font-weight: 600;
+    min-width: 80px;
+    text-align: center;
+    color: var(--pico-color);
+}
