@@ -217,6 +217,24 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
                 }
             }
         }
+        SlideContent::SimplePicture(picture_slide) => {
+            let path = serde_json::to_value(&picture_slide)
+                .ok()
+                .and_then(|v| v.get("picture_path").and_then(|p| p.as_str().map(String::from)))
+                .unwrap_or_default();
+            let is_pdf = path.to_lowercase().ends_with(".pdf");
+            let label = if is_pdf {
+                t!("general.pdf").to_string()
+            } else {
+                t!("general.picture").to_string()
+            };
+            rsx! {
+                div {
+                    class: "slide-text-content",
+                    em { "📄 {label}" }
+                }
+            }
+        }
         _ => {
             rsx! {
                 div {

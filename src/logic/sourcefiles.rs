@@ -97,6 +97,9 @@ pub enum SourceFileType {
 
     /// A video which Cantara can display
     Video,
+
+    /// A PDF document which Cantara can display
+    Pdf,
 }
 
 /// A source file which contains content which Cantara can use to generate content from
@@ -129,7 +132,7 @@ pub struct SourceFile {
 pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
     let mut source_files: Vec<SourceFile> = vec![];
 
-    find_files_with_ending(start_dir, vec!["song", "jpg", "png"])
+    find_files_with_ending(start_dir, vec!["song", "jpg", "png", "pdf"])
         .iter()
         .for_each(|file| {
             let file_extension: &str = file
@@ -143,6 +146,7 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
                     "png" => Some(SourceFileType::Image),
                     "jpg" => Some(SourceFileType::Image),
                     "jpeg" => Some(SourceFileType::Image),
+                    "pdf" => Some(SourceFileType::Pdf),
                     _ => None,
                 };
             if let Some(source_file_type) = file_type_option {
@@ -188,6 +192,31 @@ impl ImageSourceFile {
     }
 }
 
+/// This is a wrapper around [SourceFile] which ensures that the [SourceFile] is a PDF
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PdfSourceFile(SourceFile);
+
+impl PdfSourceFile {
+    // Constructor that enforces the FileType::Pdf constraint
+    pub fn new(source_file: SourceFile) -> Option<Self> {
+        if matches!(source_file.file_type, SourceFileType::Pdf) {
+            Some(PdfSourceFile(source_file))
+        } else {
+            None
+        }
+    }
+
+    // Accessor to get the inner SourceFile
+    pub fn into_inner(self) -> SourceFile {
+        self.0
+    }
+
+    // Optional: Reference accessor for convenience
+    pub fn as_source(&self) -> &SourceFile {
+        &self.0
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -201,5 +230,40 @@ pub mod tests {
             find_files_with_ending(dir, vec!["non_existing_ending"]).len(),
             0
         );
+    }
+
+    #[test]
+    fn traverse_test_dir_pdf() {
+        let dir = Path::new("testfiles");
+        assert_eq!(find_files_with_ending(dir, vec!["pdf"]).len(), 1);
+    }
+
+    #[test]
+    fn get_source_files_includes_pdf() {
+        let dir = Path::new("testfiles");
+        let source_files = get_source_files(dir);
+        let pdf_files: Vec<&SourceFile> = source_files
+            .iter()
+            .filter(|sf| sf.file_type == SourceFileType::Pdf)
+            .collect();
+        assert_eq!(pdf_files.len(), 1);
+        assert_eq!(pdf_files[0].name, "Example");
+    }
+
+    #[test]
+    fn pdf_source_file_wrapper() {
+        let pdf_sf = SourceFile {
+            name: "test".to_string(),
+            path: PathBuf::from("test.pdf"),
+            file_type: SourceFileType::Pdf,
+        };
+        assert!(PdfSourceFile::new(pdf_sf).is_some());
+
+        let song_sf = SourceFile {
+            name: "test".to_string(),
+            path: PathBuf::from("test.song"),
+            file_type: SourceFileType::Song,
+        };
+        assert!(PdfSourceFile::new(song_sf).is_none());
     }
 }

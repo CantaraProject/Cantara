@@ -300,6 +300,11 @@ pub fn PresentationRendererComponent(
                             SlideContent::Empty(empty_slide) => rsx! {
                                 EmptySlideComponent {}
                             },
+                            SlideContent::SimplePicture(picture_slide) => rsx! {
+                                SimplePictureSlideComponent {
+                                    picture_slide: picture_slide.clone()
+                                }
+                            },
                             _ => rsx! { p { "No content provided" } }
                         }
                     }
@@ -429,6 +434,37 @@ fn EmptySlideComponent() -> Element {
     rsx! {
         div {
             class: "empty-content",
+        }
+    }
+}
+
+#[component]
+fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
+    // Extract the picture path via serde since the field is private
+    let path = serde_json::to_value(&picture_slide)
+        .ok()
+        .and_then(|v| v.get("picture_path").and_then(|p| p.as_str().map(String::from)))
+        .unwrap_or_default();
+
+    let is_pdf = path.to_lowercase().ends_with(".pdf");
+
+    rsx! {
+        div {
+            style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
+            if is_pdf {
+                object {
+                    data: "{path}",
+                    r#type: "application/pdf",
+                    width: "100%",
+                    height: "100%",
+                    p { "PDF cannot be displayed in this viewer." }
+                }
+            } else {
+                img {
+                    src: "{path}",
+                    style: "max-width: 100%; max-height: 100%; object-fit: contain;",
+                }
+            }
         }
     }
 }

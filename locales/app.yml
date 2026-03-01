@@ -329,6 +329,9 @@ general:
   video:
     en: Video
     de: Video
+  pdf:
+    en: PDF
+    de: PDF
   file_path:
     en: File Path
     de: Dateipfad

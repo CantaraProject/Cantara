@@ -9,7 +9,7 @@ use dioxus::logger::tracing;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
-use dioxus_free_icons::icons::fa_solid_icons::{FaImage, FaMusic, FaPenToSquare};
+use dioxus_free_icons::icons::fa_solid_icons::{FaFilePdf, FaImage, FaMusic, FaPenToSquare};
 
 #[component]
 pub fn DeleteIcon() -> Element {
@@ -29,6 +29,11 @@ pub fn MusicIcon(width: Option<u32>) -> Element {
 #[component]
 pub fn ImageIcon(width: Option<u32>) -> Element {
     rsx! { Icon { icon: FaImage, width: width.unwrap_or(20) } }
+}
+
+#[component]
+pub fn PdfIcon(width: Option<u32>) -> Element {
+    rsx! { Icon { icon: FaFilePdf, width: width.unwrap_or(20) } }
 }
 
 /// A component displaying multiple presentation designs in an "Amazing Grace" presentation.

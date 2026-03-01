@@ -7,7 +7,7 @@ use super::{
 };
 
 use cantara_songlib::importer::classic_song::slides_from_classic_song;
-use cantara_songlib::slides::{Slide, SlideSettings};
+use cantara_songlib::slides::{Slide, SlideContent, SimplePictureSlide, SlideSettings};
 use dioxus::prelude::*;
 use std::{error::Error, path::PathBuf};
 
@@ -56,6 +56,26 @@ fn create_presentation_slides(
             Ok(slides) => presentation.extend(slides),
             Err(err) => return Err(err),
         }
+    }
+
+    if selected_item.source_file.file_type == SourceFileType::Image
+        || selected_item.source_file.file_type == SourceFileType::Pdf
+    {
+        let path_str = selected_item
+            .source_file
+            .path
+            .to_str()
+            .unwrap_or("")
+            .to_string();
+
+        // Use serde to construct SimplePictureSlide since its field is private
+        let picture_slide: SimplePictureSlide =
+            serde_json::from_value(serde_json::json!({"picture_path": path_str}))?;
+
+        presentation.push(Slide {
+            slide_content: SlideContent::SimplePicture(picture_slide),
+            linked_file: None,
+        });
     }
 
     Ok(presentation)
@@ -159,5 +179,47 @@ mod tests {
             slide_settings_option: None,
         };
         assert!(create_presentation_slides(&select_item, &SlideSettings::default()).is_ok());
+    }
+
+    #[test]
+    fn test_presentation_creation_from_pdf() {
+        let select_item = SelectedItemRepresentation {
+            source_file: SourceFile {
+                name: "Example".to_string(),
+                path: PathBuf::from_str("testfiles/Example.pdf").unwrap(),
+                file_type: SourceFileType::Pdf,
+            },
+            presentation_design_option: None,
+            slide_settings_option: None,
+        };
+        let result = create_presentation_slides(&select_item, &SlideSettings::default());
+        assert!(result.is_ok());
+        let slides = result.unwrap();
+        assert_eq!(slides.len(), 1);
+        assert!(matches!(
+            slides[0].slide_content,
+            SlideContent::SimplePicture(_)
+        ));
+    }
+
+    #[test]
+    fn test_presentation_creation_from_image() {
+        let select_item = SelectedItemRepresentation {
+            source_file: SourceFile {
+                name: "test_image".to_string(),
+                path: PathBuf::from_str("testfiles/test.png").unwrap(),
+                file_type: SourceFileType::Image,
+            },
+            presentation_design_option: None,
+            slide_settings_option: None,
+        };
+        let result = create_presentation_slides(&select_item, &SlideSettings::default());
+        assert!(result.is_ok());
+        let slides = result.unwrap();
+        assert_eq!(slides.len(), 1);
+        assert!(matches!(
+            slides[0].slide_content,
+            SlideContent::SimplePicture(_)
+        ));
     }
 }
