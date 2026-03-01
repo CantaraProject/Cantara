@@ -29,8 +29,13 @@ pub fn PresentationPage() -> Element {
         use_signal(move || running_presentations.get(0).unwrap().clone());
 
     // Sync changes from the shared signal into the local signal (e.g. from presenter console)
+    // Also close this window if the presentation was ended (signal cleared).
     use_effect(move || {
         let current = running_presentations.read();
+        if current.is_empty() {
+            dioxus::desktop::window().close();
+            return;
+        }
         if let Some(rp) = current.first() {
             if *rp != *running_presentation.peek() {
                 running_presentation.set(rp.clone());

@@ -51,6 +51,11 @@ pub fn PresenterConsolePage() -> Element {
         running_presentation.write().previous_slide();
     };
 
+    let mut quit_presentation = move || {
+        running_presentations.write().clear();
+        dioxus::desktop::window().close();
+    };
+
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }
@@ -64,8 +69,7 @@ pub fn PresenterConsolePage() -> Element {
                     Key::ArrowRight => go_to_next_slide(),
                     Key::ArrowLeft => go_to_previous_slide(),
                     Key::Escape => {
-                        // Close the presenter console window
-                        dioxus::desktop::window().close();
+                        quit_presentation();
                     }
                     Key::Character(ref c) if c == "b" || c == "B" => {
                         running_presentation.write().toggle_black_screen();
@@ -81,7 +85,8 @@ pub fn PresenterConsolePage() -> Element {
             }
 
             PresenterControlBar {
-                running_presentation: running_presentation
+                running_presentation: running_presentation,
+                running_presentations: running_presentations
             }
         }
     }
@@ -216,7 +221,10 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
 
 /// Bottom control bar with navigation buttons and black screen toggle
 #[component]
-fn PresenterControlBar(running_presentation: Signal<RunningPresentation>) -> Element {
+fn PresenterControlBar(
+    running_presentation: Signal<RunningPresentation>,
+    running_presentations: Signal<Vec<RunningPresentation>>,
+) -> Element {
     let rp = running_presentation.read();
     let current_total = rp
         .position
@@ -259,6 +267,7 @@ fn PresenterControlBar(running_presentation: Signal<RunningPresentation>) -> Ele
                 button {
                     class: "outline secondary",
                     onclick: move |_| {
+                        running_presentations.write().clear();
                         dioxus::desktop::window().close();
                     },
                     { t!("presenter.quit").to_string() }
