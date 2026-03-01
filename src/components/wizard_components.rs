@@ -3,6 +3,7 @@ use crate::logic::{settings::*, states::RuntimeInformation};
 use dioxus::prelude::*;
 use rust_i18n::t;
 
+#[cfg(feature = "desktop")]
 use rfd::FileDialog;
 
 use crate::{LOGO, Route};
@@ -154,18 +155,21 @@ fn SecondStep() -> Element {
     let mut chosen_directory = use_signal(|| "".to_string());
 
     let mut choose_directory = move || {
-        let path = FileDialog::new().pick_folder();
+        #[cfg(feature = "desktop")]
+        {
+            let path = FileDialog::new().pick_folder();
 
-        let mut settings_signal: Signal<Settings> = use_context();
+            let mut settings_signal: Signal<Settings> = use_context();
 
-        if let Some(path) = path {
-            if path.is_dir() && path.exists() {
-                chosen_directory.set(path.to_str().unwrap_or_default().to_string());
-                let mut settings = settings_signal.write();
-                settings.add_repository_folder(chosen_directory.read().to_string());
-                settings.save();
-                let mut wizard_status = use_context::<WizardStatus>();
-                wizard_status.is_done.set(true);
+            if let Some(path) = path {
+                if path.is_dir() && path.exists() {
+                    chosen_directory.set(path.to_str().unwrap_or_default().to_string());
+                    let mut settings = settings_signal.write();
+                    settings.add_repository_folder(chosen_directory.read().to_string());
+                    settings.save();
+                    let mut wizard_status = use_context::<WizardStatus>();
+                    wizard_status.is_done.set(true);
+                }
             }
         }
     };

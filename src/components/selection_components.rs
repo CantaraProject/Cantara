@@ -11,6 +11,7 @@ use crate::logic::settings::{Settings, use_settings};
 use crate::logic::sourcefiles::SourceFile;
 use crate::Route;
 use cantara_songlib::slides::SlideSettings;
+#[cfg(feature = "desktop")]
 use dioxus::desktop::tao;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
@@ -1019,6 +1020,29 @@ fn start_presentation(
                 );
             }
         }
+    }
+}
+
+/// Mobile/web version of `start_presentation`.
+/// On platforms without multiple windows, the presenter console is shown in the main window.
+#[cfg(not(feature = "desktop"))]
+fn start_presentation(
+    selected_items: &Vec<SelectedItemRepresentation>,
+    running_presentations: &mut Signal<Vec<RunningPresentation>>,
+    default_presentation_design: &PresentationDesign,
+    default_slide_settings: &SlideSettings,
+    _settings_read: &Settings,
+) {
+    if presentation::add_presentation(
+        selected_items,
+        running_presentations,
+        default_presentation_design,
+        default_slide_settings,
+    )
+    .is_some()
+    {
+        let nav = navigator();
+        nav.push(crate::Route::PresenterConsolePage {});
     }
 }
 

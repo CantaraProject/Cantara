@@ -33,6 +33,7 @@ pub fn PresentationPage() -> Element {
     use_effect(move || {
         let current = running_presentations.read();
         if current.is_empty() {
+            #[cfg(feature = "desktop")]
             dioxus::desktop::window().close();
             return;
         }
@@ -81,6 +82,7 @@ pub fn PresentationPage() -> Element {
                     }
                     Key::Escape => {
                         running_presentations.write().clear();
+                        #[cfg(feature = "desktop")]
                         dioxus::desktop::window().close();
                     }
                     Key::Character(ref c) if c == "b" || c == "B" => {
