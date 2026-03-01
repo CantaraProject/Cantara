@@ -17,6 +17,7 @@ mod components;
 mod logic;
 
 use crate::components::presentation_design_settings_components::PresentationDesignSettingsPage;
+use crate::components::presenter_console_components::PresenterConsolePage;
 use crate::components::selection_components::Selection;
 use crate::components::settings_components::SettingsPage;
 use crate::components::song_slide_settings_components::SongSlideSettingsPage;
@@ -66,6 +67,10 @@ pub enum Route {
     /// The song slide settings page with a dynamic index
     #[route("/settings/slide/:index")]
     SongSlideSettingsPage { index: u16 },
+
+    /// The presenter console shown in the main window during a presentation
+    #[route("/presenter")]
+    PresenterConsolePage {},
 }
 
 fn main() {

@@ -25,11 +25,33 @@ rust_i18n::i18n!("locales", fallback = "en");
 pub fn PresentationPage() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
-    let running_presentation: Signal<RunningPresentation> =
+    let mut running_presentation: Signal<RunningPresentation> =
         use_signal(move || running_presentations.get(0).unwrap().clone());
 
+    // Sync changes from the shared signal into the local signal (e.g. from presenter console)
+    // Also close this window if the presentation was ended (signal cleared).
     use_effect(move || {
-        *running_presentations.write().get_mut(0).unwrap() = running_presentation.read().clone();
+        let current = running_presentations.read();
+        if current.is_empty() {
+            dioxus::desktop::window().close();
+            return;
+        }
+        if let Some(rp) = current.first() {
+            if *rp != *running_presentation.peek() {
+                running_presentation.set(rp.clone());
+            }
+        }
+    });
+
+    // Sync changes from this window back to the shared signal
+    use_effect(move || {
+        let local = running_presentation.read().clone();
+        let mut shared = running_presentations.write();
+        if let Some(first) = shared.first_mut() {
+            if *first != local {
+                *first = local;
+            }
+        }
     });
 
     rsx! {
@@ -45,16 +67,26 @@ pub fn PresentationPage() -> Element {
                     height:100%;
                 ",
             onkeydown: move |event: Event<KeyboardData>| {
-                if event.key() == Key::F11 {
-                    use_future(move || async move {
-                        let _ = document::eval("
-                            if (document.fullscreenElement) {
-                                document.exitFullscreen();
-                            } else {
-                                document.documentElement.requestFullscreen();
-                            }
-                        ").await;
-                    });
+                match event.key() {
+                    Key::F11 => {
+                        use_future(move || async move {
+                            let _ = document::eval("
+                                if (document.fullscreenElement) {
+                                    document.exitFullscreen();
+                                } else {
+                                    document.documentElement.requestFullscreen();
+                                }
+                            ").await;
+                        });
+                    }
+                    Key::Escape => {
+                        running_presentations.write().clear();
+                        dioxus::desktop::window().close();
+                    }
+                    Key::Character(ref c) if c == "b" || c == "B" => {
+                        running_presentation.write().toggle_black_screen();
+                    }
+                    _ => {}
                 }
             },
             PresentationRendererComponent {
@@ -81,6 +113,9 @@ pub fn PresentationRendererComponent(
         });
 
     let mut presentation_is_visible = use_signal(|| false);
+
+    let is_black_screen =
+        use_memo(move || running_presentation.read().is_black_screen);
 
     let mut go_to_next_slide = move || {
         running_presentation.write().next_slide();
@@ -212,8 +247,10 @@ pub fn PresentationRendererComponent(
 
             tabindex: 0,
             onkeydown: move |event: Event<KeyboardData>| {
-                match event.key() {
-                    Key::ArrowRight => go_to_next_slide(),
+                let key = event.key();
+                match key {
+                    Key::ArrowRight | Key::Enter => go_to_next_slide(),
+                    Key::Character(ref c) if c == " " => go_to_next_slide(),
                     Key::ArrowLeft => go_to_previous_slide(),
                     _ => {}
                 }
@@ -227,6 +264,12 @@ pub fn PresentationRendererComponent(
             onmounted: move |_| {
                 presentation_is_visible.set(true);
             },
+            // Black screen overlay
+            if is_black_screen() {
+                div {
+                    style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: black; z-index: 1000;",
+                }
+            }
             div {
                 class: "background",
                 style: background_css()

@@ -149,6 +149,45 @@ settings:
   presentation_description:
     en: Setup how the presentation should look like. Click on one of the presentation designs below to adjust its settings, or create a new one.
     de: Hier kann eingestellt werden, wie die Präsentation aussehen soll. Klicken Sie dazu auf eines der Präsentationsdesigns oder legen Sie ein neues an.
+  screen_headline:
+    en: Screen Settings
+    de: Bildschirmeinstellungen
+  screen_description:
+    en: Configure which screens to use for the presentation and the presenter console.
+    de: Konfigurieren Sie, welche Bildschirme für die Präsentation und die Moderatorenkonsole verwendet werden sollen.
+  show_presenter_console_title:
+    en: Show Presenter Console
+    de: Moderatorenkonsole anzeigen
+  show_presenter_console_description:
+    en: When enabled, a presenter console window opens alongside the presentation with slide text, preview, and controls.
+    de: Wenn aktiviert, öffnet sich neben der Präsentation ein Fenster mit Folientext, Vorschau und Steuerung.
+  presenter_console_in_main_window_title:
+    en: Presenter Console in Main Window
+    de: Moderatorenkonsole im Hauptfenster
+  presenter_console_in_main_window_description:
+    en: When enabled, the presenter console is shown in the main window instead of opening a separate window.
+    de: Wenn aktiviert, wird die Moderatorenkonsole im Hauptfenster angezeigt, anstatt ein separates Fenster zu öffnen.
+  detected_monitors:
+    en: Detected Monitors
+    de: Erkannte Bildschirme
+  refresh_monitors:
+    en: Refresh
+    de: Aktualisieren
+  no_monitors_detected:
+    en: No monitors detected.
+    de: Keine Bildschirme erkannt.
+  primary_monitor:
+    en: Primary
+    de: Primär
+  presentation_screen:
+    en: Presentation Screen
+    de: Präsentationsbildschirm
+  presenter_screen:
+    en: Presenter Console Screen
+    de: Moderatorenkonsolen-Bildschirm
+  automatic:
+    en: Automatic
+    de: Automatisch
   always_start_fullscreen_title:
     en: Always Start Fullscreen by Default
     de: Standardmäßig im Vollbildmodus starten
@@ -247,6 +286,32 @@ presentation:
   title:
     en: Presentation
     de: Präsentation
+
+presenter:
+  title:
+    en: Presenter Console
+    de: Moderatorenkonsole
+  status_running:
+    en: The presentation is running
+    de: Die Präsentation läuft
+  preview:
+    en: Live Preview
+    de: Live-Vorschau
+  previous:
+    en: Previous
+    de: Zurück
+  next:
+    en: Next
+    de: Weiter
+  black_screen:
+    en: Black Screen
+    de: Schwarzer Bildschirm
+  quit:
+    en: Quit
+    de: Beenden
+  empty_slide:
+    en: (Empty slide)
+    de: (Leere Folie)
 
 general:
   type:

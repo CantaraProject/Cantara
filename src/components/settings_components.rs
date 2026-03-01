@@ -2,6 +2,7 @@
 
 use super::shared_components::{DeleteIcon, EditIcon, PresentationDesignSelector, js_yes_no_box};
 use super::song_slide_settings_components::SongSlideSettings;
+use crate::logic::screens::{MonitorInfo, enumerate_monitors};
 use crate::{Route, logic::settings::*};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::logger::tracing;
@@ -62,6 +63,8 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
 
     rsx! {
         RepositorySettings {}
+        hr {}
+        ScreenSettings {}
         hr {}
         PresentationSettings {
             presentation_designs
@@ -351,6 +354,193 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                                     
                                     // Ensure slide settings and presentation designs stay in sync
                                     settings.write().ensure_slide_settings_for_designs();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Component for configuring screen/monitor settings for multi-screen presentation.
+#[component]
+fn ScreenSettings() -> Element {
+    let mut settings = use_settings();
+    let mut monitors: Signal<Vec<MonitorInfo>> = use_signal(Vec::new);
+
+    // Enumerate monitors on mount
+    use_effect(move || {
+        let desktop = dioxus::desktop::window();
+        monitors.set(enumerate_monitors(&desktop));
+    });
+
+    let refresh_monitors = move |_| {
+        let desktop = dioxus::desktop::window();
+        monitors.set(enumerate_monitors(&desktop));
+    };
+
+    rsx! {
+        hgroup {
+            h3 { { t!("settings.screen_headline").to_string() } }
+            p { { t!("settings.screen_description").to_string() } }
+        }
+
+        // Show Presenter Console toggle
+        article {
+            class: "listed-article",
+            div {
+                div {
+                    h6 { { t!("settings.show_presenter_console_title").to_string() } }
+                    p { { t!("settings.show_presenter_console_description").to_string() } }
+                }
+                div {
+                    label {
+                        class: "switch",
+                        input {
+                            r#type: "checkbox",
+                            role: "switch",
+                            checked: settings.read().show_presenter_console,
+                            onchange: move |event| {
+                                settings.write().show_presenter_console = event.value().parse().unwrap_or(true);
+                            }
+                        }
+                        span { class: "slider" }
+                    }
+                }
+            }
+        }
+
+        // Presenter console in main window toggle
+        if settings.read().show_presenter_console {
+            article {
+                class: "listed-article",
+                div {
+                    div {
+                        h6 { { t!("settings.presenter_console_in_main_window_title").to_string() } }
+                        p { { t!("settings.presenter_console_in_main_window_description").to_string() } }
+                    }
+                    div {
+                        label {
+                            class: "switch",
+                            input {
+                                r#type: "checkbox",
+                                role: "switch",
+                                checked: settings.read().presenter_console_in_main_window,
+                                onchange: move |event| {
+                                    settings.write().presenter_console_in_main_window = event.value().parse().unwrap_or(true);
+                                }
+                            }
+                            span { class: "slider" }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Detected monitors
+        article {
+            class: "listed-article",
+            h6 {
+                { t!("settings.detected_monitors").to_string() }
+                button {
+                    class: "outline secondary smaller-buttons",
+                    style: "float: right; margin: 0; padding: 4px 12px;",
+                    onclick: refresh_monitors,
+                    { t!("settings.refresh_monitors").to_string() }
+                }
+            }
+
+            if monitors.read().is_empty() {
+                p {
+                    style: "font-style: italic;",
+                    { t!("settings.no_monitors_detected").to_string() }
+                }
+            } else {
+                for monitor in monitors.read().iter() {
+                    div {
+                        style: "margin-bottom: 5px; padding: 5px; border-bottom: 1px solid var(--pico-muted-border-color);",
+                        strong { { monitor.name.clone() } }
+                        if monitor.name.is_empty() {
+                            strong { { format!("Monitor {}", monitor.id + 1) } }
+                        }
+                        span {
+                            style: "margin-left: 10px; color: var(--pico-muted-color);",
+                            { format!("{}x{}", monitor.size.0, monitor.size.1) }
+                        }
+                        if monitor.is_primary {
+                            span {
+                                style: "margin-left: 10px; font-style: italic;",
+                                { format!("({})", t!("settings.primary_monitor").to_string()) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Screen selection dropdowns
+        if !monitors.read().is_empty() {
+            div {
+                class: "grid",
+                div {
+                    label { { t!("settings.presentation_screen").to_string() } }
+                    select {
+                        onchange: move |evt| {
+                            let val = evt.value();
+                            settings.write().presentation_screen = if val == "auto" {
+                                None
+                            } else {
+                                Some(val)
+                            };
+                        },
+                        option {
+                            value: "auto",
+                            selected: settings.read().presentation_screen.is_none(),
+                            { t!("settings.automatic").to_string() }
+                        }
+                        for monitor in monitors.read().iter() {
+                            option {
+                                value: monitor.name.clone(),
+                                selected: settings.read().presentation_screen.as_ref() == Some(&monitor.name),
+                                {
+                                    if monitor.name.is_empty() {
+                                        format!("Monitor {}", monitor.id + 1)
+                                    } else {
+                                        monitor.name.clone()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                div {
+                    label { { t!("settings.presenter_screen").to_string() } }
+                    select {
+                        onchange: move |evt| {
+                            let val = evt.value();
+                            settings.write().presenter_screen = if val == "auto" {
+                                None
+                            } else {
+                                Some(val)
+                            };
+                        },
+                        option {
+                            value: "auto",
+                            selected: settings.read().presenter_screen.is_none(),
+                            { t!("settings.automatic").to_string() }
+                        }
+                        for monitor in monitors.read().iter() {
+                            option {
+                                value: monitor.name.clone(),
+                                selected: settings.read().presenter_screen.as_ref() == Some(&monitor.name),
+                                {
+                                    if monitor.name.is_empty() {
+                                        format!("Monitor {}", monitor.id + 1)
+                                    } else {
+                                        monitor.name.clone()
+                                    }
                                 }
                             }
                         }
