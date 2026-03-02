@@ -12,6 +12,10 @@ window.__pdfjsLib = null;
 window.__pdfjsInitPromise = null;
 window.__pdfDocCache = {};
 
+// Default fallback dimensions when the container size cannot be determined
+var PDF_DEFAULT_WIDTH = 800;
+var PDF_DEFAULT_HEIGHT = 600;
+
 /**
  * Initialise PDF.js by dynamically importing the ES module.
  * Safe to call multiple times – only the first call triggers the import.
@@ -86,8 +90,8 @@ window.renderPdfPage = async function (base64Data, cacheKey, pageNum, canvasId) 
     }
 
     // Final fallback
-    if (!containerWidth || containerWidth <= 0) containerWidth = window.innerWidth || 800;
-    if (!containerHeight || containerHeight <= 0) containerHeight = window.innerHeight || 600;
+    if (!containerWidth || containerWidth <= 0) containerWidth = window.innerWidth || PDF_DEFAULT_WIDTH;
+    if (!containerHeight || containerHeight <= 0) containerHeight = window.innerHeight || PDF_DEFAULT_HEIGHT;
 
     var vp = page.getViewport({ scale: 1 });
     var scale = Math.min(containerWidth / vp.width, containerHeight / vp.height);
