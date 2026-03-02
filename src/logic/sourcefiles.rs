@@ -132,7 +132,7 @@ pub struct SourceFile {
 pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
     let mut source_files: Vec<SourceFile> = vec![];
 
-    find_files_with_ending(start_dir, vec!["song", "jpg", "png", "pdf"])
+    find_files_with_ending(start_dir, vec!["song", "jpg", "jpeg", "png", "pdf"])
         .iter()
         .for_each(|file| {
             let file_extension: &str = file

@@ -507,7 +507,7 @@ fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
     rsx! {
         canvas {
             id: "{canvas_id}",
-            style: "max-width: 100%; max-height: 100%;",
+            style: "display: block; max-width: 100%; max-height: 100%;",
             onmounted: move |_| {
                 let canvas_id = canvas_id.clone();
                 let pdf_path = pdf_path.clone();

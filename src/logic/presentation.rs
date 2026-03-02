@@ -14,10 +14,25 @@ use std::{error::Error, path::{Path, PathBuf}};
 /// Extracts the picture path from a [SimplePictureSlide] using serde,
 /// since the `picture_path` field is private in the external crate.
 pub fn get_picture_path(picture_slide: &SimplePictureSlide) -> String {
-    serde_json::to_value(picture_slide)
-        .ok()
-        .and_then(|v| v.get("picture_path").and_then(|p| p.as_str().map(String::from)))
-        .unwrap_or_default()
+    match serde_json::to_value(picture_slide) {
+        Ok(v) => v
+            .get("picture_path")
+            .and_then(|p| p.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| {
+                log::warn!(
+                    "get_picture_path: 'picture_path' field missing or not a string in SimplePictureSlide serialization"
+                );
+                String::new()
+            }),
+        Err(err) => {
+            log::warn!(
+                "get_picture_path: failed to serialize SimplePictureSlide: {}",
+                err
+            );
+            String::new()
+        }
+    }
 }
 
 /// Returns the number of pages in a PDF file using lopdf.

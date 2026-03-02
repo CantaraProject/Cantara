@@ -1078,7 +1078,7 @@ fn start_presentation(
     }
 }
 
-/// An enum representing the active selection (songs, pictures, PDFs, presentations)
+/// An enum representing the active selection (songs, pictures, PDFs)
 #[derive(Clone, PartialEq)]
 enum SelectionFilterOptions {
     Songs,

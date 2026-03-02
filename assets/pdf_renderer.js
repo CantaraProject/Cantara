@@ -38,6 +38,9 @@ window.initPdfJs = function (pdfjsUrl, workerUrl) {
  * @param {string} canvasId    – DOM id of the target <canvas>
  */
 window.renderPdfPage = async function (base64Data, cacheKey, pageNum, canvasId) {
+  // Wait for the next frame so the browser has computed layout dimensions
+  await new Promise(function (resolve) { requestAnimationFrame(resolve); });
+
   try {
     // Wait until PDF.js is ready
     if (!window.__pdfjsLib) {
@@ -68,9 +71,23 @@ window.renderPdfPage = async function (base64Data, cacheKey, pageNum, canvasId) 
     if (!canvas) return;
 
     var ctx = canvas.getContext("2d");
-    var container = canvas.parentElement;
-    var containerWidth = container.clientWidth || 800;
-    var containerHeight = container.clientHeight || 600;
+
+    // Walk up to find a container with meaningful dimensions.
+    // Prefer .presentation (the full slide area) over the immediate parent.
+    var container = canvas.closest('.presentation') || canvas.parentElement;
+    var containerWidth = container.clientWidth;
+    var containerHeight = container.clientHeight;
+
+    // Subtract padding from the presentation container so the canvas fits the content area
+    if (containerWidth > 0 && containerHeight > 0) {
+      var cs = getComputedStyle(container);
+      containerWidth -= (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+      containerHeight -= (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    }
+
+    // Final fallback
+    if (!containerWidth || containerWidth <= 0) containerWidth = window.innerWidth || 800;
+    if (!containerHeight || containerHeight <= 0) containerHeight = window.innerHeight || 600;
 
     var vp = page.getViewport({ scale: 1 });
     var scale = Math.min(containerWidth / vp.width, containerHeight / vp.height);
