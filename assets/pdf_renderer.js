@@ -4,7 +4,7 @@
  *
  * Usage from Rust/Dioxus:
  *   1. Call initPdfJs(pdfjsUrl, workerUrl) once to load the library.
- *   2. Call renderPdfPage(base64Data, pageNum, canvasId) for each slide.
+ *   2. Call renderPdfPage(base64Data, cacheKey, pageNum, canvasId) for each slide.
  */
 
 // Global state

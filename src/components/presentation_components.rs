@@ -504,20 +504,21 @@ fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
         }
     });
 
-    // A stable cache key for the JS-side document cache (escaped for JS string safety)
-    let cache_key = pdf_path.replace('\\', "\\\\").replace('\'', "\\'");
-
     rsx! {
         canvas {
             id: "{canvas_id}",
             style: "max-width: 100%; max-height: 100%;",
             onmounted: move |_| {
                 let canvas_id = canvas_id.clone();
-                let cache_key = cache_key.clone();
+                let pdf_path = pdf_path.clone();
                 let b64 = base64_data.read().clone();
                 spawn(async move {
+                    // Use serde_json to safely escape all string values for JavaScript
+                    let js_b64 = serde_json::to_string(&b64).unwrap_or_default();
+                    let js_cache_key = serde_json::to_string(&pdf_path).unwrap_or_default();
+                    let js_canvas_id = serde_json::to_string(&canvas_id).unwrap_or_default();
                     let js = format!(
-                        "await renderPdfPage('{b64}', '{cache_key}', {page_num}, '{canvas_id}');",
+                        "await renderPdfPage({js_b64}, {js_cache_key}, {page_num}, {js_canvas_id});",
                     );
                     let _ = document::eval(&js).await;
                 });
