@@ -36,6 +36,8 @@ tempfile = "3.23"
 [target.'cfg(not(any(target_os = "linux", target_os = "android", target_os = "ios")))'.dependencies]
 rfd = { version = "0.15.4", default-features = false, features = ["tokio"] }
 dark-light = "1.1"
+lopdf = "0.39.0"
+base64 = "0.22.1"
 
 # Linux desktop dependencies (same libraries, with xdg-portal support for rfd)
 [target.'cfg(target_os = "linux")'.dependencies]

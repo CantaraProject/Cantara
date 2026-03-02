@@ -74,6 +74,8 @@ html, body {
 
 .slide-container {
     z-index: 2!important;
+    width: 100%;
+    overflow: hidden;
 }
 
 @keyframes presentationFadeIn {

@@ -1,11 +1,13 @@
 //! This module provides functionality for rendering the slides in HTML for the presentation
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cantara_songlib::slides::*;
 use dioxus::prelude::*;
 use rgb::RGBA8;
 use rust_i18n::t;
 
 use crate::logic::css::{CssHandler, PlaceItems};
+use crate::logic::presentation::get_picture_path;
 use crate::logic::settings::{CssSize, HorizontalAlign, VerticalAlign};
 use crate::{
     MAIN_CSS,
@@ -17,6 +19,8 @@ use crate::{
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
+const PDFJS_LIB: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.min.mjs");
+const PDFJS_WORKER: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.worker.min.mjs");
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -277,32 +281,49 @@ pub fn PresentationRendererComponent(
                 style: background_css()
             }
             if presentation_is_visible() {
-                div {
-                    class: "slide-container presentation-fade-in",
-                    key: "{current_slide_number}",
-                    {
-                        // This match controls which slide will be rendered depending on the SlideContent
-                        // If the slide content is unknown, an error message with will be shown.
-                        // This is intentional and *should not* happen in production.
-                        match current_slide.read().clone().unwrap().slide_content.clone() {
-                            SlideContent::Title(title_slide) => rsx! {
-                                TitleSlideComponent {
-                                    title_slide: title_slide.clone(),
-                                    title_font_representation: current_pds.read().get_default_headline_font()
+                {
+                    // Determine if the current slide is a picture slide so we can
+                    // give its container full height while keeping text slides
+                    // content-sized for proper grid vertical alignment.
+                    let slide_content = current_slide.read().clone().unwrap().slide_content.clone();
+                    let container_style = if matches!(slide_content, SlideContent::SimplePicture(_)) {
+                        "height: 100%;"
+                    } else {
+                        ""
+                    };
+
+                    rsx! {
+                        div {
+                            class: "slide-container presentation-fade-in",
+                            style: "{container_style}",
+                            key: "{current_slide_number}",
+                            {
+                                match slide_content {
+                                    SlideContent::Title(title_slide) => rsx! {
+                                        TitleSlideComponent {
+                                            title_slide: title_slide.clone(),
+                                            title_font_representation: current_pds.read().get_default_headline_font()
+                                        }
+                                    },
+                                    SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
+                                        SingleLanguageMainContentSlideRenderer {
+                                            main_slide: main_slide.clone(),
+                                            main_content_font: current_pds.read().get_default_font(),
+                                            spoiler_content_font: current_pds.read().get_default_spoiler_font(),
+                                            distance: current_pds().main_content_spoiler_content_padding,
+                                        }
+                                    },
+                                    SlideContent::Empty(empty_slide) => rsx! {
+                                        EmptySlideComponent {}
+                                    },
+                                    SlideContent::SimplePicture(picture_slide) => rsx! {
+                                        SimplePictureSlideComponent {
+                                            picture_slide: picture_slide.clone()
+                                        }
+                                    },
+                                    _ => rsx! { p { "No content provided" } }
                                 }
-                            },
-                            SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
-                                SingleLanguageMainContentSlideRenderer {
-                                    main_slide: main_slide.clone(),
-                                    main_content_font: current_pds.read().get_default_font(),
-                                    spoiler_content_font: current_pds.read().get_default_spoiler_font(),
-                                    distance: current_pds().main_content_spoiler_content_padding,
-                                }
-                            },
-                            SlideContent::Empty(empty_slide) => rsx! {
-                                EmptySlideComponent {}
-                            },
-                            _ => rsx! { p { "No content provided" } }
+                            }
                         }
                     }
                 }
@@ -431,6 +452,106 @@ fn EmptySlideComponent() -> Element {
     rsx! {
         div {
             class: "empty-content",
+        }
+    }
+}
+
+#[component]
+fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
+    let path = get_picture_path(&picture_slide);
+
+    // Check if this is a PDF; the path may contain a #page=N fragment
+    let base_path = path.split('#').next().unwrap_or(&path).to_string();
+    let is_pdf = base_path.to_lowercase().ends_with(".pdf");
+
+    if is_pdf {
+        let page_num: u32 = path
+            .split("#page=")
+            .nth(1)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1);
+
+        rsx! {
+            div {
+                style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
+                PdfPageCanvas {
+                    pdf_path: base_path,
+                    page_num: page_num,
+                }
+            }
+        }
+    } else {
+        rsx! {
+            div {
+                style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
+                img {
+                    src: "{path}",
+                    style: "max-width: 100%; max-height: 100%; object-fit: contain;",
+                }
+            }
+        }
+    }
+}
+
+/// Renders a single PDF page onto a <canvas> via PDF.js.
+/// Reads the PDF file on the Rust side and sends base64‑encoded data to JavaScript
+/// so that file-access restrictions in the webview are avoided.
+///
+/// All JavaScript code is inlined in the `document::eval()` call so that rendering
+/// is self-contained and does not depend on external script loading order.
+#[component]
+fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
+    let canvas_id = format!(
+        "pdf-canvas-{}-{}",
+        pdf_path.replace(['/', '\\', '.', ' '], "-"),
+        page_num
+    );
+
+    // Read the PDF file and encode it as base64 so we can hand it to JS
+    let base64_data = use_memo({
+        let pdf_path = pdf_path.clone();
+        move || {
+            std::fs::read(&*pdf_path)
+                .map(|bytes| BASE64.encode(&bytes))
+                .unwrap_or_default()
+        }
+    });
+
+    // Get asset URLs for PDF.js library and worker
+    let pdfjs_url = format!("{}", PDFJS_LIB);
+    let worker_url = format!("{}", PDFJS_WORKER);
+
+    rsx! {
+        canvas {
+            id: "{canvas_id}",
+            style: "display: block; max-width: 100%; max-height: 100%;",
+            onmounted: move |_| {
+                let canvas_id = canvas_id.clone();
+                let pdf_path = pdf_path.clone();
+                let b64 = base64_data.read().clone();
+                let pdfjs_url = pdfjs_url.clone();
+                let worker_url = worker_url.clone();
+                spawn(async move {
+                    // Use serde_json to safely escape all string values for JavaScript
+                    let js_pdfjs_url = serde_json::to_string(&pdfjs_url).unwrap_or_default();
+                    let js_worker_url = serde_json::to_string(&worker_url).unwrap_or_default();
+                    let js_b64 = serde_json::to_string(&b64).unwrap_or_default();
+                    let js_cache_key = serde_json::to_string(&pdf_path).unwrap_or_default();
+                    let js_canvas_id = serde_json::to_string(&canvas_id).unwrap_or_default();
+
+                    // Self-contained JS: loads PDF.js if needed, decodes PDF, renders page.
+                    // Uses string replacement instead of format!() to avoid double-brace noise.
+                    let js = include_str!("../../assets/pdf_render_inline.js")
+                        .replace("__PDFJS_URL__", &js_pdfjs_url)
+                        .replace("__WORKER_URL__", &js_worker_url)
+                        .replace("__BASE64__", &js_b64)
+                        .replace("__CACHE_KEY__", &js_cache_key)
+                        .replace("__PAGE_NUM__", &page_num.to_string())
+                        .replace("__CANVAS_ID__", &js_canvas_id);
+
+                    let _ = document::eval(&js).await;
+                });
+            },
         }
     }
 }
