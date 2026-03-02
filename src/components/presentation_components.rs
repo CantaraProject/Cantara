@@ -19,7 +19,6 @@ use crate::{
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
-const PDF_RENDERER_JS: Asset = asset!("/assets/pdf_renderer.js");
 const PDFJS_LIB: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.min.mjs");
 const PDFJS_WORKER: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.worker.min.mjs");
 
@@ -246,9 +245,6 @@ pub fn PresentationRendererComponent(
     rsx! {
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Script { src: PRESENTATION_JS }
-        document::Script { src: PDF_RENDERER_JS }
-        // Initialise PDF.js by dynamically importing the ES module via the helper in pdf_renderer.js
-        script { dangerous_inner_html: format!("initPdfJs('{}', '{}');", PDFJS_LIB, PDFJS_WORKER) }
         div {
             class: "presentation",
             style: css_handler.read().to_string(),
@@ -486,6 +482,9 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
 /// Renders a single PDF page onto a <canvas> via PDF.js.
 /// Reads the PDF file on the Rust side and sends base64‑encoded data to JavaScript
 /// so that file-access restrictions in the webview are avoided.
+///
+/// All JavaScript code is inlined in the `document::eval()` call so that rendering
+/// is self-contained and does not depend on external script loading order.
 #[component]
 fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
     let canvas_id = format!(
@@ -504,6 +503,10 @@ fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
         }
     });
 
+    // Get asset URLs for PDF.js library and worker
+    let pdfjs_url = format!("{}", PDFJS_LIB);
+    let worker_url = format!("{}", PDFJS_WORKER);
+
     rsx! {
         canvas {
             id: "{canvas_id}",
@@ -512,14 +515,26 @@ fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
                 let canvas_id = canvas_id.clone();
                 let pdf_path = pdf_path.clone();
                 let b64 = base64_data.read().clone();
+                let pdfjs_url = pdfjs_url.clone();
+                let worker_url = worker_url.clone();
                 spawn(async move {
                     // Use serde_json to safely escape all string values for JavaScript
+                    let js_pdfjs_url = serde_json::to_string(&pdfjs_url).unwrap_or_default();
+                    let js_worker_url = serde_json::to_string(&worker_url).unwrap_or_default();
                     let js_b64 = serde_json::to_string(&b64).unwrap_or_default();
                     let js_cache_key = serde_json::to_string(&pdf_path).unwrap_or_default();
                     let js_canvas_id = serde_json::to_string(&canvas_id).unwrap_or_default();
-                    let js = format!(
-                        "await renderPdfPage({js_b64}, {js_cache_key}, {page_num}, {js_canvas_id});",
-                    );
+
+                    // Self-contained JS: loads PDF.js if needed, decodes PDF, renders page.
+                    // Uses string replacement instead of format!() to avoid double-brace noise.
+                    let js = include_str!("../../assets/pdf_render_inline.js")
+                        .replace("__PDFJS_URL__", &js_pdfjs_url)
+                        .replace("__WORKER_URL__", &js_worker_url)
+                        .replace("__BASE64__", &js_b64)
+                        .replace("__CACHE_KEY__", &js_cache_key)
+                        .replace("__PAGE_NUM__", &page_num.to_string())
+                        .replace("__CANVAS_ID__", &js_canvas_id);
+
                     let _ = document::eval(&js).await;
                 });
             },
