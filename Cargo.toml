@@ -33,6 +33,7 @@ zip = "8.1.0"
 tempfile = "3.23"
 dark-light = "1.1"
 lopdf = "0.39.0"
+base64 = "0.22.1"
 
 # Platform specific
 [target.'cfg(not(target_os = "linux"))'.dependencies]

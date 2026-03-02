@@ -590,6 +590,7 @@ dependencies = [
 name = "cantara"
 version = "0.3.0"
 dependencies = [
+ "base64",
  "cantara-songlib",
  "dark-light",
  "dioxus",

@@ -1,5 +1,6 @@
 //! This module provides functionality for rendering the slides in HTML for the presentation
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cantara_songlib::slides::*;
 use dioxus::prelude::*;
 use rgb::RGBA8;
@@ -18,6 +19,9 @@ use crate::{
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
+const PDF_RENDERER_JS: Asset = asset!("/assets/pdf_renderer.js");
+const PDFJS_LIB: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.min.mjs");
+const PDFJS_WORKER: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.worker.min.mjs");
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -242,6 +246,9 @@ pub fn PresentationRendererComponent(
     rsx! {
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Script { src: PRESENTATION_JS }
+        document::Script { src: PDF_RENDERER_JS }
+        // Initialise PDF.js by dynamically importing the ES module via the helper in pdf_renderer.js
+        script { dangerous_inner_html: format!("initPdfJs('{}', '{}');", PDFJS_LIB, PDFJS_WORKER) }
         div {
             class: "presentation",
             style: css_handler.read().to_string(),
@@ -444,26 +451,77 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
     let path = get_picture_path(&picture_slide);
 
     // Check if this is a PDF; the path may contain a #page=N fragment
-    let base_path = path.split('#').next().unwrap_or(&path);
+    let base_path = path.split('#').next().unwrap_or(&path).to_string();
     let is_pdf = base_path.to_lowercase().ends_with(".pdf");
 
-    rsx! {
-        div {
-            style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
-            if is_pdf {
-                object {
-                    data: "{path}",
-                    r#type: "application/pdf",
-                    width: "100%",
-                    height: "100%",
-                    p { "PDF cannot be displayed in this viewer." }
+    if is_pdf {
+        let page_num: u32 = path
+            .split("#page=")
+            .nth(1)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1);
+
+        rsx! {
+            div {
+                style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
+                PdfPageCanvas {
+                    pdf_path: base_path,
+                    page_num: page_num,
                 }
-            } else {
+            }
+        }
+    } else {
+        rsx! {
+            div {
+                style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
                 img {
                     src: "{path}",
                     style: "max-width: 100%; max-height: 100%; object-fit: contain;",
                 }
             }
+        }
+    }
+}
+
+/// Renders a single PDF page onto a <canvas> via PDF.js.
+/// Reads the PDF file on the Rust side and sends base64‑encoded data to JavaScript
+/// so that file-access restrictions in the webview are avoided.
+#[component]
+fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
+    let canvas_id = format!(
+        "pdf-canvas-{}-{}",
+        pdf_path.replace(['/', '\\', '.', ' '], "-"),
+        page_num
+    );
+
+    // Read the PDF file and encode it as base64 so we can hand it to JS
+    let base64_data = use_memo({
+        let pdf_path = pdf_path.clone();
+        move || {
+            std::fs::read(&*pdf_path)
+                .map(|bytes| BASE64.encode(&bytes))
+                .unwrap_or_default()
+        }
+    });
+
+    // A stable cache key for the JS-side document cache (escaped for JS string safety)
+    let cache_key = pdf_path.replace('\\', "\\\\").replace('\'', "\\'");
+
+    rsx! {
+        canvas {
+            id: "{canvas_id}",
+            style: "max-width: 100%; max-height: 100%;",
+            onmounted: move |_| {
+                let canvas_id = canvas_id.clone();
+                let cache_key = cache_key.clone();
+                let b64 = base64_data.read().clone();
+                spawn(async move {
+                    let js = format!(
+                        "await renderPdfPage('{b64}', '{cache_key}', {page_num}, '{canvas_id}');",
+                    );
+                    let _ = document::eval(&js).await;
+                });
+            },
         }
     }
 }
