@@ -4,14 +4,18 @@ use crate::logic::css::{CssFontFamily, CssString};
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, get_source_files};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
-use reqwest::{Client as AsyncClient, blocking::Client};
+use reqwest::Client as AsyncClient;
+#[cfg(not(target_arch = "wasm32"))]
+use reqwest::blocking::Client;
 use rgb::*;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
 use std::{
     fs,
     io::{self, Write},
-    path::{Path, PathBuf},
 };
+#[cfg(not(target_arch = "wasm32"))]
 use tempfile::TempDir;
 use zip::ZipArchive;
 
@@ -109,38 +113,67 @@ fn default_presenter_console_in_main_window() -> bool {
 impl Settings {
     /// Cleans up all temporary resources associated with all repositories
     pub fn cleanup_all_repositories(&self) {
-        for repo in &self.repositories {
-            repo.cleanup();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            for repo in &self.repositories {
+                repo.cleanup();
+            }
+            // Also clean up any orphaned temporary directories
+            RepositoryType::cleanup_all_temp_dirs();
         }
-        // Also clean up any orphaned temporary directories
-        RepositoryType::cleanup_all_temp_dirs();
     }
 
     /// Load settings from storage or creates a new default settings if
     /// the program is run for the first time.
     pub fn load() -> Self {
-        let mut settings = match get_settings_file() {
-            Some(file) => match std::fs::read_to_string(file) {
-                Ok(content) => match serde_json::from_str(&content) {
-                    Ok(settings) => settings,
+        #[cfg(target_arch = "wasm32")]
+        {
+            let json = web_sys::window()
+                .and_then(|w| w.local_storage().ok().flatten())
+                .and_then(|s| s.get_item("cantara-settings").ok().flatten());
+            let mut settings = match json {
+                Some(j) => serde_json::from_str(&j).unwrap_or_default(),
+                None => Self::default(),
+            };
+            settings.ensure_slide_settings_for_designs();
+            return settings;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut settings = match get_settings_file() {
+                Some(file) => match std::fs::read_to_string(file) {
+                    Ok(content) => match serde_json::from_str(&content) {
+                        Ok(settings) => settings,
+                        Err(_) => Self::default(),
+                    },
                     Err(_) => Self::default(),
                 },
-                Err(_) => Self::default(),
-            },
-            None => Self::default(),
-        };
-        
-        // Ensure that there are at least as many slide settings as presentation designs
-        settings.ensure_slide_settings_for_designs();
-        
-        settings
+                None => Self::default(),
+            };
+            settings.ensure_slide_settings_for_designs();
+            settings
+        }
     }
 
     /// Save the current settings to storage.
     pub fn save(&self) {
-        if let Some(file) = get_settings_file() {
-            let _ = fs::create_dir_all(get_settings_folder().unwrap());
-            if std::fs::write(file, serde_json::to_string_pretty(self).unwrap()).is_ok() {}
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Ok(json) = serde_json::to_string_pretty(self) {
+                let _ = web_sys::window()
+                    .and_then(|w| w.local_storage().ok().flatten())
+                    .map(|s| s.set_item("cantara-settings", &json));
+            }
+            return;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(file) = get_settings_file() {
+                let _ = fs::create_dir_all(get_settings_folder().unwrap());
+                if std::fs::write(file, serde_json::to_string_pretty(self).unwrap()).is_ok() {}
+            }
         }
     }
 
@@ -253,6 +286,7 @@ pub struct Repository {
 impl Repository {
     /// Cleans up any temporary resources associated with this repository
     pub fn cleanup(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
         if let RepositoryType::RemoteZip(url) = &self.repository_type {
             RepositoryType::cleanup_temp_dir(url);
         }
@@ -310,14 +344,21 @@ pub enum RepositoryType {
     RemoteZip(String),
 }
 
-// This struct holds the temporary directory for a remote ZIP repository
-// It's not included in serialization/deserialization
+// On non-WASM platforms, extracted ZIPs are stored in TempDir instances on the filesystem.
+#[cfg(not(target_arch = "wasm32"))]
 thread_local! {
-    static TEMP_DIRS: std::cell::RefCell<std::collections::HashMap<String, tempfile::TempDir>> = std::cell::RefCell::new(std::collections::HashMap::new());
+    static TEMP_DIRS: std::cell::RefCell<std::collections::HashMap<String, TempDir>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+// On WASM, extracted ZIP contents are stored in memory (virtual filesystem).
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static WEB_FILES: std::cell::RefCell<std::collections::HashMap<String, Vec<u8>>> = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
 impl RepositoryType {
-    /// Cleans up the temporary directory for a specific URL
+    /// Cleans up the temporary directory for a specific URL (desktop only).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn cleanup_temp_dir(url: &str) {
         TEMP_DIRS.with(|temp_dirs| {
             let mut temp_dirs = temp_dirs.borrow_mut();
@@ -327,7 +368,11 @@ impl RepositoryType {
         });
     }
 
-    /// Cleans up all temporary directories
+    #[cfg(target_arch = "wasm32")]
+    pub fn cleanup_temp_dir(_url: &str) {}
+
+    /// Cleans up all temporary directories (desktop only).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn cleanup_all_temp_dirs() {
         TEMP_DIRS.with(|temp_dirs| {
             let mut temp_dirs = temp_dirs.borrow_mut();
@@ -339,253 +384,292 @@ impl RepositoryType {
         });
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn cleanup_all_temp_dirs() {}
+
     /// Get files which are provided by the repository.
+    /// On WASM, local file paths are not supported; only remote ZIP repositories work.
     pub fn get_files(&self) -> Vec<SourceFile> {
-        match self {
-            RepositoryType::LocaleFilePath(path_string) => {
-                get_source_files(Path::new(&path_string))
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            match self {
+                RepositoryType::LocaleFilePath(path_string) => {
+                    get_source_files(Path::new(&path_string))
+                }
+                RepositoryType::RemoteZip(url) => {
+                    let mut files = vec![];
+                    TEMP_DIRS.with(|temp_dirs| {
+                        let mut temp_dirs = temp_dirs.borrow_mut();
+                        if let Some(temp_dir) = temp_dirs.get(url) {
+                            log::info!("Using existing temporary directory for URL: {}", url);
+                            files = get_source_files(temp_dir.path());
+                        } else {
+                            log::info!("Downloading and extracting ZIP file from URL: {}", url);
+                            match self.download_and_extract_zip(url) {
+                                Ok(temp_dir) => {
+                                    let path = temp_dir.path().to_path_buf();
+                                    log::info!("Extracted ZIP file to temporary directory: {:?}", path);
+                                    files = get_source_files(&path);
+                                    temp_dirs.insert(url.clone(), temp_dir);
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to download or extract ZIP file: {}", e);
+                                }
+                            }
+                        }
+                    });
+                    files
+                }
+                _ => vec![],
             }
-            RepositoryType::RemoteZip(url) => {
-                // Check if we already have a temporary directory for this URL
-                let mut files = vec![];
+        }
 
-                TEMP_DIRS.with(|temp_dirs| {
-                    let mut temp_dirs = temp_dirs.borrow_mut();
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Synchronous local file paths are not available on web.
+            // Use get_files_async() instead for RemoteZip repositories.
+            let prefix = self.web_vfs_prefix();
+            if prefix.is_empty() {
+                return vec![];
+            }
+            WEB_FILES.with(|files| {
+                files
+                    .borrow()
+                    .keys()
+                    .filter(|k| k.starts_with(&prefix))
+                    .filter_map(|path| SourceFile::from_web_path(path))
+                    .collect()
+            })
+        }
+    }
 
-                    // If we already have a temporary directory for this URL, use it
-                    if let Some(temp_dir) = temp_dirs.get(url) {
-                        log::info!("Using existing temporary directory for URL: {}", url);
-                        files = get_source_files(temp_dir.path());
-                    } else {
-                        // Otherwise, download and extract the ZIP file
+    /// Get files which are provided by the repository asynchronously.
+    pub async fn get_files_async(&self) -> Vec<SourceFile> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            match self {
+                RepositoryType::LocaleFilePath(path_string) => {
+                    get_source_files(Path::new(&path_string))
+                }
+                RepositoryType::RemoteZip(url) => {
+                    let mut files = vec![];
+                    TEMP_DIRS.with(|temp_dirs| {
+                        let temp_dirs = temp_dirs.borrow_mut();
+                        if let Some(temp_dir) = temp_dirs.get(url) {
+                            log::info!("Using existing temporary directory for URL: {}", url);
+                            files = get_source_files(temp_dir.path());
+                        }
+                    });
+                    if files.is_empty() {
                         log::info!("Downloading and extracting ZIP file from URL: {}", url);
-                        match self.download_and_extract_zip(url) {
+                        match self.download_and_extract_zip_async(url).await {
                             Ok(temp_dir) => {
                                 let path = temp_dir.path().to_path_buf();
                                 log::info!("Extracted ZIP file to temporary directory: {:?}", path);
                                 files = get_source_files(&path);
-                                // Store the temporary directory so it persists
-                                temp_dirs.insert(url.clone(), temp_dir);
+                                TEMP_DIRS.with(|temp_dirs| {
+                                    let mut temp_dirs = temp_dirs.borrow_mut();
+                                    temp_dirs.insert(url.clone(), temp_dir);
+                                });
                             }
                             Err(e) => {
                                 log::error!("Failed to download or extract ZIP file: {}", e);
                             }
                         }
                     }
-                });
-
-                files
-            }
-            _ => vec![],
-        }
-    }
-
-    /// Get files which are provided by the repository asynchronously.
-    /// This is the async version of `get_files`.
-    pub async fn get_files_async(&self) -> Vec<SourceFile> {
-        match self {
-            RepositoryType::LocaleFilePath(path_string) => {
-                get_source_files(Path::new(&path_string))
-            }
-            RepositoryType::RemoteZip(url) => {
-                // Check if we already have a temporary directory for this URL
-                let mut files = vec![];
-
-                TEMP_DIRS.with(|temp_dirs| {
-                    let temp_dirs = temp_dirs.borrow_mut();
-
-                    // If we already have a temporary directory for this URL, use it
-                    if let Some(temp_dir) = temp_dirs.get(url) {
-                        log::info!("Using existing temporary directory for URL: {}", url);
-                        files = get_source_files(temp_dir.path());
-                    }
-                });
-
-                // If we don't have a temporary directory yet, download and extract the ZIP file
-                if files.is_empty() {
-                    log::info!("Downloading and extracting ZIP file from URL: {}", url);
-                    match self.download_and_extract_zip_async(url).await {
-                        Ok(temp_dir) => {
-                            let path = temp_dir.path().to_path_buf();
-                            log::info!("Extracted ZIP file to temporary directory: {:?}", path);
-                            files = get_source_files(&path);
-
-                            // Store the temporary directory so it persists
-                            TEMP_DIRS.with(|temp_dirs| {
-                                let mut temp_dirs = temp_dirs.borrow_mut();
-                                temp_dirs.insert(url.clone(), temp_dir);
-                            });
-                        }
-                        Err(e) => {
-                            log::error!("Failed to download or extract ZIP file: {}", e);
-                        }
-                    }
+                    files
                 }
-
-                files
+                _ => vec![],
             }
-            _ => vec![],
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            match self {
+                RepositoryType::RemoteZip(url) => {
+                    let prefix = format!("web-zip://{}", url);
+                    // Return cached files if already downloaded
+                    let cached: Vec<SourceFile> = WEB_FILES.with(|files| {
+                        files
+                            .borrow()
+                            .keys()
+                            .filter(|k| k.starts_with(&prefix))
+                            .filter_map(|path| SourceFile::from_web_path(path))
+                            .collect()
+                    });
+                    if !cached.is_empty() {
+                        return cached;
+                    }
+                    // Download and extract in memory
+                    log::info!("Downloading ZIP from URL (web): {}", url);
+                    match AsyncClient::new().get(url).send().await {
+                        Ok(response) => match response.bytes().await {
+                            Ok(bytes) => {
+                                let cursor = std::io::Cursor::new(bytes);
+                                match ZipArchive::new(cursor) {
+                                    Ok(mut archive) => {
+                                        for i in 0..archive.len() {
+                                            if let Ok(mut entry) = archive.by_index(i) {
+                                                if entry.name().ends_with('/') {
+                                                    continue;
+                                                }
+                                                let name = entry.name().to_string();
+                                                let path = format!("{}/{}", prefix, name);
+                                                let mut content = Vec::new();
+                                                let _ = std::io::Read::read_to_end(&mut entry, &mut content);
+                                                WEB_FILES.with(|files| {
+                                                    files.borrow_mut().insert(path, content);
+                                                });
+                                            }
+                                        }
+                                    }
+                                    Err(e) => log::error!("Failed to parse ZIP archive: {}", e),
+                                }
+                            }
+                            Err(e) => log::error!("Failed to read response bytes: {}", e),
+                        },
+                        Err(e) => log::error!("Failed to download ZIP: {}", e),
+                    }
+                    WEB_FILES.with(|files| {
+                        files
+                            .borrow()
+                            .keys()
+                            .filter(|k| k.starts_with(&prefix))
+                            .filter_map(|path| SourceFile::from_web_path(path))
+                            .collect()
+                    })
+                }
+                _ => vec![],
+            }
         }
     }
 
-    /// Downloads a ZIP file from a URL and extracts it to a temporary directory.
-    /// Returns the temporary directory if successful, or an error if the download or extraction fails.
+    /// Returns the VFS prefix for this repository on WASM.
+    #[cfg(target_arch = "wasm32")]
+    fn web_vfs_prefix(&self) -> String {
+        match self {
+            RepositoryType::RemoteZip(url) => format!("web-zip://{}", url),
+            _ => String::new(),
+        }
+    }
+
+    /// Reads a file from the web VFS by its virtual path.
+    #[cfg(target_arch = "wasm32")]
+    pub fn web_read_file(path: &str) -> Option<Vec<u8>> {
+        WEB_FILES.with(|files| files.borrow().get(path).cloned())
+    }
+
+    /// Downloads a ZIP file from a URL and extracts it to a temporary directory (desktop only).
+    #[cfg(not(target_arch = "wasm32"))]
     fn download_and_extract_zip(&self, url: &str) -> Result<TempDir, String> {
-        // Create a temporary directory to store the downloaded ZIP file
         let temp_dir =
             TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
-
-        // Create a temporary file path for the downloaded ZIP
         let zip_path = temp_dir.path().join("download.zip");
-
-        // Download the ZIP file
         let response = Client::new()
             .get(url)
             .send()
             .map_err(|e| format!("Failed to download ZIP file: {}", e))?;
-
         if !response.status().is_success() {
             return Err(format!(
                 "Failed to download ZIP file: HTTP status {}",
                 response.status()
             ));
         }
-
-        // Create the file and write the response body to it
         let mut file = fs::File::create(&zip_path)
             .map_err(|e| format!("Failed to create temporary file: {}", e))?;
-
         let content = response
             .bytes()
             .map_err(|e| format!("Failed to read response body: {}", e))?;
-
         file.write_all(&content)
             .map_err(|e| format!("Failed to write to temporary file: {}", e))?;
-
-        // Open the ZIP file
         let file = fs::File::open(&zip_path)
             .map_err(|e| format!("Failed to open downloaded ZIP file: {}", e))?;
-
         let mut archive =
             ZipArchive::new(file).map_err(|e| format!("Failed to parse ZIP file: {}", e))?;
-
-        // Extract the ZIP file
         for i in 0..archive.len() {
             let mut file = archive
                 .by_index(i)
                 .map_err(|e| format!("Failed to access ZIP entry: {}", e))?;
-
             let outpath = temp_dir.path().join(file.name());
-
             if file.name().ends_with('/') {
-                // Create directory
                 fs::create_dir_all(&outpath)
                     .map_err(|e| format!("Failed to create directory: {}", e))?;
             } else {
-                // Create parent directory if it doesn't exist
                 if let Some(parent) = outpath.parent() {
                     if !parent.exists() {
                         fs::create_dir_all(parent)
                             .map_err(|e| format!("Failed to create parent directory: {}", e))?;
                     }
                 }
-
-                // Extract file
                 let mut outfile = fs::File::create(&outpath)
                     .map_err(|e| format!("Failed to create output file: {}", e))?;
-
                 io::copy(&mut file, &mut outfile)
                     .map_err(|e| format!("Failed to write output file: {}", e))?;
             }
         }
-
-        // Return the temporary directory
         Ok(temp_dir)
     }
 
-    /// Downloads a ZIP file from a URL and extracts it to a temporary directory asynchronously.
-    /// Returns the temporary directory if successful, or an error if the download or extraction fails.
-    /// This is the async version of `download_and_extract_zip`.
+    /// Downloads a ZIP file and extracts it to a temporary directory asynchronously (desktop only).
+    #[cfg(not(target_arch = "wasm32"))]
     async fn download_and_extract_zip_async(&self, url: &str) -> Result<TempDir, String> {
-        // Create a temporary directory to store the downloaded ZIP file
         let temp_dir =
             TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
-
-        // Create a temporary file path for the downloaded ZIP
         let zip_path = temp_dir.path().join("download.zip");
-
-        // Download the ZIP file using the async client
         let response = AsyncClient::new()
             .get(url)
             .send()
             .await
             .map_err(|e| format!("Failed to download ZIP file: {}", e))?;
-
         if !response.status().is_success() {
             return Err(format!(
                 "Failed to download ZIP file: HTTP status {}",
                 response.status()
             ));
         }
-
-        // Create the file and write the response body to it
         let mut file = fs::File::create(&zip_path)
             .map_err(|e| format!("Failed to create temporary file: {}", e))?;
-
         let content = response
             .bytes()
             .await
             .map_err(|e| format!("Failed to read response body: {}", e))?;
-
         file.write_all(&content)
             .map_err(|e| format!("Failed to write to temporary file: {}", e))?;
-
-        // Open the ZIP file
         let file = fs::File::open(&zip_path)
             .map_err(|e| format!("Failed to open downloaded ZIP file: {}", e))?;
-
         let mut archive =
             ZipArchive::new(file).map_err(|e| format!("Failed to parse ZIP file: {}", e))?;
-
-        // Extract the ZIP file
         for i in 0..archive.len() {
             let mut file = archive
                 .by_index(i)
                 .map_err(|e| format!("Failed to access ZIP entry: {}", e))?;
-
             let outpath = temp_dir.path().join(file.name());
-
             if file.name().ends_with('/') {
-                // Create directory
                 fs::create_dir_all(&outpath)
                     .map_err(|e| format!("Failed to create directory: {}", e))?;
             } else {
-                // Create parent directory if it doesn't exist
                 if let Some(parent) = outpath.parent() {
                     if !parent.exists() {
                         fs::create_dir_all(parent)
                             .map_err(|e| format!("Failed to create parent directory: {}", e))?;
                     }
                 }
-
-                // Extract file
                 let mut outfile = fs::File::create(&outpath)
                     .map_err(|e| format!("Failed to create output file: {}", e))?;
-
                 io::copy(&mut file, &mut outfile)
                     .map_err(|e| format!("Failed to write output file: {}", e))?;
             }
         }
-
-        // Return the temporary directory
         Ok(temp_dir)
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn get_settings_file() -> Option<PathBuf> {
     get_settings_folder().map(|settings_folder| settings_folder.join("settings.json"))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn get_settings_folder() -> Option<PathBuf> {
     dirs::config_local_dir().map(|dir| dir.join("cantara"))
 }

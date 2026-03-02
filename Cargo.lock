@@ -606,6 +606,7 @@ dependencies = [
  "serde_json",
  "sys-locale",
  "tempfile",
+ "web-sys",
  "zip",
 ]
 

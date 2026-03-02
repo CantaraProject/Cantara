@@ -1,5 +1,6 @@
 //! This module provides functionality for rendering the slides in HTML for the presentation
 
+#[cfg(not(target_arch = "wasm32"))]
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cantara_songlib::slides::*;
 use dioxus::prelude::*;
@@ -19,7 +20,9 @@ use crate::{
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
+#[cfg(not(target_arch = "wasm32"))]
 const PDFJS_LIB: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.min.mjs");
+#[cfg(not(target_arch = "wasm32"))]
 const PDFJS_WORKER: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.worker.min.mjs");
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -464,6 +467,7 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
     let base_path = path.split('#').next().unwrap_or(&path).to_string();
     let is_pdf = base_path.to_lowercase().ends_with(".pdf");
 
+    #[cfg(not(target_arch = "wasm32"))]
     if is_pdf {
         let page_num: u32 = path
             .split("#page=")
@@ -471,7 +475,7 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
             .and_then(|s| s.parse().ok())
             .unwrap_or(1);
 
-        rsx! {
+        return rsx! {
             div {
                 style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
                 PdfPageCanvas {
@@ -479,26 +483,31 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
                     page_num: page_num,
                 }
             }
-        }
-    } else {
-        rsx! {
-            div {
-                style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
-                img {
-                    src: "{path}",
-                    style: "max-width: 100%; max-height: 100%; object-fit: contain;",
-                }
+        };
+    }
+
+    // On web, PDFs are not yet supported via local paths; fall through to image display.
+    #[cfg(target_arch = "wasm32")]
+    let _ = is_pdf;
+
+    rsx! {
+        div {
+            style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
+            img {
+                src: "{path}",
+                style: "max-width: 100%; max-height: 100%; object-fit: contain;",
             }
         }
     }
 }
 
-/// Renders a single PDF page onto a <canvas> via PDF.js.
+/// Renders a single PDF page onto a <canvas> via PDF.js (desktop only).
 /// Reads the PDF file on the Rust side and sends base64‑encoded data to JavaScript
 /// so that file-access restrictions in the webview are avoided.
 ///
 /// All JavaScript code is inlined in the `document::eval()` call so that rendering
 /// is self-contained and does not depend on external script loading order.
+#[cfg(not(target_arch = "wasm32"))]
 #[component]
 fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
     let canvas_id = format!(
