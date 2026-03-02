@@ -1,6 +1,7 @@
 //! This module contains the components for the Presenter Console window.
 //! The presenter console shows the current slide text, a live preview, and navigation controls.
 
+use crate::logic::presentation::get_picture_path;
 use crate::logic::states::RunningPresentation;
 use crate::MAIN_CSS;
 use cantara_songlib::slides::SlideContent;
@@ -214,6 +215,26 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
                 div {
                     class: "slide-text-empty",
                     em { { t!("presenter.empty_slide").to_string() } }
+                }
+            }
+        }
+        SlideContent::SimplePicture(picture_slide) => {
+            let path = get_picture_path(&picture_slide);
+            let base_path = path.split('#').next().unwrap_or(&path);
+            let is_pdf = base_path.to_lowercase().ends_with(".pdf");
+            let label = if is_pdf {
+                // Extract page number from fragment (e.g. #page=2)
+                let page_info = path.split("#page=").nth(1)
+                    .map(|p| format!(" ({})", t!("general.pdf_page", page => p)))
+                    .unwrap_or_default();
+                format!("{}{}", t!("general.pdf"), page_info)
+            } else {
+                t!("general.picture").to_string()
+            };
+            rsx! {
+                div {
+                    class: "slide-text-content",
+                    em { "📄 {label}" }
                 }
             }
         }
