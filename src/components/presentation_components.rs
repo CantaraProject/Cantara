@@ -279,37 +279,49 @@ pub fn PresentationRendererComponent(
                 style: background_css()
             }
             if presentation_is_visible() {
-                div {
-                    class: "slide-container presentation-fade-in",
-                    key: "{current_slide_number}",
-                    {
-                        // This match controls which slide will be rendered depending on the SlideContent
-                        // If the slide content is unknown, an error message with will be shown.
-                        // This is intentional and *should not* happen in production.
-                        match current_slide.read().clone().unwrap().slide_content.clone() {
-                            SlideContent::Title(title_slide) => rsx! {
-                                TitleSlideComponent {
-                                    title_slide: title_slide.clone(),
-                                    title_font_representation: current_pds.read().get_default_headline_font()
+                {
+                    // Determine if the current slide is a picture slide so we can
+                    // give its container full height while keeping text slides
+                    // content-sized for proper grid vertical alignment.
+                    let slide_content = current_slide.read().clone().unwrap().slide_content.clone();
+                    let container_style = if matches!(slide_content, SlideContent::SimplePicture(_)) {
+                        "height: 100%;"
+                    } else {
+                        ""
+                    };
+
+                    rsx! {
+                        div {
+                            class: "slide-container presentation-fade-in",
+                            style: "{container_style}",
+                            key: "{current_slide_number}",
+                            {
+                                match slide_content {
+                                    SlideContent::Title(title_slide) => rsx! {
+                                        TitleSlideComponent {
+                                            title_slide: title_slide.clone(),
+                                            title_font_representation: current_pds.read().get_default_headline_font()
+                                        }
+                                    },
+                                    SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
+                                        SingleLanguageMainContentSlideRenderer {
+                                            main_slide: main_slide.clone(),
+                                            main_content_font: current_pds.read().get_default_font(),
+                                            spoiler_content_font: current_pds.read().get_default_spoiler_font(),
+                                            distance: current_pds().main_content_spoiler_content_padding,
+                                        }
+                                    },
+                                    SlideContent::Empty(empty_slide) => rsx! {
+                                        EmptySlideComponent {}
+                                    },
+                                    SlideContent::SimplePicture(picture_slide) => rsx! {
+                                        SimplePictureSlideComponent {
+                                            picture_slide: picture_slide.clone()
+                                        }
+                                    },
+                                    _ => rsx! { p { "No content provided" } }
                                 }
-                            },
-                            SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
-                                SingleLanguageMainContentSlideRenderer {
-                                    main_slide: main_slide.clone(),
-                                    main_content_font: current_pds.read().get_default_font(),
-                                    spoiler_content_font: current_pds.read().get_default_spoiler_font(),
-                                    distance: current_pds().main_content_spoiler_content_padding,
-                                }
-                            },
-                            SlideContent::Empty(empty_slide) => rsx! {
-                                EmptySlideComponent {}
-                            },
-                            SlideContent::SimplePicture(picture_slide) => rsx! {
-                                SimplePictureSlideComponent {
-                                    picture_slide: picture_slide.clone()
-                                }
-                            },
-                            _ => rsx! { p { "No content provided" } }
+                            }
                         }
                     }
                 }
