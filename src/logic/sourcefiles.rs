@@ -217,6 +217,32 @@ impl PdfSourceFile {
     }
 }
 
+impl SourceFile {
+    /// Creates a [SourceFile] from a web VFS path (e.g., `web-zip://url/path/to/file.song`).
+    /// Only available on WASM targets.
+    #[cfg(target_arch = "wasm32")]
+    pub fn from_web_path(vfs_path: &str) -> Option<Self> {
+        // The file name is the last component of the path
+        let file_name = vfs_path.split('/').last()?;
+        let extension = file_name.rsplit('.').next()?.to_lowercase();
+        let file_type = match extension.as_str() {
+            "song" => SourceFileType::Song,
+            "png" | "jpg" | "jpeg" => SourceFileType::Image,
+            "pdf" => SourceFileType::Pdf,
+            _ => return None,
+        };
+        let stem = file_name
+            .rsplit_once('.')
+            .map(|(s, _)| s)
+            .unwrap_or(file_name);
+        Some(SourceFile {
+            name: stem.to_string(),
+            path: PathBuf::from(vfs_path),
+            file_type,
+        })
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;

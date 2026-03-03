@@ -64,6 +64,7 @@ pub fn PresenterConsolePage() -> Element {
         if is_main_window {
             nav.replace(crate::Route::Selection {});
         } else {
+            #[cfg(feature = "desktop")]
             dioxus::desktop::window().close();
         }
     };
