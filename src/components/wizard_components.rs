@@ -167,10 +167,16 @@ fn SecondStep() -> Element {
                     let mut settings = settings_signal.write();
                     settings.add_repository_folder(chosen_directory.read().to_string());
                     settings.save();
-                    let mut wizard_status = use_context::<WizardStatus>();
+                    // On desktop, mark the step as done after a successful directory selection.
                     wizard_status.is_done.set(true);
                 }
             }
+        }
+        #[cfg(not(feature = "desktop"))]
+        {
+            // On non-desktop targets (e.g., WASM), the folder picker is unavailable.
+            // Mark the step as done so the wizard can progress.
+            wizard_status.is_done.set(true);
         }
     };
 
