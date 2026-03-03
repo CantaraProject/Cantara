@@ -694,7 +694,7 @@ fn SelectedItem(
                 // If mouse is released over the same item, the container onmouseup will also handle it
             },
             span {
-                style: "flex-grow: 1;",
+                style: "flex-grow: 1; display: flex; align-items: center; gap: 0.5em;",
                 onmousedown: move |_| {
                     anim_target.set(None);
                     dragging_from.set(Some(id));
@@ -702,6 +702,12 @@ fn SelectedItem(
                 },
                 onclick: move |_| {
                     active_selected_item_id.set(Some(id))
+                },
+                match selected_items.read().get(id).unwrap().source_file.file_type {
+                    SourceFileType::Song => rsx! { MusicIcon {} },
+                    SourceFileType::Image => rsx! { ImageIcon {} },
+                    SourceFileType::Pdf => rsx! { PdfIcon {} },
+                    _ => rsx! {},
                 },
                 { selected_items.read().get(id).unwrap().source_file.name.clone() },
             }
