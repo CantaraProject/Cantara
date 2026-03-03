@@ -209,6 +209,24 @@ fn RepositorySettings() -> Element {
                             }
                         }
                     }
+                    RepositoryType::GitHub { owner, repo, token } => {
+                        rsx! {
+                            div { { t!("settings.repositories_github").to_string() }
+                                br {}
+                                a {
+                                    href: format!("https://github.com/{}/{}", owner, repo),
+                                    target: "_blank",
+                                    { format!("{}/{}", owner, repo) }
+                                }
+                                if token.is_some() {
+                                    span {
+                                        style: "margin-left: 8px; font-style: italic;",
+                                        { format!("({})", t!("settings.repositories_github_authenticated").to_string()) }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 // Display source file count
                 {
@@ -275,6 +293,65 @@ fn RepositorySettings() -> Element {
                     }
                 },
                 { t!("settings.add_remote_repository").to_string() }
+            }
+            button {
+                class: "smaller-buttons",
+                onclick: move |_| {
+                    async move {
+                        // Prompt for GitHub repository (owner/repo or full URL)
+                        let prompt_text = t!("settings.github_repository_prompt").to_string();
+                        let js_prompt = format!("return prompt('{}', '');", prompt_text);
+                        let input = match document::eval(&js_prompt).await {
+                            Ok(str) => Some(str.to_string().replace("\"", "")),
+                            Err(_) => None,
+                        };
+
+                        if let Some(input) = input {
+                            if !input.trim().is_empty() && input != "null" {
+                                match RepositoryType::parse_github_repo(&input) {
+                                    Some((owner, repo)) => {
+                                        // Prompt for optional token (for private repos)
+                                        let token_prompt = t!("settings.github_token_prompt").to_string();
+                                        let js_token_prompt = format!("return prompt('{}', '');", token_prompt);
+                                        let token = match document::eval(&js_token_prompt).await {
+                                            Ok(str) => {
+                                                let t = str.to_string().replace("\"", "");
+                                                if t.trim().is_empty() || t == "null" {
+                                                    None
+                                                } else {
+                                                    Some(t.trim().to_string())
+                                                }
+                                            }
+                                            Err(_) => None,
+                                        };
+
+                                        // Add the repository
+                                        settings.write().add_github_repository(owner, repo, token);
+
+                                        // Trigger a refresh of the file counts
+                                        let repositories = settings.read().repositories.clone();
+                                        let mut counts = Vec::new();
+                                        for (idx, repo) in repositories.iter().enumerate() {
+                                            let count = repo.get_source_file_count_async().await;
+                                            counts.push((idx, count));
+                                        }
+                                        repository_file_counts.set(counts);
+
+                                        // Show success message
+                                        let success_msg = t!("settings.github_repository_added").to_string();
+                                        let _ = document::eval(&js_yes_no_box(success_msg)).await;
+                                    }
+                                    None => {
+                                        // Show error message
+                                        let error_msg = t!("settings.github_repository_invalid").to_string();
+                                        let _ = document::eval(&js_yes_no_box(error_msg)).await;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                { t!("settings.add_github_repository").to_string() }
             }
         }
     }
