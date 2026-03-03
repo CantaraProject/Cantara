@@ -96,8 +96,9 @@ jobs:
       contents: read
       pages: write
       id-token: write
+    # Only associate with github-pages environment on push (empty name skips environment on PRs)
     environment:
-      name: github-pages
+      name: ${{ github.event_name == 'push' && 'github-pages' || '' }}
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Provide npm
