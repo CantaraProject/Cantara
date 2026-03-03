@@ -23,7 +23,8 @@ const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
 const PDFJS_LIB: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.min.mjs");
 #[cfg(not(target_arch = "wasm32"))]
 const PDFJS_WORKER: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.worker.min.mjs");
-/// CDN URL for PDF.js library (used on the web/WASM target where node_modules are unavailable)
+/// CDN URL for PDF.js library (used on the web/WASM target where node_modules are unavailable).
+/// Loaded via dynamic `import()` in JavaScript, which does not support Subresource Integrity (SRI).
 #[cfg(target_arch = "wasm32")]
 const PDFJS_CDN_LIB: &str = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
 #[cfg(target_arch = "wasm32")]

@@ -166,6 +166,8 @@ fn create_presentation_slides(
                         linked_file: None,
                     });
                 }
+            } else {
+                log::warn!("Could not read PDF from web VFS: {}", path_str);
             }
         }
     }
