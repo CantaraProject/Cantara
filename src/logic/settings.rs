@@ -135,6 +135,7 @@ impl Settings {
                 Some(j) => serde_json::from_str(&j).unwrap_or_default(),
                 None => Self::default(),
             };
+            settings.ensure_default_presentation_design();
             settings.ensure_slide_settings_for_designs();
             return settings;
         }
@@ -151,6 +152,7 @@ impl Settings {
                 },
                 None => Self::default(),
             };
+            settings.ensure_default_presentation_design();
             settings.ensure_slide_settings_for_designs();
             settings
         }
@@ -250,6 +252,14 @@ impl Settings {
         source_files.dedup();
 
         source_files
+    }
+
+    /// Ensures that at least one presentation design exists.
+    /// If there are no presentation designs, a default one is created.
+    pub fn ensure_default_presentation_design(&mut self) {
+        if self.presentation_designs.is_empty() {
+            self.presentation_designs.push(PresentationDesign::default());
+        }
     }
 
     /// Ensures that there are at least as many slide settings as presentation designs.
@@ -1191,5 +1201,34 @@ mod tests {
     fn test_cors_friendly_url_non_github() {
         let url = "https://example.com/some/archive.zip";
         assert_eq!(cors_friendly_url(url), url);
+    }
+
+    #[test]
+    fn test_ensure_default_presentation_design_when_empty() {
+        let mut settings = Settings {
+            presentation_designs: vec![],
+            ..Default::default()
+        };
+        assert!(settings.presentation_designs.is_empty());
+        settings.ensure_default_presentation_design();
+        assert_eq!(settings.presentation_designs.len(), 1);
+        assert_eq!(settings.presentation_designs[0].name, "Default");
+    }
+
+    #[test]
+    fn test_ensure_default_presentation_design_when_not_empty() {
+        let mut settings = Settings::default();
+        let original_count = settings.presentation_designs.len();
+        settings.ensure_default_presentation_design();
+        assert_eq!(settings.presentation_designs.len(), original_count);
+    }
+
+    #[test]
+    fn test_deserialize_empty_presentation_designs_gets_default() {
+        let json = r#"{"repositories":[],"wizard_completed":false,"presentation_designs":[],"song_slide_settings":[]}"#;
+        let mut settings: Settings = serde_json::from_str(json).unwrap();
+        assert!(settings.presentation_designs.is_empty());
+        settings.ensure_default_presentation_design();
+        assert_eq!(settings.presentation_designs.len(), 1);
     }
 }
