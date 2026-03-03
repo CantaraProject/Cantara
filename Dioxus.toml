@@ -4,6 +4,7 @@
 
 # HTML title tag content
 title = "cantara"
+base_path = "Cantara"
 
 # include `assets` in web platform
 [web.resource]
