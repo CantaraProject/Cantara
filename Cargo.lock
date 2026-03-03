@@ -596,6 +596,8 @@ dependencies = [
  "dioxus",
  "dioxus-free-icons",
  "dirs 6.0.0",
+ "getrandom 0.3.4",
+ "getrandom 0.4.1",
  "log",
  "lopdf",
  "reqwest 0.13.2",

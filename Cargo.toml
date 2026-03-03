@@ -11,7 +11,7 @@ repository = "https://github.com/CantaraProject/Cantara"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = { version = "0.7.3", features = ["desktop", "router"] }
+dioxus = { version = "0.7.3", features = ["router"] }
 dirs = "6.0.0"
 
 dioxus-free-icons = { version = "0.10.0", features = [
@@ -28,8 +28,9 @@ sys-locale = "=0.3.2"
 cantara-songlib = "0.1.5"
 rgb = { version = "0.8.52", features = ["serde"] }
 log = "0.4.28"
-# reqwest without blocking on all targets; blocking added for non-WASM below
-reqwest = { version = "0.13.2", features = ["json"] }
+# reqwest without default TLS on all targets; TLS and blocking added for non-WASM below
+# On WASM, the browser's native fetch API handles HTTP/TLS natively
+reqwest = { version = "0.13.2", default-features = false, features = ["json"] }
 zip = "8.1.0"
 
 # Non-Linux desktop dependencies (macOS, Windows, etc. – excluded from Android, iOS, and web/WASM)
@@ -46,9 +47,9 @@ dark-light = "1.1"
 lopdf = "0.39.0"
 base64 = "0.22.1"
 
-# Non-WASM dependencies (blocking HTTP client and filesystem helpers not available on WASM)
+# Non-WASM dependencies (blocking HTTP client, TLS, and filesystem helpers not available on WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-reqwest = { version = "0.13.2", features = ["blocking"] }
+reqwest = { version = "0.13.2", features = ["blocking", "default-tls"] }
 tempfile = "3.23"
 
 # Web (WASM) specific dependencies
@@ -56,6 +57,9 @@ tempfile = "3.23"
 web-sys = { version = "0.3", features = ["Window", "Storage"] }
 lopdf = { version = "0.39.0", default-features = false }
 base64 = "0.22.1"
+# getrandom needs wasm_js feature to use browser's crypto API on WASM
+getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom_0_4 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 
 [features]
 default = ["desktop"]
