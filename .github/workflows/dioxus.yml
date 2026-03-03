@@ -77,14 +77,52 @@ jobs:
           DYLD_LIBRARY_PATH: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3/lib' || '' }}
         run: dx build -r
       - name: Upload desktop artifact (Mac OS)
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-latest' && github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.target_dir }}
           path: target/dx/cantara/release/macos/
       - name: Upload desktop artifact (Windows and Linux)
-        if: matrix.os != 'macos-latest'
+        if: matrix.os != 'macos-latest' && github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.target_dir }}
           path: target/dx/cantara/release/${{ matrix.target_dir }}/app/
+
+  build-web:
+    name: Build and deploy web (GitHub Pages)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Provide npm
+        uses: actions/setup-node@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Run npm install
+        run: npm install
+      - name: Install Rust wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Install cargo bininstall
+        uses: cargo-bins/cargo-binstall@main
+      - name: Install dioxus-cli
+        run: cargo binstall -y dioxus-cli
+      - name: Build web release
+        run: dx build --platform web --release
+      - name: Setup GitHub Pages
+        if: github.event_name == 'push'
+        uses: actions/configure-pages@v4
+      - name: Upload Pages artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/dx/cantara/release/web/public/
+      - name: Deploy to GitHub Pages
+        if: github.event_name == 'push'
+        id: deployment
+        uses: actions/deploy-pages@v4

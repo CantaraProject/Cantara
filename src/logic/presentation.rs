@@ -7,9 +7,40 @@ use super::{
 };
 
 use cantara_songlib::importer::classic_song::slides_from_classic_song;
-use cantara_songlib::slides::{Slide, SlideSettings};
+use cantara_songlib::slides::{Slide, SlideContent, SimplePictureSlide, SlideSettings};
 use dioxus::prelude::*;
-use std::{error::Error, path::PathBuf};
+use std::{error::Error, path::{Path, PathBuf}};
+
+/// Extracts the picture path from a [SimplePictureSlide] using serde,
+/// since the `picture_path` field is private in the external crate.
+pub fn get_picture_path(picture_slide: &SimplePictureSlide) -> String {
+    match serde_json::to_value(picture_slide) {
+        Ok(v) => v
+            .get("picture_path")
+            .and_then(|p| p.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| {
+                log::warn!(
+                    "get_picture_path: 'picture_path' field missing or not a string in SimplePictureSlide serialization"
+                );
+                String::new()
+            }),
+        Err(err) => {
+            log::warn!(
+                "get_picture_path: failed to serialize SimplePictureSlide: {}",
+                err
+            );
+            String::new()
+        }
+    }
+}
+
+/// Returns the number of pages in a PDF file using lopdf (desktop only).
+#[cfg(not(target_arch = "wasm32"))]
+fn get_pdf_page_count(path: &Path) -> Result<usize, Box<dyn Error>> {
+    let doc = lopdf::Document::load(path)?;
+    Ok(doc.get_pages().len())
+}
 
 /// This song provides Amazing Grace as a default song which can be used for creating example presentations
 const AMAZING_GRACE_SONG: &str = "#title: Amazing Grace
@@ -43,18 +74,82 @@ fn create_presentation_slides(
 ) -> Result<Vec<Slide>, Box<dyn Error>> {
     let mut presentation: Vec<Slide> = vec![];
 
-    if selected_item.source_file.file_type == SourceFileType::Song {
-        let slide_settings = selected_item
-            .slide_settings_option
-            .clone()
-            .unwrap_or(default_song_slide_settings.clone());
+    let slide_settings = selected_item
+        .slide_settings_option
+        .clone()
+        .unwrap_or(default_song_slide_settings.clone());
 
+    if selected_item.source_file.file_type == SourceFileType::Song {
+        #[cfg(target_arch = "wasm32")]
+        {
+            // On web, read song content from the in-memory VFS
+            let path_str = selected_item.source_file.path.to_str().unwrap_or("");
+            if let Some(content_bytes) = crate::logic::settings::RepositoryType::web_read_file(path_str) {
+                let content = String::from_utf8_lossy(&content_bytes);
+                let slides = slides_from_classic_song(
+                    &content,
+                    &slide_settings,
+                    selected_item.source_file.name.clone(),
+                );
+                presentation.extend(slides);
+            }
+            return Ok(presentation);
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
         match cantara_songlib::create_presentation_from_file(
             selected_item.source_file.path.clone(),
             slide_settings,
         ) {
             Ok(slides) => presentation.extend(slides),
             Err(err) => return Err(err),
+        }
+    }
+
+    if selected_item.source_file.file_type == SourceFileType::Image {
+        let path_str = selected_item
+            .source_file
+            .path
+            .to_str()
+            .unwrap_or("")
+            .to_string();
+
+        // Use serde to construct SimplePictureSlide since its field is private
+        let picture_slide: SimplePictureSlide =
+            serde_json::from_value(serde_json::json!({"picture_path": path_str}))?;
+
+        presentation.push(Slide {
+            slide_content: SlideContent::SimplePicture(picture_slide),
+            linked_file: None,
+        });
+    }
+
+    if selected_item.source_file.file_type == SourceFileType::Pdf {
+        let path_str = selected_item
+            .source_file
+            .path
+            .to_str()
+            .unwrap_or("")
+            .to_string();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let page_count = get_pdf_page_count(&selected_item.source_file.path)?;
+            for page in 1..=page_count {
+                let page_path = format!("{}#page={}", path_str, page);
+                let picture_slide: SimplePictureSlide =
+                    serde_json::from_value(serde_json::json!({"picture_path": page_path}))?;
+                presentation.push(Slide {
+                    slide_content: SlideContent::SimplePicture(picture_slide),
+                    linked_file: None,
+                });
+            }
+        }
+
+        // On web, PDFs from VFS are not yet supported; skip gracefully.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = path_str;
         }
     }
 
@@ -159,5 +254,78 @@ mod tests {
             slide_settings_option: None,
         };
         assert!(create_presentation_slides(&select_item, &SlideSettings::default()).is_ok());
+    }
+
+    #[test]
+    fn test_presentation_creation_from_pdf() {
+        let select_item = SelectedItemRepresentation {
+            source_file: SourceFile {
+                name: "Example".to_string(),
+                path: PathBuf::from_str("testfiles/Example.pdf").unwrap(),
+                file_type: SourceFileType::Pdf,
+            },
+            presentation_design_option: None,
+            slide_settings_option: None,
+        };
+        let result = create_presentation_slides(&select_item, &SlideSettings::default());
+        assert!(result.is_ok());
+        let slides = result.unwrap();
+        // Example.pdf has 1 page, so 1 slide
+        assert_eq!(slides.len(), 1);
+        assert!(matches!(
+            slides[0].slide_content,
+            SlideContent::SimplePicture(_)
+        ));
+        // Verify the page fragment is encoded in the path
+        if let SlideContent::SimplePicture(ref ps) = slides[0].slide_content {
+            let path = get_picture_path(ps);
+            assert!(path.ends_with("#page=1"));
+        }
+    }
+
+    #[test]
+    fn test_presentation_creation_from_multipage_pdf() {
+        let select_item = SelectedItemRepresentation {
+            source_file: SourceFile {
+                name: "MultiPage".to_string(),
+                path: PathBuf::from_str("testfiles/MultiPage.pdf").unwrap(),
+                file_type: SourceFileType::Pdf,
+            },
+            presentation_design_option: None,
+            slide_settings_option: None,
+        };
+        let result = create_presentation_slides(&select_item, &SlideSettings::default());
+        assert!(result.is_ok());
+        let slides = result.unwrap();
+        // MultiPage.pdf has 3 pages, so 3 slides
+        assert_eq!(slides.len(), 3);
+        for (i, slide) in slides.iter().enumerate() {
+            assert!(matches!(slide.slide_content, SlideContent::SimplePicture(_)));
+            if let SlideContent::SimplePicture(ref ps) = slide.slide_content {
+                let path = get_picture_path(ps);
+                assert!(path.ends_with(&format!("#page={}", i + 1)));
+            }
+        }
+    }
+
+    #[test]
+    fn test_presentation_creation_from_image() {
+        let select_item = SelectedItemRepresentation {
+            source_file: SourceFile {
+                name: "test_image".to_string(),
+                path: PathBuf::from_str("testfiles/test.png").unwrap(),
+                file_type: SourceFileType::Image,
+            },
+            presentation_design_option: None,
+            slide_settings_option: None,
+        };
+        let result = create_presentation_slides(&select_item, &SlideSettings::default());
+        assert!(result.is_ok());
+        let slides = result.unwrap();
+        assert_eq!(slides.len(), 1);
+        assert!(matches!(
+            slides[0].slide_content,
+            SlideContent::SimplePicture(_)
+        ));
     }
 }

@@ -2,11 +2,13 @@
 
 use super::shared_components::{DeleteIcon, EditIcon, PresentationDesignSelector, js_yes_no_box};
 use super::song_slide_settings_components::SongSlideSettings;
+#[cfg(feature = "desktop")]
 use crate::logic::screens::{MonitorInfo, enumerate_monitors};
 use crate::{Route, logic::settings::*};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
+#[cfg(feature = "desktop")]
 use rfd::FileDialog;
 use rust_i18n::t;
 
@@ -64,8 +66,10 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
     rsx! {
         RepositorySettings {}
         hr {}
-        ScreenSettings {}
-        hr {}
+        if cfg!(feature = "desktop") {
+            ScreenSettings {}
+            hr {}
+        }
         PresentationSettings {
             presentation_designs
         }
@@ -100,6 +104,7 @@ fn RepositorySettings() -> Element {
     });
 
     let mut select_directory = move || {
+        #[cfg(feature = "desktop")]
         if let Some(path) = FileDialog::new().pick_folder() {
             if path.is_dir() && path.exists() {
                 let chosen_directory = path.to_str().unwrap_or_default().to_string();
@@ -223,10 +228,12 @@ fn RepositorySettings() -> Element {
         }
         div {
             class: "grid",
-            button {
-                class: "smaller-buttons",
-                onclick: move |_| select_directory(),
-                { t!("settings.add_folder").to_string() }
+            if cfg!(feature = "desktop") {
+                button {
+                    class: "smaller-buttons",
+                    onclick: move |_| select_directory(),
+                    { t!("settings.add_folder").to_string() }
+                }
             }
             button {
                 class: "smaller-buttons",
@@ -365,6 +372,8 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
 }
 
 /// Component for configuring screen/monitor settings for multi-screen presentation.
+/// Only available on desktop platforms.
+#[cfg(feature = "desktop")]
 #[component]
 fn ScreenSettings() -> Element {
     let mut settings = use_settings();
@@ -549,6 +558,15 @@ fn ScreenSettings() -> Element {
             }
         }
     }
+}
+
+/// No-op stub for non-desktop platforms.
+/// Required so that `if cfg!(feature = "desktop") { ScreenSettings {} }` in RSX
+/// type-checks on all platforms (both branches are compiled even with a constant condition).
+#[cfg(not(feature = "desktop"))]
+#[component]
+fn ScreenSettings() -> Element {
+    rsx! {}
 }
 
 /// Displays an article with details and actions for a presentation design.
