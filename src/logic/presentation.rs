@@ -42,6 +42,13 @@ fn get_pdf_page_count(path: &Path) -> Result<usize, Box<dyn Error>> {
     Ok(doc.get_pages().len())
 }
 
+/// Returns the number of pages in a PDF stored in the web VFS (WASM only).
+#[cfg(target_arch = "wasm32")]
+fn get_pdf_page_count_from_bytes(bytes: &[u8]) -> Result<usize, Box<dyn Error>> {
+    let doc = lopdf::Document::load_mem(bytes)?;
+    Ok(doc.get_pages().len())
+}
+
 /// This song provides Amazing Grace as a default song which can be used for creating example presentations
 const AMAZING_GRACE_SONG: &str = "#title: Amazing Grace
 #author: John Newton
@@ -146,10 +153,20 @@ fn create_presentation_slides(
             }
         }
 
-        // On web, PDFs from VFS are not yet supported; skip gracefully.
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = path_str;
+            if let Some(pdf_bytes) = crate::logic::settings::RepositoryType::web_read_file(&path_str) {
+                let page_count = get_pdf_page_count_from_bytes(&pdf_bytes)?;
+                for page in 1..=page_count {
+                    let page_path = format!("{}#page={}", path_str, page);
+                    let picture_slide: SimplePictureSlide =
+                        serde_json::from_value(serde_json::json!({"picture_path": page_path}))?;
+                    presentation.push(Slide {
+                        slide_content: SlideContent::SimplePicture(picture_slide),
+                        linked_file: None,
+                    });
+                }
+            }
         }
     }
 
