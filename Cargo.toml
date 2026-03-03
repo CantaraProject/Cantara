@@ -58,6 +58,8 @@ web-sys = { version = "0.3", features = ["Window", "Storage"] }
 lopdf = { version = "0.39.0", default-features = false }
 base64 = "0.22.1"
 # getrandom needs wasm_js feature to use browser's crypto API on WASM
+# Both v0.3 and v0.4 are needed because transitive deps use different major versions:
+# lopdf -> rand -> rand_core -> getrandom 0.3, zip -> getrandom 0.4
 getrandom = { version = "0.3", features = ["wasm_js"] }
 getrandom_0_4 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 
