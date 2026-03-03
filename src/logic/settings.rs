@@ -356,6 +356,34 @@ thread_local! {
     static WEB_FILES: std::cell::RefCell<std::collections::HashMap<String, Vec<u8>>> = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
+/// On WASM, transforms GitHub archive URLs to GitHub API zipball URLs
+/// which support CORS headers required by browser fetch.
+/// Non-GitHub URLs are returned unchanged.
+#[cfg(any(target_arch = "wasm32", test))]
+fn cors_friendly_url(url: &str) -> String {
+    // Transform https://github.com/{owner}/{repo}/archive/... to
+    // https://api.github.com/repos/{owner}/{repo}/zipball/{ref}
+    if let Some(rest) = url.strip_prefix("https://github.com/") {
+        let parts: Vec<&str> = rest.splitn(3, '/').collect();
+        if parts.len() == 3 {
+            let owner = parts[0];
+            let repo = parts[1];
+            if let Some(archive_path) = parts[2].strip_prefix("archive/") {
+                let ref_part = archive_path.strip_suffix(".zip").unwrap_or(archive_path);
+                let git_ref = ref_part
+                    .strip_prefix("refs/heads/")
+                    .or_else(|| ref_part.strip_prefix("refs/tags/"))
+                    .unwrap_or(ref_part);
+                return format!(
+                    "https://api.github.com/repos/{}/{}/zipball/{}",
+                    owner, repo, git_ref
+                );
+            }
+        }
+    }
+    url.to_string()
+}
+
 impl RepositoryType {
     /// Cleans up the temporary directory for a specific URL (desktop only).
     #[cfg(not(target_arch = "wasm32"))]
@@ -501,8 +529,9 @@ impl RepositoryType {
                         return cached;
                     }
                     // Download and extract in memory
-                    log::info!("Downloading ZIP from URL (web): {}", url);
-                    match AsyncClient::new().get(url).send().await {
+                    let download_url = cors_friendly_url(url);
+                    log::info!("Downloading ZIP from URL (web): {}", download_url);
+                    match AsyncClient::new().get(&download_url).send().await {
                         Ok(response) => match response.bytes().await {
                             Ok(bytes) => {
                                 let cursor = std::io::Cursor::new(bytes);
@@ -1128,5 +1157,39 @@ mod tests {
             RGB8::new(255, 0, 0),
             hex_string_to_rgb(color_hex_red).unwrap()
         );
+    }
+
+    #[test]
+    fn test_cors_friendly_url_github_heads() {
+        assert_eq!(
+            cors_friendly_url(
+                "https://github.com/reckel-jm/cantara-songrepo/archive/refs/heads/master.zip"
+            ),
+            "https://api.github.com/repos/reckel-jm/cantara-songrepo/zipball/master"
+        );
+    }
+
+    #[test]
+    fn test_cors_friendly_url_github_tags() {
+        assert_eq!(
+            cors_friendly_url(
+                "https://github.com/owner/repo/archive/refs/tags/v1.0.0.zip"
+            ),
+            "https://api.github.com/repos/owner/repo/zipball/v1.0.0"
+        );
+    }
+
+    #[test]
+    fn test_cors_friendly_url_github_short() {
+        assert_eq!(
+            cors_friendly_url("https://github.com/owner/repo/archive/main.zip"),
+            "https://api.github.com/repos/owner/repo/zipball/main"
+        );
+    }
+
+    #[test]
+    fn test_cors_friendly_url_non_github() {
+        let url = "https://example.com/some/archive.zip";
+        assert_eq!(cors_friendly_url(url), url);
     }
 }
