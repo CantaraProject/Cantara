@@ -58,6 +58,8 @@ pub mod states;
 
 pub mod sourcefiles;
 
+pub mod bundled_repos;
+
 pub mod presentation;
 
 pub mod conversions;

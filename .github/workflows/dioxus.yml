@@ -100,11 +100,24 @@ jobs:
     environment:
       name: ${{ github.event_name == 'push' && 'github-pages' || '' }}
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      # Comma-separated list of GitHub repositories (owner/repo) to bundle with the web build.
+      # These repos are cloned at build time and their song files are embedded into the WASM binary,
+      # avoiding CORS issues when loading external repository resources in WebAssembly.
+      CANTARA_BUNDLED_REPOS: "reckel-jm/cantara-songrepo"
     steps:
       - name: Provide npm
         uses: actions/setup-node@v4
       - name: Checkout code
         uses: actions/checkout@v4
+      - name: Clone bundled song repositories
+        run: |
+          IFS=',' read -ra REPOS <<< "$CANTARA_BUNDLED_REPOS"
+          for repo in "${REPOS[@]}"; do
+            repo=$(echo "$repo" | xargs)
+            echo "Cloning https://github.com/${repo} ..."
+            git clone --depth 1 "https://github.com/${repo}.git" "bundled_repos/${repo}"
+          done
       - name: Run npm install
         run: npm install
       - name: Install Rust wasm32 target

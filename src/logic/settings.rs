@@ -138,6 +138,7 @@ impl Settings {
             settings.ensure_default_presentation_design();
             settings.ensure_slide_settings_for_designs();
             settings.migrate_github_zip_repos();
+            settings.ensure_bundled_repos();
             return settings;
         }
 
@@ -331,6 +332,93 @@ impl Settings {
                 }
             }
         }
+    }
+
+    /// On WASM, ensures that all build-time bundled repositories are present in the
+    /// settings and their embedded file data is loaded into the in-memory VFS.
+    ///
+    /// Bundled repositories are configured via the `CANTARA_BUNDLED_REPOS` environment
+    /// variable at build time (set in CI/CD). They are:
+    /// - Added as `GitHub`-type repositories with `removable: false`
+    /// - Not modifiable or deletable by the user in WebAssembly
+    /// - Automatically skip the welcome wizard when present
+    ///
+    /// This method is a no-op when no repositories were bundled at build time.
+    #[cfg(target_arch = "wasm32")]
+    pub fn ensure_bundled_repos(&mut self) {
+        use crate::logic::bundled_repos;
+
+        let bundled = bundled_repos::get_bundled_repos();
+        if bundled.is_empty() {
+            return;
+        }
+
+        // Always populate WEB_FILES with embedded data (in-memory, lost on page reload)
+        let files = bundled_repos::get_bundled_files();
+        if !files.is_empty() {
+            WEB_FILES.with(|web_files| {
+                let mut web_files = web_files.borrow_mut();
+                for (path, data) in files {
+                    web_files
+                        .entry(path.to_string())
+                        .or_insert_with(|| data.to_vec());
+                }
+            });
+        }
+
+        let mut changed = false;
+
+        // Add bundled repos to settings if not already present
+        for &(owner, repo) in bundled {
+            let already_exists = self.repositories.iter().any(|r| {
+                matches!(
+                    &r.repository_type,
+                    RepositoryType::GitHub { owner: o, repo: r, .. }
+                    if o == owner && r == repo
+                )
+            });
+            if !already_exists {
+                let mut new_repo =
+                    Repository::new_github(owner.to_string(), repo.to_string(), None);
+                new_repo.removable = false;
+                self.repositories.push(new_repo);
+                changed = true;
+            }
+        }
+
+        // Ensure bundled repos are always non-removable (even if loaded from storage)
+        for r in &mut self.repositories {
+            if let RepositoryType::GitHub {
+                owner, repo: rname, ..
+            } = &r.repository_type
+            {
+                if bundled
+                    .iter()
+                    .any(|&(o, n)| o == owner.as_str() && n == rname.as_str())
+                {
+                    if r.removable {
+                        r.removable = false;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        // Skip the wizard when bundled repos are present
+        if !self.wizard_completed {
+            self.wizard_completed = true;
+            changed = true;
+        }
+
+        if changed {
+            self.save();
+        }
+    }
+
+    /// No-op on non-WASM targets. Bundled repos are only used for WebAssembly builds.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn ensure_bundled_repos(&mut self) {
+        // Bundled repos are only relevant for WASM targets
     }
 }
 
@@ -1708,5 +1796,17 @@ mod tests {
         assert!(
             RepositoryType::parse_github_from_zip_url("https://github.com/owner/repo").is_none()
         );
+    }
+
+    #[test]
+    fn test_ensure_bundled_repos_noop_on_desktop() {
+        // On non-WASM targets, ensure_bundled_repos should be a no-op
+        let mut settings = Settings::default();
+        assert!(settings.repositories.is_empty());
+        assert!(!settings.wizard_completed);
+        settings.ensure_bundled_repos();
+        // On desktop, nothing should change
+        assert!(settings.repositories.is_empty());
+        assert!(!settings.wizard_completed);
     }
 }
