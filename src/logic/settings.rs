@@ -137,6 +137,7 @@ impl Settings {
             };
             settings.ensure_default_presentation_design();
             settings.ensure_slide_settings_for_designs();
+            settings.migrate_github_zip_repos();
             return settings;
         }
 
@@ -207,9 +208,25 @@ impl Settings {
     /// Add a new remote ZIP repository given as URL to the settings.
     /// The name will be derived from the URL if possible.
     ///
+    /// **Platform-specific behaviour on WASM:** if `url` is a GitHub archive URL
+    /// (e.g. `https://github.com/owner/repo/archive/refs/heads/main.zip` or a
+    /// `codeload.github.com` download link), the repository is stored as
+    /// [`RepositoryType::GitHub`] instead of [`RepositoryType::RemoteZip`]. This
+    /// avoids CORS failures caused by GitHub's redirect chain to `codeload.github.com`,
+    /// and always resolves to the default branch via the GitHub API.
+    ///
     /// # Arguments
     /// * `url` - The URL to the ZIP file
     pub fn add_remote_zip_repository_url(&mut self, url: String) {
+        // On WASM, GitHub archive URLs have CORS issues when stored as RemoteZip.
+        // Detect and add them as GitHub-type repositories instead, which use the
+        // GitHub API and always fetch the default branch.
+        #[cfg(target_arch = "wasm32")]
+        if let Some((owner, repo)) = RepositoryType::parse_github_from_zip_url(&url) {
+            self.add_github_repository(owner, repo, None);
+            return;
+        }
+
         // Extract a name from the URL (last part of the path before the extension)
         let name = url
             .split('/')
@@ -288,6 +305,30 @@ impl Settings {
             // Add default slide settings until there are at least as many as presentation designs
             for _ in 0..(design_count - slide_count) {
                 self.song_slide_settings.push(SlideSettings::default());
+            }
+        }
+    }
+
+    /// On WASM, migrates any `RemoteZip` repositories whose URLs are GitHub archive URLs
+    /// (github.com/.../archive/... or codeload.github.com/...) to `GitHub` type repositories.
+    ///
+    /// This avoids CORS issues caused by GitHub's redirect chain: the GitHub API
+    /// redirects to codeload.github.com which may return error responses without
+    /// CORS headers. Using the `GitHub` type also always fetches the default branch,
+    /// avoiding failures from stale branch references.
+    #[cfg(target_arch = "wasm32")]
+    pub fn migrate_github_zip_repos(&mut self) {
+        for repo in &mut self.repositories {
+            if let RepositoryType::RemoteZip(url) = &repo.repository_type {
+                if let Some((owner, repo_name)) =
+                    RepositoryType::parse_github_from_zip_url(url)
+                {
+                    repo.repository_type = RepositoryType::GitHub {
+                        owner,
+                        repo: repo_name,
+                        token: None,
+                    };
+                }
             }
         }
     }
@@ -532,6 +573,37 @@ impl RepositoryType {
             return Some((parts[0].to_string(), parts[1].to_string()));
         }
 
+        None
+    }
+
+    /// Parses a GitHub archive ZIP URL (e.g. from a github.com/archive or codeload.github.com
+    /// download link) into an `(owner, repo)` tuple. Returns `None` for non-GitHub URLs.
+    ///
+    /// Handles:
+    /// - `https://github.com/{owner}/{repo}/archive/...`
+    /// - `https://codeload.github.com/{owner}/{repo}/legacy.zip/...`
+    /// - `https://codeload.github.com/{owner}/{repo}/zip/...`
+    pub fn parse_github_from_zip_url(url: &str) -> Option<(String, String)> {
+        // https://github.com/{owner}/{repo}/archive/...
+        if let Some(rest) = url.strip_prefix("https://github.com/") {
+            let parts: Vec<&str> = rest.splitn(3, '/').collect();
+            if parts.len() == 3
+                && !parts[0].is_empty()
+                && !parts[1].is_empty()
+                && parts[2].starts_with("archive/")
+            {
+                return Some((parts[0].to_string(), parts[1].to_string()));
+            }
+        }
+        // https://codeload.github.com/{owner}/{repo}/legacy.zip/... or /zip/...
+        if let Some(rest) = url.strip_prefix("https://codeload.github.com/") {
+            let parts: Vec<&str> = rest.splitn(3, '/').collect();
+            if parts.len() == 3 && !parts[0].is_empty() && !parts[1].is_empty() {
+                if parts[2].starts_with("legacy.zip/") || parts[2].starts_with("zip/") {
+                    return Some((parts[0].to_string(), parts[1].to_string()));
+                }
+            }
+        }
         None
     }
 
@@ -1591,5 +1663,50 @@ mod tests {
         );
         assert_eq!(settings.repositories.len(), 1);
         assert_eq!(settings.repositories[0].name, "owner/repo");
+    }
+
+    #[test]
+    fn test_parse_github_from_zip_url_github_archive() {
+        let (owner, repo) = RepositoryType::parse_github_from_zip_url(
+            "https://github.com/reckel-jm/cantara-songrepo/archive/refs/heads/master.zip",
+        )
+        .unwrap();
+        assert_eq!(owner, "reckel-jm");
+        assert_eq!(repo, "cantara-songrepo");
+    }
+
+    #[test]
+    fn test_parse_github_from_zip_url_codeload_legacy_zip() {
+        let (owner, repo) = RepositoryType::parse_github_from_zip_url(
+            "https://codeload.github.com/reckel-jm/cantara-songrepo/legacy.zip/refs/heads/master",
+        )
+        .unwrap();
+        assert_eq!(owner, "reckel-jm");
+        assert_eq!(repo, "cantara-songrepo");
+    }
+
+    #[test]
+    fn test_parse_github_from_zip_url_codeload_zip() {
+        let (owner, repo) = RepositoryType::parse_github_from_zip_url(
+            "https://codeload.github.com/owner/repo/zip/refs/heads/main",
+        )
+        .unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
+    }
+
+    #[test]
+    fn test_parse_github_from_zip_url_non_github() {
+        assert!(
+            RepositoryType::parse_github_from_zip_url("https://example.com/some.zip").is_none()
+        );
+    }
+
+    #[test]
+    fn test_parse_github_from_zip_url_plain_github_url() {
+        // Plain github.com URL without archive path should not match
+        assert!(
+            RepositoryType::parse_github_from_zip_url("https://github.com/owner/repo").is_none()
+        );
     }
 }
