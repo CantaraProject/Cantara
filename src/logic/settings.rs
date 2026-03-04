@@ -418,6 +418,16 @@ thread_local! {
     static WEB_FILES: std::cell::RefCell<std::collections::HashMap<String, Vec<u8>>> = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
+/// Strips a `refs/heads/` or `refs/tags/` prefix from a git ref string,
+/// returning just the branch or tag name.
+#[cfg(any(target_arch = "wasm32", test))]
+fn normalize_git_ref<'a>(ref_part: &'a str) -> &'a str {
+    ref_part
+        .strip_prefix("refs/heads/")
+        .or_else(|| ref_part.strip_prefix("refs/tags/"))
+        .unwrap_or(ref_part)
+}
+
 /// On WASM, transforms GitHub archive URLs to GitHub API zipball URLs
 /// which support CORS headers required by browser fetch.
 /// Non-GitHub URLs are returned unchanged.
@@ -432,13 +442,28 @@ fn cors_friendly_url(url: &str) -> String {
             let repo = parts[1];
             if let Some(archive_path) = parts[2].strip_prefix("archive/") {
                 let ref_part = archive_path.strip_suffix(".zip").unwrap_or(archive_path);
-                let git_ref = ref_part
-                    .strip_prefix("refs/heads/")
-                    .or_else(|| ref_part.strip_prefix("refs/tags/"))
-                    .unwrap_or(ref_part);
                 return format!(
                     "https://api.github.com/repos/{}/{}/zipball/{}",
-                    owner, repo, git_ref
+                    owner, repo, normalize_git_ref(ref_part)
+                );
+            }
+        }
+    }
+    // Transform https://codeload.github.com/{owner}/{repo}/legacy.zip/{ref} and
+    // https://codeload.github.com/{owner}/{repo}/zip/{ref} to
+    // https://api.github.com/repos/{owner}/{repo}/zipball/{ref}
+    if let Some(rest) = url.strip_prefix("https://codeload.github.com/") {
+        let parts: Vec<&str> = rest.splitn(3, '/').collect();
+        if parts.len() == 3 {
+            let owner = parts[0];
+            let repo = parts[1];
+            let ref_path = parts[2]
+                .strip_prefix("legacy.zip/")
+                .or_else(|| parts[2].strip_prefix("zip/"));
+            if let Some(ref_part) = ref_path {
+                return format!(
+                    "https://api.github.com/repos/{}/{}/zipball/{}",
+                    owner, repo, normalize_git_ref(ref_part)
                 );
             }
         }
@@ -1401,6 +1426,36 @@ mod tests {
     fn test_cors_friendly_url_non_github() {
         let url = "https://example.com/some/archive.zip";
         assert_eq!(cors_friendly_url(url), url);
+    }
+
+    #[test]
+    fn test_cors_friendly_url_codeload_legacy_zip_heads() {
+        assert_eq!(
+            cors_friendly_url(
+                "https://codeload.github.com/reckel-jm/cantara-songrepo/legacy.zip/refs/heads/master"
+            ),
+            "https://api.github.com/repos/reckel-jm/cantara-songrepo/zipball/master"
+        );
+    }
+
+    #[test]
+    fn test_cors_friendly_url_codeload_legacy_zip_tags() {
+        assert_eq!(
+            cors_friendly_url(
+                "https://codeload.github.com/owner/repo/legacy.zip/refs/tags/v1.0.0"
+            ),
+            "https://api.github.com/repos/owner/repo/zipball/v1.0.0"
+        );
+    }
+
+    #[test]
+    fn test_cors_friendly_url_codeload_zip_heads() {
+        assert_eq!(
+            cors_friendly_url(
+                "https://codeload.github.com/owner/repo/zip/refs/heads/main"
+            ),
+            "https://api.github.com/repos/owner/repo/zipball/main"
+        );
     }
 
     #[test]
