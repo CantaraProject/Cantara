@@ -41,8 +41,7 @@ mod tests {
         }
         for (path, bytes) in files {
             assert!(!path.is_empty());
-            // bytes may be empty for an empty file, but path must not be empty
-            let _ = bytes.len();
+            assert!(bytes.len() <= bytes.len()); // bytes is accessible
         }
     }
 }

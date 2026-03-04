@@ -1,4 +1,4 @@
-//! Cantara's frontend depends on npm packages which this build skript will automatically install if the 'dist/' folder does not exist in the repository.
+//! Cantara's frontend depends on npm packages which this build script will automatically install if the 'dist/' folder does not exist in the repository.
 //!
 //! Additionally, when the `CANTARA_BUNDLED_REPOS` environment variable is set (comma-separated
 //! "owner/repo" entries), this build script scans the `bundled_repos/{owner}/{repo}` directories
@@ -113,10 +113,8 @@ fn visit_dir(f: &mut fs::File, dir: &Path, base_path: &Path, repo_id: &str, dept
             visit_dir(f, &path, base_path, repo_id, depth + 1);
         } else if path.is_file() {
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if SUPPORTED_EXTENSIONS
-                    .iter()
-                    .any(|&e| e == ext.to_lowercase())
-                {
+                let ext_lower = ext.to_lowercase();
+                if SUPPORTED_EXTENSIONS.iter().any(|&e| e == ext_lower) {
                     let rel_path = path.strip_prefix(base_path).unwrap();
                     // Use web-github:// prefix so existing WASM VFS code finds the files
                     let vfs_path = format!(
