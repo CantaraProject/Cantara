@@ -224,6 +224,22 @@ impl Settings {
             .push(Repository::new_remote_zip(name, url));
     }
 
+    /// Add a new GitHub repository to the settings.
+    ///
+    /// # Arguments
+    /// * `owner` - The GitHub repository owner (user or organization)
+    /// * `repo` - The GitHub repository name
+    /// * `token` - An optional personal access token for private repositories
+    pub fn add_github_repository(
+        &mut self,
+        owner: String,
+        repo: String,
+        token: Option<String>,
+    ) {
+        self.repositories
+            .push(Repository::new_github(owner, repo, token));
+    }
+
     /// Get all elements of all repositories as a vector of [SourceFile]
     pub fn get_sourcefiles(&self) -> Vec<SourceFile> {
         let mut source_files: Vec<SourceFile> = vec![];
@@ -297,8 +313,14 @@ impl Repository {
     /// Cleans up any temporary resources associated with this repository
     pub fn cleanup(&self) {
         #[cfg(not(target_arch = "wasm32"))]
-        if let RepositoryType::RemoteZip(url) = &self.repository_type {
-            RepositoryType::cleanup_temp_dir(url);
+        match &self.repository_type {
+            RepositoryType::RemoteZip(url) => {
+                RepositoryType::cleanup_temp_dir(url);
+            }
+            RepositoryType::GitHub { owner, repo, .. } => {
+                RepositoryType::cleanup_temp_dir(&RepositoryType::github_cache_key(owner, repo));
+            }
+            _ => {}
         }
     }
 
@@ -328,6 +350,25 @@ impl Repository {
         }
     }
 
+    /// Creates a new repository backed by a GitHub repository via the GitHub API.
+    ///
+    /// # Arguments
+    /// * `owner` - The owner of the GitHub repository (user or organization)
+    /// * `repo` - The name of the GitHub repository
+    /// * `token` - An optional personal access token for private repositories
+    ///
+    /// # Returns
+    /// A new `Repository` instance configured to use a GitHub repository
+    pub fn new_github(owner: String, repo: String, token: Option<String>) -> Self {
+        let name = format!("{}/{}", owner, repo);
+        Repository {
+            name,
+            removable: true,
+            writing_permissions: false, // GitHub repositories are read-only
+            repository_type: RepositoryType::GitHub { owner, repo, token },
+        }
+    }
+
     /// Get the count of source files in this repository
     pub fn get_source_file_count(&self) -> usize {
         self.repository_type.get_files().len()
@@ -340,7 +381,7 @@ impl Repository {
 }
 
 /// The enum represents the different types of repositories.
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum RepositoryType {
     /// A repository that is a local folder represented by a file path.
     LocaleFilePath(String),
@@ -352,6 +393,17 @@ pub enum RepositoryType {
     /// A repository that is a remote ZIP file which is downloaded and extracted temporarily.
     /// The String contains the URL to the ZIP file.
     RemoteZip(String),
+
+    /// A repository that is a GitHub repository, accessed via the GitHub API.
+    /// The zipball of the default branch (main/master) is downloaded and extracted.
+    GitHub {
+        /// The owner of the GitHub repository (user or organization)
+        owner: String,
+        /// The name of the GitHub repository
+        repo: String,
+        /// An optional personal access token for authenticating with private repositories
+        token: Option<String>,
+    },
 }
 
 // On non-WASM platforms, extracted ZIPs are stored in TempDir instances on the filesystem.
@@ -425,6 +477,39 @@ impl RepositoryType {
     #[cfg(target_arch = "wasm32")]
     pub fn cleanup_all_temp_dirs() {}
 
+    /// Returns the GitHub API zipball URL for a given owner and repo.
+    /// This URL fetches the default branch's latest commit as a ZIP archive.
+    pub fn github_zipball_url(owner: &str, repo: &str) -> String {
+        format!("https://api.github.com/repos/{}/{}/zipball", owner, repo)
+    }
+
+    /// Returns a cache key for a GitHub repository, used for temporary directory management.
+    pub fn github_cache_key(owner: &str, repo: &str) -> String {
+        format!("github://{}/{}", owner, repo)
+    }
+
+    /// Parses a GitHub repository identifier string (e.g. "owner/repo" or "https://github.com/owner/repo")
+    /// into (owner, repo) tuple. Returns None if the format is invalid.
+    pub fn parse_github_repo(input: &str) -> Option<(String, String)> {
+        let trimmed = input.trim().trim_end_matches('/');
+
+        // Try to parse as a full GitHub URL
+        if let Some(rest) = trimmed.strip_prefix("https://github.com/") {
+            let parts: Vec<&str> = rest.splitn(3, '/').collect();
+            if parts.len() >= 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+                return Some((parts[0].to_string(), parts[1].to_string()));
+            }
+        }
+
+        // Try to parse as "owner/repo"
+        let parts: Vec<&str> = trimmed.splitn(2, '/').collect();
+        if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+            return Some((parts[0].to_string(), parts[1].to_string()));
+        }
+
+        None
+    }
+
     /// Get files which are provided by the repository.
     /// On WASM, local file paths are not supported; only remote ZIP repositories work.
     pub fn get_files(&self) -> Vec<SourceFile> {
@@ -443,7 +528,7 @@ impl RepositoryType {
                             files = get_source_files(temp_dir.path());
                         } else {
                             log::info!("Downloading and extracting ZIP file from URL: {}", url);
-                            match self.download_and_extract_zip(url) {
+                            match self.download_and_extract_zip(url, None) {
                                 Ok(temp_dir) => {
                                     let path = temp_dir.path().to_path_buf();
                                     log::info!("Extracted ZIP file to temporary directory: {:?}", path);
@@ -452,6 +537,32 @@ impl RepositoryType {
                                 }
                                 Err(e) => {
                                     log::error!("Failed to download or extract ZIP file: {}", e);
+                                }
+                            }
+                        }
+                    });
+                    files
+                }
+                RepositoryType::GitHub { owner, repo, token } => {
+                    let cache_key = Self::github_cache_key(owner, repo);
+                    let url = Self::github_zipball_url(owner, repo);
+                    let mut files = vec![];
+                    TEMP_DIRS.with(|temp_dirs| {
+                        let mut temp_dirs = temp_dirs.borrow_mut();
+                        if let Some(temp_dir) = temp_dirs.get(&cache_key) {
+                            log::info!("Using existing temporary directory for GitHub repo: {}/{}", owner, repo);
+                            files = get_source_files(temp_dir.path());
+                        } else {
+                            log::info!("Downloading GitHub repository: {}/{}", owner, repo);
+                            match self.download_and_extract_zip(&url, token.as_deref()) {
+                                Ok(temp_dir) => {
+                                    let path = temp_dir.path().to_path_buf();
+                                    log::info!("Extracted GitHub repo to temporary directory: {:?}", path);
+                                    files = get_source_files(&path);
+                                    temp_dirs.insert(cache_key, temp_dir);
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to download GitHub repository: {}", e);
                                 }
                             }
                         }
@@ -500,7 +611,7 @@ impl RepositoryType {
                     });
                     if files.is_empty() {
                         log::info!("Downloading and extracting ZIP file from URL: {}", url);
-                        match self.download_and_extract_zip_async(url).await {
+                        match self.download_and_extract_zip_async(url, None).await {
                             Ok(temp_dir) => {
                                 let path = temp_dir.path().to_path_buf();
                                 log::info!("Extracted ZIP file to temporary directory: {:?}", path);
@@ -512,6 +623,36 @@ impl RepositoryType {
                             }
                             Err(e) => {
                                 log::error!("Failed to download or extract ZIP file: {}", e);
+                            }
+                        }
+                    }
+                    files
+                }
+                RepositoryType::GitHub { owner, repo, token } => {
+                    let cache_key = Self::github_cache_key(owner, repo);
+                    let url = Self::github_zipball_url(owner, repo);
+                    let mut files = vec![];
+                    TEMP_DIRS.with(|temp_dirs| {
+                        let temp_dirs = temp_dirs.borrow_mut();
+                        if let Some(temp_dir) = temp_dirs.get(&cache_key) {
+                            log::info!("Using existing temporary directory for GitHub repo: {}/{}", owner, repo);
+                            files = get_source_files(temp_dir.path());
+                        }
+                    });
+                    if files.is_empty() {
+                        log::info!("Downloading GitHub repository: {}/{}", owner, repo);
+                        match self.download_and_extract_zip_async(&url, token.as_deref()).await {
+                            Ok(temp_dir) => {
+                                let path = temp_dir.path().to_path_buf();
+                                log::info!("Extracted GitHub repo to temporary directory: {:?}", path);
+                                files = get_source_files(&path);
+                                TEMP_DIRS.with(|temp_dirs| {
+                                    let mut temp_dirs = temp_dirs.borrow_mut();
+                                    temp_dirs.insert(cache_key, temp_dir);
+                                });
+                            }
+                            Err(e) => {
+                                log::error!("Failed to download GitHub repository: {}", e);
                             }
                         }
                     }
@@ -541,42 +682,26 @@ impl RepositoryType {
                     // Download and extract in memory
                     let download_url = cors_friendly_url(url);
                     log::info!("Downloading ZIP from URL (web): {}", download_url);
-                    match AsyncClient::new().get(&download_url).send().await {
-                        Ok(response) => match response.bytes().await {
-                            Ok(bytes) => {
-                                let cursor = std::io::Cursor::new(bytes);
-                                match ZipArchive::new(cursor) {
-                                    Ok(mut archive) => {
-                                        for i in 0..archive.len() {
-                                            if let Ok(mut entry) = archive.by_index(i) {
-                                                if entry.name().ends_with('/') {
-                                                    continue;
-                                                }
-                                                let name = entry.name().to_string();
-                                                let path = format!("{}/{}", prefix, name);
-                                                let mut content = Vec::new();
-                                                let _ = std::io::Read::read_to_end(&mut entry, &mut content);
-                                                WEB_FILES.with(|files| {
-                                                    files.borrow_mut().insert(path, content);
-                                                });
-                                            }
-                                        }
-                                    }
-                                    Err(e) => log::error!("Failed to parse ZIP archive: {}", e),
-                                }
-                            }
-                            Err(e) => log::error!("Failed to read response bytes: {}", e),
-                        },
-                        Err(e) => log::error!("Failed to download ZIP: {}", e),
-                    }
-                    WEB_FILES.with(|files| {
+                    self.download_and_extract_zip_wasm(&download_url, &prefix, None).await
+                }
+                RepositoryType::GitHub { owner, repo, token } => {
+                    let prefix = format!("web-github://{}/{}", owner, repo);
+                    // Return cached files if already downloaded
+                    let cached: Vec<SourceFile> = WEB_FILES.with(|files| {
                         files
                             .borrow()
                             .keys()
                             .filter(|k| k.starts_with(&prefix))
                             .filter_map(|path| SourceFile::from_web_path(path))
                             .collect()
-                    })
+                    });
+                    if !cached.is_empty() {
+                        return cached;
+                    }
+                    // Download and extract in memory
+                    let download_url = Self::github_zipball_url(owner, repo);
+                    log::info!("Downloading GitHub repo (web): {}/{}", owner, repo);
+                    self.download_and_extract_zip_wasm(&download_url, &prefix, token.as_deref()).await
                 }
                 _ => vec![],
             }
@@ -588,8 +713,63 @@ impl RepositoryType {
     fn web_vfs_prefix(&self) -> String {
         match self {
             RepositoryType::RemoteZip(url) => format!("web-zip://{}", url),
+            RepositoryType::GitHub { owner, repo, .. } => {
+                format!("web-github://{}/{}", owner, repo)
+            }
             _ => String::new(),
         }
+    }
+
+    /// Downloads a ZIP file and extracts it to the WASM in-memory VFS.
+    #[cfg(target_arch = "wasm32")]
+    async fn download_and_extract_zip_wasm(
+        &self,
+        download_url: &str,
+        prefix: &str,
+        token: Option<&str>,
+    ) -> Vec<SourceFile> {
+        let mut request = AsyncClient::new()
+            .get(download_url)
+            .header("User-Agent", "Cantara");
+        if let Some(token) = token {
+            request = request.header("Authorization", format!("Bearer {}", token));
+        }
+        match request.send().await {
+            Ok(response) => match response.bytes().await {
+                Ok(bytes) => {
+                    let cursor = std::io::Cursor::new(bytes);
+                    match ZipArchive::new(cursor) {
+                        Ok(mut archive) => {
+                            for i in 0..archive.len() {
+                                if let Ok(mut entry) = archive.by_index(i) {
+                                    if entry.name().ends_with('/') {
+                                        continue;
+                                    }
+                                    let name = entry.name().to_string();
+                                    let path = format!("{}/{}", prefix, name);
+                                    let mut content = Vec::new();
+                                    let _ = std::io::Read::read_to_end(&mut entry, &mut content);
+                                    WEB_FILES.with(|files| {
+                                        files.borrow_mut().insert(path, content);
+                                    });
+                                }
+                            }
+                        }
+                        Err(e) => log::error!("Failed to parse ZIP archive: {}", e),
+                    }
+                }
+                Err(e) => log::error!("Failed to read response bytes: {}", e),
+            },
+            Err(e) => log::error!("Failed to download ZIP: {}", e),
+        }
+        WEB_FILES.with(|files| {
+            files
+                .borrow()
+                .keys()
+                .filter(|k| k.starts_with(prefix))
+                .filter_map(|path| SourceFile::from_web_path(path))
+                .collect()
+        })
     }
 
     /// Reads a file from the web VFS by its virtual path.
@@ -599,13 +779,23 @@ impl RepositoryType {
     }
 
     /// Downloads a ZIP file from a URL and extracts it to a temporary directory (desktop only).
+    /// Optionally includes an authorization token for authenticated requests (e.g. private GitHub repos).
     #[cfg(not(target_arch = "wasm32"))]
-    fn download_and_extract_zip(&self, url: &str) -> Result<TempDir, String> {
+    fn download_and_extract_zip(
+        &self,
+        url: &str,
+        token: Option<&str>,
+    ) -> Result<TempDir, String> {
         let temp_dir =
             TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
         let zip_path = temp_dir.path().join("download.zip");
-        let response = Client::new()
+        let mut request = Client::new()
             .get(url)
+            .header("User-Agent", "Cantara");
+        if let Some(token) = token {
+            request = request.header("Authorization", format!("Bearer {}", token));
+        }
+        let response = request
             .send()
             .map_err(|e| format!("Failed to download ZIP file: {}", e))?;
         if !response.status().is_success() {
@@ -650,13 +840,23 @@ impl RepositoryType {
     }
 
     /// Downloads a ZIP file and extracts it to a temporary directory asynchronously (desktop only).
+    /// Optionally includes an authorization token for authenticated requests (e.g. private GitHub repos).
     #[cfg(not(target_arch = "wasm32"))]
-    async fn download_and_extract_zip_async(&self, url: &str) -> Result<TempDir, String> {
+    async fn download_and_extract_zip_async(
+        &self,
+        url: &str,
+        token: Option<&str>,
+    ) -> Result<TempDir, String> {
         let temp_dir =
             TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
         let zip_path = temp_dir.path().join("download.zip");
-        let response = AsyncClient::new()
+        let mut request = AsyncClient::new()
             .get(url)
+            .header("User-Agent", "Cantara");
+        if let Some(token) = token {
+            request = request.header("Authorization", format!("Bearer {}", token));
+        }
+        let response = request
             .send()
             .await
             .map_err(|e| format!("Failed to download ZIP file: {}", e))?;
@@ -1230,5 +1430,108 @@ mod tests {
         assert!(settings.presentation_designs.is_empty());
         settings.ensure_default_presentation_design();
         assert_eq!(settings.presentation_designs.len(), 1);
+    fn test_github_zipball_url() {
+        assert_eq!(
+            RepositoryType::github_zipball_url("reckel-jm", "cantara-songrepo"),
+            "https://api.github.com/repos/reckel-jm/cantara-songrepo/zipball"
+        );
+    }
+
+    #[test]
+    fn test_github_cache_key() {
+        assert_eq!(
+            RepositoryType::github_cache_key("owner", "repo"),
+            "github://owner/repo"
+        );
+    }
+
+    #[test]
+    fn test_parse_github_repo_owner_repo() {
+        let (owner, repo) = RepositoryType::parse_github_repo("owner/repo").unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
+    }
+
+    #[test]
+    fn test_parse_github_repo_full_url() {
+        let (owner, repo) =
+            RepositoryType::parse_github_repo("https://github.com/reckel-jm/cantara-songrepo")
+                .unwrap();
+        assert_eq!(owner, "reckel-jm");
+        assert_eq!(repo, "cantara-songrepo");
+    }
+
+    #[test]
+    fn test_parse_github_repo_full_url_trailing_slash() {
+        let (owner, repo) =
+            RepositoryType::parse_github_repo("https://github.com/owner/repo/").unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
+    }
+
+    #[test]
+    fn test_parse_github_repo_invalid() {
+        assert!(RepositoryType::parse_github_repo("invalid").is_none());
+        assert!(RepositoryType::parse_github_repo("").is_none());
+        assert!(RepositoryType::parse_github_repo("/").is_none());
+    }
+
+    #[test]
+    fn test_repository_new_github() {
+        let repo = Repository::new_github(
+            "reckel-jm".to_string(),
+            "cantara-songrepo".to_string(),
+            None,
+        );
+        assert_eq!(repo.name, "reckel-jm/cantara-songrepo");
+        assert!(repo.removable);
+        assert!(!repo.writing_permissions);
+        assert_eq!(
+            repo.repository_type,
+            RepositoryType::GitHub {
+                owner: "reckel-jm".to_string(),
+                repo: "cantara-songrepo".to_string(),
+                token: None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_repository_new_github_with_token() {
+        let repo = Repository::new_github(
+            "owner".to_string(),
+            "private-repo".to_string(),
+            Some("ghp_test123".to_string()),
+        );
+        assert_eq!(repo.name, "owner/private-repo");
+        if let RepositoryType::GitHub { token, .. } = &repo.repository_type {
+            assert_eq!(token.as_deref(), Some("ghp_test123"));
+        } else {
+            panic!("Expected GitHub repository type");
+        }
+    }
+
+    #[test]
+    fn test_github_repository_type_serialization() {
+        let repo_type = RepositoryType::GitHub {
+            owner: "owner".to_string(),
+            repo: "repo".to_string(),
+            token: Some("token123".to_string()),
+        };
+        let json = serde_json::to_string(&repo_type).unwrap();
+        let deserialized: RepositoryType = serde_json::from_str(&json).unwrap();
+        assert_eq!(repo_type, deserialized);
+    }
+
+    #[test]
+    fn test_add_github_repository() {
+        let mut settings = Settings::default();
+        settings.add_github_repository(
+            "owner".to_string(),
+            "repo".to_string(),
+            None,
+        );
+        assert_eq!(settings.repositories.len(), 1);
+        assert_eq!(settings.repositories[0].name, "owner/repo");
     }
 }
