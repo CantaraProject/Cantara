@@ -122,6 +122,27 @@ settings:
   repositories_remote_zip:
     en: Remote ZIP Repository
     de: Entferntes ZIP-Repository
+  repositories_github:
+    en: GitHub Repository
+    de: GitHub-Repository
+  repositories_github_authenticated:
+    en: authenticated
+    de: authentifiziert
+  add_github_repository:
+    en: Add GitHub Repository
+    de: GitHub-Repository hinzufügen
+  github_repository_prompt:
+    en: "Enter GitHub repository (owner/repo or https://github.com/owner/repo):"
+    de: "GitHub-Repository eingeben (owner/repo oder https://github.com/owner/repo):"
+  github_token_prompt:
+    en: "Optional: Enter a personal access token for private repositories (leave empty for public repos):"
+    de: "Optional: Persönlichen Zugriffstoken für private Repositories eingeben (leer lassen für öffentliche Repos):"
+  github_repository_added:
+    en: The GitHub repository has been added successfully.
+    de: Das GitHub-Repository wurde erfolgreich hinzugefügt.
+  github_repository_invalid:
+    en: "Invalid format. Please enter owner/repo or a GitHub URL (https://github.com/owner/repo)."
+    de: "Ungültiges Format. Bitte geben Sie owner/repo oder eine GitHub-URL ein (https://github.com/owner/repo)."
   remote_repository_url:
     en: URL to ZIP file
     de: URL zur ZIP-Datei
