@@ -1430,6 +1430,9 @@ mod tests {
         assert!(settings.presentation_designs.is_empty());
         settings.ensure_default_presentation_design();
         assert_eq!(settings.presentation_designs.len(), 1);
+    }
+
+    #[test]
     fn test_github_zipball_url() {
         assert_eq!(
             RepositoryType::github_zipball_url("reckel-jm", "cantara-songrepo"),
