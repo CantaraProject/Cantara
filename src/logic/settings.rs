@@ -208,6 +208,13 @@ impl Settings {
     /// Add a new remote ZIP repository given as URL to the settings.
     /// The name will be derived from the URL if possible.
     ///
+    /// **Platform-specific behaviour on WASM:** if `url` is a GitHub archive URL
+    /// (e.g. `https://github.com/owner/repo/archive/refs/heads/main.zip` or a
+    /// `codeload.github.com` download link), the repository is stored as
+    /// [`RepositoryType::GitHub`] instead of [`RepositoryType::RemoteZip`]. This
+    /// avoids CORS failures caused by GitHub's redirect chain to `codeload.github.com`,
+    /// and always resolves to the default branch via the GitHub API.
+    ///
     /// # Arguments
     /// * `url` - The URL to the ZIP file
     pub fn add_remote_zip_repository_url(&mut self, url: String) {
