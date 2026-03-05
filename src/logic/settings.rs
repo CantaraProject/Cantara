@@ -156,6 +156,7 @@ impl Settings {
             };
             settings.ensure_default_presentation_design();
             settings.ensure_slide_settings_for_designs();
+            settings.migrate_github_zip_repos();
             settings
         }
     }
@@ -219,10 +220,9 @@ impl Settings {
     /// # Arguments
     /// * `url` - The URL to the ZIP file
     pub fn add_remote_zip_repository_url(&mut self, url: String) {
-        // On WASM, GitHub archive URLs have CORS issues when stored as RemoteZip.
-        // Detect and add them as GitHub-type repositories instead, which use the
-        // GitHub API and always fetch the default branch.
-        #[cfg(target_arch = "wasm32")]
+        // GitHub archive URLs should be stored as GitHub-type repositories:
+        // - On WASM this avoids CORS issues caused by GitHub's redirect chain
+        // - On mobile/desktop this ensures a consistent download path via the GitHub API
         if let Some((owner, repo)) = RepositoryType::parse_github_from_zip_url(&url) {
             self.add_github_repository(owner, repo, None);
             return;
@@ -310,14 +310,12 @@ impl Settings {
         }
     }
 
-    /// On WASM, migrates any `RemoteZip` repositories whose URLs are GitHub archive URLs
+    /// Migrates any `RemoteZip` repositories whose URLs are GitHub archive URLs
     /// (github.com/.../archive/... or codeload.github.com/...) to `GitHub` type repositories.
     ///
-    /// This avoids CORS issues caused by GitHub's redirect chain: the GitHub API
-    /// redirects to codeload.github.com which may return error responses without
-    /// CORS headers. Using the `GitHub` type also always fetches the default branch,
-    /// avoiding failures from stale branch references.
-    #[cfg(target_arch = "wasm32")]
+    /// This avoids CORS issues on WASM caused by GitHub's redirect chain, and on mobile
+    /// it ensures a consistent download path via the GitHub API which always fetches the
+    /// default branch, avoiding failures from stale branch references.
     pub fn migrate_github_zip_repos(&mut self) {
         for repo in &mut self.repositories {
             if let RepositoryType::RemoteZip(url) = &repo.repository_type {
@@ -1095,7 +1093,13 @@ fn get_settings_file() -> Option<PathBuf> {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn get_settings_folder() -> Option<PathBuf> {
-    dirs::config_local_dir().map(|dir| dir.join("cantara"))
+    // Try config_local_dir first (works on desktop Linux, macOS, Windows).
+    // Fall back to data_local_dir and then home_dir for mobile (Android/iOS)
+    // where the config dir might not be available.
+    dirs::config_local_dir()
+        .or_else(dirs::data_local_dir)
+        .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
+        .map(|dir| dir.join("cantara"))
 }
 
 /// A configured Presentation Design which is used both for creating the presentation slides as well as for rendering them.
@@ -1808,5 +1812,71 @@ mod tests {
         // On desktop, nothing should change
         assert!(settings.repositories.is_empty());
         assert!(!settings.wizard_completed);
+    }
+
+    #[test]
+    fn test_add_remote_zip_repository_url_github_archive_migrates() {
+        let mut settings = Settings::default();
+        settings.add_remote_zip_repository_url(
+            "https://github.com/owner/repo/archive/refs/heads/main.zip".to_string(),
+        );
+        // Should be stored as GitHub type, not RemoteZip
+        assert_eq!(settings.repositories.len(), 1);
+        match &settings.repositories[0].repository_type {
+            RepositoryType::GitHub { owner, repo, token } => {
+                assert_eq!(owner, "owner");
+                assert_eq!(repo, "repo");
+                assert!(token.is_none());
+            }
+            other => panic!("Expected GitHub repository type, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_add_remote_zip_repository_url_non_github_stays_remote_zip() {
+        let mut settings = Settings::default();
+        settings.add_remote_zip_repository_url(
+            "https://example.com/songs.zip".to_string(),
+        );
+        // Should remain as RemoteZip
+        assert_eq!(settings.repositories.len(), 1);
+        match &settings.repositories[0].repository_type {
+            RepositoryType::RemoteZip(url) => {
+                assert_eq!(url, "https://example.com/songs.zip");
+            }
+            other => panic!("Expected RemoteZip repository type, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_migrate_github_zip_repos() {
+        let mut settings = Settings::default();
+        // Add a GitHub archive URL as RemoteZip
+        settings.repositories.push(Repository::new_remote_zip(
+            "Test".to_string(),
+            "https://github.com/owner/repo/archive/refs/heads/main.zip".to_string(),
+        ));
+        // Add a non-GitHub RemoteZip that should not be migrated
+        settings.repositories.push(Repository::new_remote_zip(
+            "Other".to_string(),
+            "https://example.com/songs.zip".to_string(),
+        ));
+        settings.migrate_github_zip_repos();
+
+        // First repo should be migrated to GitHub type
+        match &settings.repositories[0].repository_type {
+            RepositoryType::GitHub { owner, repo, .. } => {
+                assert_eq!(owner, "owner");
+                assert_eq!(repo, "repo");
+            }
+            other => panic!("Expected GitHub repository type, got {:?}", other),
+        }
+        // Second repo should remain as RemoteZip
+        match &settings.repositories[1].repository_type {
+            RepositoryType::RemoteZip(url) => {
+                assert_eq!(url, "https://example.com/songs.zip");
+            }
+            other => panic!("Expected RemoteZip repository type, got {:?}", other),
+        }
     }
 }

@@ -155,6 +155,9 @@ settings:
   source_files_count:
     en: "Source files: %{count}"
     de: "Quelldateien: %{count}"
+  local_directory_prompt:
+    en: "Enter the path to a local song directory:"
+    de: "Pfad zum lokalen Liedverzeichnis eingeben:"
   settings_button:
     en: Settings...
     de: Einstellungen...
