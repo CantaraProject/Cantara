@@ -89,7 +89,7 @@ impl SelectedItemRepresentation {
 }
 
 /// A created presentation which is able to run
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunningPresentation {
     pub presentation: Vec<SlideChapter>,
     pub position: Option<RunningPresentationPosition>,
@@ -193,7 +193,7 @@ impl RunningPresentation {
 
 /// This represents a position in a running presentation.
 /// This struct should always be save in that sense that the presentation does exist.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunningPresentationPosition {
     /// The number of the current chapter
     chapter: usize,
@@ -275,7 +275,7 @@ impl RunningPresentationPosition {
 }
 
 /// Contains slide, the source file and the presentation design for each chapter (e.g. a song)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct SlideChapter {
     pub slides: Vec<Slide>,
     pub source_file: SourceFile,
@@ -309,5 +309,44 @@ mod tests {
         let settings = get_settings_folder().unwrap();
         dbg!(&settings);
         println!("Settings folder: {:?}", settings);
+    }
+
+    #[test]
+    fn test_running_presentation_serialization() {
+        use crate::logic::sourcefiles::{SourceFile, SourceFileType};
+        use cantara_songlib::slides::{Slide, SlideContent, EmptySlide};
+        use std::path::PathBuf;
+
+        let source_file = SourceFile {
+            name: "Test Song".to_string(),
+            path: PathBuf::from("test/path.song"),
+            file_type: SourceFileType::Song,
+        };
+
+        let slide = Slide {
+            slide_content: SlideContent::Empty(EmptySlide { black_background: false }),
+            linked_file: None,
+        };
+
+        let chapter = SlideChapter::new(
+            vec![slide],
+            source_file,
+            None,
+            None,
+        );
+
+        let rp = RunningPresentation::new(vec![chapter]);
+
+        // Serialize to JSON
+        let json = serde_json::to_string(&rp).expect("Failed to serialize RunningPresentation");
+        assert!(!json.is_empty());
+
+        // Deserialize back
+        let rp2: RunningPresentation = serde_json::from_str(&json).expect("Failed to deserialize RunningPresentation");
+        assert!(rp == rp2, "Deserialized presentation should match original");
+        assert!(rp2.presentation.len() == 1);
+        assert!(rp2.presentation[0].source_file.name == "Test Song");
+        assert!(rp2.position.is_some());
+        assert!(!rp2.is_black_screen);
     }
 }

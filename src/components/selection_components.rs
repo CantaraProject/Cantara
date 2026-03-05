@@ -9,6 +9,11 @@ use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
 use crate::logic::settings::{Settings, use_settings};
 use crate::logic::sourcefiles::SourceFile;
+#[cfg(target_arch = "wasm32")]
+use crate::logic::sync::{
+    SYNC_KEY_ACTIVE, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE, SYNC_KEY_PRESENTATION,
+    SYNC_KEY_QUIT,
+};
 use crate::Route;
 use cantara_songlib::slides::SlideSettings;
 #[cfg(feature = "desktop")]
@@ -1095,7 +1100,7 @@ fn start_presentation(
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
-    _settings_read: &Settings,
+    settings_read: &Settings,
 ) {
     if presentation::add_presentation(
         selected_items,
@@ -1106,7 +1111,51 @@ fn start_presentation(
         .is_some()
     {
         let nav = navigator();
-        nav.push(crate::Route::PresenterConsolePage {});
+        if settings_read.show_presenter_console {
+            // Store the presentation data in localStorage for the new-tab presentation
+            #[cfg(target_arch = "wasm32")]
+            {
+                if let Some(rp) = running_presentations.read().first() {
+                    if let Ok(json) = serde_json::to_string(rp) {
+                        let _ = web_sys::window()
+                            .and_then(|w| w.local_storage().ok().flatten())
+                            .map(|s| {
+                                let _ = s.set_item(SYNC_KEY_PRESENTATION, &json);
+                                let _ = s.set_item(SYNC_KEY_ACTIVE, "true");
+                                let _ = s.remove_item(SYNC_KEY_QUIT);
+                                let _ = s.remove_item(SYNC_KEY_POSITION);
+                                let _ = s.remove_item(SYNC_KEY_POSITION_FROM_CONSOLE);
+                            });
+                    }
+                }
+                // Open the presentation in a new browser tab
+                let base_path = option_env!("DIOXUS_BASE_PATH").unwrap_or("");
+                let url = if base_path.is_empty() {
+                    "/presentation".to_string()
+                } else {
+                    format!("/{}/presentation", base_path)
+                };
+                if let Some(win) = web_sys::window() {
+                    match win.open_with_url_and_target(&url, "_blank") {
+                        Ok(Some(_)) => {
+                            // Successfully opened new tab/window.
+                        }
+                        Ok(None) | Err(_) => {
+                            // Popup likely blocked or failed to open; inform the user.
+                            let _ = win.alert_with_message(
+                                "Unable to open the presentation in a new tab.\n\
+Please allow pop-ups for this site or open the presentation manually.",
+                            );
+                        }
+                    }
+                }
+            }
+            // Navigate the current tab to the presenter console
+            nav.push(crate::Route::PresenterConsolePage {});
+        } else {
+            // No presenter console: start presentation directly in the same tab
+            nav.push(crate::Route::PresentationPage {});
+        }
     }
 }
 

@@ -66,10 +66,8 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
     rsx! {
         RepositorySettings {}
         hr {}
-        if cfg!(feature = "desktop") {
-            ScreenSettings {}
-            hr {}
-        }
+        ScreenSettings {}
+        hr {}
         PresentationSettings {
             presentation_designs
         }
@@ -637,13 +635,44 @@ fn ScreenSettings() -> Element {
     }
 }
 
-/// No-op stub for non-desktop platforms.
-/// Required so that `if cfg!(feature = "desktop") { ScreenSettings {} }` in RSX
-/// type-checks on all platforms (both branches are compiled even with a constant condition).
+/// Non-desktop platforms show only the presenter console toggle.
+/// Monitor selection is not available on the web.
 #[cfg(not(feature = "desktop"))]
 #[component]
 fn ScreenSettings() -> Element {
-    rsx! {}
+    let mut settings = use_settings();
+
+    rsx! {
+        hgroup {
+            h3 { { t!("settings.screen_headline").to_string() } }
+            p { { t!("settings.screen_description").to_string() } }
+        }
+
+        // Show Presenter Console toggle
+        article {
+            class: "listed-article",
+            div {
+                div {
+                    h6 { { t!("settings.show_presenter_console_title").to_string() } }
+                    p { { t!("settings.show_presenter_console_description").to_string() } }
+                }
+                div {
+                    label {
+                        class: "switch",
+                        input {
+                            r#type: "checkbox",
+                            role: "switch",
+                            checked: settings.read().show_presenter_console,
+                            onchange: move |event| {
+                                settings.write().show_presenter_console = event.value().parse().unwrap_or(true);
+                            }
+                        }
+                        span { class: "slider" }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Displays an article with details and actions for a presentation design.

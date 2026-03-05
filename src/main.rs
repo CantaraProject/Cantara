@@ -16,6 +16,7 @@
 mod components;
 mod logic;
 
+use crate::components::presentation_components::PresentationPage;
 use crate::components::presentation_design_settings_components::PresentationDesignSettingsPage;
 use crate::components::presenter_console_components::PresenterConsolePage;
 use crate::components::selection_components::Selection;
@@ -71,6 +72,11 @@ pub enum Route {
     /// The presenter console shown in the main window during a presentation
     #[route("/presenter")]
     PresenterConsolePage {},
+
+    /// The presentation view shown in the same tab (when presenter console is disabled)
+    /// or opened in a new tab (when presenter console is enabled, on web).
+    #[route("/presentation")]
+    PresentationPage {},
 }
 
 fn main() {

@@ -66,5 +66,8 @@ pub mod conversions;
 pub mod css;
 pub mod search;
 
+#[cfg(target_arch = "wasm32")]
+pub mod sync;
+
 #[cfg(feature = "desktop")]
 pub mod screens;
