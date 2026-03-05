@@ -996,8 +996,13 @@ impl RepositoryType {
         let temp_dir =
             TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
         let zip_path = temp_dir.path().join("download.zip");
-        let client = Client::builder()
-            .http1_only()
+        let mut builder = Client::builder()
+            .http1_only();
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            builder = builder.use_preconfigured_tls(mobile_tls_config());
+        }
+        let client = builder
             .build()
             .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
         let mut request = client
@@ -1061,8 +1066,13 @@ impl RepositoryType {
         let temp_dir =
             TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
         let zip_path = temp_dir.path().join("download.zip");
-        let client = AsyncClient::builder()
-            .http1_only()
+        let mut builder = AsyncClient::builder()
+            .http1_only();
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            builder = builder.use_preconfigured_tls(mobile_tls_config());
+        }
+        let client = builder
             .build()
             .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
         let mut request = client
@@ -1140,6 +1150,29 @@ fn get_settings_folder() -> Option<PathBuf> {
         .or_else(dirs::data_local_dir)
         .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
         .map(|dir| dir.join("cantara"))
+}
+
+/// Creates a rustls `ClientConfig` using embedded Mozilla root certificates
+/// (from the `webpki-root-certs` crate) instead of the platform verifier.
+///
+/// On Android, the default TLS configuration in reqwest uses
+/// `rustls-platform-verifier`, which performs certificate verification via JNI
+/// and a Java helper class (`rustls-platform-verifier-android`). If that class
+/// is not bundled in the APK (which is the case for Dioxus-built apps), the
+/// JNI class-loading fails and causes a fatal SIGABRT.
+///
+/// By providing a pre-configured `ClientConfig` with WebPKI roots we bypass
+/// the platform verifier entirely, while still verifying server certificates
+/// against Mozilla's trusted root CA bundle.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_tls_config() -> rustls::ClientConfig {
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.add_parsable_certificates(
+        webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter().cloned(),
+    );
+    rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth()
 }
 
 /// Returns the app's private files directory on Android via JNI.
