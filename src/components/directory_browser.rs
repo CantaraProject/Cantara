@@ -77,6 +77,9 @@ pub fn DirectoryBrowserModal(
     let mut current_path: Signal<PathBuf> = use_signal(get_default_start_directory);
     let mut entries: Signal<Vec<DirEntry>> = use_signal(Vec::new);
     let mut error_message: Signal<Option<String>> = use_signal(|| None);
+    let mut show_new_folder_input: Signal<bool> = use_signal(|| false);
+    let mut new_folder_name: Signal<String> = use_signal(String::new);
+    let mut new_folder_error: Signal<Option<String>> = use_signal(|| None);
 
     // Update directory entries when the current path changes
     use_effect(move || {
@@ -159,6 +162,65 @@ pub fn DirectoryBrowserModal(
                             style: "font-style: italic; color: var(--pico-muted-color);",
                             { t!("settings.directory_browser.empty").to_string() }
                         }
+                    }
+                }
+
+                // New folder creation section
+                if *show_new_folder_input.read() {
+                    div {
+                        style: "margin-top: 0.5em;",
+                        div {
+                            role: "group",
+                            input {
+                                r#type: "text",
+                                placeholder: t!("settings.directory_browser.new_folder_placeholder").to_string(),
+                                value: "{new_folder_name}",
+                                oninput: move |evt: Event<FormData>| {
+                                    new_folder_name.set(evt.value().clone());
+                                    new_folder_error.set(None);
+                                },
+                            }
+                            button {
+                                disabled: new_folder_name.read().trim().is_empty(),
+                                onclick: move |_| {
+                                    let name = new_folder_name.read().trim().to_string();
+                                    if name.is_empty() {
+                                        return;
+                                    }
+                                    let new_path = current_path.read().join(&name);
+                                    match std::fs::create_dir(&new_path) {
+                                        Ok(()) => {
+                                            new_folder_name.set(String::new());
+                                            new_folder_error.set(None);
+                                            show_new_folder_input.set(false);
+                                            // Navigate into the newly created folder
+                                            current_path.set(new_path);
+                                        }
+                                        Err(e) => {
+                                            new_folder_error.set(Some(e.to_string()));
+                                        }
+                                    }
+                                },
+                                { t!("settings.directory_browser.create").to_string() }
+                            }
+                        }
+                        if let Some(ref err) = *new_folder_error.read() {
+                            small {
+                                style: "color: var(--pico-del-color);",
+                                "{err}"
+                            }
+                        }
+                    }
+                } else {
+                    button {
+                        class: "secondary outline",
+                        style: "margin-top: 0.5em;",
+                        onclick: move |_| {
+                            show_new_folder_input.set(true);
+                            new_folder_name.set(String::new());
+                            new_folder_error.set(None);
+                        },
+                        { t!("settings.directory_browser.new_folder").to_string() }
                     }
                 }
 
