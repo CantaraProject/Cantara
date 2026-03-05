@@ -1117,13 +1117,76 @@ fn get_settings_file() -> Option<PathBuf> {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn get_settings_folder() -> Option<PathBuf> {
+    // On Android, the `dirs` crate cannot resolve standard config/data directories
+    // because the HOME and XDG_* environment variables are not set by the Android runtime.
+    // Use JNI to query the app's private files directory instead.
+    #[cfg(target_os = "android")]
+    if let Some(dir) = get_android_files_dir() {
+        return Some(dir.join("cantara"));
+    }
+
     // Try config_local_dir first (works on desktop Linux, macOS, Windows).
-    // Fall back to data_local_dir and then home_dir for mobile (Android/iOS)
+    // Fall back to data_local_dir and then home_dir for mobile (iOS)
     // where the config dir might not be available.
     dirs::config_local_dir()
         .or_else(dirs::data_local_dir)
         .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
         .map(|dir| dir.join("cantara"))
+}
+
+/// Returns the app's private files directory on Android via JNI.
+///
+/// Uses `ndk-context` to obtain the Android Activity reference, then calls
+/// `Context.getFilesDir().getAbsolutePath()` through JNI to get a persistent,
+/// app-private directory path.
+#[cfg(target_os = "android")]
+fn get_android_files_dir() -> Option<PathBuf> {
+    use jni::objects::JObject;
+    use jni::JavaVM;
+    use log::{error, info};
+
+    let ctx = ndk_context::android_context();
+
+    // Safety: The VM pointer provided by ndk-context is valid for the lifetime of the app.
+    let vm = match unsafe { JavaVM::from_raw(ctx.vm().cast()) } {
+        Ok(vm) => vm,
+        Err(e) => {
+            error!("Failed to get JavaVM from ndk-context: {e}");
+            return None;
+        }
+    };
+    let mut env = match vm.attach_current_thread() {
+        Ok(env) => env,
+        Err(e) => {
+            error!("Failed to attach current thread to JVM: {e}");
+            return None;
+        }
+    };
+
+    // Safety: The context pointer is a valid Activity jobject managed by android-activity.
+    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+
+    // Call Context.getFilesDir() -> java.io.File
+    let files_dir = env
+        .call_method(&activity, "getFilesDir", "()Ljava/io/File;", &[])
+        .ok()?;
+    let files_dir_obj = files_dir.l().ok()?;
+
+    // Call File.getAbsolutePath() -> String
+    let path_jvalue = env
+        .call_method(
+            &files_dir_obj,
+            "getAbsolutePath",
+            "()Ljava/lang/String;",
+            &[],
+        )
+        .ok()?;
+    let path_jobj = path_jvalue.l().ok()?;
+    let path_jstr = jni::objects::JString::from(path_jobj);
+    let path_str: String = env.get_string(&path_jstr).ok()?.into();
+
+    info!("Android files directory: {path_str}");
+    Some(PathBuf::from(path_str))
 }
 
 /// A configured Presentation Design which is used both for creating the presentation slides as well as for rendering them.
