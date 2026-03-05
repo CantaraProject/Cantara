@@ -95,6 +95,10 @@ pub struct RunningPresentation {
     pub position: Option<RunningPresentationPosition>,
     /// Whether the presentation is currently showing a black screen
     pub is_black_screen: bool,
+    /// The resolution of the presentation screen in pixels (width, height).
+    /// Defaults to 1920x1080 (16:9) when no monitor info is available.
+    #[serde(default = "default_presentation_resolution")]
+    pub presentation_resolution: (u32, u32),
 }
 
 impl RunningPresentation {
@@ -104,6 +108,7 @@ impl RunningPresentation {
             presentation: presentation.clone(),
             position: RunningPresentationPosition::new(&presentation),
             is_black_screen: false,
+            presentation_resolution: default_presentation_resolution(),
         }
     }
 
@@ -297,6 +302,10 @@ impl SlideChapter {
             slide_settings_option: slide_settings,
         }
     }
+}
+
+fn default_presentation_resolution() -> (u32, u32) {
+    (1920, 1080)
 }
 
 #[cfg(test)]

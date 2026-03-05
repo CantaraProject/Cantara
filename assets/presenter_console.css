@@ -63,7 +63,9 @@
 .presenter-content {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr;
     flex: 1;
+    min-height: 0;
     overflow: hidden;
     gap: 10px;
     padding: 10px;
@@ -79,6 +81,7 @@
 /* Text Panel (left side) */
 .presenter-text-panel {
     overflow-y: auto;
+    min-height: 0;
     padding: 10px;
     border: 1px solid var(--pico-muted-border-color);
     border-radius: var(--pico-border-radius);
@@ -207,6 +210,7 @@
 /* Grid panel */
 .presenter-grid-panel {
     overflow-y: auto;
+    min-height: 0;
     padding: 10px;
     border: 1px solid var(--pico-muted-border-color);
     border-radius: var(--pico-border-radius);

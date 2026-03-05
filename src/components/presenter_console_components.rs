@@ -332,11 +332,13 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
         "grid-template-columns: repeat(auto-fill, minmax({}px, 1fr));",
         size
     );
-    // Compute zoom: the slide renders at 1024px wide, scale it to fit the thumbnail width
-    let zoom_factor = size as f64 / 1024.0;
+    // Use the presentation screen resolution for native rendering size
+    let (native_w, native_h) = rp.presentation_resolution;
+    // Compute zoom: the slide renders at native width, scale it to fit the thumbnail width
+    let zoom_factor = size as f64 / native_w as f64;
     let zoom_css = format!("zoom: {};", zoom_factor);
-    // The scaled height for the 16:9 container wrapper
-    let thumb_height = (size as f64 * 9.0 / 16.0).round() as u32;
+    // The scaled height matches the presentation aspect ratio
+    let thumb_height = (size as f64 * native_h as f64 / native_w as f64).round() as u32;
 
     rsx! {
         div {
@@ -400,7 +402,7 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                                                     class: "presenter-grid-slide-inner",
                                                     style: "width: 100%; height: {thumb_height}px; overflow: hidden;",
                                                     div {
-                                                        style: "width: 1024px; height: 576px; {zoom_css} transform-origin: top left;",
+                                                        style: "width: {native_w}px; height: {native_h}px; {zoom_css} transform-origin: top left;",
                                                         StaticSlideRendererComponent {
                                                             slide: slide.clone(),
                                                             presentation_design: design.clone()
@@ -490,7 +492,10 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
 /// are synced back to the shared running presentation state.
 #[component]
 fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> Element {
-    let scale_percentage = ((480.0f64 / 1024.0) * 100.0).round();
+    let rp = running_presentation.read();
+    let (native_w, native_h) = rp.presentation_resolution;
+    // Scale so the preview fits ~480px wide
+    let scale_percentage = ((480.0f64 / native_w as f64) * 100.0).round();
     let zoom_css = format!("zoom: {}%;", scale_percentage);
 
     rsx! {
@@ -499,7 +504,7 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
             h4 { { t!("presenter.preview").to_string() } }
             div {
                 class: "presentation-preview",
-                style: format!("position: relative; width: 1024px; height: 576px; border-radius: 4px; overflow: hidden; {}", zoom_css),
+                style: format!("position: relative; width: {}px; height: {}px; border-radius: 4px; overflow: hidden; {}", native_w, native_h, zoom_css),
                 PresentationRendererComponent {
                     running_presentation: running_presentation
                 }

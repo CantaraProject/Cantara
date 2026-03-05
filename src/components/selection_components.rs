@@ -1024,6 +1024,13 @@ fn start_presentation(
         let presentation_monitor =
             resolve_monitor(&monitors, &settings_read.presentation_screen, false);
 
+        // Set the presentation resolution from the monitor
+        if let Some(ref monitor) = presentation_monitor {
+            if let Some(rp) = running_presentations.write().last_mut() {
+                rp.presentation_resolution = monitor.size;
+            }
+        }
+
         // Resolve presenter monitor (prefer primary)
         let presenter_monitor =
             resolve_monitor(&monitors, &settings_read.presenter_screen, true);
