@@ -187,6 +187,11 @@ pub fn DirectoryBrowserModal(
                                     if name.is_empty() {
                                         return;
                                     }
+                                    // Validate folder name: reject path separators and traversal
+                                    if name.contains('/') || name.contains('\\') || name == ".." || name == "." {
+                                        new_folder_error.set(Some("Invalid folder name".to_string()));
+                                        return;
+                                    }
                                     let new_path = current_path.read().join(&name);
                                     match std::fs::create_dir(&new_path) {
                                         Ok(()) => {
@@ -197,7 +202,12 @@ pub fn DirectoryBrowserModal(
                                             current_path.set(new_path);
                                         }
                                         Err(e) => {
-                                            new_folder_error.set(Some(e.to_string()));
+                                            let msg = match e.kind() {
+                                                std::io::ErrorKind::AlreadyExists => t!("settings.directory_browser.error_already_exists").to_string(),
+                                                std::io::ErrorKind::PermissionDenied => t!("settings.directory_browser.error_permission_denied").to_string(),
+                                                _ => e.to_string(),
+                                            };
+                                            new_folder_error.set(Some(msg));
                                         }
                                     }
                                 },

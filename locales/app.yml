@@ -183,6 +183,12 @@ settings:
     create:
       en: "Create"
       de: "Erstellen"
+    error_already_exists:
+      en: "A folder with this name already exists"
+      de: "Ein Ordner mit diesem Namen existiert bereits"
+    error_permission_denied:
+      en: "Permission denied"
+      de: "Zugriff verweigert"
   settings_button:
     en: Settings...
     de: Einstellungen...
