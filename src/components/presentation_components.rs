@@ -185,7 +185,13 @@ pub fn PresentationPage() -> Element {
             let _ = web_sys::window()
                 .and_then(|w| w.local_storage().ok().flatten())
                 .map(|s| {
+                    // Signal quit to any synced tabs
                     let _ = s.set_item("cantara-sync-quit", "true");
+                    // Perform full cleanup of sync-related keys to avoid stale state
+                    let _ = s.remove_item("cantara-sync-active");
+                    let _ = s.remove_item("cantara-sync-presentation");
+                    let _ = s.remove_item("cantara-sync-position");
+                    let _ = s.remove_item("cantara-sync-position-from-console");
                 });
         }
         running_presentations.write().clear();
