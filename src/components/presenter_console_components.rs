@@ -25,12 +25,15 @@ rust_i18n::i18n!("locales", fallback = "en");
 #[component]
 pub fn PresenterConsolePage() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
-    let nav = navigator();
 
     // Detect whether we are hosted in the main window (router available with known routes)
     // vs. a separate window. In the main window the presenter console is reached via a route,
     // so we can navigate back. In a separate window we close it.
-    let is_main_window = nav.can_go_back();
+    // We use try_consume_context to safely check for a router context, because calling
+    // navigator() directly would panic in standalone desktop windows (no router present).
+    let is_main_window = try_consume_context::<dioxus::router::RouterContext>().is_some();
+    // Only acquire the navigator if a router is present to avoid panicking.
+    let nav = if is_main_window { Some(navigator()) } else { None };
 
     let mut running_presentation: Signal<RunningPresentation> =
         use_signal(move || running_presentations.get(0).unwrap().clone());
@@ -41,7 +44,10 @@ pub fn PresenterConsolePage() -> Element {
         let current = running_presentations.read();
         if current.is_empty() {
             if is_main_window {
-                nav.replace(crate::Route::Selection {});
+                // Navigate back to the selection route when running in the main window.
+                if let Some(nav) = &nav {
+                    nav.replace(crate::Route::Selection {});
+                }
             } else {
                 #[cfg(feature = "desktop")]
                 dioxus::desktop::window().close();
@@ -139,7 +145,8 @@ pub fn PresenterConsolePage() -> Element {
         }
         running_presentations.write().clear();
         if is_main_window {
-            nav.replace(crate::Route::Selection {});
+            // nav is Some when is_main_window is true
+            nav.as_ref().unwrap().replace(crate::Route::Selection {});
         } else {
             #[cfg(feature = "desktop")]
             dioxus::desktop::window().close();

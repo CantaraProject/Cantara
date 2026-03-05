@@ -43,7 +43,6 @@ rust_i18n::i18n!("locales", fallback = "en");
 #[component]
 pub fn PresentationPage() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
-    let nav = navigator();
 
     // On web, check if this is a synced new-tab presentation (opened by the presenter console).
     // In that case the running_presentations signal will be empty, and we load data from localStorage.
@@ -62,6 +61,11 @@ pub fn PresentationPage() -> Element {
         }
     }
 
+    // On non-desktop builds, navigator() is used to detect whether this is a routed page
+    // and to navigate back on quit. On desktop this page always runs as a standalone window
+    // (without a router), so calling navigator() would panic.
+    #[cfg(not(feature = "desktop"))]
+    let nav = navigator();
     // Detect whether we are a standalone window (desktop) or a routed page (web/in-app).
     #[cfg(not(feature = "desktop"))]
     let is_routed = nav.can_go_back();
