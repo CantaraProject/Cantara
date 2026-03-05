@@ -63,4 +63,6 @@ pub mod song_slide_settings_components;
 
 pub mod presenter_console_components;
 
+pub mod directory_browser;
+
 mod font_settings;

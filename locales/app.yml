@@ -158,6 +158,37 @@ settings:
   local_directory_prompt:
     en: "Enter the path to a local song directory:"
     de: "Pfad zum lokalen Liedverzeichnis eingeben:"
+  directory_browser:
+    title:
+      en: "Select a folder"
+      de: "Ordner auswählen"
+    select:
+      en: "Select this folder"
+      de: "Diesen Ordner auswählen"
+    cancel:
+      en: "Cancel"
+      de: "Abbrechen"
+    empty:
+      en: "No subdirectories found"
+      de: "Keine Unterverzeichnisse gefunden"
+    error:
+      en: "Cannot read directory:"
+      de: "Verzeichnis kann nicht gelesen werden:"
+    new_folder:
+      en: "New Folder"
+      de: "Neuer Ordner"
+    new_folder_placeholder:
+      en: "Folder name"
+      de: "Ordnername"
+    create:
+      en: "Create"
+      de: "Erstellen"
+    error_already_exists:
+      en: "A folder with this name already exists"
+      de: "Ein Ordner mit diesem Namen existiert bereits"
+    error_permission_denied:
+      en: "Permission denied"
+      de: "Zugriff verweigert"
   settings_button:
     en: Settings...
     de: Einstellungen...

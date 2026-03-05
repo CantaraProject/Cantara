@@ -290,3 +290,13 @@ div.inline-div {
     background-color: var(--pico-background-color);
     box-shadow: 0 4px 8px rgba(0,0,0,0.1);
 }
+
+.directory-entry {
+    cursor: pointer;
+    padding: 0.5em 0.75em;
+    border-bottom: 1px solid var(--pico-border-color);
+}
+
+.directory-entry:hover {
+    background-color: var(--pico-table-row-stripped-background-color);
+}
