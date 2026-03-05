@@ -1167,21 +1167,41 @@ fn get_android_files_dir() -> Option<PathBuf> {
     let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
 
     // Call Context.getFilesDir() -> java.io.File
-    let files_dir = env
-        .call_method(&activity, "getFilesDir", "()Ljava/io/File;", &[])
-        .ok()?;
-    let files_dir_obj = files_dir.l().ok()?;
+    let files_dir = match env.call_method(&activity, "getFilesDir", "()Ljava/io/File;", &[]) {
+        Ok(val) => val,
+        Err(e) => {
+            error!("JNI call to getFilesDir() failed: {e}");
+            return None;
+        }
+    };
+    let files_dir_obj = match files_dir.l() {
+        Ok(obj) => obj,
+        Err(e) => {
+            error!("Failed to extract File object from getFilesDir() result: {e}");
+            return None;
+        }
+    };
 
     // Call File.getAbsolutePath() -> String
-    let path_jvalue = env
-        .call_method(
-            &files_dir_obj,
-            "getAbsolutePath",
-            "()Ljava/lang/String;",
-            &[],
-        )
-        .ok()?;
-    let path_jobj = path_jvalue.l().ok()?;
+    let path_jvalue = match env.call_method(
+        &files_dir_obj,
+        "getAbsolutePath",
+        "()Ljava/lang/String;",
+        &[],
+    ) {
+        Ok(val) => val,
+        Err(e) => {
+            error!("JNI call to getAbsolutePath() failed: {e}");
+            return None;
+        }
+    };
+    let path_jobj = match path_jvalue.l() {
+        Ok(obj) => obj,
+        Err(e) => {
+            error!("Failed to extract String object from getAbsolutePath() result: {e}");
+            return None;
+        }
+    };
     let path_jstr = jni::objects::JString::from(path_jobj);
     let path_str: String = env.get_string(&path_jstr).ok()?.into();
 
