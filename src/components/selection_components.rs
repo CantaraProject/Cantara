@@ -9,6 +9,11 @@ use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
 use crate::logic::settings::{Settings, use_settings};
 use crate::logic::sourcefiles::SourceFile;
+#[cfg(target_arch = "wasm32")]
+use crate::logic::sync::{
+    SYNC_KEY_ACTIVE, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE, SYNC_KEY_PRESENTATION,
+    SYNC_KEY_QUIT,
+};
 use crate::Route;
 use cantara_songlib::slides::SlideSettings;
 #[cfg(feature = "desktop")]
@@ -1111,11 +1116,11 @@ fn start_presentation(
                         let _ = web_sys::window()
                             .and_then(|w| w.local_storage().ok().flatten())
                             .map(|s| {
-                                let _ = s.set_item("cantara-sync-presentation", &json);
-                                let _ = s.set_item("cantara-sync-active", "true");
-                                let _ = s.remove_item("cantara-sync-quit");
-                                let _ = s.remove_item("cantara-sync-position");
-                                let _ = s.remove_item("cantara-sync-position-from-console");
+                                let _ = s.set_item(SYNC_KEY_PRESENTATION, &json);
+                                let _ = s.set_item(SYNC_KEY_ACTIVE, "true");
+                                let _ = s.remove_item(SYNC_KEY_QUIT);
+                                let _ = s.remove_item(SYNC_KEY_POSITION);
+                                let _ = s.remove_item(SYNC_KEY_POSITION_FROM_CONSOLE);
                             });
                     }
                 }

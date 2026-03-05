@@ -3,6 +3,11 @@
 
 use crate::logic::presentation::get_picture_path;
 use crate::logic::states::RunningPresentation;
+#[cfg(target_arch = "wasm32")]
+use crate::logic::sync::{
+    SYNC_KEY_ACTIVE, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE, SYNC_KEY_PRESENTATION,
+    SYNC_KEY_QUIT,
+};
 use crate::MAIN_CSS;
 use cantara_songlib::slides::SlideContent;
 use dioxus::prelude::*;
@@ -55,7 +60,7 @@ pub fn PresenterConsolePage() -> Element {
     #[cfg(target_arch = "wasm32")]
     let is_sync_active = web_sys::window()
         .and_then(|w| w.local_storage().ok().flatten())
-        .and_then(|s| s.get_item("cantara-sync-active").ok().flatten())
+        .and_then(|s| s.get_item(SYNC_KEY_ACTIVE).ok().flatten())
         .map(|v| v == "true")
         .unwrap_or(false);
 
@@ -67,7 +72,7 @@ pub fn PresenterConsolePage() -> Element {
             if let Ok(json) = serde_json::to_string(&*rp) {
                 let _ = web_sys::window()
                     .and_then(|w| w.local_storage().ok().flatten())
-                    .map(|s| s.set_item("cantara-sync-position-from-console", &json));
+                    .map(|s| s.set_item(SYNC_KEY_POSITION_FROM_CONSOLE, &json));
             }
         }
     });
@@ -85,7 +90,7 @@ pub fn PresenterConsolePage() -> Element {
                 let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
                 if let Some(json) = web_sys::window()
                     .and_then(|w| w.local_storage().ok().flatten())
-                    .and_then(|s| s.get_item("cantara-sync-position").ok().flatten())
+                    .and_then(|s| s.get_item(SYNC_KEY_POSITION).ok().flatten())
                 {
                     if !json.is_empty() && json != *last_sync_json.peek() {
                         last_sync_json.set(json.clone());
@@ -115,11 +120,11 @@ pub fn PresenterConsolePage() -> Element {
             let _ = web_sys::window()
                 .and_then(|w| w.local_storage().ok().flatten())
                 .map(|s| {
-                    let _ = s.set_item("cantara-sync-quit", "true");
-                    let _ = s.remove_item("cantara-sync-active");
-                    let _ = s.remove_item("cantara-sync-presentation");
-                    let _ = s.remove_item("cantara-sync-position");
-                    let _ = s.remove_item("cantara-sync-position-from-console");
+                    let _ = s.set_item(SYNC_KEY_QUIT, "true");
+                    let _ = s.remove_item(SYNC_KEY_ACTIVE);
+                    let _ = s.remove_item(SYNC_KEY_PRESENTATION);
+                    let _ = s.remove_item(SYNC_KEY_POSITION);
+                    let _ = s.remove_item(SYNC_KEY_POSITION_FROM_CONSOLE);
                 });
         }
         running_presentations.write().clear();

@@ -9,6 +9,11 @@ use rust_i18n::t;
 use crate::logic::css::{CssHandler, PlaceItems};
 use crate::logic::presentation::get_picture_path;
 use crate::logic::settings::{CssSize, HorizontalAlign, VerticalAlign};
+#[cfg(target_arch = "wasm32")]
+use crate::logic::sync::{
+    SYNC_KEY_ACTIVE, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE, SYNC_KEY_PRESENTATION,
+    SYNC_KEY_QUIT,
+};
 use crate::{
     MAIN_CSS,
     logic::{
@@ -48,7 +53,7 @@ pub fn PresentationPage() -> Element {
             // Try to load synced presentation data from localStorage
             if let Some(json) = web_sys::window()
                 .and_then(|w| w.local_storage().ok().flatten())
-                .and_then(|s| s.get_item("cantara-sync-presentation").ok().flatten())
+                .and_then(|s| s.get_item(SYNC_KEY_PRESENTATION).ok().flatten())
             {
                 if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json) {
                     running_presentations.write().push(rp);
@@ -64,7 +69,7 @@ pub fn PresentationPage() -> Element {
     #[cfg(target_arch = "wasm32")]
     let is_synced_tab = web_sys::window()
         .and_then(|w| w.local_storage().ok().flatten())
-        .and_then(|s| s.get_item("cantara-sync-active").ok().flatten())
+        .and_then(|s| s.get_item(SYNC_KEY_ACTIVE).ok().flatten())
         .map(|v| v == "true")
         .unwrap_or(false);
     #[cfg(not(target_arch = "wasm32"))]
@@ -124,7 +129,7 @@ pub fn PresentationPage() -> Element {
             if let Ok(json) = serde_json::to_string(&*rp) {
                 let _ = web_sys::window()
                     .and_then(|w| w.local_storage().ok().flatten())
-                    .map(|s| s.set_item("cantara-sync-position", &json));
+                    .map(|s| s.set_item(SYNC_KEY_POSITION, &json));
             }
         }
     });
@@ -145,7 +150,7 @@ pub fn PresentationPage() -> Element {
                 // Check if the presentation was quit by the presenter console
                 let quit = web_sys::window()
                     .and_then(|w| w.local_storage().ok().flatten())
-                    .and_then(|s| s.get_item("cantara-sync-quit").ok().flatten())
+                    .and_then(|s| s.get_item(SYNC_KEY_QUIT).ok().flatten())
                     .map(|v| v == "true")
                     .unwrap_or(false);
                 if quit {
@@ -158,7 +163,7 @@ pub fn PresentationPage() -> Element {
                 // Read position updates from the presenter console
                 if let Some(json) = web_sys::window()
                     .and_then(|w| w.local_storage().ok().flatten())
-                    .and_then(|s| s.get_item("cantara-sync-position-from-console").ok().flatten())
+                    .and_then(|s| s.get_item(SYNC_KEY_POSITION_FROM_CONSOLE).ok().flatten())
                 {
                     if !json.is_empty() && json != *last_sync_json.peek() {
                         last_sync_json.set(json.clone());
@@ -186,12 +191,12 @@ pub fn PresentationPage() -> Element {
                 .and_then(|w| w.local_storage().ok().flatten())
                 .map(|s| {
                     // Signal quit to any synced tabs
-                    let _ = s.set_item("cantara-sync-quit", "true");
+                    let _ = s.set_item(SYNC_KEY_QUIT, "true");
                     // Perform full cleanup of sync-related keys to avoid stale state
-                    let _ = s.remove_item("cantara-sync-active");
-                    let _ = s.remove_item("cantara-sync-presentation");
-                    let _ = s.remove_item("cantara-sync-position");
-                    let _ = s.remove_item("cantara-sync-position-from-console");
+                    let _ = s.remove_item(SYNC_KEY_ACTIVE);
+                    let _ = s.remove_item(SYNC_KEY_PRESENTATION);
+                    let _ = s.remove_item(SYNC_KEY_POSITION);
+                    let _ = s.remove_item(SYNC_KEY_POSITION_FROM_CONSOLE);
                 });
         }
         running_presentations.write().clear();
