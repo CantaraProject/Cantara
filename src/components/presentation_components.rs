@@ -132,43 +132,45 @@ pub fn PresentationPage() -> Element {
     // On web synced tab: poll for position changes from the presenter console
     #[cfg(target_arch = "wasm32")]
     {
-        if is_synced_tab {
-            let mut last_sync_json = use_signal(|| String::new());
-            use_future(move || async move {
-                loop {
-                    // Wait ~150ms between polls
-                    let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
+        let mut last_sync_json = use_signal(|| String::new());
+        use_future(move || async move {
+            // If this is not a synced tab, do nothing.
+            if !is_synced_tab {
+                return;
+            }
+            loop {
+                // Wait ~150ms between polls
+                let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
 
-                    // Check if the presentation was quit by the presenter console
-                    let quit = web_sys::window()
-                        .and_then(|w| w.local_storage().ok().flatten())
-                        .and_then(|s| s.get_item("cantara-sync-quit").ok().flatten())
-                        .map(|v| v == "true")
-                        .unwrap_or(false);
-                    if quit {
-                        running_presentations.write().clear();
-                        // Close this tab
-                        let _ = document::eval("window.close()").await;
-                        return;
-                    }
+                // Check if the presentation was quit by the presenter console
+                let quit = web_sys::window()
+                    .and_then(|w| w.local_storage().ok().flatten())
+                    .and_then(|s| s.get_item("cantara-sync-quit").ok().flatten())
+                    .map(|v| v == "true")
+                    .unwrap_or(false);
+                if quit {
+                    running_presentations.write().clear();
+                    // Close this tab
+                    let _ = document::eval("window.close()").await;
+                    return;
+                }
 
-                    // Read position updates from the presenter console
-                    if let Some(json) = web_sys::window()
-                        .and_then(|w| w.local_storage().ok().flatten())
-                        .and_then(|s| s.get_item("cantara-sync-position-from-console").ok().flatten())
-                    {
-                        if !json.is_empty() && json != *last_sync_json.peek() {
-                            last_sync_json.set(json.clone());
-                            if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json) {
-                                if *running_presentation.peek() != rp {
-                                    running_presentation.set(rp);
-                                }
+                // Read position updates from the presenter console
+                if let Some(json) = web_sys::window()
+                    .and_then(|w| w.local_storage().ok().flatten())
+                    .and_then(|s| s.get_item("cantara-sync-position-from-console").ok().flatten())
+                {
+                    if !json.is_empty() && json != *last_sync_json.peek() {
+                        last_sync_json.set(json.clone());
+                        if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json) {
+                            if *running_presentation.peek() != rp {
+                                running_presentation.set(rp);
                             }
                         }
                     }
                 }
-            });
-        }
+            }
+        });
     }
 
     // Context menu state
