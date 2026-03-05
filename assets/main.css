@@ -193,6 +193,7 @@ div.inline-div {
         border-radius: 50%;
         background-color: var(--pico-secondary-border);
         transition: background-color 0.3s;
+        cursor: pointer;
     }
     .swipe-dot.active {
         background-color: var(--pico-primary-background);

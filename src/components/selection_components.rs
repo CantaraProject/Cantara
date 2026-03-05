@@ -370,9 +370,9 @@ pub fn Selection() -> Element {
             // Swipe indicator dots (visible only on mobile via CSS)
             div {
                 class: "swipe-indicator",
-                div { class: "swipe-dot active" }
-                div { class: "swipe-dot" }
-                div { class: "swipe-dot" }
+                div { class: "swipe-dot active", onclick: move |_| { let _ = document::eval("scrollToPanel(0);"); } }
+                div { class: "swipe-dot", onclick: move |_| { let _ = document::eval("scrollToPanel(1);"); } }
+                div { class: "swipe-dot", onclick: move |_| { let _ = document::eval("scrollToPanel(2);"); } }
             }
             footer {
                 class: "bottom-bar",

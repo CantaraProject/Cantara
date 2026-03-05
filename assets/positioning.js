@@ -67,6 +67,13 @@ function setupSwipeListener() {
   }
 }
 
+function scrollToPanel(index) {
+  var container = document.querySelector(".swipe-container");
+  if (!container) return;
+  var panelWidth = container.offsetWidth;
+  container.scrollTo({ left: panelWidth * index, behavior: "smooth" });
+}
+
 function initSelectionLayout() {
   adjustDivHeight();
   setupSwipeListener();
