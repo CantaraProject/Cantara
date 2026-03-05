@@ -996,7 +996,11 @@ impl RepositoryType {
         let temp_dir =
             TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
         let zip_path = temp_dir.path().join("download.zip");
-        let mut request = Client::new()
+        let client = Client::builder()
+            .http1_only()
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+        let mut request = client
             .get(url)
             .header("User-Agent", "Cantara");
         if let Some(token) = token {
@@ -1057,7 +1061,11 @@ impl RepositoryType {
         let temp_dir =
             TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
         let zip_path = temp_dir.path().join("download.zip");
-        let mut request = AsyncClient::new()
+        let client = AsyncClient::builder()
+            .http1_only()
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+        let mut request = client
             .get(url)
             .header("User-Agent", "Cantara");
         if let Some(token) = token {
