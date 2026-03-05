@@ -67,6 +67,20 @@ pub struct Settings {
     /// Whether to show the presenter console in the main window instead of a separate window.
     #[serde(default = "default_presenter_console_in_main_window")]
     pub presenter_console_in_main_window: bool,
+
+    /// Which view mode to use for the presenter console left panel.
+    #[serde(default)]
+    pub presenter_console_view: PresenterConsoleView,
+}
+
+/// The view mode for the presenter console left panel.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+pub enum PresenterConsoleView {
+    /// Text-based list view (default, existing behaviour)
+    #[default]
+    Text,
+    /// Grid overview showing slide thumbnails grouped by chapter
+    Grid,
 }
 
 impl Default for Settings {
@@ -81,6 +95,7 @@ impl Default for Settings {
             presenter_screen: None,
             show_presenter_console: default_show_presenter_console(),
             presenter_console_in_main_window: default_presenter_console_in_main_window(),
+            presenter_console_view: PresenterConsoleView::default(),
         }
     }
 }

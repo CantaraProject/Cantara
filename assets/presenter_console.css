@@ -15,12 +15,48 @@
     background-color: var(--pico-primary-background);
     color: var(--pico-primary-inverse);
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .presenter-header h3 {
     margin: 0;
     font-size: 1rem;
     color: var(--pico-primary-inverse);
+}
+
+/* View toggle buttons */
+.presenter-view-toggle {
+    display: flex;
+    gap: 2px;
+    background-color: rgba(255, 255, 255, 0.15);
+    border-radius: var(--pico-border-radius);
+    padding: 2px;
+}
+
+.view-toggle-btn {
+    margin: 0;
+    padding: 4px 12px;
+    font-size: 0.8rem;
+    border: none;
+    background: transparent;
+    color: var(--pico-primary-inverse);
+    cursor: pointer;
+    border-radius: var(--pico-border-radius);
+    opacity: 0.7;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.view-toggle-btn:hover {
+    opacity: 1;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.view-toggle-btn.active {
+    opacity: 1;
+    background-color: rgba(255, 255, 255, 0.25);
+    font-weight: 600;
 }
 
 /* Main content: text panel + preview panel side by side */
@@ -161,4 +197,81 @@
     font-size: 0.9rem;
     max-width: 200px;
     height: auto;
+}
+
+/* Grid view: full-width single column layout */
+.presenter-content-grid {
+    grid-template-columns: 1fr;
+}
+
+/* Grid panel */
+.presenter-grid-panel {
+    overflow-y: auto;
+    padding: 10px;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    background-color: var(--pico-card-background-color);
+}
+
+.presenter-grid-chapter {
+    margin-bottom: 20px;
+}
+
+/* Slide thumbnail grid */
+.presenter-grid-slides {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+.presenter-grid-slide {
+    position: relative;
+    border: 2px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    padding: 10px;
+    cursor: pointer;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.presenter-grid-slide:hover {
+    background-color: var(--pico-secondary-hover-background);
+    border-color: var(--pico-secondary);
+}
+
+.presenter-grid-slide.active {
+    border-color: var(--pico-primary);
+    background-color: var(--pico-primary-focus);
+    box-shadow: 0 0 0 2px var(--pico-primary-focus);
+}
+
+.presenter-grid-slide-content {
+    font-size: 0.7rem;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.presenter-grid-slide-content p {
+    margin: 0;
+    font-size: 0.7rem;
+    line-height: 1.3;
+    white-space: pre-line;
+}
+
+.presenter-grid-slide-content .slide-text-spoiler {
+    display: none;
+}
+
+.presenter-grid-slide-number {
+    position: absolute;
+    bottom: 4px;
+    right: 6px;
+    font-size: 0.65rem;
+    color: var(--pico-muted-color);
+    opacity: 0.6;
 }
