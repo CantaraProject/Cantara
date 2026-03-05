@@ -1126,8 +1126,10 @@ fn start_presentation(
                 } else {
                     format!("/{}/presentation", base_path)
                 };
-                let js = format!("window.open({}, '_blank')", serde_json::to_string(&url).unwrap_or_default());
-                let _ = document::eval(&js);
+                if let Ok(url_js) = serde_json::to_string(&url) {
+                    let js = format!("window.open({}, '_blank')", url_js);
+                    let _ = document::eval(&js);
+                }
             }
             // Navigate the current tab to the presenter console
             nav.push(crate::Route::PresenterConsolePage {});

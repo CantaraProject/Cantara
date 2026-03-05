@@ -202,6 +202,7 @@ pub fn PresentationPage() -> Element {
 
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Title { { t!("presentation.title").to_string() } }
         // This div is needed for fullscreen mode
         div {
@@ -254,15 +255,10 @@ pub fn PresentationPage() -> Element {
             // Context menu overlay
             if *show_context_menu.read() {
                 div {
-                    style: "position: fixed; left: {context_menu_x}px; top: {context_menu_y}px; z-index: 10000; background: var(--pico-background-color, #fff); border: 1px solid var(--pico-muted-border-color, #ccc); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); min-width: 160px; padding: 4px 0; font-family: system-ui, sans-serif; font-size: 14px;",
+                    class: "presentation-context-menu",
+                    style: "left: {context_menu_x}px; top: {context_menu_y}px;",
                     div {
-                        style: "padding: 8px 16px; cursor: pointer; color: var(--pico-color, #333);",
-                        onmouseenter: move |_| {
-                            let _ = document::eval("event.target.style.backgroundColor='var(--pico-primary-background, #1095c1)'; event.target.style.color='#fff'");
-                        },
-                        onmouseleave: move |_| {
-                            let _ = document::eval("event.target.style.backgroundColor=''; event.target.style.color=''");
-                        },
+                        class: "presentation-context-menu-item",
                         onclick: move |_| {
                             show_context_menu.set(false);
                             quit_presentation();
