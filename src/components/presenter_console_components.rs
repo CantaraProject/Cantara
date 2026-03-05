@@ -44,8 +44,10 @@ pub fn PresenterConsolePage() -> Element {
         let current = running_presentations.read();
         if current.is_empty() {
             if is_main_window {
-                // nav is Some when is_main_window is true
-                nav.as_ref().unwrap().replace(crate::Route::Selection {});
+                // Navigate back to the selection route when running in the main window.
+                if let Some(nav) = &nav {
+                    nav.replace(crate::Route::Selection {});
+                }
             } else {
                 #[cfg(feature = "desktop")]
                 dioxus::desktop::window().close();
