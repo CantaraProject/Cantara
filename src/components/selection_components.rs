@@ -21,7 +21,7 @@ use dioxus::desktop::tao;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::*;
-use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
+use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp, FaGear, FaFileImport, FaFileExport, FaPlay};
 use rust_i18n::t;
 use std::rc::Rc;
 
@@ -305,8 +305,8 @@ pub fn Selection() -> Element {
                     }
                 },
                 onmounted: move |_| async move {
-                    // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
-                    let _ = document::eval("adjustDivHeight();").await;
+                    // Initialize layout sizing and swipe listeners once the component is mounted.
+                    let _ = document::eval("initSelectionLayout();").await;
                 },
                 onkeydown: move |event: Event<KeyboardData>| async move {
                     // Don't focus search input if a number key is pressed and search results are visible
@@ -320,11 +320,11 @@ pub fn Selection() -> Element {
                     }
                 },
                 div {
-                    class: "grid height-100",
+                    class: "grid swipe-container height-100",
 
                     // The area where the selectable elements (sources) are shown
                     div {
-                        class: "height-100",
+                        class: "height-100 swipe-panel",
                         SelectionFilterSideBar {
                             active_selection: active_selection_filter
                         }
@@ -352,9 +352,9 @@ pub fn Selection() -> Element {
                     },
 
                     // The area where the selected elements are shown
-                    if !selected_items.read().is_empty() {
-                        div {
-                            class: "height-100 scrollable-container",
+                    div {
+                        class: "height-100 scrollable-container swipe-panel",
+                        if !selected_items.read().is_empty() {
                             SelectedItems {
                                 selected_items: selected_items,
                                 active_selected_item_id: active_selected_item_id
@@ -364,13 +364,20 @@ pub fn Selection() -> Element {
 
                     // The area of distinct presentation settings
                     div {
-                        class: "desktop-only",
+                        class: "swipe-panel",
                         PresentationOptions {
                             selected_items: selected_items,
                             active_selected_item_id: active_selected_item_id
                         }
                     }
                 }
+            }
+            // Swipe indicator dots (visible only on mobile via CSS)
+            div {
+                class: "swipe-indicator",
+                div { class: "swipe-dot active", onclick: move |_| { let _ = document::eval("scrollToPanel(0);"); } }
+                div { class: "swipe-dot", onclick: move |_| { let _ = document::eval("scrollToPanel(1);"); } }
+                div { class: "swipe-dot", onclick: move |_| { let _ = document::eval("scrollToPanel(2);"); } }
             }
             footer {
                 class: "bottom-bar",
@@ -381,12 +388,20 @@ pub fn Selection() -> Element {
                         onclick: move |_| { nav.push(crate::Route::SettingsPage {}); },
                         class: "outline secondary smaller-buttons",
                         span {
+                            class: "mobile-only",
+                            Icon { icon: FaGear }
+                        }
+                        span {
                             class: "desktop-only",
                             { t!("settings.settings_button").to_string() }
                         }
                     },
                     button {
                         class: "outline secondary smaller-buttons",
+                        span {
+                            class: "mobile-only",
+                            Icon { icon: FaFileImport }
+                        }
                         span {
                             class: "desktop-only",
                             { t!("selection.import").to_string() }
@@ -395,6 +410,10 @@ pub fn Selection() -> Element {
                     button {
                         class: "outline secondary smaller-buttons",
                         span {
+                            class: "mobile-only",
+                            Icon { icon: FaFileExport }
+                        }
+                        span {
                             class: "desktop-only",
                             { t!("selection.export").to_string() }
                         }
@@ -402,6 +421,10 @@ pub fn Selection() -> Element {
                     button {
                         class: "primary smaller-buttons",
                         onclick: move |_| start_presentation(&selected_items.read().clone(), &mut running_presentations, &default_presentation_design_memo(), &default_song_slide_settings_memo(), &settings.read()),
+                        span {
+                            class: "mobile-only",
+                            Icon { icon: FaPlay }
+                        }
                         span {
                             class: "desktop-only",
                             { t!("selection.start_presentation").to_string() }
@@ -455,8 +478,7 @@ fn SongSourceItems(
         div {
             class: "scrollable-container",
             onmounted: move |_| async move {
-                // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
-                let _ = document::eval("adjustDivHeight();").await;
+                let _ = document::eval("initSelectionLayout();").await;
             },
             for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Song) {
                 SongSourceItem {
@@ -505,8 +527,7 @@ fn ImageSourceItems(
         div {
             class: "scrollable-container",
             onmounted: move |_| async move {
-                // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
-                let _ = document::eval("adjustDivHeight();").await;
+                let _ = document::eval("initSelectionLayout();").await;
             },
             for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Image) {
                 ImageSourceItem {
@@ -559,7 +580,7 @@ fn PdfSourceItems(
         div {
             class: "scrollable-container",
             onmounted: move |_| async move {
-                let _ = document::eval("adjustDivHeight();").await;
+                let _ = document::eval("initSelectionLayout();").await;
             },
             for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Pdf) {
                 PdfSourceItem {
