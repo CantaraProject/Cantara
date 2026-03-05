@@ -2,6 +2,7 @@
 //! The presenter console shows the current slide text, a live preview, and navigation controls.
 
 use crate::logic::presentation::get_picture_path;
+use crate::logic::settings::{PresentationDesign, PresenterConsoleView, use_settings};
 use crate::logic::states::RunningPresentation;
 #[cfg(target_arch = "wasm32")]
 use crate::logic::sync::{
@@ -13,7 +14,7 @@ use cantara_songlib::slides::SlideContent;
 use dioxus::prelude::*;
 use rust_i18n::t;
 
-use super::presentation_components::PresentationRendererComponent;
+use super::presentation_components::{PresentationRendererComponent, StaticSlideRendererComponent};
 
 const PRESENTER_CONSOLE_CSS: Asset = asset!("/assets/presenter_console.css");
 
@@ -37,6 +38,11 @@ pub fn PresenterConsolePage() -> Element {
 
     let mut running_presentation: Signal<RunningPresentation> =
         use_signal(move || running_presentations.get(0).unwrap().clone());
+
+    // View mode signal, initialized from settings
+    let settings = use_settings();
+    let view: Signal<PresenterConsoleView> =
+        use_signal(move || settings.read().presenter_console_view);
 
     // Sync changes from the shared signal into the local signal.
     // Also close this window / navigate back if the presentation was ended (signal cleared).
@@ -177,10 +183,13 @@ pub fn PresenterConsolePage() -> Element {
                 }
             },
 
-            PresenterHeader {}
+            PresenterHeader {
+                view: view
+            }
 
             PresenterContent {
-                running_presentation: running_presentation
+                running_presentation: running_presentation,
+                view: view
             }
 
             PresenterControlBar {
@@ -191,30 +200,67 @@ pub fn PresenterConsolePage() -> Element {
     }
 }
 
-/// Status bar at the top of the presenter console
+/// Status bar at the top of the presenter console with view toggle buttons
 #[component]
-fn PresenterHeader() -> Element {
+fn PresenterHeader(view: Signal<PresenterConsoleView>) -> Element {
+    let mut settings = use_settings();
+    let current_view = *view.read();
+
     rsx! {
         header {
             class: "presenter-header",
             h3 { { t!("presenter.status_running").to_string() } }
+            div {
+                class: "presenter-view-toggle",
+                button {
+                    class: if current_view == PresenterConsoleView::Text { "view-toggle-btn active" } else { "view-toggle-btn" },
+                    onclick: move |_| {
+                        view.set(PresenterConsoleView::Text);
+                        settings.write().presenter_console_view = PresenterConsoleView::Text;
+                        settings.read().save();
+                    },
+                    { t!("presenter.view_text").to_string() }
+                }
+                button {
+                    class: if current_view == PresenterConsoleView::Grid { "view-toggle-btn active" } else { "view-toggle-btn" },
+                    onclick: move |_| {
+                        view.set(PresenterConsoleView::Grid);
+                        settings.write().presenter_console_view = PresenterConsoleView::Grid;
+                        settings.read().save();
+                    },
+                    { t!("presenter.view_grid").to_string() }
+                }
+            }
         }
     }
 }
 
-/// Main content area with text panel (left) and preview panel (right)
+/// Main content area: switches between text+preview layout and grid overview
 #[component]
-fn PresenterContent(running_presentation: Signal<RunningPresentation>) -> Element {
-    rsx! {
-        main {
-            class: "presenter-content",
-            PresenterTextPanel {
-                running_presentation: running_presentation
+fn PresenterContent(
+    running_presentation: Signal<RunningPresentation>,
+    view: Signal<PresenterConsoleView>,
+) -> Element {
+    match *view.read() {
+        PresenterConsoleView::Text => rsx! {
+            main {
+                class: "presenter-content",
+                PresenterTextPanel {
+                    running_presentation: running_presentation
+                }
+                PresenterPreviewPanel {
+                    running_presentation: running_presentation
+                }
             }
-            PresenterPreviewPanel {
-                running_presentation: running_presentation
+        },
+        PresenterConsoleView::Grid => rsx! {
+            main {
+                class: "presenter-content presenter-content-grid",
+                PresenterGridPanel {
+                    running_presentation: running_presentation
+                }
             }
-        }
+        },
     }
 }
 
@@ -258,6 +304,113 @@ fn PresenterTextPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                                     },
                                     PresenterSlideTextContent {
                                         slide_content: slide.slide_content.clone()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Grid overview panel: shows all slides as rendered thumbnails grouped by chapter,
+/// with a slider to adjust thumbnail size.
+#[component]
+fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Element {
+    let mut settings = use_settings();
+    let mut grid_size: Signal<u32> =
+        use_signal(move || settings.read().presenter_console_grid_size);
+
+    let rp = running_presentation.read();
+    let current_chapter = rp.position.as_ref().map(|p| p.chapter()).unwrap_or(0);
+    let current_slide = rp.position.as_ref().map(|p| p.chapter_slide()).unwrap_or(0);
+
+    let size = *grid_size.read();
+    let grid_style = format!(
+        "grid-template-columns: repeat(auto-fill, minmax({}px, 1fr));",
+        size
+    );
+    // Use the presentation screen resolution for native rendering size
+    let (native_w, native_h) = rp.presentation_resolution;
+    // Compute zoom: the slide renders at native width, scale it to fit the thumbnail width
+    let zoom_factor = size as f64 / native_w as f64;
+    let zoom_css = format!("zoom: {};", zoom_factor);
+    // The scaled height matches the presentation aspect ratio
+    let thumb_height = (size as f64 * native_h as f64 / native_w as f64).round() as u32;
+
+    rsx! {
+        div {
+            class: "presenter-grid-panel",
+            // Size slider
+            div {
+                class: "presenter-grid-toolbar",
+                label {
+                    class: "presenter-grid-size-label",
+                    { t!("presenter.grid_size").to_string() }
+                }
+                input {
+                    r#type: "range",
+                    class: "presenter-grid-size-slider",
+                    min: "150",
+                    max: "500",
+                    value: "{size}",
+                    oninput: move |evt| {
+                        if let Ok(val) = evt.value().parse::<u32>() {
+                            grid_size.set(val);
+                            settings.write().presenter_console_grid_size = val;
+                            settings.read().save();
+                        }
+                    },
+                }
+            }
+            for (ch_idx, chapter) in rp.presentation.iter().enumerate() {
+                {
+                    let design = chapter
+                        .presentation_design_option
+                        .clone()
+                        .unwrap_or(PresentationDesign::default());
+                    rsx! {
+                        div {
+                            class: "presenter-grid-chapter",
+                            h4 {
+                                class: if ch_idx == current_chapter { "presenter-chapter-title active" } else { "presenter-chapter-title" },
+                                { chapter.source_file.name.clone() }
+                            }
+                            div {
+                                class: "presenter-grid-slides",
+                                style: "{grid_style}",
+                                for (sl_idx, slide) in chapter.slides.iter().enumerate() {
+                                    {
+                                        let is_active = ch_idx == current_chapter && sl_idx == current_slide;
+                                        rsx! {
+                                            div {
+                                                key: "{ch_idx}-{sl_idx}-{is_active}",
+                                                class: if is_active { "presenter-grid-slide active" } else { "presenter-grid-slide" },
+                                                onclick: move |_| {
+                                                    running_presentation.write().jump_to(ch_idx, sl_idx);
+                                                },
+                                                onmounted: move |_| {
+                                                    if is_active {
+                                                        let _ = document::eval(
+                                                            "requestAnimationFrame(function() { var el = document.querySelector('.presenter-grid-slide.active'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } });"
+                                                        );
+                                                    }
+                                                },
+                                                div {
+                                                    class: "presenter-grid-slide-inner",
+                                                    style: "width: 100%; height: {thumb_height}px; overflow: hidden;",
+                                                    div {
+                                                        style: "width: {native_w}px; height: {native_h}px; {zoom_css} transform-origin: top left;",
+                                                        StaticSlideRendererComponent {
+                                                            slide: slide.clone(),
+                                                            presentation_design: design.clone()
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -339,7 +492,10 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
 /// are synced back to the shared running presentation state.
 #[component]
 fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> Element {
-    let scale_percentage = ((480.0f64 / 1024.0) * 100.0).round();
+    let rp = running_presentation.read();
+    let (native_w, native_h) = rp.presentation_resolution;
+    // Scale so the preview fits ~480px wide
+    let scale_percentage = ((480.0f64 / native_w as f64) * 100.0).round();
     let zoom_css = format!("zoom: {}%;", scale_percentage);
 
     rsx! {
@@ -348,7 +504,7 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
             h4 { { t!("presenter.preview").to_string() } }
             div {
                 class: "presentation-preview",
-                style: format!("position: relative; width: 1024px; height: 576px; border-radius: 4px; overflow: hidden; {}", zoom_css),
+                style: format!("position: relative; width: {}px; height: {}px; border-radius: 4px; overflow: hidden; {}", native_w, native_h, zoom_css),
                 PresentationRendererComponent {
                     running_presentation: running_presentation
                 }

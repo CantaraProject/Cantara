@@ -15,6 +15,9 @@
     background-color: var(--pico-primary-background);
     color: var(--pico-primary-inverse);
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .presenter-header h3 {
@@ -23,11 +26,46 @@
     color: var(--pico-primary-inverse);
 }
 
+/* View toggle buttons */
+.presenter-view-toggle {
+    display: flex;
+    gap: 2px;
+    background-color: rgba(255, 255, 255, 0.15);
+    border-radius: var(--pico-border-radius);
+    padding: 2px;
+}
+
+.view-toggle-btn {
+    margin: 0;
+    padding: 4px 12px;
+    font-size: 0.8rem;
+    border: none;
+    background: transparent;
+    color: var(--pico-primary-inverse);
+    cursor: pointer;
+    border-radius: var(--pico-border-radius);
+    opacity: 0.7;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.view-toggle-btn:hover {
+    opacity: 1;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.view-toggle-btn.active {
+    opacity: 1;
+    background-color: rgba(255, 255, 255, 0.25);
+    font-weight: 600;
+}
+
 /* Main content: text panel + preview panel side by side */
 .presenter-content {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr;
     flex: 1;
+    min-height: 0;
     overflow: hidden;
     gap: 10px;
     padding: 10px;
@@ -43,6 +81,7 @@
 /* Text Panel (left side) */
 .presenter-text-panel {
     overflow-y: auto;
+    min-height: 0;
     padding: 10px;
     border: 1px solid var(--pico-muted-border-color);
     border-radius: var(--pico-border-radius);
@@ -161,4 +200,74 @@
     font-size: 0.9rem;
     max-width: 200px;
     height: auto;
+}
+
+/* Grid view: full-width single column layout */
+.presenter-content-grid {
+    grid-template-columns: 1fr;
+}
+
+/* Grid panel */
+.presenter-grid-panel {
+    overflow-y: auto;
+    min-height: 0;
+    padding: 10px;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    background-color: var(--pico-card-background-color);
+}
+
+/* Grid toolbar with size slider */
+.presenter-grid-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 4px 0;
+}
+
+.presenter-grid-size-label {
+    font-size: 0.8rem;
+    color: var(--pico-muted-color);
+    white-space: nowrap;
+    margin: 0;
+}
+
+.presenter-grid-size-slider {
+    width: 120px;
+    margin: 0;
+    padding: 0;
+    height: auto;
+}
+
+.presenter-grid-chapter {
+    margin-bottom: 20px;
+}
+
+/* Slide thumbnail grid — grid-template-columns is set inline via style */
+.presenter-grid-slides {
+    display: grid;
+    gap: 10px;
+}
+
+.presenter-grid-slide {
+    position: relative;
+    border: 2px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.presenter-grid-slide:hover {
+    border-color: var(--pico-secondary);
+}
+
+.presenter-grid-slide.active {
+    border-color: var(--pico-primary);
+    box-shadow: 0 0 0 2px var(--pico-primary-focus);
+}
+
+.presenter-grid-slide-inner {
+    pointer-events: none;
 }

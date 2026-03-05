@@ -336,6 +336,15 @@ presenter:
   empty_slide:
     en: (Empty slide)
     de: (Leere Folie)
+  view_text:
+    en: Text
+    de: Text
+  view_grid:
+    en: Overview
+    de: Übersicht
+  grid_size:
+    en: Size
+    de: Größe
 
 general:
   type:
