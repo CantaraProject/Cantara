@@ -247,7 +247,7 @@ pub fn Selection() -> Element {
             nav.replace(Route::Wizard {});
         }
 
-        use_future(move || async move {
+        spawn(async move {
             let files = settings.read().get_sourcefiles_async().await;
             source_files.set(files);
         });
