@@ -75,27 +75,29 @@ pub fn PresenterConsolePage() -> Element {
     // On web: poll for position changes from the synced presentation tab
     #[cfg(target_arch = "wasm32")]
     {
-        if is_sync_active {
-            let mut last_sync_json = use_signal(|| String::new());
-            use_future(move || async move {
-                loop {
-                    let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
-                    if let Some(json) = web_sys::window()
-                        .and_then(|w| w.local_storage().ok().flatten())
-                        .and_then(|s| s.get_item("cantara-sync-position").ok().flatten())
-                    {
-                        if !json.is_empty() && json != *last_sync_json.peek() {
-                            last_sync_json.set(json.clone());
-                            if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json) {
-                                if *running_presentation.peek() != rp {
-                                    running_presentation.set(rp);
-                                }
+        let mut last_sync_json = use_signal(|| String::new());
+        use_future(move || async move {
+            // If sync is not active, do not poll.
+            if !is_sync_active {
+                return;
+            }
+            loop {
+                let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
+                if let Some(json) = web_sys::window()
+                    .and_then(|w| w.local_storage().ok().flatten())
+                    .and_then(|s| s.get_item("cantara-sync-position").ok().flatten())
+                {
+                    if !json.is_empty() && json != *last_sync_json.peek() {
+                        last_sync_json.set(json.clone());
+                        if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json) {
+                            if *running_presentation.peek() != rp {
+                                running_presentation.set(rp);
                             }
                         }
                     }
                 }
-            });
-        }
+            }
+        });
     }
 
     let mut go_to_next_slide = move || {
