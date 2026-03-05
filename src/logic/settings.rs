@@ -15,7 +15,7 @@ use std::{
     fs,
     io::{self, Write},
 };
-#[cfg(all(feature = "mobile", not(target_arch = "wasm32")))]
+#[cfg(feature = "mobile")]
 use std::fs;
 #[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
 use tempfile::TempDir;
