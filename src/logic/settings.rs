@@ -5,17 +5,19 @@ use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, get_source_files};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
 use reqwest::Client as AsyncClient;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
 use reqwest::blocking::Client;
 use rgb::*;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
 use std::{
     fs,
     io::{self, Write},
 };
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "mobile", not(target_arch = "wasm32")))]
+use std::fs;
+#[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
 use tempfile::TempDir;
 use zip::ZipArchive;
 
@@ -113,7 +115,7 @@ fn default_presenter_console_in_main_window() -> bool {
 impl Settings {
     /// Cleans up all temporary resources associated with all repositories
     pub fn cleanup_all_repositories(&self) {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
         {
             for repo in &self.repositories {
                 repo.cleanup();
@@ -219,10 +221,10 @@ impl Settings {
     /// # Arguments
     /// * `url` - The URL to the ZIP file
     pub fn add_remote_zip_repository_url(&mut self, url: String) {
-        // On WASM, GitHub archive URLs have CORS issues when stored as RemoteZip.
-        // Detect and add them as GitHub-type repositories instead, which use the
-        // GitHub API and always fetch the default branch.
-        #[cfg(target_arch = "wasm32")]
+        // On WASM and mobile, GitHub archive URLs are better stored as GitHub-type
+        // repositories which use the GitHub API and always fetch the default branch.
+        // On WASM this also avoids CORS failures.
+        #[cfg(any(target_arch = "wasm32", feature = "mobile"))]
         if let Some((owner, repo)) = RepositoryType::parse_github_from_zip_url(&url) {
             self.add_github_repository(owner, repo, None);
             return;
@@ -441,7 +443,7 @@ pub struct Repository {
 impl Repository {
     /// Cleans up any temporary resources associated with this repository
     pub fn cleanup(&self) {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
         match &self.repository_type {
             RepositoryType::RemoteZip(url) => {
                 RepositoryType::cleanup_temp_dir(url);
@@ -535,21 +537,21 @@ pub enum RepositoryType {
     },
 }
 
-// On non-WASM platforms, extracted ZIPs are stored in TempDir instances on the filesystem.
-#[cfg(not(target_arch = "wasm32"))]
+// On desktop platforms, extracted ZIPs are stored in TempDir instances on the filesystem.
+#[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
 thread_local! {
     static TEMP_DIRS: std::cell::RefCell<std::collections::HashMap<String, TempDir>> = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
-// On WASM, extracted ZIP contents are stored in memory (virtual filesystem).
-#[cfg(target_arch = "wasm32")]
+// On WASM and mobile, extracted ZIP contents are stored in memory (virtual filesystem).
+#[cfg(any(target_arch = "wasm32", feature = "mobile"))]
 thread_local! {
     static WEB_FILES: std::cell::RefCell<std::collections::HashMap<String, Vec<u8>>> = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
 /// Strips a `refs/heads/` or `refs/tags/` prefix from a git ref string,
 /// returning just the branch or tag name.
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(any(target_arch = "wasm32", feature = "mobile", test))]
 fn normalize_git_ref<'a>(ref_part: &'a str) -> &'a str {
     ref_part
         .strip_prefix("refs/heads/")
@@ -557,10 +559,10 @@ fn normalize_git_ref<'a>(ref_part: &'a str) -> &'a str {
         .unwrap_or(ref_part)
 }
 
-/// On WASM, transforms GitHub archive URLs to GitHub API zipball URLs
+/// On WASM and mobile, transforms GitHub archive URLs to GitHub API zipball URLs
 /// which support CORS headers required by browser fetch.
-/// Non-GitHub URLs are returned unchanged.
-#[cfg(any(target_arch = "wasm32", test))]
+/// On mobile this also avoids redirect chains. Non-GitHub URLs are returned unchanged.
+#[cfg(any(target_arch = "wasm32", feature = "mobile", test))]
 fn cors_friendly_url(url: &str) -> String {
     // Transform https://github.com/{owner}/{repo}/archive/... to
     // https://api.github.com/repos/{owner}/{repo}/zipball/{ref}
@@ -602,7 +604,7 @@ fn cors_friendly_url(url: &str) -> String {
 
 impl RepositoryType {
     /// Cleans up the temporary directory for a specific URL (desktop only).
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
     pub fn cleanup_temp_dir(url: &str) {
         TEMP_DIRS.with(|temp_dirs| {
             let mut temp_dirs = temp_dirs.borrow_mut();
@@ -612,11 +614,11 @@ impl RepositoryType {
         });
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", feature = "mobile"))]
     pub fn cleanup_temp_dir(_url: &str) {}
 
     /// Cleans up all temporary directories (desktop only).
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
     pub fn cleanup_all_temp_dirs() {
         TEMP_DIRS.with(|temp_dirs| {
             let mut temp_dirs = temp_dirs.borrow_mut();
@@ -628,7 +630,7 @@ impl RepositoryType {
         });
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", feature = "mobile"))]
     pub fn cleanup_all_temp_dirs() {}
 
     /// Returns the GitHub API zipball URL for a given owner and repo.
@@ -696,9 +698,9 @@ impl RepositoryType {
     }
 
     /// Get files which are provided by the repository.
-    /// On WASM, local file paths are not supported; only remote ZIP repositories work.
+    /// On WASM and mobile, local file paths use get_files_async() for remote repositories.
     pub fn get_files(&self) -> Vec<SourceFile> {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
         {
             match self {
                 RepositoryType::LocaleFilePath(path_string) => {
@@ -758,12 +760,17 @@ impl RepositoryType {
             }
         }
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", feature = "mobile"))]
         {
-            // Synchronous local file paths are not available on web.
-            // Use get_files_async() instead for RemoteZip repositories.
+            // On WASM and mobile, synchronous downloads are not available.
+            // Use get_files_async() to download; this returns cached VFS files if present.
             let prefix = self.web_vfs_prefix();
             if prefix.is_empty() {
+                // For LocaleFilePath on mobile, fall back to filesystem
+                #[cfg(not(target_arch = "wasm32"))]
+                if let RepositoryType::LocaleFilePath(path_string) = self {
+                    return get_source_files(Path::new(&path_string));
+                }
                 return vec![];
             }
             WEB_FILES.with(|files| {
@@ -779,7 +786,7 @@ impl RepositoryType {
 
     /// Get files which are provided by the repository asynchronously.
     pub async fn get_files_async(&self) -> Vec<SourceFile> {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
         {
             match self {
                 RepositoryType::LocaleFilePath(path_string) => {
@@ -847,7 +854,7 @@ impl RepositoryType {
             }
         }
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", feature = "mobile"))]
         {
             match self {
                 RepositoryType::RemoteZip(url) => {
@@ -866,7 +873,7 @@ impl RepositoryType {
                     }
                     // Download and extract in memory
                     let download_url = cors_friendly_url(url);
-                    log::info!("Downloading ZIP from URL (web): {}", download_url);
+                    log::info!("Downloading ZIP from URL (web/mobile): {}", download_url);
                     self.download_and_extract_zip_wasm(&download_url, &prefix, None).await
                 }
                 RepositoryType::GitHub { owner, repo, token } => {
@@ -885,16 +892,21 @@ impl RepositoryType {
                     }
                     // Download and extract in memory
                     let download_url = Self::github_zipball_url(owner, repo);
-                    log::info!("Downloading GitHub repo (web): {}/{}", owner, repo);
+                    log::info!("Downloading GitHub repo (web/mobile): {}/{}", owner, repo);
                     self.download_and_extract_zip_wasm(&download_url, &prefix, token.as_deref()).await
+                }
+                // On mobile, local file paths can still use the filesystem
+                #[cfg(not(target_arch = "wasm32"))]
+                RepositoryType::LocaleFilePath(path_string) => {
+                    get_source_files(Path::new(&path_string))
                 }
                 _ => vec![],
             }
         }
     }
 
-    /// Returns the VFS prefix for this repository on WASM.
-    #[cfg(target_arch = "wasm32")]
+    /// Returns the VFS prefix for this repository on WASM and mobile.
+    #[cfg(any(target_arch = "wasm32", feature = "mobile"))]
     fn web_vfs_prefix(&self) -> String {
         match self {
             RepositoryType::RemoteZip(url) => format!("web-zip://{}", url),
@@ -905,8 +917,9 @@ impl RepositoryType {
         }
     }
 
-    /// Downloads a ZIP file and extracts it to the WASM in-memory VFS.
-    #[cfg(target_arch = "wasm32")]
+    /// Downloads a ZIP file and extracts it to the in-memory VFS.
+    /// Used on WASM and mobile targets.
+    #[cfg(any(target_arch = "wasm32", feature = "mobile"))]
     async fn download_and_extract_zip_wasm(
         &self,
         download_url: &str,
@@ -958,14 +971,14 @@ impl RepositoryType {
     }
 
     /// Reads a file from the web VFS by its virtual path.
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", feature = "mobile"))]
     pub fn web_read_file(path: &str) -> Option<Vec<u8>> {
         WEB_FILES.with(|files| files.borrow().get(path).cloned())
     }
 
     /// Downloads a ZIP file from a URL and extracts it to a temporary directory (desktop only).
     /// Optionally includes an authorization token for authenticated requests (e.g. private GitHub repos).
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
     fn download_and_extract_zip(
         &self,
         url: &str,
@@ -1026,7 +1039,7 @@ impl RepositoryType {
 
     /// Downloads a ZIP file and extracts it to a temporary directory asynchronously (desktop only).
     /// Optionally includes an authorization token for authenticated requests (e.g. private GitHub repos).
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
     async fn download_and_extract_zip_async(
         &self,
         url: &str,

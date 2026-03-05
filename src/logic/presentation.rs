@@ -36,14 +36,14 @@ pub fn get_picture_path(picture_slide: &SimplePictureSlide) -> String {
 }
 
 /// Returns the number of pages in a PDF file using lopdf (desktop only).
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", feature = "mobile")))]
 fn get_pdf_page_count(path: &Path) -> Result<usize, Box<dyn Error>> {
     let doc = lopdf::Document::load(path)?;
     Ok(doc.get_pages().len())
 }
 
-/// Returns the number of pages in a PDF stored in the web VFS (WASM only).
-#[cfg(target_arch = "wasm32")]
+/// Returns the number of pages in a PDF stored in the in-memory VFS (WASM and mobile).
+#[cfg(any(target_arch = "wasm32", feature = "mobile"))]
 fn get_pdf_page_count_from_bytes(bytes: &[u8]) -> Result<usize, Box<dyn Error>> {
     let doc = lopdf::Document::load_mem(bytes)?;
     Ok(doc.get_pages().len())
@@ -87,9 +87,9 @@ fn create_presentation_slides(
         .unwrap_or(default_song_slide_settings.clone());
 
     if selected_item.source_file.file_type == SourceFileType::Song {
-        #[cfg(target_arch = "wasm32")]
+        // On WASM and mobile, try reading song content from the in-memory VFS first
+        #[cfg(any(target_arch = "wasm32", feature = "mobile"))]
         {
-            // On web, read song content from the in-memory VFS
             let path_str = selected_item.source_file.path.to_str().unwrap_or("");
             if let Some(content_bytes) = crate::logic::settings::RepositoryType::web_read_file(path_str) {
                 let content = String::from_utf8_lossy(&content_bytes);
@@ -99,10 +99,14 @@ fn create_presentation_slides(
                     selected_item.source_file.name.clone(),
                 );
                 presentation.extend(slides);
+                return Ok(presentation);
             }
+            // On WASM there is no filesystem fallback
+            #[cfg(target_arch = "wasm32")]
             return Ok(presentation);
         }
 
+        // Filesystem fallback (desktop and mobile local repos)
         #[cfg(not(target_arch = "wasm32"))]
         match cantara_songlib::create_presentation_from_file(
             selected_item.source_file.path.clone(),
@@ -139,21 +143,8 @@ fn create_presentation_slides(
             .unwrap_or("")
             .to_string();
 
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let page_count = get_pdf_page_count(&selected_item.source_file.path)?;
-            for page in 1..=page_count {
-                let page_path = format!("{}#page={}", path_str, page);
-                let picture_slide: SimplePictureSlide =
-                    serde_json::from_value(serde_json::json!({"picture_path": page_path}))?;
-                presentation.push(Slide {
-                    slide_content: SlideContent::SimplePicture(picture_slide),
-                    linked_file: None,
-                });
-            }
-        }
-
-        #[cfg(target_arch = "wasm32")]
+        // On WASM and mobile, try reading PDF from in-memory VFS first
+        #[cfg(any(target_arch = "wasm32", feature = "mobile"))]
         {
             if let Some(pdf_bytes) = crate::logic::settings::RepositoryType::web_read_file(&path_str) {
                 let page_count = get_pdf_page_count_from_bytes(&pdf_bytes)?;
@@ -166,8 +157,27 @@ fn create_presentation_slides(
                         linked_file: None,
                     });
                 }
-            } else {
+                return Ok(presentation);
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
                 log::warn!("Could not read PDF from web VFS: {}", path_str);
+                return Ok(presentation);
+            }
+        }
+
+        // Filesystem fallback (desktop and mobile local repos)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let page_count = get_pdf_page_count(&selected_item.source_file.path)?;
+            for page in 1..=page_count {
+                let page_path = format!("{}#page={}", path_str, page);
+                let picture_slide: SimplePictureSlide =
+                    serde_json::from_value(serde_json::json!({"picture_path": page_path}))?;
+                presentation.push(Slide {
+                    slide_content: SlideContent::SimplePicture(picture_slide),
+                    linked_file: None,
+                });
             }
         }
     }

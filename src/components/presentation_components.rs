@@ -715,15 +715,20 @@ fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
     let base64_data = use_memo({
         let pdf_path = pdf_path.clone();
         move || {
+            // On WASM and mobile, try reading from in-memory VFS first
+            #[cfg(any(target_arch = "wasm32", feature = "mobile"))]
+            {
+                if let Some(bytes) = crate::logic::settings::RepositoryType::web_read_file(&pdf_path) {
+                    return BASE64.encode(&bytes);
+                }
+                // On WASM there is no filesystem fallback
+                #[cfg(target_arch = "wasm32")]
+                return String::new();
+            }
+            // Filesystem fallback (desktop and mobile local repos)
             #[cfg(not(target_arch = "wasm32"))]
             {
                 std::fs::read(&*pdf_path)
-                    .map(|bytes| BASE64.encode(&bytes))
-                    .unwrap_or_default()
-            }
-            #[cfg(target_arch = "wasm32")]
-            {
-                crate::logic::settings::RepositoryType::web_read_file(&pdf_path)
                     .map(|bytes| BASE64.encode(&bytes))
                     .unwrap_or_default()
             }

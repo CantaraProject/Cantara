@@ -219,8 +219,8 @@ impl PdfSourceFile {
 
 impl SourceFile {
     /// Creates a [SourceFile] from a web VFS path (e.g., `web-zip://url/path/to/file.song`).
-    /// Only available on WASM targets.
-    #[cfg(target_arch = "wasm32")]
+    /// Available on WASM and mobile targets that use the in-memory VFS.
+    #[cfg(any(target_arch = "wasm32", feature = "mobile"))]
     pub fn from_web_path(vfs_path: &str) -> Option<Self> {
         // The file name is the last component of the path
         let file_name = vfs_path.split('/').last()?;

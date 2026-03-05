@@ -47,10 +47,18 @@ dark-light = "1.1"
 lopdf = "0.39.0"
 base64 = "0.22.1"
 
-# Non-WASM dependencies (blocking HTTP client, TLS, and filesystem helpers not available on WASM)
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Desktop dependencies (blocking HTTP client, native TLS, and temp-file helpers)
+# Excluded from WASM (browser fetch) and mobile (uses in-memory VFS with rustls instead)
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))'.dependencies]
 reqwest = { version = "0.13.2", features = ["blocking", "default-tls"] }
 tempfile = "3.23"
+
+# Mobile (Android/iOS) dependencies: async HTTP with rustls TLS (pure Rust, no OpenSSL needed),
+# PDF support via lopdf (no native features) and base64 for PDF rendering
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+reqwest = { version = "0.13.2", features = ["rustls"] }
+lopdf = { version = "0.39.0", default-features = false }
+base64 = "0.22.1"
 
 # Web (WASM) specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
