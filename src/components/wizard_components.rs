@@ -174,9 +174,32 @@ fn SecondStep() -> Element {
         }
         #[cfg(not(feature = "desktop"))]
         {
-            // On non-desktop targets (e.g., WASM), the folder picker is unavailable.
+            // On non-desktop targets (e.g., WASM, mobile), the native folder picker is unavailable.
             // Mark the step as done so the wizard can progress.
             wizard_status.is_done.set(true);
+        }
+    };
+
+    let choose_directory_mobile = move |_| {
+        async move {
+            let prompt_text = t!("settings.local_directory_prompt").to_string();
+            let js_prompt = format!("return prompt('{}', '');", prompt_text);
+            let path = match document::eval(&js_prompt).await {
+                Ok(str) => Some(str.to_string().replace("\"", "")),
+                Err(_) => None,
+            };
+
+            if let Some(path) = path {
+                if !path.trim().is_empty() && path != "null" {
+                    let path = path.trim().to_string();
+                    chosen_directory.set(path.clone());
+                    let mut settings_signal: Signal<Settings> = use_context();
+                    let mut settings = settings_signal.write();
+                    settings.add_repository_folder(path);
+                    settings.save();
+                    wizard_status.is_done.set(true);
+                }
+            }
         }
     };
 
@@ -190,14 +213,38 @@ fn SecondStep() -> Element {
                     dangerous_inner_html: t!("wizard.second_step.explanation").to_string()
                 }
                 div {
-                    div {
-                        role: "group",
-                        button {
-                            class: "primary",
-                            onclick: move |_| {
-                                choose_directory();
-                            },
-                            { t!("wizard.second_step.chose_directory").to_string() }
+                    if cfg!(feature = "desktop") {
+                        div {
+                            role: "group",
+                            button {
+                                class: "primary",
+                                onclick: move |_| {
+                                    choose_directory();
+                                },
+                                { t!("wizard.second_step.chose_directory").to_string() }
+                            }
+                        }
+                    }
+                    if cfg!(feature = "mobile") {
+                        div {
+                            role: "group",
+                            button {
+                                class: "primary",
+                                onclick: choose_directory_mobile,
+                                { t!("wizard.second_step.chose_directory").to_string() }
+                            }
+                        }
+                    }
+                    if !cfg!(feature = "desktop") && !cfg!(feature = "mobile") {
+                        div {
+                            role: "group",
+                            button {
+                                class: "primary",
+                                onclick: move |_| {
+                                    choose_directory();
+                                },
+                                { t!("wizard.second_step.chose_directory").to_string() }
+                            }
                         }
                     }
                     if chosen_directory.read().is_empty().ne(&true) {
