@@ -51,6 +51,53 @@ pub fn PresenterConsolePage() -> Element {
         }
     });
 
+    // On web: detect if a synced presentation tab is active
+    #[cfg(target_arch = "wasm32")]
+    let is_sync_active = web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+        .and_then(|s| s.get_item("cantara-sync-active").ok().flatten())
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    // On web: write position changes to localStorage for the synced presentation tab
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        if is_sync_active {
+            let rp = running_presentation.read();
+            if let Ok(json) = serde_json::to_string(&*rp) {
+                let _ = web_sys::window()
+                    .and_then(|w| w.local_storage().ok().flatten())
+                    .map(|s| s.set_item("cantara-sync-position-from-console", &json));
+            }
+        }
+    });
+
+    // On web: poll for position changes from the synced presentation tab
+    #[cfg(target_arch = "wasm32")]
+    {
+        if is_sync_active {
+            let mut last_sync_json = use_signal(|| String::new());
+            use_future(move || async move {
+                loop {
+                    let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
+                    if let Some(json) = web_sys::window()
+                        .and_then(|w| w.local_storage().ok().flatten())
+                        .and_then(|s| s.get_item("cantara-sync-position").ok().flatten())
+                    {
+                        if !json.is_empty() && json != *last_sync_json.peek() {
+                            last_sync_json.set(json.clone());
+                            if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json) {
+                                if *running_presentation.peek() != rp {
+                                    running_presentation.set(rp);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
     let mut go_to_next_slide = move || {
         running_presentation.write().next_slide();
     };
@@ -60,6 +107,19 @@ pub fn PresenterConsolePage() -> Element {
     };
 
     let mut quit_presentation = move || {
+        // Clean up sync state on web
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = web_sys::window()
+                .and_then(|w| w.local_storage().ok().flatten())
+                .map(|s| {
+                    let _ = s.set_item("cantara-sync-quit", "true");
+                    let _ = s.remove_item("cantara-sync-active");
+                    let _ = s.remove_item("cantara-sync-presentation");
+                    let _ = s.remove_item("cantara-sync-position");
+                    let _ = s.remove_item("cantara-sync-position-from-console");
+                });
+        }
         running_presentations.write().clear();
         if is_main_window {
             nav.replace(crate::Route::Selection {});

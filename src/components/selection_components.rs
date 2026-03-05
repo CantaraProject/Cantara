@@ -1091,7 +1091,7 @@ fn start_presentation(
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
-    _settings_read: &Settings,
+    settings_read: &Settings,
 ) {
     if presentation::add_presentation(
         selected_items,
@@ -1102,7 +1102,39 @@ fn start_presentation(
         .is_some()
     {
         let nav = navigator();
-        nav.push(crate::Route::PresenterConsolePage {});
+        if settings_read.show_presenter_console {
+            // Store the presentation data in localStorage for the new-tab presentation
+            #[cfg(target_arch = "wasm32")]
+            {
+                if let Some(rp) = running_presentations.read().first() {
+                    if let Ok(json) = serde_json::to_string(rp) {
+                        let _ = web_sys::window()
+                            .and_then(|w| w.local_storage().ok().flatten())
+                            .map(|s| {
+                                let _ = s.set_item("cantara-sync-presentation", &json);
+                                let _ = s.set_item("cantara-sync-active", "true");
+                                let _ = s.remove_item("cantara-sync-quit");
+                                let _ = s.remove_item("cantara-sync-position");
+                                let _ = s.remove_item("cantara-sync-position-from-console");
+                            });
+                    }
+                }
+                // Open the presentation in a new browser tab
+                let base_path = option_env!("DIOXUS_BASE_PATH").unwrap_or("");
+                let url = if base_path.is_empty() {
+                    "/presentation".to_string()
+                } else {
+                    format!("/{}/presentation", base_path)
+                };
+                let js = format!("window.open({}, '_blank')", serde_json::to_string(&url).unwrap_or_default());
+                let _ = document::eval(&js);
+            }
+            // Navigate the current tab to the presenter console
+            nav.push(crate::Route::PresenterConsolePage {});
+        } else {
+            // No presenter console: start presentation directly in the same tab
+            nav.push(crate::Route::PresentationPage {});
+        }
     }
 }
 

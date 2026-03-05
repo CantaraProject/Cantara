@@ -32,21 +32,70 @@ const PDFJS_CDN_WORKER: &str = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/
 
 rust_i18n::i18n!("locales", fallback = "en");
 
-/// The presentation page as the entry point for the presentation window
+/// The presentation page as the entry point for the presentation window.
+/// Works as a standalone desktop window, an in-app routed page, or a synced
+/// new-tab presentation on the web target.
 #[component]
 pub fn PresentationPage() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
+    let nav = navigator();
+
+    // On web, check if this is a synced new-tab presentation (opened by the presenter console).
+    // In that case the running_presentations signal will be empty, and we load data from localStorage.
+    #[cfg(target_arch = "wasm32")]
+    {
+        if running_presentations.read().is_empty() {
+            // Try to load synced presentation data from localStorage
+            if let Some(json) = web_sys::window()
+                .and_then(|w| w.local_storage().ok().flatten())
+                .and_then(|s| s.get_item("cantara-sync-presentation").ok().flatten())
+            {
+                if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json) {
+                    running_presentations.write().push(rp);
+                }
+            }
+        }
+    }
+
+    // Detect whether we are a standalone window (desktop) or a routed page (web/in-app).
+    #[cfg(not(feature = "desktop"))]
+    let is_routed = nav.can_go_back();
+    // On web, detect if this is a synced tab by checking localStorage flag
+    #[cfg(target_arch = "wasm32")]
+    let is_synced_tab = web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+        .and_then(|s| s.get_item("cantara-sync-active").ok().flatten())
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    #[cfg(not(target_arch = "wasm32"))]
+    let is_synced_tab = false;
+
+    // If there's still no presentation data, show an error
+    if running_presentations.read().is_empty() {
+        return rsx! {
+            document::Link { rel: "stylesheet", href: MAIN_CSS }
+            div {
+                style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
+                p { "No presentation data found." }
+            }
+        };
+    }
 
     let mut running_presentation: Signal<RunningPresentation> =
         use_signal(move || running_presentations.get(0).unwrap().clone());
 
     // Sync changes from the shared signal into the local signal (e.g. from presenter console)
-    // Also close this window if the presentation was ended (signal cleared).
+    // Also close/navigate back if the presentation was ended (signal cleared).
     use_effect(move || {
         let current = running_presentations.read();
         if current.is_empty() {
             #[cfg(feature = "desktop")]
             dioxus::desktop::window().close();
+            // On web, navigate back if routed
+            #[cfg(not(feature = "desktop"))]
+            if is_routed {
+                nav.replace(crate::Route::Selection {});
+            }
             return;
         }
         if let Some(rp) = current.first() {
@@ -67,6 +116,90 @@ pub fn PresentationPage() -> Element {
         }
     });
 
+    // On web synced tab: write position changes to localStorage for the presenter console
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        if is_synced_tab {
+            let rp = running_presentation.read();
+            if let Ok(json) = serde_json::to_string(&*rp) {
+                let _ = web_sys::window()
+                    .and_then(|w| w.local_storage().ok().flatten())
+                    .map(|s| s.set_item("cantara-sync-position", &json));
+            }
+        }
+    });
+
+    // On web synced tab: poll for position changes from the presenter console
+    #[cfg(target_arch = "wasm32")]
+    {
+        if is_synced_tab {
+            let mut last_sync_json = use_signal(|| String::new());
+            use_future(move || async move {
+                loop {
+                    // Wait ~150ms between polls
+                    let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
+
+                    // Check if the presentation was quit by the presenter console
+                    let quit = web_sys::window()
+                        .and_then(|w| w.local_storage().ok().flatten())
+                        .and_then(|s| s.get_item("cantara-sync-quit").ok().flatten())
+                        .map(|v| v == "true")
+                        .unwrap_or(false);
+                    if quit {
+                        running_presentations.write().clear();
+                        // Close this tab
+                        let _ = document::eval("window.close()").await;
+                        return;
+                    }
+
+                    // Read position updates from the presenter console
+                    if let Some(json) = web_sys::window()
+                        .and_then(|w| w.local_storage().ok().flatten())
+                        .and_then(|s| s.get_item("cantara-sync-position-from-console").ok().flatten())
+                    {
+                        if !json.is_empty() && json != *last_sync_json.peek() {
+                            last_sync_json.set(json.clone());
+                            if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json) {
+                                if *running_presentation.peek() != rp {
+                                    running_presentation.set(rp);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    // Context menu state
+    let mut show_context_menu = use_signal(|| false);
+    let mut context_menu_x = use_signal(|| 0.0f64);
+    let mut context_menu_y = use_signal(|| 0.0f64);
+
+    let mut quit_presentation = move || {
+        // Clean up sync state on web
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = web_sys::window()
+                .and_then(|w| w.local_storage().ok().flatten())
+                .map(|s| {
+                    let _ = s.set_item("cantara-sync-quit", "true");
+                });
+        }
+        running_presentations.write().clear();
+        #[cfg(feature = "desktop")]
+        dioxus::desktop::window().close();
+        #[cfg(not(feature = "desktop"))]
+        {
+            if is_synced_tab {
+                // Close this tab (best effort, may be blocked by browser)
+                let _ = document::eval("window.close()");
+            } else if is_routed {
+                nav.replace(crate::Route::Selection {});
+            }
+        }
+    };
+
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Title { { t!("presentation.title").to_string() } }
@@ -79,7 +212,20 @@ pub fn PresentationPage() -> Element {
                     width:100%;
                     height:100%;
                 ",
+            onclick: move |_| {
+                // Close context menu on any click
+                show_context_menu.set(false);
+            },
+            oncontextmenu: move |event: Event<MouseData>| {
+                event.prevent_default();
+                let coords = event.page_coordinates();
+                context_menu_x.set(coords.x);
+                context_menu_y.set(coords.y);
+                show_context_menu.set(true);
+            },
             onkeydown: move |event: Event<KeyboardData>| {
+                // Close context menu on any key press
+                show_context_menu.set(false);
                 match event.key() {
                     Key::F11 => {
                         use_future(move || async move {
@@ -93,9 +239,7 @@ pub fn PresentationPage() -> Element {
                         });
                     }
                     Key::Escape => {
-                        running_presentations.write().clear();
-                        #[cfg(feature = "desktop")]
-                        dioxus::desktop::window().close();
+                        quit_presentation();
                     }
                     Key::Character(ref c) if c == "b" || c == "B" => {
                         running_presentation.write().toggle_black_screen();
@@ -105,6 +249,27 @@ pub fn PresentationPage() -> Element {
             },
             PresentationRendererComponent {
                 running_presentation: running_presentation
+            }
+
+            // Context menu overlay
+            if *show_context_menu.read() {
+                div {
+                    style: "position: fixed; left: {context_menu_x}px; top: {context_menu_y}px; z-index: 10000; background: var(--pico-background-color, #fff); border: 1px solid var(--pico-muted-border-color, #ccc); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); min-width: 160px; padding: 4px 0; font-family: system-ui, sans-serif; font-size: 14px;",
+                    div {
+                        style: "padding: 8px 16px; cursor: pointer; color: var(--pico-color, #333);",
+                        onmouseenter: move |_| {
+                            let _ = document::eval("event.target.style.backgroundColor='var(--pico-primary-background, #1095c1)'; event.target.style.color='#fff'");
+                        },
+                        onmouseleave: move |_| {
+                            let _ = document::eval("event.target.style.backgroundColor=''; event.target.style.color=''");
+                        },
+                        onclick: move |_| {
+                            show_context_menu.set(false);
+                            quit_presentation();
+                        },
+                        { t!("presenter.quit").to_string() }
+                    }
+                }
             }
         }
     }
