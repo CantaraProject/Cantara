@@ -158,6 +158,45 @@ div.inline-div {
     .desktop-only {
         display: none;
     }
+
+    /* Horizontal swipe container for mobile */
+    .swipe-container {
+        display: flex !important;
+        flex-direction: row;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none; /* Firefox */
+        grid-template-columns: none !important;
+    }
+    .swipe-container::-webkit-scrollbar {
+        display: none; /* Chrome/Safari */
+    }
+    .swipe-panel {
+        flex: 0 0 100%;
+        min-width: 100%;
+        scroll-snap-align: start;
+        overflow-y: auto;
+    }
+
+    /* Swipe indicator dots */
+    .swipe-indicator {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 0 2px 0;
+    }
+    .swipe-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background-color: var(--pico-secondary-border);
+        transition: background-color 0.3s;
+    }
+    .swipe-dot.active {
+        background-color: var(--pico-primary-background);
+    }
 }
 
 /* Show the element only on mobile screens (max-width: 576px) */
@@ -171,6 +210,16 @@ div.inline-div {
 @media only screen and (min-width: 577px) {
     .mobile-only {
         display: none;
+    }
+}
+
+/* Hide swipe indicators on desktop */
+@media only screen and (min-width: 768px) {
+    .swipe-indicator {
+        display: none;
+    }
+    .swipe-container {
+        /* On desktop, the grid layout applies normally */
     }
 }
 
