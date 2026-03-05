@@ -8,7 +8,7 @@ use cantara_songlib::slides::SlideContent;
 use dioxus::prelude::*;
 use rust_i18n::t;
 
-use super::shared_components::PresentationViewer;
+use super::presentation_components::PresentationRendererComponent;
 
 const PRESENTER_CONSOLE_CSS: Asset = asset!("/assets/presenter_console.css");
 
@@ -30,9 +30,19 @@ pub fn PresenterConsolePage() -> Element {
     let mut running_presentation: Signal<RunningPresentation> =
         use_signal(move || running_presentations.get(0).unwrap().clone());
 
-    // Sync changes from the shared signal into the local signal
+    // Sync changes from the shared signal into the local signal.
+    // Also close this window / navigate back if the presentation was ended (signal cleared).
     use_effect(move || {
         let current = running_presentations.read();
+        if current.is_empty() {
+            if is_main_window {
+                nav.replace(crate::Route::Selection {});
+            } else {
+                #[cfg(feature = "desktop")]
+                dioxus::desktop::window().close();
+            }
+            return;
+        }
         if let Some(rp) = current.first() {
             if *rp != *running_presentation.peek() {
                 running_presentation.set(rp.clone());
@@ -250,16 +260,24 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
     }
 }
 
-/// Right panel: live preview of the current slide using the existing PresentationViewer
+/// Right panel: live preview of the current slide using PresentationRendererComponent directly.
+/// This uses the actual signal so that clicks inside the preview (next/previous slide)
+/// are synced back to the shared running presentation state.
 #[component]
 fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> Element {
+    let scale_percentage = ((480.0f64 / 1024.0) * 100.0).round();
+    let zoom_css = format!("zoom: {}%;", scale_percentage);
+
     rsx! {
         div {
             class: "presenter-preview-panel",
             h4 { { t!("presenter.preview").to_string() } }
-            PresentationViewer {
-                presentation: running_presentation.read().clone(),
-                width: 480,
+            div {
+                class: "presentation-preview",
+                style: format!("position: relative; width: 1024px; height: 576px; border-radius: 4px; overflow: hidden; {}", zoom_css),
+                PresentationRendererComponent {
+                    running_presentation: running_presentation
+                }
             }
         }
     }
