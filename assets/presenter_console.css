@@ -213,14 +213,36 @@
     background-color: var(--pico-card-background-color);
 }
 
+/* Grid toolbar with size slider */
+.presenter-grid-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 4px 0;
+}
+
+.presenter-grid-size-label {
+    font-size: 0.8rem;
+    color: var(--pico-muted-color);
+    white-space: nowrap;
+    margin: 0;
+}
+
+.presenter-grid-size-slider {
+    width: 120px;
+    margin: 0;
+    padding: 0;
+    height: auto;
+}
+
 .presenter-grid-chapter {
     margin-bottom: 20px;
 }
 
-/* Slide thumbnail grid */
+/* Slide thumbnail grid — grid-template-columns is set inline via style */
 .presenter-grid-slides {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 10px;
 }
 
@@ -228,50 +250,20 @@
     position: relative;
     border: 2px solid var(--pico-muted-border-color);
     border-radius: var(--pico-border-radius);
-    padding: 10px;
     cursor: pointer;
-    aspect-ratio: 16 / 9;
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .presenter-grid-slide:hover {
-    background-color: var(--pico-secondary-hover-background);
     border-color: var(--pico-secondary);
 }
 
 .presenter-grid-slide.active {
     border-color: var(--pico-primary);
-    background-color: var(--pico-primary-focus);
     box-shadow: 0 0 0 2px var(--pico-primary-focus);
 }
 
-.presenter-grid-slide-content {
-    font-size: 0.7rem;
-    line-height: 1.3;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.presenter-grid-slide-content p {
-    margin: 0;
-    font-size: 0.7rem;
-    line-height: 1.3;
-    white-space: pre-line;
-}
-
-.presenter-grid-slide-content .slide-text-spoiler {
-    display: none;
-}
-
-.presenter-grid-slide-number {
-    position: absolute;
-    bottom: 4px;
-    right: 6px;
-    font-size: 0.65rem;
-    color: var(--pico-muted-color);
-    opacity: 0.6;
+.presenter-grid-slide-inner {
+    pointer-events: none;
 }

@@ -71,6 +71,10 @@ pub struct Settings {
     /// Which view mode to use for the presenter console left panel.
     #[serde(default)]
     pub presenter_console_view: PresenterConsoleView,
+
+    /// The thumbnail column width (in pixels) for the presenter console grid view.
+    #[serde(default = "default_presenter_console_grid_size")]
+    pub presenter_console_grid_size: u32,
 }
 
 /// The view mode for the presenter console left panel.
@@ -96,8 +100,13 @@ impl Default for Settings {
             show_presenter_console: default_show_presenter_console(),
             presenter_console_in_main_window: default_presenter_console_in_main_window(),
             presenter_console_view: PresenterConsoleView::default(),
+            presenter_console_grid_size: default_presenter_console_grid_size(),
         }
     }
+}
+
+fn default_presenter_console_grid_size() -> u32 {
+    250
 }
 
 /// This creates the default presentation designs

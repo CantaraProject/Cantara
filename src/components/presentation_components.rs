@@ -17,7 +17,7 @@ use crate::logic::sync::{
 use crate::{
     MAIN_CSS,
     logic::{
-        settings::{FontRepresentation, PresentationDesignSettings, PresentationDesignTemplate},
+        settings::{FontRepresentation, PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate},
         states::RunningPresentation,
     },
 };
@@ -771,6 +771,118 @@ fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
                     let _ = document::eval(&js).await;
                 });
             },
+        }
+    }
+}
+
+/// A static (non-interactive) slide renderer that renders a single slide with its
+/// presentation design. Used for grid overview thumbnails. It reuses the same
+/// sub-components as `PresentationRendererComponent` but without any interactivity
+/// (no click/keyboard handlers, no black screen overlay, no fade-in animation).
+#[component]
+pub fn StaticSlideRendererComponent(
+    slide: Slide,
+    presentation_design: PresentationDesign,
+) -> Element {
+    let pds = match presentation_design.presentation_design_settings {
+        PresentationDesignSettings::Template(ref template) => template.clone(),
+        _ => PresentationDesignTemplate::default(),
+    };
+
+    let css_text_align = pds
+        .fonts
+        .first()
+        .unwrap_or(&FontRepresentation::default())
+        .horizontal_alignment;
+
+    let css_place_items = match pds.vertical_alignment {
+        VerticalAlign::Top => PlaceItems::StartStretch,
+        VerticalAlign::Middle => PlaceItems::CenterStretch,
+        VerticalAlign::Bottom => PlaceItems::EndStretch,
+    };
+
+    let css_handler = {
+        let mut css = CssHandler::new();
+        css.background_color(pds.background_color);
+        css.padding_left(pds.padding.left.clone());
+        css.padding_right(pds.padding.right.clone());
+        css.padding_top(pds.padding.top.clone());
+        css.padding_bottom(pds.padding.bottom.clone());
+        css.text_align(css_text_align);
+        css.set_important(true);
+        css.color(
+            pds.fonts
+                .first()
+                .unwrap_or(&FontRepresentation::default())
+                .color,
+        );
+        css.place_items(css_place_items);
+        css
+    };
+
+    let background_css = {
+        let mut css = CssHandler::new();
+        if let Some(ref image) = pds.background_image {
+            css.background_image(image.as_source().path.to_str().unwrap_or_default());
+            css.background_size("cover");
+            css.background_position("center");
+            css.background_repeat("no-repeat");
+            css.opacity(1.0 - pds.background_transparency as f32 / 100.0f32);
+        } else {
+            css.background_image_none();
+            css.opacity(0.0);
+        }
+        css.to_string()
+    };
+
+    let slide_content = slide.slide_content;
+    let container_style = if matches!(slide_content, SlideContent::SimplePicture(_)) {
+        "height: 100%;"
+    } else {
+        ""
+    };
+
+    rsx! {
+        document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
+        document::Script { src: PRESENTATION_JS }
+        div {
+            class: "presentation",
+            style: css_handler.to_string(),
+            div {
+                class: "background",
+                style: "{background_css}"
+            }
+            div {
+                class: "slide-container",
+                style: "{container_style}",
+                {
+                    match slide_content {
+                        SlideContent::Title(title_slide) => rsx! {
+                            TitleSlideComponent {
+                                title_slide: title_slide.clone(),
+                                title_font_representation: pds.get_default_headline_font()
+                            }
+                        },
+                        SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
+                            SingleLanguageMainContentSlideRenderer {
+                                main_slide: main_slide.clone(),
+                                main_content_font: pds.get_default_font(),
+                                spoiler_content_font: pds.get_default_spoiler_font(),
+                                distance: pds.main_content_spoiler_content_padding.clone(),
+                            }
+                        },
+                        SlideContent::Empty(_empty_slide) => rsx! {
+                            EmptySlideComponent {}
+                        },
+                        SlideContent::SimplePicture(picture_slide) => rsx! {
+                            SimplePictureSlideComponent {
+                                picture_slide: picture_slide.clone()
+                            }
+                        },
+                        _ => rsx! { p { "No content provided" } }
+                    }
+                }
+            }
         }
     }
 }

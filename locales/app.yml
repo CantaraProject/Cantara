@@ -339,6 +339,9 @@ presenter:
   view_grid:
     en: Overview
     de: Übersicht
+  grid_size:
+    en: Size
+    de: Größe
 
 general:
   type:

@@ -2,7 +2,7 @@
 //! The presenter console shows the current slide text, a live preview, and navigation controls.
 
 use crate::logic::presentation::get_picture_path;
-use crate::logic::settings::{PresenterConsoleView, use_settings};
+use crate::logic::settings::{PresentationDesign, PresenterConsoleView, use_settings};
 use crate::logic::states::RunningPresentation;
 #[cfg(target_arch = "wasm32")]
 use crate::logic::sync::{
@@ -14,7 +14,7 @@ use cantara_songlib::slides::SlideContent;
 use dioxus::prelude::*;
 use rust_i18n::t;
 
-use super::presentation_components::PresentationRendererComponent;
+use super::presentation_components::{PresentationRendererComponent, StaticSlideRendererComponent};
 
 const PRESENTER_CONSOLE_CSS: Asset = asset!("/assets/presenter_console.css");
 
@@ -315,51 +315,99 @@ fn PresenterTextPanel(running_presentation: Signal<RunningPresentation>) -> Elem
     }
 }
 
-/// Grid overview panel: shows all slides as thumbnails grouped by chapter
+/// Grid overview panel: shows all slides as rendered thumbnails grouped by chapter,
+/// with a slider to adjust thumbnail size.
 #[component]
 fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Element {
+    let mut settings = use_settings();
+    let mut grid_size: Signal<u32> =
+        use_signal(move || settings.read().presenter_console_grid_size);
+
     let rp = running_presentation.read();
     let current_chapter = rp.position.as_ref().map(|p| p.chapter()).unwrap_or(0);
     let current_slide = rp.position.as_ref().map(|p| p.chapter_slide()).unwrap_or(0);
 
+    let size = *grid_size.read();
+    let grid_style = format!(
+        "grid-template-columns: repeat(auto-fill, minmax({}px, 1fr));",
+        size
+    );
+    // Compute zoom: the slide renders at 1024px wide, scale it to fit the thumbnail width
+    let zoom_factor = size as f64 / 1024.0;
+    let zoom_css = format!("zoom: {};", zoom_factor);
+    // The scaled height for the 16:9 container wrapper
+    let thumb_height = (size as f64 * 9.0 / 16.0).round() as u32;
+
     rsx! {
         div {
             class: "presenter-grid-panel",
+            // Size slider
+            div {
+                class: "presenter-grid-toolbar",
+                label {
+                    class: "presenter-grid-size-label",
+                    { t!("presenter.grid_size").to_string() }
+                }
+                input {
+                    r#type: "range",
+                    class: "presenter-grid-size-slider",
+                    min: "150",
+                    max: "500",
+                    value: "{size}",
+                    oninput: move |evt| {
+                        if let Ok(val) = evt.value().parse::<u32>() {
+                            grid_size.set(val);
+                            settings.write().presenter_console_grid_size = val;
+                            settings.read().save();
+                        }
+                    },
+                }
+            }
             for (ch_idx, chapter) in rp.presentation.iter().enumerate() {
-                div {
-                    class: "presenter-grid-chapter",
-                    h4 {
-                        class: if ch_idx == current_chapter { "presenter-chapter-title active" } else { "presenter-chapter-title" },
-                        { chapter.source_file.name.clone() }
-                    }
-                    div {
-                        class: "presenter-grid-slides",
-                        for (sl_idx, slide) in chapter.slides.iter().enumerate() {
-                            {
-                                let is_active = ch_idx == current_chapter && sl_idx == current_slide;
-                                rsx! {
-                                    div {
-                                        key: "{ch_idx}-{sl_idx}-{is_active}",
-                                        class: if is_active { "presenter-grid-slide active" } else { "presenter-grid-slide" },
-                                        onclick: move |_| {
-                                            running_presentation.write().jump_to(ch_idx, sl_idx);
-                                        },
-                                        onmounted: move |_| {
-                                            if is_active {
-                                                let _ = document::eval(
-                                                    "requestAnimationFrame(function() { var el = document.querySelector('.presenter-grid-slide.active'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } });"
-                                                );
+                {
+                    let design = chapter
+                        .presentation_design_option
+                        .clone()
+                        .unwrap_or(PresentationDesign::default());
+                    rsx! {
+                        div {
+                            class: "presenter-grid-chapter",
+                            h4 {
+                                class: if ch_idx == current_chapter { "presenter-chapter-title active" } else { "presenter-chapter-title" },
+                                { chapter.source_file.name.clone() }
+                            }
+                            div {
+                                class: "presenter-grid-slides",
+                                style: "{grid_style}",
+                                for (sl_idx, slide) in chapter.slides.iter().enumerate() {
+                                    {
+                                        let is_active = ch_idx == current_chapter && sl_idx == current_slide;
+                                        rsx! {
+                                            div {
+                                                key: "{ch_idx}-{sl_idx}-{is_active}",
+                                                class: if is_active { "presenter-grid-slide active" } else { "presenter-grid-slide" },
+                                                onclick: move |_| {
+                                                    running_presentation.write().jump_to(ch_idx, sl_idx);
+                                                },
+                                                onmounted: move |_| {
+                                                    if is_active {
+                                                        let _ = document::eval(
+                                                            "requestAnimationFrame(function() { var el = document.querySelector('.presenter-grid-slide.active'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } });"
+                                                        );
+                                                    }
+                                                },
+                                                div {
+                                                    class: "presenter-grid-slide-inner",
+                                                    style: "width: 100%; height: {thumb_height}px; overflow: hidden;",
+                                                    div {
+                                                        style: "width: 1024px; height: 576px; {zoom_css} transform-origin: top left;",
+                                                        StaticSlideRendererComponent {
+                                                            slide: slide.clone(),
+                                                            presentation_design: design.clone()
+                                                        }
+                                                    }
+                                                }
                                             }
-                                        },
-                                        div {
-                                            class: "presenter-grid-slide-content",
-                                            PresenterSlideTextContent {
-                                                slide_content: slide.slide_content.clone()
-                                            }
-                                        }
-                                        div {
-                                            class: "presenter-grid-slide-number",
-                                            { format!("{}", sl_idx + 1) }
                                         }
                                     }
                                 }
