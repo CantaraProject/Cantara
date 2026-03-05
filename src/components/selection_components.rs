@@ -1126,9 +1126,19 @@ fn start_presentation(
                 } else {
                     format!("/{}/presentation", base_path)
                 };
-                if let Ok(url_js) = serde_json::to_string(&url) {
-                    let js = format!("window.open({}, '_blank')", url_js);
-                    let _ = document::eval(&js);
+                if let Some(win) = web_sys::window() {
+                    match win.open_with_url_and_target(&url, "_blank") {
+                        Ok(Some(_)) => {
+                            // Successfully opened new tab/window.
+                        }
+                        Ok(None) | Err(_) => {
+                            // Popup likely blocked or failed to open; inform the user.
+                            let _ = win.alert_with_message(
+                                "Unable to open the presentation in a new tab.\n\
+Please allow pop-ups for this site or open the presentation manually.",
+                            );
+                        }
+                    }
                 }
             }
             // Navigate the current tab to the presenter console
