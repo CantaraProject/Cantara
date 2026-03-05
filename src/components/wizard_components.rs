@@ -197,9 +197,11 @@ fn SecondStep() -> Element {
                     let mut settings = settings_signal.write();
                     settings.add_repository_folder(path);
                     settings.save();
-                    wizard_status.is_done.set(true);
                 }
             }
+            // Always mark the step as done on mobile so the wizard can progress.
+            // The user can add repositories later in Settings if they skipped here.
+            wizard_status.is_done.set(true);
         }
     };
 
