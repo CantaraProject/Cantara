@@ -1,5 +1,6 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
+use super::directory_browser::DirectoryBrowserModal;
 use super::shared_components::{DeleteIcon, EditIcon, PresentationDesignSelector, js_yes_no_box};
 use super::song_slide_settings_components::SongSlideSettings;
 #[cfg(feature = "desktop")]
@@ -83,6 +84,7 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
 fn RepositorySettings() -> Element {
     let mut settings = use_settings();
     let mut repository_file_counts: Signal<Vec<(usize, usize)>> = use_signal(Vec::new);
+    let mut show_dir_browser: Signal<bool> = use_signal(|| false);
 
     // Load file counts for each repository
     use_effect(move || {
@@ -254,33 +256,25 @@ fn RepositorySettings() -> Element {
             if cfg!(feature = "mobile") {
                 button {
                     class: "smaller-buttons",
-                    onclick: move |_| {
-                        async move {
-                            let prompt_text = t!("settings.local_directory_prompt").to_string();
-                            let js_prompt = format!("return prompt('{}', '');", prompt_text);
-                            let path = match document::eval(&js_prompt).await {
-                                Ok(str) => Some(str.to_string().replace("\"", "")),
-                                Err(_) => None,
-                            };
-
-                            if let Some(path) = path {
-                                if !path.trim().is_empty() && path != "null" {
-                                    let path = path.trim().to_string();
-                                    settings.write().add_repository_folder(path);
-
-                                    // Trigger a refresh of the file counts
-                                    let repositories = settings.read().repositories.clone();
-                                    let mut counts = Vec::new();
-                                    for (idx, repo) in repositories.iter().enumerate() {
-                                        let count = repo.get_source_file_count_async().await;
-                                        counts.push((idx, count));
-                                    }
-                                    repository_file_counts.set(counts);
-                                }
-                            }
-                        }
-                    },
+                    onclick: move |_| show_dir_browser.set(true),
                     { t!("settings.add_folder").to_string() }
+                }
+                DirectoryBrowserModal {
+                    show: show_dir_browser,
+                    on_select: move |path: String| {
+                        settings.write().add_repository_folder(path);
+
+                        // Trigger a refresh of the file counts
+                        let repositories = settings.read().repositories.clone();
+                        spawn(async move {
+                            let mut counts = Vec::new();
+                            for (idx, repo) in repositories.iter().enumerate() {
+                                let count = repo.get_source_file_count_async().await;
+                                counts.push((idx, count));
+                            }
+                            repository_file_counts.set(counts);
+                        });
+                    }
                 }
             }
             button {

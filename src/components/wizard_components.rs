@@ -3,6 +3,7 @@ use crate::logic::{settings::*, states::RuntimeInformation};
 use dioxus::prelude::*;
 use rust_i18n::t;
 
+use super::directory_browser::DirectoryBrowserModal;
 #[cfg(feature = "desktop")]
 use rfd::FileDialog;
 
@@ -149,10 +150,12 @@ fn FirstStep() -> Element {
 #[component]
 fn SecondStep() -> Element {
     let mut wizard_status: WizardStatus = use_context::<WizardStatus>();
+    let mut settings_signal: Signal<Settings> = use_context();
     use_effect(move || {
         wizard_status.is_done.set(false);
     });
     let mut chosen_directory = use_signal(|| "".to_string());
+    let mut show_dir_browser: Signal<bool> = use_signal(|| false);
 
     let mut choose_directory = move || {
         #[cfg(feature = "desktop")]
@@ -176,31 +179,6 @@ fn SecondStep() -> Element {
         {
             // On non-desktop targets (e.g., WASM, mobile), the native folder picker is unavailable.
             // Mark the step as done so the wizard can progress.
-            wizard_status.is_done.set(true);
-        }
-    };
-
-    let choose_directory_mobile = move |_| {
-        async move {
-            let prompt_text = t!("settings.local_directory_prompt").to_string();
-            let js_prompt = format!("return prompt('{}', '');", prompt_text);
-            let path = match document::eval(&js_prompt).await {
-                Ok(str) => Some(str.to_string().replace("\"", "")),
-                Err(_) => None,
-            };
-
-            if let Some(path) = path {
-                if !path.trim().is_empty() && path != "null" {
-                    let path = path.trim().to_string();
-                    chosen_directory.set(path.clone());
-                    let mut settings_signal: Signal<Settings> = use_context();
-                    let mut settings = settings_signal.write();
-                    settings.add_repository_folder(path);
-                    settings.save();
-                }
-            }
-            // Always mark the step as done on mobile so the wizard can progress.
-            // The user can add repositories later in Settings if they skipped here.
             wizard_status.is_done.set(true);
         }
     };
@@ -232,8 +210,23 @@ fn SecondStep() -> Element {
                             role: "group",
                             button {
                                 class: "primary",
-                                onclick: choose_directory_mobile,
+                                onclick: move |_| show_dir_browser.set(true),
                                 { t!("wizard.second_step.chose_directory").to_string() }
+                            }
+                        }
+                        DirectoryBrowserModal {
+                            show: show_dir_browser,
+                            on_select: move |path: String| {
+                                chosen_directory.set(path.clone());
+                                let mut settings = settings_signal.write();
+                                settings.add_repository_folder(path);
+                                settings.save();
+                                wizard_status.is_done.set(true);
+                            },
+                            on_cancel: move |_| {
+                                // Allow the wizard to progress even if the user cancels.
+                                // The user can add repositories later in Settings.
+                                wizard_status.is_done.set(true);
                             }
                         }
                     }

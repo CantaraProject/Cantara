@@ -158,6 +158,22 @@ settings:
   local_directory_prompt:
     en: "Enter the path to a local song directory:"
     de: "Pfad zum lokalen Liedverzeichnis eingeben:"
+  directory_browser:
+    title:
+      en: "Select a folder"
+      de: "Ordner auswählen"
+    select:
+      en: "Select this folder"
+      de: "Diesen Ordner auswählen"
+    cancel:
+      en: "Cancel"
+      de: "Abbrechen"
+    empty:
+      en: "No subdirectories found"
+      de: "Keine Unterverzeichnisse gefunden"
+    error:
+      en: "Cannot read directory:"
+      de: "Verzeichnis kann nicht gelesen werden:"
   settings_button:
     en: Settings...
     de: Einstellungen...
