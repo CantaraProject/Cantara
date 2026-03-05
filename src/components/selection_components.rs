@@ -1011,7 +1011,8 @@ fn start_presentation(
             .with_visible(true);
 
         if let Some(ref monitor) = presentation_monitor {
-            // Position on the target monitor
+            // Position on the target monitor and use true fullscreen (borderless)
+            // to ensure the taskbar is hidden
             presentation_window_builder = presentation_window_builder
                 .with_position(tao::dpi::PhysicalPosition::new(
                     monitor.position.0,
@@ -1022,12 +1023,15 @@ fn start_presentation(
                     monitor.size.1,
                 ))
                 .with_decorations(false)
-                .with_maximized(true);
+                .with_fullscreen(Some(tao::window::Fullscreen::Borderless(None)));
+        } else if always_fullscreen {
+            presentation_window_builder = presentation_window_builder
+                .with_decorations(false)
+                .with_fullscreen(Some(tao::window::Fullscreen::Borderless(None)));
         } else {
             presentation_window_builder = presentation_window_builder
                 .with_inner_size(tao::dpi::LogicalSize::new(900.0, 800.0))
-                .with_maximized(true)
-                .with_decorations(!always_fullscreen);
+                .with_maximized(true);
         }
 
         let presentation_dom =

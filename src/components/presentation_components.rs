@@ -40,6 +40,12 @@ pub fn PresentationPage() -> Element {
     let mut running_presentation: Signal<RunningPresentation> =
         use_signal(move || running_presentations.get(0).unwrap().clone());
 
+    // When this window/component is destroyed (e.g. user closes the window),
+    // clear the shared running presentations so the presenter console also closes.
+    use_drop(move || {
+        running_presentations.write().clear();
+    });
+
     // Sync changes from the shared signal into the local signal (e.g. from presenter console)
     // Also close this window if the presentation was ended (signal cleared).
     use_effect(move || {
@@ -81,16 +87,25 @@ pub fn PresentationPage() -> Element {
                 ",
             onkeydown: move |event: Event<KeyboardData>| {
                 match event.key() {
-                    Key::F11 => {
-                        use_future(move || async move {
-                            let _ = document::eval("
-                                if (document.fullscreenElement) {
-                                    document.exitFullscreen();
-                                } else {
-                                    document.documentElement.requestFullscreen();
-                                }
-                            ").await;
-                        });
+                    Key::F5 | Key::F11 => {
+                        #[cfg(feature = "desktop")]
+                        {
+                            let desktop = dioxus::desktop::window();
+                            let is_fullscreen = desktop.fullscreen().is_some();
+                            desktop.set_fullscreen(!is_fullscreen);
+                        }
+                        #[cfg(not(feature = "desktop"))]
+                        {
+                            use_future(move || async move {
+                                let _ = document::eval("
+                                    if (document.fullscreenElement) {
+                                        document.exitFullscreen();
+                                    } else {
+                                        document.documentElement.requestFullscreen();
+                                    }
+                                ").await;
+                            });
+                        }
                     }
                     Key::Escape => {
                         running_presentations.write().clear();
