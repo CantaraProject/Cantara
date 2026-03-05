@@ -218,9 +218,6 @@ div.inline-div {
     .swipe-indicator {
         display: none;
     }
-    .swipe-container {
-        /* On desktop, the grid layout applies normally */
-    }
 }
 
 .listed-article:not(:last-of-type) {

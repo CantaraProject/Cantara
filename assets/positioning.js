@@ -20,8 +20,10 @@ function adjustDivHeight() {
       el.style.height = "100%";
     });
     // For any standalone scrollable-container not in a swipe-panel
-    document.querySelectorAll(".scrollable-container:not(.swipe-panel .scrollable-container)").forEach(function(el) {
-      el.style.height = (panelHeight) + "px";
+    document.querySelectorAll(".scrollable-container").forEach(function(el) {
+      if (!el.closest(".swipe-panel")) {
+        el.style.height = (panelHeight) + "px";
+      }
     });
   } else {
     // Desktop: full height for scrollable containers
@@ -53,14 +55,21 @@ function updateSwipeDots() {
   });
 }
 
+var _swipeListenerAttached = false;
+
 function setupSwipeListener() {
   var container = document.querySelector(".swipe-container");
-  if (container && !container._swipeListenerAdded) {
+  if (container && !_swipeListenerAttached) {
     container.addEventListener("scroll", updateSwipeDots);
-    container._swipeListenerAdded = true;
+    _swipeListenerAttached = true;
     // Initial update
     updateSwipeDots();
   }
+}
+
+function initSelectionLayout() {
+  adjustDivHeight();
+  setupSwipeListener();
 }
 
 function inputFocus(event) {
@@ -83,20 +92,11 @@ function inputFocus(event) {
 }
 
 // Run on load and window resize
-window.addEventListener("load", function() {
-  adjustDivHeight();
-  setupSwipeListener();
-});
-window.addEventListener("resize", function() {
-  adjustDivHeight();
-  setupSwipeListener();
-});
+window.addEventListener("load", initSelectionLayout);
+window.addEventListener("resize", initSelectionLayout);
 window.addEventListener("keydown", inputFocus);
 
 // Optional: Observe changes in header/footer size (e.g., dynamic content)
-const observer = new ResizeObserver(function() {
-  adjustDivHeight();
-  setupSwipeListener();
-});
+const observer = new ResizeObserver(initSelectionLayout);
 observer.observe(document.querySelector(".top-bar"));
 observer.observe(document.querySelector(".bottom-bar"));

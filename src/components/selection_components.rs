@@ -300,8 +300,8 @@ pub fn Selection() -> Element {
                     }
                 },
                 onmounted: move |_| async move {
-                    // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
-                    let _ = document::eval("adjustDivHeight(); setupSwipeListener();").await;
+                    // Initialize layout sizing and swipe listeners once the component is mounted.
+                    let _ = document::eval("initSelectionLayout();").await;
                 },
                 onkeydown: move |event: Event<KeyboardData>| async move {
                     // Don't focus search input if a number key is pressed and search results are visible
@@ -473,8 +473,7 @@ fn SongSourceItems(
         div {
             class: "scrollable-container",
             onmounted: move |_| async move {
-                // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
-                let _ = document::eval("adjustDivHeight();").await;
+                let _ = document::eval("initSelectionLayout();").await;
             },
             for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Song) {
                 SongSourceItem {
@@ -523,8 +522,7 @@ fn ImageSourceItems(
         div {
             class: "scrollable-container",
             onmounted: move |_| async move {
-                // This is necessary because we need to run the adjustDivHeight javascript function once to prevent wrong sizening of the elements.
-                let _ = document::eval("adjustDivHeight();").await;
+                let _ = document::eval("initSelectionLayout();").await;
             },
             for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Image) {
                 ImageSourceItem {
@@ -577,7 +575,7 @@ fn PdfSourceItems(
         div {
             class: "scrollable-container",
             onmounted: move |_| async move {
-                let _ = document::eval("adjustDivHeight();").await;
+                let _ = document::eval("initSelectionLayout();").await;
             },
             for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Pdf) {
                 PdfSourceItem {
