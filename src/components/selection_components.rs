@@ -1149,23 +1149,36 @@ fn start_presentation(
                             });
                     }
                 }
-                // Open the presentation in a new browser tab
-                let base_path = option_env!("DIOXUS_BASE_PATH").unwrap_or("");
-                let url = if base_path.is_empty() {
-                    "/presentation".to_string()
-                } else {
-                    format!("/{}/presentation", base_path)
-                };
+                // Open the presentation in a new browser tab.
+                // Derive the URL from window.location at runtime so that any deployment
+                // base path (e.g. /Cantara/ on GitHub Pages) is handled automatically.
                 if let Some(win) = web_sys::window() {
-                    match win.open_with_url_and_target(&url, "_blank") {
-                        Ok(Some(_)) => {
-                            // Successfully opened new tab/window.
-                        }
-                        Ok(None) | Err(_) => {
-                            // Popup likely blocked or failed to open; inform the user.
-                            let _ = win.alert_with_message(
-                                "Unable to open the presentation in a new tab.\n\
+                    let location = win.location();
+                    match (location.origin(), location.pathname()) {
+                        (Ok(origin), Ok(pathname)) => {
+                            // The Selection page is the root route "/". Stripping the
+                            // trailing slash gives the deployment base, e.g. "/Cantara"
+                            // for GitHub Pages or "" for local dev.
+                            let base = pathname.trim_end_matches('/');
+                            let url = format!("{}{}/presentation", origin, base);
+                            match win.open_with_url_and_target(&url, "_blank") {
+                                Ok(Some(_)) => {
+                                    // Successfully opened new tab/window.
+                                }
+                                Ok(None) | Err(_) => {
+                                    // Popup likely blocked or failed to open; inform the user.
+                                    let _ = win.alert_with_message(
+                                        "Unable to open the presentation in a new tab.\n\
 Please allow pop-ups for this site or open the presentation manually.",
+                                    );
+                                }
+                            }
+                        }
+                        _ => {
+                            // Location API unavailable (should not happen in a browser).
+                            let _ = win.alert_with_message(
+                                "Unable to determine the app URL. \
+Please open the presentation tab manually.",
                             );
                         }
                     }

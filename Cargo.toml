@@ -54,7 +54,7 @@ tempfile = "3.23"
 
 # Web (WASM) specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["Window", "Storage"] }
+web-sys = { version = "0.3", features = ["Window", "Storage", "Location"] }
 lopdf = { version = "0.39.0", default-features = false }
 base64 = "0.22.1"
 # getrandom needs wasm_js feature to use browser's crypto API on WASM
