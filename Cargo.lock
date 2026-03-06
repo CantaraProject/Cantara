@@ -606,11 +606,13 @@ dependencies = [
  "rfd 0.15.4",
  "rgb",
  "rust-i18n",
+ "rustls",
  "serde",
  "serde_json",
  "sys-locale",
  "tempfile",
  "web-sys",
+ "webpki-root-certs",
  "zip",
 ]
 
