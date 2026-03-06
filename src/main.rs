@@ -80,6 +80,13 @@ pub enum Route {
 }
 
 fn main() {
+    // On Android, initialize rustls-platform-verifier early as a safety net.
+    // Even though we use use_preconfigured_tls() with webpki-root-certs for HTTPS
+    // (bypassing the platform verifier), this initialization prevents a panic/SIGABRT
+    // if any code path accidentally invokes the platform verifier without initialization.
+    #[cfg(target_os = "android")]
+    logic::settings::init_platform_verifier();
+
     #[cfg(feature = "desktop")]
     fn launch_app() {
         #[cfg(target_os = "linux")]

@@ -200,8 +200,12 @@ impl Settings {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(file) = get_settings_file() {
-                let _ = fs::create_dir_all(get_settings_folder().unwrap());
-                if std::fs::write(file, serde_json::to_string_pretty(self).unwrap()).is_ok() {}
+                if let Some(folder) = get_settings_folder() {
+                    let _ = fs::create_dir_all(folder);
+                }
+                if let Ok(json) = serde_json::to_string_pretty(self) {
+                    let _ = std::fs::write(file, json);
+                }
             }
         }
     }
@@ -993,8 +997,7 @@ impl RepositoryType {
         url: &str,
         token: Option<&str>,
     ) -> Result<TempDir, String> {
-        let temp_dir =
-            TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
+        let temp_dir = create_temp_dir()?;
         let zip_path = temp_dir.path().join("download.zip");
         let mut builder = Client::builder()
             .http1_only();
@@ -1063,8 +1066,7 @@ impl RepositoryType {
         url: &str,
         token: Option<&str>,
     ) -> Result<TempDir, String> {
-        let temp_dir =
-            TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))?;
+        let temp_dir = create_temp_dir()?;
         let zip_path = temp_dir.path().join("download.zip");
         let mut builder = AsyncClient::builder()
             .http1_only();
@@ -1133,6 +1135,32 @@ fn get_settings_file() -> Option<PathBuf> {
     get_settings_folder().map(|settings_folder| settings_folder.join("settings.json"))
 }
 
+/// Creates a new temporary directory in a platform-appropriate location.
+///
+/// On Android, the standard `/tmp` directory does not exist. The `tempfile` crate's
+/// `TempDir::new()` would fail because `std::env::temp_dir()` returns `/tmp` when
+/// `TMPDIR` is not set. Instead, we create temporary directories inside the app's
+/// private storage obtained via JNI (`Context.getFilesDir()`).
+///
+/// On other platforms, this delegates to `TempDir::new()` which uses the system's
+/// standard temp directory.
+#[cfg(not(target_arch = "wasm32"))]
+fn create_temp_dir() -> Result<TempDir, String> {
+    // On Android, use the app's private files directory as the temp base
+    #[cfg(target_os = "android")]
+    {
+        if let Some(base) = get_android_files_dir() {
+            let tmp_base = base.join("tmp");
+            std::fs::create_dir_all(&tmp_base)
+                .map_err(|e| format!("Failed to create Android temp base directory: {}", e))?;
+            return TempDir::new_in(&tmp_base)
+                .map_err(|e| format!("Failed to create temporary directory on Android: {}", e));
+        }
+    }
+
+    TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn get_settings_folder() -> Option<PathBuf> {
     // On Android, the `dirs` crate cannot resolve standard config/data directories
@@ -1173,6 +1201,42 @@ fn mobile_tls_config() -> rustls::ClientConfig {
     rustls::ClientConfig::builder()
         .with_root_certificates(root_store)
         .with_no_client_auth()
+}
+
+/// Initializes `rustls-platform-verifier` on Android as a safety net.
+///
+/// Even though we use `use_preconfigured_tls()` to bypass the platform verifier,
+/// this initialization ensures that if any code path accidentally invokes the
+/// platform verifier, it won't crash with an "uninitialized" panic (which becomes
+/// SIGABRT with `panic = "abort"`).
+///
+/// This function is best-effort: if initialization fails (e.g., JNI issues),
+/// the error is logged but not propagated, since the primary TLS path uses
+/// `mobile_tls_config()` with WebPKI roots instead.
+#[cfg(target_os = "android")]
+pub fn init_platform_verifier() {
+    use jni::objects::JObject;
+    use jni::JavaVM;
+
+    let ctx = ndk_context::android_context();
+    let vm = match unsafe { JavaVM::from_raw(ctx.vm().cast()) } {
+        Ok(vm) => vm,
+        Err(e) => {
+            log::warn!("Failed to get JavaVM for platform verifier init: {e}");
+            return;
+        }
+    };
+    let mut env = match vm.attach_current_thread() {
+        Ok(env) => env,
+        Err(e) => {
+            log::warn!("Failed to attach thread for platform verifier init: {e}");
+            return;
+        }
+    };
+    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+    if let Err(e) = rustls_platform_verifier::android::init_with_env(&mut env, activity) {
+        log::warn!("Failed to initialize rustls-platform-verifier (non-fatal): {e}");
+    }
 }
 
 /// Returns the app's private files directory on Android via JNI.
