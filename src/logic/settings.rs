@@ -1156,8 +1156,10 @@ fn create_temp_dir() -> Result<TempDir, String> {
             return TempDir::new_in(&tmp_base)
                 .map_err(|e| format!("Failed to create temporary directory on Android: {}", e));
         }
+        return Err("Failed to obtain Android files directory for temp storage".to_string());
     }
 
+    #[allow(unreachable_code)]
     TempDir::new().map_err(|e| format!("Failed to create temporary directory: {}", e))
 }
 
@@ -1213,8 +1215,10 @@ fn mobile_tls_config() -> rustls::ClientConfig {
 /// This function is best-effort: if initialization fails (e.g., JNI issues),
 /// the error is logged but not propagated, since the primary TLS path uses
 /// `mobile_tls_config()` with WebPKI roots instead.
+///
+/// Called from `main()` on Android before launching the app.
 #[cfg(target_os = "android")]
-pub fn init_platform_verifier() {
+pub(crate) fn init_platform_verifier() {
     use jni::objects::JObject;
     use jni::JavaVM;
 
