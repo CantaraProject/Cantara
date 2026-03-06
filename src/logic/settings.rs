@@ -1205,44 +1205,6 @@ fn mobile_tls_config() -> rustls::ClientConfig {
         .with_no_client_auth()
 }
 
-/// Initializes `rustls-platform-verifier` on Android as a safety net.
-///
-/// Even though we use `use_preconfigured_tls()` to bypass the platform verifier,
-/// this initialization ensures that if any code path accidentally invokes the
-/// platform verifier, it won't crash with an "uninitialized" panic (which becomes
-/// SIGABRT with `panic = "abort"`).
-///
-/// This function is best-effort: if initialization fails (e.g., JNI issues),
-/// the error is logged but not propagated, since the primary TLS path uses
-/// `mobile_tls_config()` with WebPKI roots instead.
-///
-/// Called from `main()` on Android before launching the app.
-#[cfg(target_os = "android")]
-pub(crate) fn init_platform_verifier() {
-    use jni::objects::JObject;
-    use jni::JavaVM;
-
-    let ctx = ndk_context::android_context();
-    let vm = match unsafe { JavaVM::from_raw(ctx.vm().cast()) } {
-        Ok(vm) => vm,
-        Err(e) => {
-            log::warn!("Failed to get JavaVM for platform verifier init: {e}");
-            return;
-        }
-    };
-    let mut env = match vm.attach_current_thread() {
-        Ok(env) => env,
-        Err(e) => {
-            log::warn!("Failed to attach thread for platform verifier init: {e}");
-            return;
-        }
-    };
-    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
-    if let Err(e) = rustls_platform_verifier::android::init_with_env(&mut env, activity) {
-        log::warn!("Failed to initialize rustls-platform-verifier (non-fatal): {e}");
-    }
-}
-
 /// Returns the app's private files directory on Android via JNI.
 ///
 /// Uses `ndk-context` to obtain the Android Activity reference, then calls
