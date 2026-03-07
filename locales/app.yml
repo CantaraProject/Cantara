@@ -286,6 +286,12 @@ settings:
     right:
       en: Right
       de: Rechtsbündig
+    justify:
+      en: Justify
+      de: Blocksatz
+    justify_with_hyphenation:
+      en: Justify (with hyphenation)
+      de: Blocksatz (mit Silbentrennung)
   vertical_alignment:
     title:
       en: Vertical Alignment

@@ -133,6 +133,13 @@ impl CssHandler {
     pub fn min_height(&mut self, min_height: CssSize) {
         self.push("min-height".to_string(), CssValue::CssSize(min_height))
     }
+
+    pub fn hyphens(&mut self, value: &str) {
+        self.push(
+            "hyphens".to_string(),
+            CssValue::String(value.to_string()),
+        )
+    }
 }
 
 impl Display for CssHandler {
@@ -210,6 +217,9 @@ impl From<FontRepresentation> for CssHandler {
         css_handler.line_height(font.line_height as f32);
         css_handler.color(font.color);
         css_handler.text_align(font.horizontal_alignment);
+        if font.horizontal_alignment == HorizontalAlign::JustifyWithHyphenation {
+            css_handler.hyphens("auto");
+        }
 
         css_handler
     }
