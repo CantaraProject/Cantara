@@ -1,7 +1,7 @@
 //! This module contains the functions for changing the font settings as defined in the [FontRepresentation] struct.
 
 use crate::components::shared_components::NumberedValidatedLengthInput;
-use crate::logic::settings::{CssSize, FontRepresentation};
+use crate::logic::settings::{CssSize, FontRepresentation, HorizontalAlign};
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
 use rgb::RGB8;
@@ -144,6 +144,14 @@ fn SingleFontRepresentationComponent(
                     }
                 }
             }
+
+            HorizontalAlignmentSelector {
+                default: font().horizontal_alignment,
+                onchange: move |new_align| {
+                    font.write().horizontal_alignment = new_align;
+                    onchange.call(font());
+                }
+            }
         }
     )
 }
@@ -167,6 +175,67 @@ fn LineHeightInput(
                     onchange: move |event| {
                         let new_line_height = event.value().parse::<f64>().unwrap_or(1.0);
                         onchange.call(new_line_height);
+                    }
+                }
+            }
+        }
+    )
+}
+
+/// A component for selecting the horizontal text alignment
+#[component]
+fn HorizontalAlignmentSelector(
+    default: HorizontalAlign,
+    onchange: EventHandler<HorizontalAlign>,
+) -> Element {
+    let mut value_signal = use_signal(|| default);
+    rsx!(
+        fieldset {
+            label {
+                { t!("settings.horizontal_alignment.title").to_string() }
+                select {
+                    name: "horizontal_align",
+                    required: true,
+                    aria_label: t!("settings.horizontal_alignment.title").to_string(),
+                    onchange: move |event| {
+                        let new_align = match event.value().as_str() {
+                            "left" => HorizontalAlign::Left,
+                            "centered" => HorizontalAlign::Centered,
+                            "right" => HorizontalAlign::Right,
+                            "justify" => HorizontalAlign::Justify,
+                            "justify_with_hyphenation" => HorizontalAlign::JustifyWithHyphenation,
+                            other => {
+                                tracing::error!("Invalid option for horizontal alignment selected, the value is: {}", other);
+                                HorizontalAlign::Centered
+                            }
+                        };
+                        value_signal.set(new_align);
+                        onchange.call(new_align);
+                    },
+                    option {
+                        value: "left",
+                        selected: value_signal() == HorizontalAlign::Left,
+                        { t!("settings.horizontal_alignment.left").to_string() }
+                    }
+                    option {
+                        value: "centered",
+                        selected: value_signal() == HorizontalAlign::Centered,
+                        { t!("settings.horizontal_alignment.centered").to_string() }
+                    }
+                    option {
+                        value: "right",
+                        selected: value_signal() == HorizontalAlign::Right,
+                        { t!("settings.horizontal_alignment.right").to_string() }
+                    }
+                    option {
+                        value: "justify",
+                        selected: value_signal() == HorizontalAlign::Justify,
+                        { t!("settings.horizontal_alignment.justify").to_string() }
+                    }
+                    option {
+                        value: "justify_with_hyphenation",
+                        selected: value_signal() == HorizontalAlign::JustifyWithHyphenation,
+                        { t!("settings.horizontal_alignment.justify_with_hyphenation").to_string() }
                     }
                 }
             }
