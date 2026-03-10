@@ -113,23 +113,33 @@ pub fn extract_pdf_page_text_from_bytes(bytes: &[u8], page_number: u32, path_key
 /// Optionally (re)populate the cache with the provided list of source files.
 /// This will read all Song, Markdown, and PDF files from disk and cache their contents.
 /// If a file can't be read, it will simply be skipped.
+///
+/// All I/O and PDF parsing is done outside the mutex; the lock is only acquired once
+/// at the end to atomically clear and repopulate the cache map.
 pub fn refresh_search_cache(source_files: &[SourceFile]) {
-    let mut map = cache().lock().expect("cache poisoned");
-    map.clear();
+    // Collect all content outside the lock so PDF parsing doesn't block concurrent readers.
+    let mut entries: Vec<(PathBuf, String)> = Vec::with_capacity(source_files.len());
     for sf in source_files {
         match sf.file_type {
             SourceFileType::Song | SourceFileType::Markdown => {
                 if let Ok(content) = fs::read_to_string(&sf.path) {
-                    map.insert(sf.path.clone(), content);
+                    entries.push((sf.path.clone(), content));
                 }
             }
             #[cfg(not(target_arch = "wasm32"))]
             SourceFileType::Pdf => {
                 if let Some(content) = extract_pdf_text(&sf.path) {
-                    map.insert(sf.path.clone(), content);
+                    entries.push((sf.path.clone(), content));
                 }
             }
             _ => {}
+        }
+    }
+    // Acquire the lock once to clear and bulk-insert all entries.
+    if let Ok(mut map) = cache().lock() {
+        map.clear();
+        for (path, content) in entries {
+            map.insert(path, content);
         }
     }
 }
@@ -153,16 +163,18 @@ pub fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
         }
         #[cfg(not(target_arch = "wasm32"))]
         SourceFileType::Pdf => {
-            // Try cache first
-            if let Ok(mut map) = cache().lock() {
+            // Check cache without holding the lock during PDF parsing.
+            if let Ok(map) = cache().lock() {
                 if let Some(cached) = map.get(&source_file.path) {
                     return Some(cached.clone());
                 }
-                // Not cached: extract from PDF and store
-                if let Some(content) = extract_pdf_text(&source_file.path) {
+            }
+            // Not cached: extract from PDF outside the lock, then insert.
+            if let Some(content) = extract_pdf_text(&source_file.path) {
+                if let Ok(mut map) = cache().lock() {
                     map.insert(source_file.path.clone(), content.clone());
-                    return Some(content);
                 }
+                return Some(content);
             }
             None
         }
