@@ -302,14 +302,17 @@ mod tests {
 
     #[test]
     fn search_pdf_content() {
-        // PDFs with extractable text should be indexed
+        // This PDF fixture is expected to have no extractable text; it should not produce matches.
         let sf = SourceFile {
             name: "Example".to_string(),
             path: PathBuf::from("testfiles/Example.pdf"),
             file_type: SourceFileType::Pdf,
         };
-        // Just verify it doesn't panic; the test PDF may or may not have extractable text
-        let _results = search_source_files(&[sf], "test");
+        let results = search_source_files(&[sf], "test");
+        assert!(
+            results.is_empty(),
+            "PDFs without extractable text should not produce search results"
+        );
     }
 
     #[test]
