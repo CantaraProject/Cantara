@@ -132,6 +132,56 @@
     white-space: pre-line;
 }
 
+/* Markdown text in the presenter console text panel */
+.slide-text-markdown {
+    font-size: 0.9rem;
+    line-height: 1.4;
+    overflow-y: auto;
+    max-height: 300px;
+}
+
+.slide-text-markdown h1,
+.slide-text-markdown h2,
+.slide-text-markdown h3,
+.slide-text-markdown h4,
+.slide-text-markdown h5,
+.slide-text-markdown h6 {
+    color: inherit;
+    margin-top: 0.3em;
+    margin-bottom: 0.2em;
+}
+
+.slide-text-markdown h1 { font-size: 1.2em; }
+.slide-text-markdown h2 { font-size: 1.1em; }
+.slide-text-markdown h3 { font-size: 1.05em; }
+.slide-text-markdown h4,
+.slide-text-markdown h5,
+.slide-text-markdown h6 { font-size: 1em; }
+
+.slide-text-markdown p {
+    margin: 2px 0;
+    font-size: inherit;
+    line-height: inherit;
+}
+
+.slide-text-markdown ul,
+.slide-text-markdown ol {
+    padding-left: 1.5em;
+    margin: 2px 0;
+    font-size: inherit;
+}
+
+.slide-text-markdown code {
+    font-size: 0.85em;
+}
+
+.slide-text-markdown blockquote {
+    border-left: 2px solid var(--pico-muted-border-color);
+    padding-left: 0.8em;
+    margin-left: 0;
+    font-style: italic;
+}
+
 .slide-text-spoiler {
     color: var(--pico-muted-color);
     font-style: italic;

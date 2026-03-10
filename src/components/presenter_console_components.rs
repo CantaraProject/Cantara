@@ -440,8 +440,7 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
                 let html_owned = html.to_string();
                 rsx! {
                     div {
-                        class: "slide-text-content markdown-slide",
-                        style: "overflow-y: auto; max-height: 300px;",
+                        class: "slide-text-content slide-text-markdown",
                         dangerous_inner_html: html_owned
                     }
                 }
