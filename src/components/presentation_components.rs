@@ -2,7 +2,9 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cantara_songlib::slides::*;
+use dioxus::html::completions::CompleteWithBraces::strong;
 use dioxus::prelude::*;
+use regex::Regex;
 use rgb::RGBA8;
 use rust_i18n::t;
 
@@ -674,9 +676,43 @@ fn EmptySlideComponent() -> Element {
 /// Generates a CSS string from a [FontRepresentation] with `!important` flags,
 /// for use as inline style on markdown slide containers.
 fn markdown_font_css(font: FontRepresentation) -> String {
-    let mut css = CssHandler::from(font);
+    let mut css = CssHandler::new();
     css.set_important(true);
+    css.extend(&CssHandler::from(font));
     css.to_string()
+}
+
+/// This helper function injects a CSS style into all HTML tags of a string. That is needed
+/// to override default CSS definitions coming from PicoCSS.
+fn inject_css_into_html_elements(html: &str, css_style: &CssHandler) -> String {
+    // Regex breakdown:
+    // <([a-z1-6]+)  -> Matches the opening '<' and captures the tag name
+    // (?![^>]*style=) -> A negative lookahead to ensure we don't double-up if a style already exists
+    // [^>]* -> Matches any other attributes until the closing '>'
+    // >             -> Matches the closing bracket
+    let re = Regex::new(r"(?i)<([a-z1-6]+)([^>]*)>").unwrap();
+
+    // We use a replacement closure to handle the logic
+    re.replace_all(html, |caps: &regex::Captures| {
+        let tag = &caps[1];
+        let attributes = &caps[2];
+        let css_style_string = css_style.to_string();
+
+        // List of common elements that don't support/need styling (void tags or metadata)
+        let ignored_tags = ["html", "head", "meta", "link", "script", "style", "br", "hr"];
+
+        if ignored_tags.contains(&tag.to_lowercase().as_str()) {
+            format!("<{tag}{attributes}>")
+        } else {
+            // Check if style already exists to append, or just insert new
+            if attributes.contains("style=") {
+                // This is a simple version; real attribute parsing is complex!
+                format!("<{tag}{attributes} style=\"{css_style_string}\">")
+            } else {
+                format!("<{tag} style=\"{css_style_string}\"{attributes}>")
+            }
+        }
+    }).to_string()
 }
 
 /// A component for rendering a Markdown slide with scrollable content.
@@ -692,7 +728,13 @@ fn MarkdownSlideComponent(
 
     let scroll_pos = use_memo(move || running_presentation.read().markdown_scroll_position);
 
-    let font_css = markdown_font_css(main_content_font);
+    let font_css = markdown_font_css(main_content_font.clone());
+
+    let mut html_content_css = CssHandler::new();
+    html_content_css.set_important(true);
+    html_content_css.color(main_content_font.color);
+
+    let html_content = inject_css_into_html_elements(&html_content, &html_content_css);
 
     // Apply scroll position from signal (e.g. from presenter console)
     use_effect(move || {
@@ -715,7 +757,7 @@ fn MarkdownSlideComponent(
     rsx! {
         div {
             class: "markdown-slide",
-            style: "overflow-y: auto; max-height: 100%; padding: 1em 2em; {font_css}",
+            style: format!("overflow-y: auto; max-height: 100%; padding: 1em 2em; {}", font_css).to_string(),
             onscroll: move |_| {
                 spawn(async move {
                     let js = r#"

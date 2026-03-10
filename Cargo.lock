@@ -603,6 +603,7 @@ dependencies = [
  "lopdf",
  "markdown",
  "ndk-context",
+ "regex",
  "reqwest 0.13.2",
  "rfd 0.15.4",
  "rgb",
