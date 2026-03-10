@@ -82,8 +82,14 @@ and drives away his fear.";
 /// rendering each section to HTML using the `markdown` crate.
 /// Each slide is stored as a [SingleLanguageMainContentSlide] with the rendered
 /// HTML prefixed by [MARKDOWN_HTML_PREFIX] in the `main_text` field.
+///
+/// The separator is a line containing only `---` (with optional surrounding whitespace),
+/// preceded and followed by a newline. Both Unix (`\n`) and Windows (`\r\n`) line endings
+/// are supported.
 pub fn slides_from_markdown(markdown_content: &str) -> Vec<Slide> {
-    let sections: Vec<&str> = markdown_content.split("\n---\n").collect();
+    // Normalize line endings to \n, then split on lines that are exactly "---"
+    let normalized = markdown_content.replace("\r\n", "\n");
+    let sections: Vec<&str> = normalized.split("\n---\n").collect();
     let mut slides = Vec::new();
 
     for section in sections {
@@ -484,5 +490,12 @@ mod tests {
 
         let without_prefix = "Just plain text";
         assert_eq!(get_markdown_html(without_prefix), None);
+    }
+
+    #[test]
+    fn test_slides_from_markdown_windows_line_endings() {
+        let md = "# Hello\r\n\r\n---\r\n\r\n## World";
+        let slides = slides_from_markdown(md);
+        assert_eq!(slides.len(), 2);
     }
 }

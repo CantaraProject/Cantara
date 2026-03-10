@@ -677,17 +677,22 @@ fn MarkdownSlideComponent(
     html_content: String,
     running_presentation: Signal<RunningPresentation>,
 ) -> Element {
+    /// Minimum pixel difference to trigger a scroll position sync update
+    const SCROLL_SYNC_THRESHOLD: f64 = 2.0;
+
     let scroll_pos = use_memo(move || running_presentation.read().markdown_scroll_position);
 
     // Apply scroll position from signal (e.g. from presenter console)
     use_effect(move || {
         let pos = scroll_pos();
+        let pos_json = serde_json::to_string(&pos).unwrap_or_else(|_| "0".to_string());
+        let threshold_json = serde_json::to_string(&SCROLL_SYNC_THRESHOLD).unwrap_or_else(|_| "2".to_string());
         spawn(async move {
             let js = format!(
                 r#"
                 var el = document.querySelector('.markdown-slide');
-                if (el && Math.abs(el.scrollTop - {pos}) > 2) {{
-                    el.scrollTop = {pos};
+                if (el && Math.abs(el.scrollTop - {pos_json}) > {threshold_json}) {{
+                    el.scrollTop = {pos_json};
                 }}
                 "#
             );
@@ -708,7 +713,7 @@ fn MarkdownSlideComponent(
                     if let Ok(val) = document::eval(js).await {
                         if let Ok(pos) = val.to_string().parse::<f64>() {
                             let current = running_presentation.read().markdown_scroll_position;
-                            if (current - pos).abs() > 2.0 {
+                            if (current - pos).abs() > SCROLL_SYNC_THRESHOLD {
                                 running_presentation.write().markdown_scroll_position = pos;
                             }
                         }
