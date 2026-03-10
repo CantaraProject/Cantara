@@ -315,6 +315,18 @@ pub fn Selection() -> Element {
                         return;
                     }
 
+                    // Don't steal focus from other input fields (e.g. markdown textarea)
+                    let is_other_input_focused = document::eval(r#"
+                        (function() {
+                            var a = document.activeElement;
+                            return a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && a.id !== 'searchinput'));
+                        })()
+                    "#).await.ok().and_then(|v| v.as_bool()).unwrap_or(false);
+
+                    if is_other_input_focused {
+                        return;
+                    }
+
                     if let Some(searchinput) = input_element_signal() {
                         let _ = searchinput.set_focus(true).await;
                     }

@@ -92,6 +92,12 @@ function inputFocus(event) {
     return;
   }
 
+  // Don't steal focus if another input field (e.g. markdown textarea) is focused
+  let active = document.activeElement;
+  if (active && (active.tagName === "TEXTAREA" || (active.tagName === "INPUT" && active.id !== "searchinput"))) {
+    return;
+  }
+
   // For letter keys, focus on the search input as before
   if (/^\p{L}$/u.test(key) && input) {
     input.focus();
