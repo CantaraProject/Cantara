@@ -752,10 +752,6 @@ fn MarkdownSlideComponent(
     /// Minimum pixel difference to trigger a scroll position sync update
     const SCROLL_SYNC_THRESHOLD: f64 = 2.0;
 
-    let scroll_pos = use_memo(move || {
-        running_presentation.map(|rp| rp.read().markdown_scroll_position)
-    });
-
     let font_css = markdown_font_css(main_content_font.clone());
 
     let mut html_content_css = CssHandler::new();
@@ -764,22 +760,27 @@ fn MarkdownSlideComponent(
 
     let html_content = inject_css_into_html_elements(&html_content, &html_content_css);
 
-    // Apply scroll position from signal (e.g. from presenter console)
-    use_effect(move || {
-        if let Some(pos) = scroll_pos() {
+    // Poll-based scroll sync: periodically read the signal and apply the scroll
+    // position to the DOM. This is needed because on desktop, the presentation
+    // and presenter console run in separate VirtualDom instances (separate windows),
+    // and reactive signal notifications may not wake the other window's event loop.
+    // The polling timer keeps the event loop active, ensuring reliable cross-window sync.
+    use_future(move || async move {
+        let Some(rp_signal) = running_presentation else { return };
+        loop {
+            let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
+            let pos = rp_signal.read().markdown_scroll_position;
             let pos_json = serde_json::to_string(&pos).unwrap_or_else(|_| "0".to_string());
-            let threshold_json = serde_json::to_string(&SCROLL_SYNC_THRESHOLD).unwrap_or_else(|_| "2".to_string());
-            spawn(async move {
-                let js = format!(
-                    r#"
-                    var el = document.querySelector('.markdown-slide');
-                    if (el && Math.abs(el.scrollTop - {pos_json}) > {threshold_json}) {{
-                        el.scrollTop = {pos_json};
-                    }}
-                    "#
-                );
-                let _ = document::eval(&js).await;
-            });
+            let threshold = SCROLL_SYNC_THRESHOLD;
+            let js = format!(
+                r#"
+                var el = document.querySelector('.markdown-slide');
+                if (el && Math.abs(el.scrollTop - {pos_json}) > {threshold}) {{
+                    el.scrollTop = {pos_json};
+                }}
+                "#
+            );
+            let _ = document::eval(&js).await;
         }
     });
 
