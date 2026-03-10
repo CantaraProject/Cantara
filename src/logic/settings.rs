@@ -75,6 +75,11 @@ pub struct Settings {
     /// The thumbnail column width (in pixels) for the presenter console grid view.
     #[serde(default = "default_presenter_console_grid_size")]
     pub presenter_console_grid_size: u32,
+
+    /// The order of the source-type filter buttons in the selection sidebar.
+    /// When `None` or empty, the default order (Songs → Pictures → PDFs) is used.
+    #[serde(default)]
+    pub sidebar_order: Vec<SelectionSidebarType>,
 }
 
 /// The view mode for the presenter console left panel.
@@ -85,6 +90,27 @@ pub enum PresenterConsoleView {
     Text,
     /// Grid overview showing slide thumbnails grouped by chapter
     Grid,
+}
+
+/// Represents an individual source-type button in the selection sidebar.
+/// The order of these values in `Settings::sidebar_order` determines the
+/// display order of the sidebar icons.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum SelectionSidebarType {
+    Songs,
+    Pictures,
+    Pdfs,
+    Markdown,
+}
+
+/// Returns the default sidebar order: Songs → Pictures → PDFs → Markdown.
+pub fn default_sidebar_order() -> Vec<SelectionSidebarType> {
+    vec![
+        SelectionSidebarType::Songs,
+        SelectionSidebarType::Pictures,
+        SelectionSidebarType::Pdfs,
+        SelectionSidebarType::Markdown,
+    ]
 }
 
 impl Default for Settings {
@@ -101,6 +127,7 @@ impl Default for Settings {
             presenter_console_in_main_window: default_presenter_console_in_main_window(),
             presenter_console_view: PresenterConsoleView::default(),
             presenter_console_grid_size: default_presenter_console_grid_size(),
+            sidebar_order: default_sidebar_order(),
         }
     }
 }

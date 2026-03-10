@@ -100,6 +100,9 @@ pub enum SourceFileType {
 
     /// A PDF document which Cantara can display
     Pdf,
+
+    /// A Markdown document which Cantara can render and display
+    Markdown,
 }
 
 /// A source file which contains content which Cantara can use to generate content from
@@ -137,7 +140,7 @@ pub struct SourceFile {
 pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
     let mut source_files: Vec<SourceFile> = vec![];
 
-    find_files_with_ending(start_dir, vec!["song", "jpg", "jpeg", "png", "pdf"])
+    find_files_with_ending(start_dir, vec!["song", "jpg", "jpeg", "png", "pdf", "md"])
         .iter()
         .for_each(|file| {
             let file_extension: &str = file
@@ -152,6 +155,7 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
                     "jpg" => Some(SourceFileType::Image),
                     "jpeg" => Some(SourceFileType::Image),
                     "pdf" => Some(SourceFileType::Pdf),
+                    "md" => Some(SourceFileType::Markdown),
                     _ => None,
                 };
             if let Some(source_file_type) = file_type_option {
@@ -241,6 +245,7 @@ impl SourceFile {
             "song" => SourceFileType::Song,
             "png" | "jpg" | "jpeg" => SourceFileType::Image,
             "pdf" => SourceFileType::Pdf,
+            "md" => SourceFileType::Markdown,
             _ => return None,
         };
         let stem = file_name
@@ -345,5 +350,23 @@ pub mod tests {
                 sf1.name
             );
         }
+    }
+  
+    #[test]
+    fn traverse_test_dir_markdown() {
+        let dir = Path::new("testfiles");
+        assert_eq!(find_files_with_ending(dir, vec!["md"]).len(), 1);
+    }
+
+    #[test]
+    fn get_source_files_includes_markdown() {
+        let dir = Path::new("testfiles");
+        let source_files = get_source_files(dir);
+        let md_files: Vec<&SourceFile> = source_files
+            .iter()
+            .filter(|sf| sf.file_type == SourceFileType::Markdown)
+            .collect();
+        assert_eq!(md_files.len(), 1);
+        assert_eq!(md_files[0].name, "example");
     }
 }

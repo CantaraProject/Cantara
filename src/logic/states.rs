@@ -76,6 +76,10 @@ pub struct SelectedItemRepresentation {
 
     /// The [PresentationDesign] as an option. If [None], the default [PresentationDesign] will be used.
     pub slide_settings_option: Option<SlideSettings>,
+
+    /// Optional inline markdown content for spontaneous markdown text.
+    /// When set, this content is used instead of reading from the source file path.
+    pub inline_markdown: Option<String>,
 }
 
 impl SelectedItemRepresentation {
@@ -84,6 +88,7 @@ impl SelectedItemRepresentation {
             source_file,
             presentation_design_option: None,
             slide_settings_option: None,
+            inline_markdown: None,
         }
     }
 }
@@ -99,6 +104,9 @@ pub struct RunningPresentation {
     /// Defaults to 1920x1080 (16:9) when no monitor info is available.
     #[serde(default = "default_presentation_resolution")]
     pub presentation_resolution: (u32, u32),
+    /// The current scroll position for markdown slides, synchronized across instances.
+    #[serde(default)]
+    pub markdown_scroll_position: f64,
 }
 
 impl RunningPresentation {
@@ -109,6 +117,7 @@ impl RunningPresentation {
             position: RunningPresentationPosition::new(&presentation),
             is_black_screen: false,
             presentation_resolution: default_presentation_resolution(),
+            markdown_scroll_position: 0.0,
         }
     }
 

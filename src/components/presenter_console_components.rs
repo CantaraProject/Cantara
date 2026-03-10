@@ -1,7 +1,7 @@
 //! This module contains the components for the Presenter Console window.
 //! The presenter console shows the current slide text, a live preview, and navigation controls.
 
-use crate::logic::presentation::get_picture_path;
+use crate::logic::presentation::{get_markdown_html, get_picture_path};
 use crate::logic::settings::{PresentationDesign, PresenterConsoleView, use_settings};
 use crate::logic::states::RunningPresentation;
 #[cfg(target_arch = "wasm32")]
@@ -435,14 +435,26 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
             }
         }
         SlideContent::SingleLanguageMainContent(main_slide) => {
-            rsx! {
-                div {
-                    class: "slide-text-content",
-                    p { { main_slide.clone().main_text() } }
-                    if let Some(spoiler) = main_slide.spoiler_text() {
-                        p {
-                            class: "slide-text-spoiler",
-                            { spoiler }
+            let text = main_slide.clone().main_text();
+            if let Some(html) = get_markdown_html(&text) {
+                let html_owned = html.to_string();
+                rsx! {
+                    div {
+                        class: "slide-text-content markdown-slide",
+                        style: "overflow-y: auto; max-height: 300px;",
+                        dangerous_inner_html: html_owned
+                    }
+                }
+            } else {
+                rsx! {
+                    div {
+                        class: "slide-text-content",
+                        p { { main_slide.clone().main_text() } }
+                        if let Some(spoiler) = main_slide.spoiler_text() {
+                            p {
+                                class: "slide-text-spoiler",
+                                { spoiler }
+                            }
                         }
                     }
                 }

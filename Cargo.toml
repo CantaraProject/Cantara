@@ -26,6 +26,7 @@ sys-locale = "=0.3.2"
 
 # Cantara libraries
 cantara-songlib = "0.1.5"
+markdown = "1.0.0"
 rgb = { version = "0.8.52", features = ["serde"] }
 log = "0.4.28"
 # reqwest without default TLS on all targets; TLS and blocking added for non-WASM below
