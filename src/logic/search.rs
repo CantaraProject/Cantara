@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-// Simple global cache for song file contents. Avoids re-reading from disk on every search.
+// Simple global cache for file contents. Avoids re-reading from disk on every search.
 static SONG_CONTENT_CACHE: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
 
 fn cache() -> &'static Mutex<HashMap<PathBuf, String>> {
@@ -22,40 +22,188 @@ pub fn invalidate_search_cache() {
     }
 }
 
+/// Extracts plain text from a PDF file (non-WASM only).
+/// Returns all page texts concatenated, or None if extraction fails.
+#[cfg(not(target_arch = "wasm32"))]
+fn extract_pdf_text(path: &std::path::Path) -> Option<String> {
+    let doc = lopdf::Document::load(path).ok()?;
+    let pages = doc.get_pages();
+    let page_numbers: Vec<u32> = pages.keys().copied().collect();
+    let mut texts = Vec::new();
+    for page_num in page_numbers {
+        if let Ok(text) = doc.extract_text(&[page_num]) {
+            texts.push(text);
+        }
+    }
+    if texts.is_empty() {
+        None
+    } else {
+        Some(texts.join("\n"))
+    }
+}
+
+/// Extracts plain text from a specific page of a PDF file (non-WASM only).
+/// Returns the page text, or None if extraction fails.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn extract_pdf_page_text(path: &std::path::Path, page_number: u32) -> Option<String> {
+    let doc = lopdf::Document::load(path).ok()?;
+    doc.extract_text(&[page_number]).ok()
+}
+
+/// Extracts plain text from a PDF stored in the web VFS (WASM only).
+#[cfg(target_arch = "wasm32")]
+fn extract_pdf_text_from_bytes(bytes: &[u8]) -> Option<String> {
+    let doc = lopdf::Document::load_mem(bytes).ok()?;
+    let pages = doc.get_pages();
+    let page_numbers: Vec<u32> = pages.keys().copied().collect();
+    let mut texts = Vec::new();
+    for page_num in page_numbers {
+        if let Ok(text) = doc.extract_text(&[page_num]) {
+            texts.push(text);
+        }
+    }
+    if texts.is_empty() {
+        None
+    } else {
+        Some(texts.join("\n"))
+    }
+}
+
+/// Extracts plain text from a specific page of a PDF stored in the web VFS (WASM only).
+#[cfg(target_arch = "wasm32")]
+pub fn extract_pdf_page_text_from_bytes(bytes: &[u8], page_number: u32) -> Option<String> {
+    let doc = lopdf::Document::load_mem(bytes).ok()?;
+    doc.extract_text(&[page_number]).ok()
+}
+
+/// Extracts plain text from a Markdown file by reading it as-is.
+/// Markdown is already human-readable plain text so no special stripping is needed.
+fn extract_markdown_text(path: &std::path::Path) -> Option<String> {
+    fs::read_to_string(path).ok()
+}
+
 /// Optionally (re)populate the cache with the provided list of source files.
-/// This will read all Song files from disk and cache their contents.
+/// This will read Song, Markdown, and PDF files from disk and cache their contents.
 /// If a file can't be read, it will simply be skipped.
 pub fn refresh_search_cache(source_files: &[SourceFile]) {
     let mut map = cache().lock().expect("cache poisoned");
     map.clear();
     for sf in source_files {
-        if sf.file_type == SourceFileType::Song {
-            if let Ok(content) = fs::read_to_string(&sf.path) {
-                map.insert(sf.path.clone(), content);
+        match sf.file_type {
+            SourceFileType::Song => {
+                if let Ok(content) = fs::read_to_string(&sf.path) {
+                    map.insert(sf.path.clone(), content);
+                }
             }
+            SourceFileType::Markdown => {
+                if let Some(content) = extract_markdown_text(&sf.path) {
+                    map.insert(sf.path.clone(), content);
+                }
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            SourceFileType::Pdf => {
+                if let Some(content) = extract_pdf_text(&sf.path) {
+                    map.insert(sf.path.clone(), content);
+                }
+            }
+            _ => {}
         }
     }
 }
 
-/// Helper function to read the content of a source file, using the cache for Song files
+/// Helper function to read the content of a source file, using the cache for Song/PDF/Markdown files
 pub fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
-    if source_file.file_type != SourceFileType::Song {
-        return None;
-    }
-
-    // Try cache first
-    if let Ok(mut map) = cache().lock() {
-        if let Some(cached) = map.get(&source_file.path) {
-            return Some(cached.clone());
+    match source_file.file_type {
+        SourceFileType::Song => {
+            // Try cache first
+            if let Ok(mut map) = cache().lock() {
+                if let Some(cached) = map.get(&source_file.path) {
+                    return Some(cached.clone());
+                }
+                // Not cached: read from disk and store
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Ok(content) = fs::read_to_string(&source_file.path) {
+                    map.insert(source_file.path.clone(), content.clone());
+                    return Some(content);
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    if let Some(path_str) = source_file.path.to_str() {
+                        if let Some(bytes) = crate::logic::settings::RepositoryType::web_read_file(path_str) {
+                            if let Ok(content) = String::from_utf8(bytes) {
+                                map.insert(source_file.path.clone(), content.clone());
+                                return Some(content);
+                            }
+                        }
+                    }
+                }
+            }
+            None
         }
-        // Not cached: read from disk and store
-        if let Ok(content) = fs::read_to_string(&source_file.path) {
-            map.insert(source_file.path.clone(), content.clone());
-            return Some(content);
+        SourceFileType::Markdown => {
+            // Try cache first
+            if let Ok(mut map) = cache().lock() {
+                if let Some(cached) = map.get(&source_file.path) {
+                    return Some(cached.clone());
+                }
+                // Not cached: read from disk/VFS and store
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Ok(content) = fs::read_to_string(&source_file.path) {
+                    map.insert(source_file.path.clone(), content.clone());
+                    return Some(content);
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    if let Some(path_str) = source_file.path.to_str() {
+                        if let Some(bytes) = crate::logic::settings::RepositoryType::web_read_file(path_str) {
+                            if let Ok(content) = String::from_utf8(bytes) {
+                                map.insert(source_file.path.clone(), content.clone());
+                                return Some(content);
+                            }
+                        }
+                    }
+                }
+            }
+            None
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        SourceFileType::Pdf => {
+            // Try cache first
+            if let Ok(mut map) = cache().lock() {
+                if let Some(cached) = map.get(&source_file.path) {
+                    return Some(cached.clone());
+                }
+                // Not cached: extract from PDF and store
+                if let Some(content) = extract_pdf_text(&source_file.path) {
+                    map.insert(source_file.path.clone(), content.clone());
+                    return Some(content);
+                }
+            }
+            None
+        }
+        #[cfg(target_arch = "wasm32")]
+        SourceFileType::Pdf => {
+            // Try cache first
+            if let Ok(mut map) = cache().lock() {
+                if let Some(cached) = map.get(&source_file.path) {
+                    return Some(cached.clone());
+                }
+            }
+            // Read from web VFS
+            if let Some(path_str) = source_file.path.to_str() {
+                if let Some(bytes) = crate::logic::settings::RepositoryType::web_read_file(path_str) {
+                    if let Some(content) = extract_pdf_text_from_bytes(&bytes) {
+                        if let Ok(mut map) = cache().lock() {
+                            map.insert(source_file.path.clone(), content.clone());
+                        }
+                        return Some(content);
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
     }
-
-    None
 }
 
 /// Struct to represent a search result
@@ -89,8 +237,13 @@ pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<Sear
             continue;
         }
 
-        // Check if the query matches the content (for song files)
-        if source_file.file_type == SourceFileType::Song {
+        // Check if the query matches the content (for song, PDF, and markdown files)
+        let should_search_content = matches!(
+            source_file.file_type,
+            SourceFileType::Song | SourceFileType::Pdf | SourceFileType::Markdown
+        );
+
+        if should_search_content {
             if let Some(content) = read_source_file_content(source_file) {
                 let content_lower = content.to_lowercase();
                 if content_lower.contains(&query) {
@@ -143,4 +296,63 @@ pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<Sear
     });
 
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logic::sourcefiles::{SourceFile, SourceFileType};
+    use std::path::PathBuf;
+
+    #[test]
+    fn search_markdown_content() {
+        let sf = SourceFile {
+            name: "TestMarkdown".to_string(),
+            path: PathBuf::from("testfiles/TestMarkdown.md"),
+            file_type: SourceFileType::Markdown,
+        };
+        let results = search_source_files(&[sf], "grace");
+        assert!(!results.is_empty(), "Should find markdown file by content");
+    }
+
+    #[test]
+    fn search_pdf_content() {
+        // PDFs with extractable text should be indexed
+        let sf = SourceFile {
+            name: "Example".to_string(),
+            path: PathBuf::from("testfiles/Example.pdf"),
+            file_type: SourceFileType::Pdf,
+        };
+        // Just verify it doesn't panic; the test PDF may or may not have extractable text
+        let _results = search_source_files(&[sf], "test");
+    }
+
+    #[test]
+    fn search_returns_markdown_title_match() {
+        let sf = SourceFile {
+            name: "TestMarkdown".to_string(),
+            path: PathBuf::from("testfiles/TestMarkdown.md"),
+            file_type: SourceFileType::Markdown,
+        };
+        let results = search_source_files(&[sf], "TestMarkdown");
+        assert!(!results.is_empty(), "Should find markdown file by title");
+        assert!(results[0].is_title_match, "Should be a title match");
+    }
+
+    #[test]
+    fn refresh_cache_includes_markdown() {
+        let sf = SourceFile {
+            name: "TestMarkdown".to_string(),
+            path: PathBuf::from("testfiles/TestMarkdown.md"),
+            file_type: SourceFileType::Markdown,
+        };
+        invalidate_search_cache();
+        refresh_search_cache(&[sf.clone()]);
+        let content = read_source_file_content(&sf);
+        assert!(content.is_some(), "Markdown content should be cached");
+        assert!(
+            content.unwrap().contains("grace"),
+            "Markdown content should contain 'grace'"
+        );
+    }
 }

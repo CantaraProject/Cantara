@@ -405,6 +405,9 @@ general:
   pdf_page:
     en: "Page %{page}"
     de: "Seite %{page}"
+  markdown:
+    en: Markdown
+    de: Markdown
   file_path:
     en: File Path
     de: Dateipfad

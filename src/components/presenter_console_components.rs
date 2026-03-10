@@ -460,19 +460,43 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
             let path = get_picture_path(&picture_slide);
             let base_path = path.split('#').next().unwrap_or(&path);
             let is_pdf = base_path.to_lowercase().ends_with(".pdf");
-            let label = if is_pdf {
+            if is_pdf {
                 // Extract page number from fragment (e.g. #page=2)
-                let page_info = path.split("#page=").nth(1)
-                    .map(|p| format!(" ({})", t!("general.pdf_page", page => p)))
-                    .unwrap_or_default();
-                format!("{}{}", t!("general.pdf"), page_info)
+                let page_number: u32 = path.split("#page=").nth(1)
+                    .and_then(|p| p.parse().ok())
+                    .unwrap_or(1);
+                let page_info = format!(" ({})", t!("general.pdf_page", page => page_number));
+
+                // Try to extract text from the PDF page
+                #[cfg(not(target_arch = "wasm32"))]
+                let pdf_text = crate::logic::search::extract_pdf_page_text(
+                    std::path::Path::new(base_path),
+                    page_number,
+                );
+                #[cfg(target_arch = "wasm32")]
+                let pdf_text = crate::logic::settings::RepositoryType::web_read_file(base_path)
+                    .and_then(|bytes| crate::logic::search::extract_pdf_page_text_from_bytes(&bytes, page_number));
+
+                rsx! {
+                    div {
+                        class: "slide-text-content",
+                        em { "📄 {t!(\"general.pdf\")}{page_info}" }
+                        if let Some(text) = pdf_text {
+                            if !text.trim().is_empty() {
+                                p {
+                                    class: "slide-text-pdf",
+                                    { text.trim().to_string() }
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
-                t!("general.picture").to_string()
-            };
-            rsx! {
-                div {
-                    class: "slide-text-content",
-                    em { "📄 {label}" }
+                rsx! {
+                    div {
+                        class: "slide-text-content",
+                        em { "📄 {t!(\"general.picture\")}" }
+                    }
                 }
             }
         }

@@ -969,7 +969,8 @@ fn SourceDetailView(
                                     SourceFileType::Image => t!("general.picture").to_string(),
                                     SourceFileType::Presentation => t!("general.presentation").to_string(),
                                     SourceFileType::Video => t!("general.video").to_string(),
-                                    SourceFileType::Pdf => t!("general.pdf").to_string()
+                                    SourceFileType::Pdf => t!("general.pdf").to_string(),
+                                    SourceFileType::Markdown => t!("general.markdown").to_string()
                                 }
                             }
                         }
