@@ -500,46 +500,10 @@ pub fn PresentationRendererComponent(
                             class: "slide-container presentation-fade-in",
                             style: "{container_style}",
                             key: "{current_slide_number}",
-                            {
-                                match slide_content {
-                                    SlideContent::Title(title_slide) => rsx! {
-                                        TitleSlideComponent {
-                                            title_slide: title_slide.clone(),
-                                            title_font_representation: current_pds.read().get_default_headline_font()
-                                        }
-                                    },
-                                    SlideContent::SingleLanguageMainContent(main_slide) => {
-                                        let text = main_slide.clone().main_text();
-                                        if let Some(html) = get_markdown_html(&text) {
-                                            let html_owned = html.to_string();
-                                            rsx! {
-                                                MarkdownSlideComponent {
-                                                    html_content: html_owned,
-                                                    running_presentation: running_presentation,
-                                                    main_content_font: current_pds.read().get_default_font(),
-                                                }
-                                            }
-                                        } else {
-                                            rsx! {
-                                                SingleLanguageMainContentSlideRenderer {
-                                                    main_slide: main_slide.clone(),
-                                                    main_content_font: current_pds.read().get_default_font(),
-                                                    spoiler_content_font: current_pds.read().get_default_spoiler_font(),
-                                                    distance: current_pds().main_content_spoiler_content_padding,
-                                                }
-                                            }
-                                        }
-                                    },
-                                    SlideContent::Empty(empty_slide) => rsx! {
-                                        EmptySlideComponent {}
-                                    },
-                                    SlideContent::SimplePicture(picture_slide) => rsx! {
-                                        SimplePictureSlideComponent {
-                                            picture_slide: picture_slide.clone()
-                                        }
-                                    },
-                                    _ => rsx! { p { "No content provided" } }
-                                }
+                            SlideContentRenderer {
+                                slide_content: slide_content,
+                                pds: current_pds(),
+                                running_presentation: Some(running_presentation),
                             }
                         }
                     }
@@ -673,6 +637,56 @@ fn EmptySlideComponent() -> Element {
     }
 }
 
+/// Renders the content of a single slide based on its [SlideContent] type.
+/// Shared between [PresentationRendererComponent] and [StaticSlideRendererComponent]
+/// to avoid duplicating the slide content matching logic.
+#[component]
+fn SlideContentRenderer(
+    slide_content: SlideContent,
+    pds: PresentationDesignTemplate,
+    running_presentation: Option<Signal<RunningPresentation>>,
+) -> Element {
+    match slide_content {
+        SlideContent::Title(title_slide) => rsx! {
+            TitleSlideComponent {
+                title_slide: title_slide.clone(),
+                title_font_representation: pds.get_default_headline_font()
+            }
+        },
+        SlideContent::SingleLanguageMainContent(main_slide) => {
+            let text = main_slide.clone().main_text();
+            if let Some(html) = get_markdown_html(&text) {
+                let html_owned = html.to_string();
+                rsx! {
+                    MarkdownSlideComponent {
+                        html_content: html_owned,
+                        running_presentation: running_presentation,
+                        main_content_font: pds.get_default_font(),
+                    }
+                }
+            } else {
+                rsx! {
+                    SingleLanguageMainContentSlideRenderer {
+                        main_slide: main_slide.clone(),
+                        main_content_font: pds.get_default_font(),
+                        spoiler_content_font: pds.get_default_spoiler_font(),
+                        distance: pds.main_content_spoiler_content_padding.clone(),
+                    }
+                }
+            }
+        },
+        SlideContent::Empty(_) => rsx! {
+            EmptySlideComponent {}
+        },
+        SlideContent::SimplePicture(picture_slide) => rsx! {
+            SimplePictureSlideComponent {
+                picture_slide: picture_slide.clone()
+            }
+        },
+        _ => rsx! { p { "No content provided" } }
+    }
+}
+
 /// Generates a CSS string from a [FontRepresentation] with `!important` flags,
 /// for use as inline style on markdown slide containers.
 fn markdown_font_css(font: FontRepresentation) -> String {
@@ -716,17 +730,21 @@ fn inject_css_into_html_elements(html: &str, css_style: &CssHandler) -> String {
 }
 
 /// A component for rendering a Markdown slide with scrollable content.
-/// The scroll position is synchronized via the running_presentation signal.
+/// When `running_presentation` is provided, the scroll position is synchronized
+/// via the signal (used in the interactive presentation). When `None`, scroll
+/// sync is disabled (used in static thumbnails).
 #[component]
 fn MarkdownSlideComponent(
     html_content: String,
-    running_presentation: Signal<RunningPresentation>,
+    running_presentation: Option<Signal<RunningPresentation>>,
     main_content_font: FontRepresentation,
 ) -> Element {
     /// Minimum pixel difference to trigger a scroll position sync update
     const SCROLL_SYNC_THRESHOLD: f64 = 2.0;
 
-    let scroll_pos = use_memo(move || running_presentation.read().markdown_scroll_position);
+    let scroll_pos = use_memo(move || {
+        running_presentation.map(|rp| rp.read().markdown_scroll_position)
+    });
 
     let font_css = markdown_font_css(main_content_font.clone());
 
@@ -738,20 +756,21 @@ fn MarkdownSlideComponent(
 
     // Apply scroll position from signal (e.g. from presenter console)
     use_effect(move || {
-        let pos = scroll_pos();
-        let pos_json = serde_json::to_string(&pos).unwrap_or_else(|_| "0".to_string());
-        let threshold_json = serde_json::to_string(&SCROLL_SYNC_THRESHOLD).unwrap_or_else(|_| "2".to_string());
-        spawn(async move {
-            let js = format!(
-                r#"
-                var el = document.querySelector('.markdown-slide');
-                if (el && Math.abs(el.scrollTop - {pos_json}) > {threshold_json}) {{
-                    el.scrollTop = {pos_json};
-                }}
-                "#
-            );
-            let _ = document::eval(&js).await;
-        });
+        if let Some(pos) = scroll_pos() {
+            let pos_json = serde_json::to_string(&pos).unwrap_or_else(|_| "0".to_string());
+            let threshold_json = serde_json::to_string(&SCROLL_SYNC_THRESHOLD).unwrap_or_else(|_| "2".to_string());
+            spawn(async move {
+                let js = format!(
+                    r#"
+                    var el = document.querySelector('.markdown-slide');
+                    if (el && Math.abs(el.scrollTop - {pos_json}) > {threshold_json}) {{
+                        el.scrollTop = {pos_json};
+                    }}
+                    "#
+                );
+                let _ = document::eval(&js).await;
+            });
+        }
     });
 
     rsx! {
@@ -759,20 +778,22 @@ fn MarkdownSlideComponent(
             class: "markdown-slide",
             style: format!("overflow-y: auto; max-height: 100%; padding: 1em 2em; {}", font_css).to_string(),
             onscroll: move |_| {
-                spawn(async move {
-                    let js = r#"
-                        var el = document.querySelector('.markdown-slide');
-                        el ? el.scrollTop : 0
-                    "#;
-                    if let Ok(val) = document::eval(js).await {
-                        if let Ok(pos) = val.to_string().parse::<f64>() {
-                            let current = running_presentation.read().markdown_scroll_position;
-                            if (current - pos).abs() > SCROLL_SYNC_THRESHOLD {
-                                running_presentation.write().markdown_scroll_position = pos;
+                if let Some(mut running_presentation) = running_presentation {
+                    spawn(async move {
+                        let js = r#"
+                            var el = document.querySelector('.markdown-slide');
+                            el ? el.scrollTop : 0
+                        "#;
+                        if let Ok(val) = document::eval(js).await {
+                            if let Ok(pos) = val.to_string().parse::<f64>() {
+                                let current = running_presentation.read().markdown_scroll_position;
+                                if (current - pos).abs() > SCROLL_SYNC_THRESHOLD {
+                                    running_presentation.write().markdown_scroll_position = pos;
+                                }
                             }
                         }
-                    }
-                });
+                    });
+                }
             },
             dangerous_inner_html: html_content
         }
@@ -925,6 +946,7 @@ pub fn StaticSlideRendererComponent(
 
     let css_handler = {
         let mut css = CssHandler::new();
+        css.set_important(true);
         css.background_color(pds.background_color);
         css.padding_left(pds.padding.left.clone());
         css.padding_right(pds.padding.right.clone());
@@ -944,6 +966,7 @@ pub fn StaticSlideRendererComponent(
 
     let background_css = {
         let mut css = CssHandler::new();
+        css.set_important(true);
         if let Some(ref image) = pds.background_image {
             css.background_image(image.as_source().path.to_str().unwrap_or_default());
             css.background_size("cover");
@@ -977,47 +1000,9 @@ pub fn StaticSlideRendererComponent(
             div {
                 class: "slide-container",
                 style: "{container_style}",
-                {
-                    match slide_content {
-                        SlideContent::Title(title_slide) => rsx! {
-                            TitleSlideComponent {
-                                title_slide: title_slide.clone(),
-                                title_font_representation: pds.get_default_headline_font()
-                            }
-                        },
-                        SlideContent::SingleLanguageMainContent(main_slide) => {
-                            let text = main_slide.clone().main_text();
-                            if let Some(html) = get_markdown_html(&text) {
-                                let html_owned = html.to_string();
-                                let font_css = markdown_font_css(pds.get_default_font());
-                                rsx! {
-                                    div {
-                                        class: "markdown-slide",
-                                        style: "{font_css}",
-                                        dangerous_inner_html: html_owned
-                                    }
-                                }
-                            } else {
-                                rsx! {
-                                    SingleLanguageMainContentSlideRenderer {
-                                        main_slide: main_slide.clone(),
-                                        main_content_font: pds.get_default_font(),
-                                        spoiler_content_font: pds.get_default_spoiler_font(),
-                                        distance: pds.main_content_spoiler_content_padding.clone(),
-                                    }
-                                }
-                            }
-                        },
-                        SlideContent::Empty(_empty_slide) => rsx! {
-                            EmptySlideComponent {}
-                        },
-                        SlideContent::SimplePicture(picture_slide) => rsx! {
-                            SimplePictureSlideComponent {
-                                picture_slide: picture_slide.clone()
-                            }
-                        },
-                        _ => rsx! { p { "No content provided" } }
-                    }
+                SlideContentRenderer {
+                    slide_content: slide_content,
+                    pds: pds,
                 }
             }
         }
