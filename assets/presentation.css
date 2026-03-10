@@ -25,6 +25,7 @@ html, body {
     overflow-y: hidden;
     z-index: 1;
     display: grid; /* Use Grid */
+    grid-template-rows: 1fr;
 }
 
 .background {
@@ -118,6 +119,7 @@ html, body {
     overflow-y: auto;
     max-height: 100%;
     padding: 1em 2em;
+    box-sizing: border-box;
 }
 
 .markdown-slide h1 { font-size: 1.6em; }

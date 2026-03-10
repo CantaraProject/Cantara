@@ -485,15 +485,8 @@ pub fn PresentationRendererComponent(
             }
             if presentation_is_visible() {
                 {
-                    // Determine if the current slide is a picture slide so we can
-                    // give its container full height while keeping text slides
-                    // content-sized for proper grid vertical alignment.
                     let slide_content = current_slide.read().clone().unwrap().slide_content.clone();
-                    let container_style = if matches!(slide_content, SlideContent::SimplePicture(_)) {
-                        "height: 100%;"
-                    } else {
-                        ""
-                    };
+                    let container_style = slide_container_style(&slide_content);
 
                     rsx! {
                         div {
@@ -637,6 +630,23 @@ fn EmptySlideComponent() -> Element {
     }
 }
 
+/// Determines the container style for a slide based on its content type.
+/// Picture and markdown slides need `height: 100%` to fill the grid cell,
+/// so that their content can scroll or scale within a constrained area.
+fn slide_container_style(slide_content: &SlideContent) -> &'static str {
+    match slide_content {
+        SlideContent::SimplePicture(_) => "height: 100%;",
+        SlideContent::SingleLanguageMainContent(main_slide) => {
+            if get_markdown_html(&main_slide.clone().main_text()).is_some() {
+                "height: 100%;"
+            } else {
+                ""
+            }
+        }
+        _ => "",
+    }
+}
+
 /// Renders the content of a single slide based on its [SlideContent] type.
 /// Shared between [PresentationRendererComponent] and [StaticSlideRendererComponent]
 /// to avoid duplicating the slide content matching logic.
@@ -776,7 +786,7 @@ fn MarkdownSlideComponent(
     rsx! {
         div {
             class: "markdown-slide",
-            style: format!("overflow-y: auto; max-height: 100%; padding: 1em 2em; {}", font_css).to_string(),
+            style: format!("overflow-y: auto; max-height: 100%; padding: 1em 2em; box-sizing: border-box; {}", font_css).to_string(),
             onscroll: move |_| {
                 if let Some(mut running_presentation) = running_presentation {
                     spawn(async move {
@@ -981,11 +991,7 @@ pub fn StaticSlideRendererComponent(
     };
 
     let slide_content = slide.slide_content;
-    let container_style = if matches!(slide_content, SlideContent::SimplePicture(_)) {
-        "height: 100%;"
-    } else {
-        ""
-    };
+    let container_style = slide_container_style(&slide_content);
 
     rsx! {
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
