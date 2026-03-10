@@ -258,7 +258,31 @@ pub fn Selection() -> Element {
         });
     });
 
-    rsx! {
+    // On desktop (including Windows), patch window.interpreter.handleWindowsDragDrop so that
+    // if dxDragLastElement is null when a file drop occurs the content area is used as the
+    // drop target.  This handles the case where the wry DragDropEvent::Over fires but
+    // handleWindowsDragOver hasn't yet run (e.g. very fast drops) or the user drops without
+    // moving the mouse first.
+    #[cfg(feature = "desktop")]
+    use_effect(|| {
+        let _ = document::eval(r#"
+            (function() {
+                if (window._cantara_drop_patched) return;
+                if (!window.interpreter || typeof window.interpreter.handleWindowsDragDrop !== 'function') return;
+                window._cantara_drop_patched = true;
+                var orig = window.interpreter.handleWindowsDragDrop.bind(window.interpreter);
+                window.interpreter.handleWindowsDragDrop = function() {
+                    if (!window.dxDragLastElement) {
+                        window.dxDragLastElement =
+                            document.getElementById('selection-content') || document.body;
+                    }
+                    orig();
+                };
+            })();
+        "#);
+    });
+
+
         div {
             class: "wrapper",
             style: "position: relative;",
@@ -309,6 +333,17 @@ pub fn Selection() -> Element {
                         search_visible.set(false);
                     }
                 },
+                // Fallback drag handlers on the content area so that files dropped anywhere on
+                // the page are caught — important on Windows where the synthetic drop event may
+                // fire on an element outside the source-files panel.
+                ondragover: move |event: DragEvent| {
+                    event.prevent_default();
+                },
+                ondrop: move |event: DragEvent| async move {
+                    event.prevent_default();
+                    drag_over_source.set(false);
+                    process_dropped_files(event, source_files).await;
+                },
                 onmounted: move |_| async move {
                     // Initialize layout sizing and swipe listeners once the component is mounted.
                     let _ = document::eval("initSelectionLayout();").await;
@@ -351,6 +386,9 @@ pub fn Selection() -> Element {
                         },
                         ondrop: move |event: DragEvent| async move {
                             event.prevent_default();
+                            // Stop bubbling so the fallback handler on `main` doesn't
+                            // also process these files.
+                            event.stop_propagation();
                             drag_over_source.set(false);
                             process_dropped_files(event, source_files).await;
                         },
