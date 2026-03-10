@@ -111,3 +111,72 @@ html, body {
     background-color: var(--pico-primary-background, #1095c1);
     color: #fff;
 }
+
+/* Markdown slide styles */
+.markdown-slide {
+    z-index: 2;
+    overflow-y: auto;
+    max-height: 100%;
+    padding: 1em 2em;
+    color: inherit;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: 1.6;
+}
+
+.markdown-slide h1,
+.markdown-slide h2,
+.markdown-slide h3,
+.markdown-slide h4,
+.markdown-slide h5,
+.markdown-slide h6 {
+    margin-top: 0.5em;
+    margin-bottom: 0.3em;
+}
+
+.markdown-slide ul,
+.markdown-slide ol {
+    padding-left: 1.5em;
+    margin: 0.5em 0;
+}
+
+.markdown-slide p {
+    margin: 0.4em 0;
+}
+
+.markdown-slide code {
+    background: rgba(128, 128, 128, 0.2);
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+    font-family: monospace;
+}
+
+.markdown-slide pre {
+    background: rgba(0, 0, 0, 0.1);
+    padding: 0.8em;
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+.markdown-slide blockquote {
+    border-left: 3px solid rgba(128, 128, 128, 0.5);
+    padding-left: 1em;
+    margin-left: 0;
+    font-style: italic;
+}
+
+.markdown-slide table {
+    border-collapse: collapse;
+    margin: 0.5em 0;
+}
+
+.markdown-slide th,
+.markdown-slide td {
+    border: 1px solid rgba(128, 128, 128, 0.3);
+    padding: 0.4em 0.8em;
+}
+
+.markdown-slide img {
+    max-width: 100%;
+    height: auto;
+}

@@ -19,3 +19,6 @@ pub const SYNC_KEY_POSITION: &str = "cantara-sync-position";
 
 /// localStorage key written by the presenter console with its current position/state.
 pub const SYNC_KEY_POSITION_FROM_CONSOLE: &str = "cantara-sync-position-from-console";
+
+/// localStorage key for synchronizing markdown scroll position across tabs.
+pub const SYNC_KEY_SCROLL_POSITION: &str = "cantara-sync-scroll-position";
