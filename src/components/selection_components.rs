@@ -1,6 +1,6 @@
 //! This module includes the components for song selection
 
-use super::shared_components::{ExamplePresentationViewer, ImageIcon, MusicIcon, PdfIcon};
+use super::shared_components::{ExamplePresentationViewer, ImageIcon, MarkdownIcon, MusicIcon, PdfIcon};
 use crate::TEST_STATE;
 use crate::logic::presentation;
 use crate::logic::search::{SearchResult, search_source_files};
@@ -349,6 +349,13 @@ pub fn Selection() -> Element {
                                 selected_items: selected_items
                             }
                         }
+                        if active_selection_filter() == SelectionFilterOptions::Markdown {
+                            MarkdownSourceItems {
+                                source_files: source_files,
+                                active_detailed_item_id: active_detailed_item_id,
+                                selected_items: selected_items
+                            }
+                        }
                     },
 
                     // The area where the selected elements are shown
@@ -617,6 +624,87 @@ fn PdfSourceItem(
     }
 }
 
+/// The component renders the list of available Markdown files plus a form for spontaneous markdown text input
+#[component]
+fn MarkdownSourceItems(
+    source_files: Signal<Vec<SourceFile>>,
+    active_detailed_item_id: Signal<Option<usize>>,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+) -> Element {
+    let mut spontaneous_text: Signal<String> = use_signal(|| String::new());
+
+    rsx! {
+        div {
+            class: "scrollable-container",
+            onmounted: move |_| async move {
+                let _ = document::eval("initSelectionLayout();").await;
+            },
+            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Markdown) {
+                MarkdownSourceItem {
+                    id: id,
+                    source_files: source_files,
+                    active_detailed_item_id: active_detailed_item_id,
+                    selected_items: selected_items
+                }
+            }
+            // Spontaneous markdown text input form
+            details {
+                summary { { t!("selection.markdown.add_text").to_string() } }
+                textarea {
+                    rows: "8",
+                    placeholder: t!("selection.markdown.placeholder").to_string(),
+                    value: spontaneous_text,
+                    oninput: move |event| {
+                        spontaneous_text.set(event.value());
+                    },
+                }
+                button {
+                    class: "outline",
+                    disabled: spontaneous_text.read().trim().is_empty(),
+                    onclick: move |_| {
+                        let text = spontaneous_text.read().clone();
+                        if !text.trim().is_empty() {
+                            let source_file = SourceFile {
+                                name: t!("selection.markdown.spontaneous_name").to_string(),
+                                path: std::path::PathBuf::new(),
+                                file_type: SourceFileType::Markdown,
+                            };
+                            let mut item = SelectedItemRepresentation::new_with_sourcefile(source_file);
+                            item.inline_markdown = Some(text.clone());
+                            selected_items.write().push(item);
+                            spontaneous_text.set(String::new());
+                        }
+                    },
+                    { t!("selection.markdown.add_button").to_string() }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn MarkdownSourceItem(
+    source_files: Signal<Vec<SourceFile>>,
+    id: usize,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    active_detailed_item_id: Signal<Option<usize>>,
+) -> Element {
+    rsx! {
+        div {
+            role: "button",
+            class: "outline secondary selection_item",
+            tabindex: 0,
+            onclick: move |_| { selected_items.write().push(
+                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
+            ); },
+            oncontextmenu: move |_| {
+                active_detailed_item_id.set(Some(id));
+            },
+            { source_files.get(id).unwrap().clone().name }
+        }
+    }
+}
+
 #[component]
 fn SelectedItems(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
@@ -733,6 +821,7 @@ fn SelectedItem(
                     SourceFileType::Song => rsx! { MusicIcon {} },
                     SourceFileType::Image => rsx! { ImageIcon {} },
                     SourceFileType::Pdf => rsx! { PdfIcon {} },
+                    SourceFileType::Markdown => rsx! { MarkdownIcon {} },
                     _ => rsx! {},
                 },
                 { selected_items.read().get(id).unwrap().source_file.name.clone() },
@@ -969,7 +1058,8 @@ fn SourceDetailView(
                                     SourceFileType::Image => t!("general.picture").to_string(),
                                     SourceFileType::Presentation => t!("general.presentation").to_string(),
                                     SourceFileType::Video => t!("general.video").to_string(),
-                                    SourceFileType::Pdf => t!("general.pdf").to_string()
+                                    SourceFileType::Pdf => t!("general.pdf").to_string(),
+                                    SourceFileType::Markdown => t!("general.markdown").to_string()
                                 }
                             }
                         }
@@ -1200,12 +1290,13 @@ Please open the presentation tab manually.",
     }
 }
 
-/// An enum representing the active selection (songs, pictures, PDFs)
+/// An enum representing the active selection (songs, pictures, PDFs, markdown)
 #[derive(Clone, PartialEq)]
 enum SelectionFilterOptions {
     Songs,
     Pictures,
     Pdfs,
+    Markdown,
     Presentations,
 }
 
@@ -1249,6 +1340,18 @@ fn SelectionFilterSideBar(active_selection: Signal<SelectionFilterOptions>) -> E
                 style: "padding: 12px;",
                 onclick: move |_| active_selection.set(SelectionFilterOptions::Pdfs),
                 PdfIcon {
+                }
+            }
+            // Markdown Selection
+            div {
+                role: "button",
+                class: match active_selection() {
+                    SelectionFilterOptions::Markdown => "outline",
+                    _ => "outline secondary"
+                },
+                style: "padding: 12px;",
+                onclick: move |_| active_selection.set(SelectionFilterOptions::Markdown),
+                MarkdownIcon {
                 }
             }
         }
