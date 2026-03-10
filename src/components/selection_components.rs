@@ -1036,11 +1036,11 @@ async fn process_dropped_files(event: DragEvent, mut source_files: Signal<Vec<So
         let file_path = file_data.path();
 
         // Determine file extension from path (desktop) or name (web)
-        let name_path = std::path::Path::new(&file_name);
+        let file_name_path = std::path::Path::new(&file_name);
         let extension = file_path
             .extension()
-            .or_else(|| name_path.extension())
-            .and_then(|e: &std::ffi::OsStr| e.to_str())
+            .or_else(|| file_name_path.extension())
+            .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
 
@@ -1056,8 +1056,8 @@ async fn process_dropped_files(event: DragEvent, mut source_files: Signal<Vec<So
 
         let stem = file_path
             .file_stem()
-            .or_else(|| name_path.file_stem())
-            .and_then(|s: &std::ffi::OsStr| s.to_str())
+            .or_else(|| file_name_path.file_stem())
+            .and_then(|s| s.to_str())
             .unwrap_or(&file_name)
             .to_string();
 

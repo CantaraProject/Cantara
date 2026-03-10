@@ -155,6 +155,9 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
                     _ => None,
                 };
             if let Some(source_file_type) = file_type_option {
+                // Read the file content once to compute the MD5 hash.
+                // The file path is stored in `SourceFile.path`, so the content is not
+                // retained after this function returns; subsequent reads happen on demand.
                 let md5_hash = fs::read(file)
                     .ok()
                     .map(|content| format!("{:x}", md5::compute(&content)));
@@ -304,6 +307,9 @@ pub mod tests {
         assert!(PdfSourceFile::new(song_sf).is_none());
     }
 
+    /// Length of an MD5 hash in hexadecimal representation (16 bytes × 2 hex chars per byte).
+    const MD5_HEX_LENGTH: usize = 32;
+
     #[test]
     fn get_source_files_computes_md5_hash() {
         let dir = Path::new("testfiles");
@@ -317,7 +323,7 @@ pub mod tests {
             );
             // MD5 hash should be a valid 32-character hex string
             let hash = sf.md5_hash.as_ref().unwrap();
-            assert_eq!(hash.len(), 32, "MD5 hash should be 32 hex chars for: {}", sf.name);
+            assert_eq!(hash.len(), MD5_HEX_LENGTH, "MD5 hash should be 32 hex chars for: {}", sf.name);
             assert!(
                 hash.chars().all(|c| c.is_ascii_hexdigit()),
                 "MD5 hash should be valid hex for: {}",
