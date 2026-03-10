@@ -250,6 +250,7 @@ pub fn Selection() -> Element {
 
         spawn(async move {
             let files = settings.read().get_sourcefiles_async().await;
+            crate::logic::search::refresh_search_cache(&files);
             source_files.set(files);
         });
     });

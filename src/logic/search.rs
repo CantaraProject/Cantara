@@ -6,16 +6,28 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-// Simple global cache for song file contents. Avoids re-reading from disk on every search.
+// Cache for full-document content keyed by file path (Song, Markdown, full PDF text).
 static SONG_CONTENT_CACHE: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
+
+// Dedicated cache for per-page PDF text, keyed by "{path}#page={N}" strings.
+static PDF_PAGE_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 
 fn cache() -> &'static Mutex<HashMap<PathBuf, String>> {
     SONG_CONTENT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn pdf_page_cache() -> &'static Mutex<HashMap<String, String>> {
+    PDF_PAGE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// Clears the entire search cache. Call this to invalidate cached file contents.
 pub fn invalidate_search_cache() {
     if let Some(m) = SONG_CONTENT_CACHE.get() {
+        if let Ok(mut map) = m.lock() {
+            map.clear();
+        }
+    }
+    if let Some(m) = PDF_PAGE_CACHE.get() {
         if let Ok(mut map) = m.lock() {
             map.clear();
         }
@@ -43,11 +55,22 @@ fn extract_pdf_text(path: &std::path::Path) -> Option<String> {
 }
 
 /// Extracts plain text from a specific page of a PDF file (non-WASM only).
-/// Returns the page text, or None if extraction fails.
+/// Results are cached in `PDF_PAGE_CACHE` so the PDF is only parsed once per
+/// path+page combination.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn extract_pdf_page_text(path: &std::path::Path, page_number: u32) -> Option<String> {
+    let cache_key = format!("{}#page={}", path.display(), page_number);
+    if let Ok(map) = pdf_page_cache().lock() {
+        if let Some(cached) = map.get(&cache_key) {
+            return Some(cached.clone());
+        }
+    }
     let doc = lopdf::Document::load(path).ok()?;
-    doc.extract_text(&[page_number]).ok()
+    let text = doc.extract_text(&[page_number]).ok()?;
+    if let Ok(mut map) = pdf_page_cache().lock() {
+        map.insert(cache_key, text.clone());
+    }
+    Some(text)
 }
 
 /// Extracts plain text from a PDF stored in the web VFS (WASM only).
@@ -70,10 +93,21 @@ fn extract_pdf_text_from_bytes(bytes: &[u8]) -> Option<String> {
 }
 
 /// Extracts plain text from a specific page of a PDF stored in the web VFS (WASM only).
+/// `path_key` is the VFS path used for caching; results are stored in `PDF_PAGE_CACHE`.
 #[cfg(target_arch = "wasm32")]
-pub fn extract_pdf_page_text_from_bytes(bytes: &[u8], page_number: u32) -> Option<String> {
+pub fn extract_pdf_page_text_from_bytes(bytes: &[u8], page_number: u32, path_key: &str) -> Option<String> {
+    let cache_key = format!("{}#page={}", path_key, page_number);
+    if let Ok(map) = pdf_page_cache().lock() {
+        if let Some(cached) = map.get(&cache_key) {
+            return Some(cached.clone());
+        }
+    }
     let doc = lopdf::Document::load_mem(bytes).ok()?;
-    doc.extract_text(&[page_number]).ok()
+    let text = doc.extract_text(&[page_number]).ok()?;
+    if let Ok(mut map) = pdf_page_cache().lock() {
+        map.insert(cache_key, text.clone());
+    }
+    Some(text)
 }
 
 /// Optionally (re)populate the cache with the provided list of source files.

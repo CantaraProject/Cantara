@@ -487,7 +487,7 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
                 );
                 #[cfg(target_arch = "wasm32")]
                 let pdf_text = crate::logic::settings::RepositoryType::web_read_file(base_path)
-                    .and_then(|bytes| crate::logic::search::extract_pdf_page_text_from_bytes(&bytes, page_number));
+                    .and_then(|bytes| crate::logic::search::extract_pdf_page_text_from_bytes(&bytes, page_number, base_path));
 
                 rsx! {
                     div {
