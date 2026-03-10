@@ -7,7 +7,7 @@ use rgb::RGBA8;
 use rust_i18n::t;
 
 use crate::logic::css::{CssHandler, PlaceItems};
-use crate::logic::presentation::get_picture_path;
+use crate::logic::presentation::{get_markdown_html, get_picture_path};
 use crate::logic::settings::{CssSize, HorizontalAlign, VerticalAlign};
 #[cfg(target_arch = "wasm32")]
 use crate::logic::sync::{
@@ -506,12 +506,25 @@ pub fn PresentationRendererComponent(
                                             title_font_representation: current_pds.read().get_default_headline_font()
                                         }
                                     },
-                                    SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
-                                        SingleLanguageMainContentSlideRenderer {
-                                            main_slide: main_slide.clone(),
-                                            main_content_font: current_pds.read().get_default_font(),
-                                            spoiler_content_font: current_pds.read().get_default_spoiler_font(),
-                                            distance: current_pds().main_content_spoiler_content_padding,
+                                    SlideContent::SingleLanguageMainContent(main_slide) => {
+                                        let text = main_slide.clone().main_text();
+                                        if let Some(html) = get_markdown_html(&text) {
+                                            let html_owned = html.to_string();
+                                            rsx! {
+                                                MarkdownSlideComponent {
+                                                    html_content: html_owned,
+                                                    running_presentation: running_presentation,
+                                                }
+                                            }
+                                        } else {
+                                            rsx! {
+                                                SingleLanguageMainContentSlideRenderer {
+                                                    main_slide: main_slide.clone(),
+                                                    main_content_font: current_pds.read().get_default_font(),
+                                                    spoiler_content_font: current_pds.read().get_default_spoiler_font(),
+                                                    distance: current_pds().main_content_spoiler_content_padding,
+                                                }
+                                            }
                                         }
                                     },
                                     SlideContent::Empty(empty_slide) => rsx! {
@@ -653,6 +666,61 @@ fn EmptySlideComponent() -> Element {
     rsx! {
         div {
             class: "empty-content",
+        }
+    }
+}
+
+/// A component for rendering a Markdown slide with scrollable content.
+/// The scroll position is synchronized via the running_presentation signal.
+#[component]
+fn MarkdownSlideComponent(
+    html_content: String,
+    running_presentation: Signal<RunningPresentation>,
+) -> Element {
+    /// Minimum pixel difference to trigger a scroll position sync update
+    const SCROLL_SYNC_THRESHOLD: f64 = 2.0;
+
+    let scroll_pos = use_memo(move || running_presentation.read().markdown_scroll_position);
+
+    // Apply scroll position from signal (e.g. from presenter console)
+    use_effect(move || {
+        let pos = scroll_pos();
+        let pos_json = serde_json::to_string(&pos).unwrap_or_else(|_| "0".to_string());
+        let threshold_json = serde_json::to_string(&SCROLL_SYNC_THRESHOLD).unwrap_or_else(|_| "2".to_string());
+        spawn(async move {
+            let js = format!(
+                r#"
+                var el = document.querySelector('.markdown-slide');
+                if (el && Math.abs(el.scrollTop - {pos_json}) > {threshold_json}) {{
+                    el.scrollTop = {pos_json};
+                }}
+                "#
+            );
+            let _ = document::eval(&js).await;
+        });
+    });
+
+    rsx! {
+        div {
+            class: "markdown-slide",
+            style: "overflow-y: auto; max-height: 100%; padding: 1em 2em;",
+            onscroll: move |_| {
+                spawn(async move {
+                    let js = r#"
+                        var el = document.querySelector('.markdown-slide');
+                        el ? el.scrollTop : 0
+                    "#;
+                    if let Ok(val) = document::eval(js).await {
+                        if let Ok(pos) = val.to_string().parse::<f64>() {
+                            let current = running_presentation.read().markdown_scroll_position;
+                            if (current - pos).abs() > SCROLL_SYNC_THRESHOLD {
+                                running_presentation.write().markdown_scroll_position = pos;
+                            }
+                        }
+                    }
+                });
+            },
+            dangerous_inner_html: html_content
         }
     }
 }
@@ -863,12 +931,25 @@ pub fn StaticSlideRendererComponent(
                                 title_font_representation: pds.get_default_headline_font()
                             }
                         },
-                        SlideContent::SingleLanguageMainContent(main_slide) => rsx! {
-                            SingleLanguageMainContentSlideRenderer {
-                                main_slide: main_slide.clone(),
-                                main_content_font: pds.get_default_font(),
-                                spoiler_content_font: pds.get_default_spoiler_font(),
-                                distance: pds.main_content_spoiler_content_padding.clone(),
+                        SlideContent::SingleLanguageMainContent(main_slide) => {
+                            let text = main_slide.clone().main_text();
+                            if let Some(html) = get_markdown_html(&text) {
+                                let html_owned = html.to_string();
+                                rsx! {
+                                    div {
+                                        class: "markdown-slide",
+                                        dangerous_inner_html: html_owned
+                                    }
+                                }
+                            } else {
+                                rsx! {
+                                    SingleLanguageMainContentSlideRenderer {
+                                        main_slide: main_slide.clone(),
+                                        main_content_font: pds.get_default_font(),
+                                        spoiler_content_font: pds.get_default_spoiler_font(),
+                                        distance: pds.main_content_spoiler_content_padding.clone(),
+                                    }
+                                }
                             }
                         },
                         SlideContent::Empty(_empty_slide) => rsx! {

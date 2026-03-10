@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-// Simple global cache for file contents. Avoids re-reading from disk on every search.
+// Simple global cache for song file contents. Avoids re-reading from disk on every search.
 static SONG_CONTENT_CACHE: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
 
 fn cache() -> &'static Mutex<HashMap<PathBuf, String>> {
@@ -76,27 +76,16 @@ pub fn extract_pdf_page_text_from_bytes(bytes: &[u8], page_number: u32) -> Optio
     doc.extract_text(&[page_number]).ok()
 }
 
-/// Extracts plain text from a Markdown file by reading it as-is.
-/// Markdown is already human-readable plain text so no special stripping is needed.
-fn extract_markdown_text(path: &std::path::Path) -> Option<String> {
-    fs::read_to_string(path).ok()
-}
-
 /// Optionally (re)populate the cache with the provided list of source files.
-/// This will read Song, Markdown, and PDF files from disk and cache their contents.
+/// This will read all Song, Markdown, and PDF files from disk and cache their contents.
 /// If a file can't be read, it will simply be skipped.
 pub fn refresh_search_cache(source_files: &[SourceFile]) {
     let mut map = cache().lock().expect("cache poisoned");
     map.clear();
     for sf in source_files {
         match sf.file_type {
-            SourceFileType::Song => {
+            SourceFileType::Song | SourceFileType::Markdown => {
                 if let Ok(content) = fs::read_to_string(&sf.path) {
-                    map.insert(sf.path.clone(), content);
-                }
-            }
-            SourceFileType::Markdown => {
-                if let Some(content) = extract_markdown_text(&sf.path) {
                     map.insert(sf.path.clone(), content);
                 }
             }
@@ -111,57 +100,19 @@ pub fn refresh_search_cache(source_files: &[SourceFile]) {
     }
 }
 
-/// Helper function to read the content of a source file, using the cache for Song/PDF/Markdown files
+/// Helper function to read the content of a source file, using the cache for Song, Markdown, and PDF files
 pub fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
     match source_file.file_type {
-        SourceFileType::Song => {
+        SourceFileType::Song | SourceFileType::Markdown => {
             // Try cache first
             if let Ok(mut map) = cache().lock() {
                 if let Some(cached) = map.get(&source_file.path) {
                     return Some(cached.clone());
                 }
                 // Not cached: read from disk and store
-                #[cfg(not(target_arch = "wasm32"))]
                 if let Ok(content) = fs::read_to_string(&source_file.path) {
                     map.insert(source_file.path.clone(), content.clone());
                     return Some(content);
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    if let Some(path_str) = source_file.path.to_str() {
-                        if let Some(bytes) = crate::logic::settings::RepositoryType::web_read_file(path_str) {
-                            if let Ok(content) = String::from_utf8(bytes) {
-                                map.insert(source_file.path.clone(), content.clone());
-                                return Some(content);
-                            }
-                        }
-                    }
-                }
-            }
-            None
-        }
-        SourceFileType::Markdown => {
-            // Try cache first
-            if let Ok(mut map) = cache().lock() {
-                if let Some(cached) = map.get(&source_file.path) {
-                    return Some(cached.clone());
-                }
-                // Not cached: read from disk/VFS and store
-                #[cfg(not(target_arch = "wasm32"))]
-                if let Ok(content) = fs::read_to_string(&source_file.path) {
-                    map.insert(source_file.path.clone(), content.clone());
-                    return Some(content);
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    if let Some(path_str) = source_file.path.to_str() {
-                        if let Some(bytes) = crate::logic::settings::RepositoryType::web_read_file(path_str) {
-                            if let Ok(content) = String::from_utf8(bytes) {
-                                map.insert(source_file.path.clone(), content.clone());
-                                return Some(content);
-                            }
-                        }
-                    }
                 }
             }
             None
@@ -237,10 +188,10 @@ pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<Sear
             continue;
         }
 
-        // Check if the query matches the content (for song, PDF, and markdown files)
+        // Check if the query matches the content (for song, markdown, and PDF files)
         let should_search_content = matches!(
             source_file.file_type,
-            SourceFileType::Song | SourceFileType::Pdf | SourceFileType::Markdown
+            SourceFileType::Song | SourceFileType::Markdown | SourceFileType::Pdf
         );
 
         if should_search_content {
@@ -307,11 +258,11 @@ mod tests {
     #[test]
     fn search_markdown_content() {
         let sf = SourceFile {
-            name: "TestMarkdown".to_string(),
-            path: PathBuf::from("testfiles/TestMarkdown.md"),
+            name: "example".to_string(),
+            path: PathBuf::from("testfiles/example.md"),
             file_type: SourceFileType::Markdown,
         };
-        let results = search_source_files(&[sf], "grace");
+        let results = search_source_files(&[sf], "slide");
         assert!(!results.is_empty(), "Should find markdown file by content");
     }
 
@@ -330,11 +281,11 @@ mod tests {
     #[test]
     fn search_returns_markdown_title_match() {
         let sf = SourceFile {
-            name: "TestMarkdown".to_string(),
-            path: PathBuf::from("testfiles/TestMarkdown.md"),
+            name: "example".to_string(),
+            path: PathBuf::from("testfiles/example.md"),
             file_type: SourceFileType::Markdown,
         };
-        let results = search_source_files(&[sf], "TestMarkdown");
+        let results = search_source_files(&[sf], "example");
         assert!(!results.is_empty(), "Should find markdown file by title");
         assert!(results[0].is_title_match, "Should be a title match");
     }
@@ -342,8 +293,8 @@ mod tests {
     #[test]
     fn refresh_cache_includes_markdown() {
         let sf = SourceFile {
-            name: "TestMarkdown".to_string(),
-            path: PathBuf::from("testfiles/TestMarkdown.md"),
+            name: "example".to_string(),
+            path: PathBuf::from("testfiles/example.md"),
             file_type: SourceFileType::Markdown,
         };
         invalidate_search_cache();
@@ -351,8 +302,8 @@ mod tests {
         let content = read_source_file_content(&sf);
         assert!(content.is_some(), "Markdown content should be cached");
         assert!(
-            content.unwrap().contains("grace"),
-            "Markdown content should contain 'grace'"
+            content.unwrap().contains("slide"),
+            "Markdown content should contain 'slide'"
         );
     }
 }

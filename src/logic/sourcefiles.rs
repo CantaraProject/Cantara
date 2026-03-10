@@ -101,7 +101,7 @@ pub enum SourceFileType {
     /// A PDF document which Cantara can display
     Pdf,
 
-    /// A Markdown document which Cantara can display as a presentation
+    /// A Markdown document which Cantara can render and display
     Markdown,
 }
 
@@ -312,5 +312,6 @@ pub mod tests {
             .filter(|sf| sf.file_type == SourceFileType::Markdown)
             .collect();
         assert_eq!(md_files.len(), 1);
+        assert_eq!(md_files[0].name, "example");
     }
 }

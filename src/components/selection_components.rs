@@ -1,13 +1,14 @@
 //! This module includes the components for song selection
 
-use super::shared_components::{ExamplePresentationViewer, ImageIcon, MusicIcon, PdfIcon};
+use super::shared_components::{ExamplePresentationViewer, ImageIcon, MarkdownIcon, MusicIcon, PdfIcon};
 use crate::TEST_STATE;
 use crate::logic::presentation;
 use crate::logic::search::{SearchResult, search_source_files};
 use crate::logic::settings::PresentationDesign;
+use crate::logic::settings::SelectionSidebarType;
 use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
-use crate::logic::settings::{Settings, use_settings};
+use crate::logic::settings::{Settings, default_sidebar_order, use_settings};
 use crate::logic::sourcefiles::SourceFile;
 #[cfg(target_arch = "wasm32")]
 use crate::logic::sync::{
@@ -207,8 +208,8 @@ pub fn Selection() -> Element {
     let mut selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
-    let active_selection_filter: Signal<SelectionFilterOptions> =
-        use_signal(|| SelectionFilterOptions::Songs);
+    let active_selection_filter: Signal<SelectionSidebarType> =
+        use_signal(|| SelectionSidebarType::Songs);
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
@@ -315,6 +316,18 @@ pub fn Selection() -> Element {
                         return;
                     }
 
+                    // Don't steal focus from other input fields (e.g. markdown textarea)
+                    let is_other_input_focused = document::eval(r#"
+                        (function() {
+                            var a = document.activeElement;
+                            return a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && a.id !== 'searchinput'));
+                        })()
+                    "#).await.ok().and_then(|v| v.as_bool()).unwrap_or(false);
+
+                    if is_other_input_focused {
+                        return;
+                    }
+
                     if let Some(searchinput) = input_element_signal() {
                         let _ = searchinput.set_focus(true).await;
                     }
@@ -328,22 +341,29 @@ pub fn Selection() -> Element {
                         SelectionFilterSideBar {
                             active_selection: active_selection_filter
                         }
-                        if active_selection_filter() == SelectionFilterOptions::Songs {
+                        if active_selection_filter() == SelectionSidebarType::Songs {
                             SongSourceItems {
                                 source_files: source_files,
                                 active_detailed_item_id: active_detailed_item_id,
                                 selected_items: selected_items
                             }
                         }
-                        if active_selection_filter() == SelectionFilterOptions::Pictures {
+                        if active_selection_filter() == SelectionSidebarType::Pictures {
                             ImageSourceItems {
                                 source_files: source_files,
                                 active_detailed_item_id: active_detailed_item_id,
                                 selected_items: selected_items
                             }
                         }
-                        if active_selection_filter() == SelectionFilterOptions::Pdfs {
+                        if active_selection_filter() == SelectionSidebarType::Pdfs {
                             PdfSourceItems {
+                                source_files: source_files,
+                                active_detailed_item_id: active_detailed_item_id,
+                                selected_items: selected_items
+                            }
+                        }
+                        if active_selection_filter() == SelectionSidebarType::Markdown {
+                            MarkdownSourceItems {
                                 source_files: source_files,
                                 active_detailed_item_id: active_detailed_item_id,
                                 selected_items: selected_items
@@ -617,6 +637,87 @@ fn PdfSourceItem(
     }
 }
 
+/// The component renders the list of available Markdown files plus a form for spontaneous markdown text input
+#[component]
+fn MarkdownSourceItems(
+    source_files: Signal<Vec<SourceFile>>,
+    active_detailed_item_id: Signal<Option<usize>>,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+) -> Element {
+    let mut spontaneous_text: Signal<String> = use_signal(|| String::new());
+
+    rsx! {
+        div {
+            class: "scrollable-container",
+            onmounted: move |_| async move {
+                let _ = document::eval("initSelectionLayout();").await;
+            },
+            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Markdown) {
+                MarkdownSourceItem {
+                    id: id,
+                    source_files: source_files,
+                    active_detailed_item_id: active_detailed_item_id,
+                    selected_items: selected_items
+                }
+            }
+            // Spontaneous markdown text input form
+            details {
+                summary { { t!("selection.markdown.add_text").to_string() } }
+                textarea {
+                    rows: "8",
+                    placeholder: t!("selection.markdown.placeholder").to_string(),
+                    value: spontaneous_text,
+                    oninput: move |event| {
+                        spontaneous_text.set(event.value());
+                    },
+                }
+                button {
+                    class: "outline",
+                    disabled: spontaneous_text.read().trim().is_empty(),
+                    onclick: move |_| {
+                        let text = spontaneous_text.read().clone();
+                        if !text.trim().is_empty() {
+                            let source_file = SourceFile {
+                                name: t!("selection.markdown.spontaneous_name").to_string(),
+                                path: std::path::PathBuf::new(),
+                                file_type: SourceFileType::Markdown,
+                            };
+                            let mut item = SelectedItemRepresentation::new_with_sourcefile(source_file);
+                            item.inline_markdown = Some(text.clone());
+                            selected_items.write().push(item);
+                            spontaneous_text.set(String::new());
+                        }
+                    },
+                    { t!("selection.markdown.add_button").to_string() }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn MarkdownSourceItem(
+    source_files: Signal<Vec<SourceFile>>,
+    id: usize,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    active_detailed_item_id: Signal<Option<usize>>,
+) -> Element {
+    rsx! {
+        div {
+            role: "button",
+            class: "outline secondary selection_item",
+            tabindex: 0,
+            onclick: move |_| { selected_items.write().push(
+                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
+            ); },
+            oncontextmenu: move |_| {
+                active_detailed_item_id.set(Some(id));
+            },
+            { source_files.get(id).unwrap().clone().name }
+        }
+    }
+}
+
 #[component]
 fn SelectedItems(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
@@ -733,6 +834,7 @@ fn SelectedItem(
                     SourceFileType::Song => rsx! { MusicIcon {} },
                     SourceFileType::Image => rsx! { ImageIcon {} },
                     SourceFileType::Pdf => rsx! { PdfIcon {} },
+                    SourceFileType::Markdown => rsx! { MarkdownIcon {} },
                     _ => rsx! {},
                 },
                 { selected_items.read().get(id).unwrap().source_file.name.clone() },
@@ -1201,55 +1303,103 @@ Please open the presentation tab manually.",
     }
 }
 
-/// An enum representing the active selection (songs, pictures, PDFs)
-#[derive(Clone, PartialEq)]
-enum SelectionFilterOptions {
-    Songs,
-    Pictures,
-    Pdfs,
-    Presentations,
-}
-
-/// This component renders a sidebar for the selection where the user can filter the sources
+/// This component renders a sidebar for the selection where the user can filter the sources.
+/// The order of the icons is determined by `settings.sidebar_order` and can be reordered
+/// via drag and drop. Changes are persisted to settings automatically.
 #[component]
-fn SelectionFilterSideBar(active_selection: Signal<SelectionFilterOptions>) -> Element {
+fn SelectionFilterSideBar(active_selection: Signal<SelectionSidebarType>) -> Element {
+    let mut settings = use_settings();
+
+    // Effective order: use settings value if non-empty, otherwise fall back to the default.
+    let mut order: Signal<Vec<SelectionSidebarType>> = use_signal(|| {
+        let s = settings.read();
+        if s.sidebar_order.is_empty() {
+            default_sidebar_order()
+        } else {
+            s.sidebar_order.clone()
+        }
+    });
+
+    // Drag-and-drop state
+    let mut dragging_from: Signal<Option<usize>> = use_signal(|| None);
+    let mut hover_over: Signal<Option<usize>> = use_signal(|| None);
+    // True when the most recent mousedown/mouseup sequence moved an item;
+    // used by onclick to avoid selecting an icon after a drag.
+    let mut drag_completed: Signal<bool> = use_signal(|| false);
+
     rsx! {
         div {
             class: "selection-sidebar",
-            // Song Selection
-            div {
-                role: "button",
-                class: match active_selection() {
-                    SelectionFilterOptions::Songs => "outline",
-                    _ => "outline secondary"
-                },
-                style: "padding: 12px;",
-                onclick: move |_| active_selection.set(SelectionFilterOptions::Songs),
-                MusicIcon {
-                }
-            }
-            // Picture Selection
-            div {
-                role: "button",
-                class: match active_selection() {
-                    SelectionFilterOptions::Pictures => "outline",
-                    _ => "outline secondary"
-                },
-                style: "padding: 12px;",
-                onclick: move |_| active_selection.set(SelectionFilterOptions::Pictures),
-                ImageIcon {
-                }
-            }
-            // PDF Selection
-            div {
-                role: "button",
-                class: match active_selection() {
-                    SelectionFilterOptions::Pdfs => "outline",
-                    _ => "outline secondary"
-                },
-                style: "padding: 12px;",
-                onclick: move |_| active_selection.set(SelectionFilterOptions::Pdfs),
-                PdfIcon {
+            onmouseup: move |_| {
+                let did_drag = if let (Some(from), Some(to)) = (dragging_from(), hover_over()) {
+                    if from != to {
+                        let mut new_order = order.read().clone();
+                        let len = new_order.len();
+                        if from < len && to < len {
+                            new_order.swap(from, to);
+                            order.set(new_order.clone());
+                            // Persist the new order to settings
+                            settings.write().sidebar_order = new_order;
+                            settings.read().save();
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                drag_completed.set(did_drag);
+                dragging_from.set(None);
+                hover_over.set(None);
+            },
+            onmouseleave: move |_| {
+                dragging_from.set(None);
+                hover_over.set(None);
+            },
+            for (idx, filter_type) in order.read().clone().iter().enumerate() {
+                {
+                    let ft = *filter_type;
+                    rsx! {
+                        div {
+                            key: "{idx}",
+                            role: "button",
+                            class: if active_selection() == ft { "outline" } else { "outline secondary" },
+                            style: {
+                                let mut s = String::from("padding: 12px; cursor: grab;");
+                                if dragging_from().is_some() && hover_over() == Some(idx) {
+                                    s.push_str(" outline: 2px dashed #888; background-color: rgba(0,0,0,0.05);");
+                                }
+                                s
+                            },
+                            onmousedown: move |_| {
+                                drag_completed.set(false);
+                                dragging_from.set(Some(idx));
+                                hover_over.set(Some(idx));
+                            },
+                            onmouseenter: move |_| {
+                                if dragging_from.read().is_some() {
+                                    hover_over.set(Some(idx));
+                                }
+                            },
+                            onclick: move |_| {
+                                // Skip selection if this click follows a completed drag reorder.
+                                if drag_completed() {
+                                    drag_completed.set(false);
+                                } else {
+                                    active_selection.set(ft);
+                                }
+                            },
+                            match ft {
+                                SelectionSidebarType::Songs => rsx! { MusicIcon {} },
+                                SelectionSidebarType::Pictures => rsx! { ImageIcon {} },
+                                SelectionSidebarType::Pdfs => rsx! { PdfIcon {} },
+                                SelectionSidebarType::Markdown => rsx! { MarkdownIcon {} },
+                            }
+                        }
+                    }
                 }
             }
         }

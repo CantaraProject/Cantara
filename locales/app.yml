@@ -29,6 +29,19 @@ selection:
     default:
       en: Default
       de: Standard
+  markdown:
+    add_text:
+      en: Add Markdown Text
+      de: Markdown-Text hinzufügen
+    placeholder:
+      en: "Enter Markdown text here... Use --- on a new line to separate slides."
+      de: "Markdown-Text hier eingeben... --- in einer neuen Zeile trennt die Folien."
+    add_button:
+      en: Add to Selection
+      de: Zur Auswahl hinzufügen
+    spontaneous_name:
+      en: Markdown Text
+      de: Markdown-Text
 
 wizard:
   title:
@@ -402,12 +415,12 @@ general:
   pdf:
     en: PDF
     de: PDF
-  pdf_page:
-    en: "Page %{page}"
-    de: "Seite %{page}"
   markdown:
     en: Markdown
     de: Markdown
+  pdf_page:
+    en: "Page %{page}"
+    de: "Seite %{page}"
   file_path:
     en: File Path
     de: Dateipfad
