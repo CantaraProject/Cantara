@@ -435,6 +435,7 @@ mod tests {
                 name: "example".to_string(),
                 path: PathBuf::from_str("testfiles/example.md").unwrap(),
                 file_type: SourceFileType::Markdown,
+                md5_hash: None,
             },
             presentation_design_option: None,
             slide_settings_option: None,

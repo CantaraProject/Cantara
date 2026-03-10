@@ -709,6 +709,7 @@ fn MarkdownSourceItems(
                                 name: t!("selection.markdown.spontaneous_name").to_string(),
                                 path: std::path::PathBuf::new(),
                                 file_type: SourceFileType::Markdown,
+                                md5_hash: None,
                             };
                             let mut item = SelectedItemRepresentation::new_with_sourcefile(source_file);
                             item.inline_markdown = Some(text.clone());
