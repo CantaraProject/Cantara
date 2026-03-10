@@ -132,12 +132,29 @@
     white-space: pre-line;
 }
 
-/* Markdown text in the presenter console text panel */
+/* Markdown text in the presenter console text panel —
+   displayed the same way as regular song text (slide-text-content p). */
 .slide-text-markdown {
     font-size: 0.9rem;
     line-height: 1.4;
-    overflow-y: auto;
-    max-height: 300px;
+}
+
+/* Override PicoCSS color on all child elements so markdown text
+   matches the regular slide text color in every context. */
+.slide-text-markdown h1,
+.slide-text-markdown h2,
+.slide-text-markdown h3,
+.slide-text-markdown h4,
+.slide-text-markdown h5,
+.slide-text-markdown h6,
+.slide-text-markdown p,
+.slide-text-markdown li,
+.slide-text-markdown a,
+.slide-text-markdown code,
+.slide-text-markdown blockquote,
+.slide-text-markdown td,
+.slide-text-markdown th {
+    color: inherit !important;
 }
 
 .slide-text-markdown h1,
@@ -146,7 +163,6 @@
 .slide-text-markdown h4,
 .slide-text-markdown h5,
 .slide-text-markdown h6 {
-    color: inherit;
     margin-top: 0.3em;
     margin-bottom: 0.2em;
 }
@@ -162,6 +178,7 @@
     margin: 2px 0;
     font-size: inherit;
     line-height: inherit;
+    white-space: pre-line;
 }
 
 .slide-text-markdown ul,
