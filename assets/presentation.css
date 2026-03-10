@@ -118,11 +118,14 @@ html, body {
     overflow-y: auto;
     max-height: 100%;
     padding: 1em 2em;
-    color: inherit;
-    font-family: inherit;
-    font-size: inherit;
-    line-height: 1.6;
 }
+
+.markdown-slide h1 { font-size: 1.6em; }
+.markdown-slide h2 { font-size: 1.4em; }
+.markdown-slide h3 { font-size: 1.2em; }
+.markdown-slide h4 { font-size: 1.1em; }
+.markdown-slide h5 { font-size: 1.0em; }
+.markdown-slide h6 { font-size: 0.9em; }
 
 .markdown-slide h1,
 .markdown-slide h2,

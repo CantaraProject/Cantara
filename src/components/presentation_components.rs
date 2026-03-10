@@ -514,6 +514,7 @@ pub fn PresentationRendererComponent(
                                                 MarkdownSlideComponent {
                                                     html_content: html_owned,
                                                     running_presentation: running_presentation,
+                                                    main_content_font: current_pds.read().get_default_font(),
                                                 }
                                             }
                                         } else {
@@ -670,17 +671,28 @@ fn EmptySlideComponent() -> Element {
     }
 }
 
+/// Generates a CSS string from a [FontRepresentation] with `!important` flags,
+/// for use as inline style on markdown slide containers.
+fn markdown_font_css(font: FontRepresentation) -> String {
+    let mut css = CssHandler::from(font);
+    css.set_important(true);
+    css.to_string()
+}
+
 /// A component for rendering a Markdown slide with scrollable content.
 /// The scroll position is synchronized via the running_presentation signal.
 #[component]
 fn MarkdownSlideComponent(
     html_content: String,
     running_presentation: Signal<RunningPresentation>,
+    main_content_font: FontRepresentation,
 ) -> Element {
     /// Minimum pixel difference to trigger a scroll position sync update
     const SCROLL_SYNC_THRESHOLD: f64 = 2.0;
 
     let scroll_pos = use_memo(move || running_presentation.read().markdown_scroll_position);
+
+    let font_css = markdown_font_css(main_content_font);
 
     // Apply scroll position from signal (e.g. from presenter console)
     use_effect(move || {
@@ -703,7 +715,7 @@ fn MarkdownSlideComponent(
     rsx! {
         div {
             class: "markdown-slide",
-            style: "overflow-y: auto; max-height: 100%; padding: 1em 2em;",
+            style: "overflow-y: auto; max-height: 100%; padding: 1em 2em; {font_css}",
             onscroll: move |_| {
                 spawn(async move {
                     let js = r#"
@@ -935,9 +947,11 @@ pub fn StaticSlideRendererComponent(
                             let text = main_slide.clone().main_text();
                             if let Some(html) = get_markdown_html(&text) {
                                 let html_owned = html.to_string();
+                                let font_css = markdown_font_css(pds.get_default_font());
                                 rsx! {
                                     div {
                                         class: "markdown-slide",
+                                        style: "{font_css}",
                                         dangerous_inner_html: html_owned
                                     }
                                 }
