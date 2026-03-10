@@ -117,6 +117,11 @@ pub struct SourceFile {
 
     /// The file type of the file, indicating its content.
     pub file_type: SourceFileType,
+
+    /// The MD5 hash of the file contents, computed when the file is read from the repository.
+    /// Used for file identity checks. `None` if the hash has not been computed yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub md5_hash: Option<String>,
 }
 
 /// This function will get all source files in a given directory which can be imported and used by Cantara
@@ -150,6 +155,9 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
                     _ => None,
                 };
             if let Some(source_file_type) = file_type_option {
+                let md5_hash = fs::read(file)
+                    .ok()
+                    .map(|content| format!("{:x}", md5::compute(&content)));
                 source_files.push(SourceFile {
                     name: file
                         .clone()
@@ -160,6 +168,7 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
                         .to_string(),
                     path: file.clone(),
                     file_type: source_file_type,
+                    md5_hash,
                 })
             }
         });
@@ -239,6 +248,7 @@ impl SourceFile {
             name: stem.to_string(),
             path: PathBuf::from(vfs_path),
             file_type,
+            md5_hash: None,
         })
     }
 }
@@ -281,6 +291,7 @@ pub mod tests {
             name: "test".to_string(),
             path: PathBuf::from("test.pdf"),
             file_type: SourceFileType::Pdf,
+            md5_hash: None,
         };
         assert!(PdfSourceFile::new(pdf_sf).is_some());
 
@@ -288,7 +299,45 @@ pub mod tests {
             name: "test".to_string(),
             path: PathBuf::from("test.song"),
             file_type: SourceFileType::Song,
+            md5_hash: None,
         };
         assert!(PdfSourceFile::new(song_sf).is_none());
+    }
+
+    #[test]
+    fn get_source_files_computes_md5_hash() {
+        let dir = Path::new("testfiles");
+        let source_files = get_source_files(dir);
+        // All source files should have an MD5 hash since they are read from disk
+        for sf in &source_files {
+            assert!(
+                sf.md5_hash.is_some(),
+                "Expected md5_hash to be Some for file: {}",
+                sf.name
+            );
+            // MD5 hash should be a valid 32-character hex string
+            let hash = sf.md5_hash.as_ref().unwrap();
+            assert_eq!(hash.len(), 32, "MD5 hash should be 32 hex chars for: {}", sf.name);
+            assert!(
+                hash.chars().all(|c| c.is_ascii_hexdigit()),
+                "MD5 hash should be valid hex for: {}",
+                sf.name
+            );
+        }
+    }
+
+    #[test]
+    fn source_file_md5_hash_is_consistent() {
+        // The same file should always produce the same MD5 hash
+        let dir = Path::new("testfiles");
+        let files1 = get_source_files(dir);
+        let files2 = get_source_files(dir);
+        for (sf1, sf2) in files1.iter().zip(files2.iter()) {
+            assert_eq!(
+                sf1.md5_hash, sf2.md5_hash,
+                "MD5 hash should be consistent for file: {}",
+                sf1.name
+            );
+        }
     }
 }

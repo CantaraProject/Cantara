@@ -18,6 +18,7 @@ use crate::Route;
 use cantara_songlib::slides::SlideSettings;
 #[cfg(feature = "desktop")]
 use dioxus::desktop::tao;
+use dioxus::html::HasFileData;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::*;
@@ -211,6 +212,9 @@ pub fn Selection() -> Element {
         use_signal(|| SelectionFilterOptions::Songs);
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
+    // Track drag-over state for the source files drop zone
+    let mut drag_over_source: Signal<bool> = use_signal(|| false);
+
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
 
     // Update search results when filter_string changes
@@ -322,9 +326,21 @@ pub fn Selection() -> Element {
                 div {
                     class: "grid swipe-container height-100",
 
-                    // The area where the selectable elements (sources) are shown
+                    // The area where the selectable elements (sources) are shown, also serves as a drop zone
                     div {
-                        class: "height-100 swipe-panel",
+                        class: if drag_over_source() { "height-100 swipe-panel drop-zone drag-active" } else { "height-100 swipe-panel drop-zone" },
+                        ondragover: move |event: DragEvent| {
+                            event.prevent_default();
+                            drag_over_source.set(true);
+                        },
+                        ondragleave: move |_| {
+                            drag_over_source.set(false);
+                        },
+                        ondrop: move |event: DragEvent| async move {
+                            event.prevent_default();
+                            drag_over_source.set(false);
+                            process_dropped_files(event, source_files).await;
+                        },
                         SelectionFilterSideBar {
                             active_selection: active_selection_filter
                         }
@@ -347,6 +363,18 @@ pub fn Selection() -> Element {
                                 source_files: source_files,
                                 active_detailed_item_id: active_detailed_item_id,
                                 selected_items: selected_items
+                            }
+                        }
+                        // Drop zone hint shown when dragging over
+                        if drag_over_source() {
+                            div {
+                                class: "drop-zone-hint",
+                                { t!("selection.drag_drop_active").to_string() }
+                            }
+                        } else {
+                            div {
+                                class: "drop-zone-hint",
+                                { t!("selection.drag_drop_hint").to_string() }
                             }
                         }
                     },
@@ -990,6 +1018,86 @@ fn SourceDetailView(
                     }
                 }
             }
+        }
+    }
+}
+
+/// Processes files dropped into the source files drop zone.
+/// For each dropped file with a supported type, creates a temporary [SourceFile]
+/// and adds it to `source_files`. The file is not added to any repository.
+///
+/// - On desktop targets: the actual filesystem path is used directly.
+/// - On WASM targets: the file content is stored in the in-memory VFS
+///   under a `drop://` prefix so the presentation renderer can access it.
+async fn process_dropped_files(event: DragEvent, mut source_files: Signal<Vec<SourceFile>>) {
+    let files = event.data().files();
+    for file_data in files {
+        let file_name = file_data.name();
+        let file_path = file_data.path();
+
+        // Determine file extension from path (desktop) or name (web)
+        let name_path = std::path::Path::new(&file_name);
+        let extension = file_path
+            .extension()
+            .or_else(|| name_path.extension())
+            .and_then(|e: &std::ffi::OsStr| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let file_type = match extension.as_str() {
+            "song" => SourceFileType::Song,
+            "png" | "jpg" | "jpeg" => SourceFileType::Image,
+            "pdf" => SourceFileType::Pdf,
+            _ => {
+                log::info!("Skipping dropped file with unsupported extension: {}", file_name);
+                continue;
+            }
+        };
+
+        let stem = file_path
+            .file_stem()
+            .or_else(|| name_path.file_stem())
+            .and_then(|s: &std::ffi::OsStr| s.to_str())
+            .unwrap_or(&file_name)
+            .to_string();
+
+        // Read the file bytes (async; works on both desktop and web)
+        let content = match file_data.read_bytes().await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                log::warn!("Failed to read dropped file '{}': {}", file_name, e);
+                continue;
+            }
+        };
+
+        let md5_hash = Some(format!("{:x}", md5::compute(&*content)));
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // On WASM the file has no real filesystem path; store content in the web VFS
+            // so that the presentation renderer can access it later.
+            use crate::logic::settings::RepositoryType;
+            let vfs_path = format!("drop://{}", file_name);
+            RepositoryType::store_web_file(&vfs_path, content.to_vec());
+            let sf = SourceFile {
+                name: stem,
+                path: std::path::PathBuf::from(&vfs_path),
+                file_type,
+                md5_hash,
+            };
+            source_files.write().push(sf);
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // On desktop the path returned by FileData is the real filesystem path.
+            let sf = SourceFile {
+                name: stem,
+                path: file_path,
+                file_type,
+                md5_hash,
+            };
+            source_files.write().push(sf);
         }
     }
 }

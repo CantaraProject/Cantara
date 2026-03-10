@@ -797,7 +797,7 @@ impl RepositoryType {
                     .borrow()
                     .keys()
                     .filter(|k| k.starts_with(&prefix))
-                    .filter_map(|path| SourceFile::from_web_path(path))
+                    .filter_map(|path| Self::source_file_from_web_path_with_md5(path))
                     .collect()
             })
         }
@@ -884,7 +884,7 @@ impl RepositoryType {
                             .borrow()
                             .keys()
                             .filter(|k| k.starts_with(&prefix))
-                            .filter_map(|path| SourceFile::from_web_path(path))
+                            .filter_map(|path| Self::source_file_from_web_path_with_md5(path))
                             .collect()
                     });
                     if !cached.is_empty() {
@@ -903,7 +903,7 @@ impl RepositoryType {
                             .borrow()
                             .keys()
                             .filter(|k| k.starts_with(&prefix))
-                            .filter_map(|path| SourceFile::from_web_path(path))
+                            .filter_map(|path| Self::source_file_from_web_path_with_md5(path))
                             .collect()
                     });
                     if !cached.is_empty() {
@@ -978,7 +978,7 @@ impl RepositoryType {
                 .borrow()
                 .keys()
                 .filter(|k| k.starts_with(prefix))
-                .filter_map(|path| SourceFile::from_web_path(path))
+                .filter_map(|path| Self::source_file_from_web_path_with_md5(path))
                 .collect()
         })
     }
@@ -987,6 +987,28 @@ impl RepositoryType {
     #[cfg(target_arch = "wasm32")]
     pub fn web_read_file(path: &str) -> Option<Vec<u8>> {
         WEB_FILES.with(|files| files.borrow().get(path).cloned())
+    }
+
+    /// Stores a file in the web VFS. Used for temporarily adding dropped files on WASM targets.
+    #[cfg(target_arch = "wasm32")]
+    pub fn store_web_file(path: &str, content: Vec<u8>) {
+        WEB_FILES.with(|files| {
+            files.borrow_mut().insert(path.to_string(), content);
+        });
+    }
+
+    /// Creates a [SourceFile] from a web VFS path and computes its MD5 hash from the stored content.
+    /// This is the preferred way to create SourceFiles on WASM because it includes the MD5 hash.
+    #[cfg(target_arch = "wasm32")]
+    fn source_file_from_web_path_with_md5(path: &str) -> Option<SourceFile> {
+        let mut sf = SourceFile::from_web_path(path)?;
+        sf.md5_hash = WEB_FILES.with(|files| {
+            files
+                .borrow()
+                .get(path)
+                .map(|content| format!("{:x}", md5::compute(content)))
+        });
+        Some(sf)
     }
 
     /// Downloads a ZIP file from a URL and extracts it to a temporary directory (desktop only).

@@ -330,6 +330,7 @@ mod tests {
             name: "Test Song".to_string(),
             path: PathBuf::from("test/path.song"),
             file_type: SourceFileType::Song,
+            md5_hash: None,
         };
 
         let slide = Slide {
