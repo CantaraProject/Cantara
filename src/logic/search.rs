@@ -23,13 +23,13 @@ pub fn invalidate_search_cache() {
 }
 
 /// Optionally (re)populate the cache with the provided list of source files.
-/// This will read all Song files from disk and cache their contents.
+/// This will read all Song and Markdown files from disk and cache their contents.
 /// If a file can't be read, it will simply be skipped.
 pub fn refresh_search_cache(source_files: &[SourceFile]) {
     let mut map = cache().lock().expect("cache poisoned");
     map.clear();
     for sf in source_files {
-        if sf.file_type == SourceFileType::Song {
+        if sf.file_type == SourceFileType::Song || sf.file_type == SourceFileType::Markdown {
             if let Ok(content) = fs::read_to_string(&sf.path) {
                 map.insert(sf.path.clone(), content);
             }
@@ -37,9 +37,9 @@ pub fn refresh_search_cache(source_files: &[SourceFile]) {
     }
 }
 
-/// Helper function to read the content of a source file, using the cache for Song files
+/// Helper function to read the content of a source file, using the cache for Song and Markdown files
 pub fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
-    if source_file.file_type != SourceFileType::Song {
+    if source_file.file_type != SourceFileType::Song && source_file.file_type != SourceFileType::Markdown {
         return None;
     }
 
@@ -89,8 +89,8 @@ pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<Sear
             continue;
         }
 
-        // Check if the query matches the content (for song files)
-        if source_file.file_type == SourceFileType::Song {
+        // Check if the query matches the content (for song and markdown files)
+        if source_file.file_type == SourceFileType::Song || source_file.file_type == SourceFileType::Markdown {
             if let Some(content) = read_source_file_content(source_file) {
                 let content_lower = content.to_lowercase();
                 if content_lower.contains(&query) {

@@ -7,9 +7,13 @@ use super::{
 };
 
 use cantara_songlib::importer::classic_song::slides_from_classic_song;
-use cantara_songlib::slides::{Slide, SlideContent, SimplePictureSlide, SlideSettings};
+use cantara_songlib::slides::{Slide, SlideContent, SimplePictureSlide, SingleLanguageMainContentSlide, SlideSettings};
 use dioxus::prelude::*;
 use std::{error::Error, path::{Path, PathBuf}};
+
+/// Prefix marker used to identify slides containing rendered Markdown HTML
+/// in the `main_text` field of a `SingleLanguageMainContentSlide`.
+pub const MARKDOWN_HTML_PREFIX: &str = "<!--md-->";
 
 /// Extracts the picture path from a [SimplePictureSlide] using serde,
 /// since the `picture_path` field is private in the external crate.
@@ -73,6 +77,47 @@ in a believer's ear.
 It soothes his sorrows,
 heals the wounds,
 and drives away his fear.";
+
+/// Creates slides from markdown content by splitting on `---` separators and
+/// rendering each section to HTML using the `markdown` crate.
+/// Each slide is stored as a [SingleLanguageMainContentSlide] with the rendered
+/// HTML prefixed by [MARKDOWN_HTML_PREFIX] in the `main_text` field.
+///
+/// The separator is a line containing only `---` (with optional surrounding whitespace),
+/// preceded and followed by a newline. Both Unix (`\n`) and Windows (`\r\n`) line endings
+/// are supported.
+pub fn slides_from_markdown(markdown_content: &str) -> Vec<Slide> {
+    // Normalize line endings to \n, then split on lines that are exactly "---"
+    let normalized = markdown_content.replace("\r\n", "\n");
+    let sections: Vec<&str> = normalized.split("\n---\n").collect();
+    let mut slides = Vec::new();
+
+    for section in sections {
+        let trimmed = section.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let html = markdown::to_html(trimmed);
+        let prefixed = format!("{}{}", MARKDOWN_HTML_PREFIX, html);
+        // Construct SingleLanguageMainContentSlide via serde since the fields are private
+        if let Ok(slide_content) = serde_json::from_value::<SingleLanguageMainContentSlide>(
+            serde_json::json!({"main_text": prefixed}),
+        ) {
+            slides.push(Slide {
+                slide_content: SlideContent::SingleLanguageMainContent(slide_content),
+                linked_file: None,
+            });
+        }
+    }
+
+    slides
+}
+
+/// Checks whether a slide's main text contains rendered Markdown HTML.
+/// Returns the HTML content (without the prefix) if it does.
+pub fn get_markdown_html(main_text: &str) -> Option<&str> {
+    main_text.strip_prefix(MARKDOWN_HTML_PREFIX)
+}
 
 /// Creates a presentation from a selected_item_representation and a presentation_design
 fn create_presentation_slides(
@@ -169,6 +214,32 @@ fn create_presentation_slides(
             } else {
                 log::warn!("Could not read PDF from web VFS: {}", path_str);
             }
+        }
+    }
+
+    if selected_item.source_file.file_type == SourceFileType::Markdown {
+        // Check for inline markdown content first (spontaneous text)
+        if let Some(ref inline_content) = selected_item.inline_markdown {
+            let slides = slides_from_markdown(inline_content);
+            presentation.extend(slides);
+            return Ok(presentation);
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let path_str = selected_item.source_file.path.to_str().unwrap_or("");
+            if let Some(content_bytes) = crate::logic::settings::RepositoryType::web_read_file(path_str) {
+                let content = String::from_utf8_lossy(&content_bytes);
+                let slides = slides_from_markdown(&content);
+                presentation.extend(slides);
+            }
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let content = std::fs::read_to_string(&selected_item.source_file.path)?;
+            let slides = slides_from_markdown(&content);
+            presentation.extend(slides);
         }
     }
 
@@ -271,6 +342,7 @@ mod tests {
             },
             presentation_design_option: None,
             slide_settings_option: None,
+            inline_markdown: None,
         };
         assert!(create_presentation_slides(&select_item, &SlideSettings::default()).is_ok());
     }
@@ -285,6 +357,7 @@ mod tests {
             },
             presentation_design_option: None,
             slide_settings_option: None,
+            inline_markdown: None,
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default());
         assert!(result.is_ok());
@@ -312,6 +385,7 @@ mod tests {
             },
             presentation_design_option: None,
             slide_settings_option: None,
+            inline_markdown: None,
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default());
         assert!(result.is_ok());
@@ -337,6 +411,7 @@ mod tests {
             },
             presentation_design_option: None,
             slide_settings_option: None,
+            inline_markdown: None,
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default());
         assert!(result.is_ok());
@@ -346,5 +421,81 @@ mod tests {
             slides[0].slide_content,
             SlideContent::SimplePicture(_)
         ));
+    }
+
+    #[test]
+    fn test_presentation_creation_from_markdown() {
+        let select_item = SelectedItemRepresentation {
+            source_file: SourceFile {
+                name: "example".to_string(),
+                path: PathBuf::from_str("testfiles/example.md").unwrap(),
+                file_type: SourceFileType::Markdown,
+            },
+            presentation_design_option: None,
+            slide_settings_option: None,
+            inline_markdown: None,
+        };
+        let result = create_presentation_slides(&select_item, &SlideSettings::default());
+        assert!(result.is_ok());
+        let slides = result.unwrap();
+        // example.md has 3 sections separated by ---
+        assert_eq!(slides.len(), 3);
+        for slide in &slides {
+            assert!(matches!(
+                slide.slide_content,
+                SlideContent::SingleLanguageMainContent(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn test_slides_from_markdown() {
+        let md = "# Hello\n\nWorld\n\n---\n\n## Slide 2\n\n- a\n- b";
+        let slides = slides_from_markdown(md);
+        assert_eq!(slides.len(), 2);
+
+        // Check that slides contain the markdown prefix
+        if let SlideContent::SingleLanguageMainContent(ref s) = slides[0].slide_content {
+            let text = s.clone().main_text();
+            assert!(text.starts_with(MARKDOWN_HTML_PREFIX));
+            let html = get_markdown_html(&text).unwrap();
+            assert!(html.contains("<h1>"));
+            assert!(html.contains("Hello"));
+        } else {
+            panic!("Expected SingleLanguageMainContent");
+        }
+
+        if let SlideContent::SingleLanguageMainContent(ref s) = slides[1].slide_content {
+            let text = s.clone().main_text();
+            let html = get_markdown_html(&text).unwrap();
+            assert!(html.contains("<h2>"));
+            assert!(html.contains("<li>"));
+        } else {
+            panic!("Expected SingleLanguageMainContent");
+        }
+    }
+
+    #[test]
+    fn test_slides_from_markdown_empty_sections() {
+        let md = "# Only slide\n\n---\n\n---\n\n";
+        let slides = slides_from_markdown(md);
+        // Empty sections should be skipped
+        assert_eq!(slides.len(), 1);
+    }
+
+    #[test]
+    fn test_get_markdown_html() {
+        let with_prefix = format!("{}<h1>Hello</h1>", MARKDOWN_HTML_PREFIX);
+        assert_eq!(get_markdown_html(&with_prefix), Some("<h1>Hello</h1>"));
+
+        let without_prefix = "Just plain text";
+        assert_eq!(get_markdown_html(without_prefix), None);
+    }
+
+    #[test]
+    fn test_slides_from_markdown_windows_line_endings() {
+        let md = "# Hello\r\n\r\n---\r\n\r\n## World";
+        let slides = slides_from_markdown(md);
+        assert_eq!(slides.len(), 2);
     }
 }
