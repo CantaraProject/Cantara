@@ -1555,6 +1555,12 @@ pub enum HorizontalAlign {
     Centered,
 
     Right,
+
+    /// Justified text without hyphenation
+    Justify,
+
+    /// Justified text with automatic hyphenation (`hyphens: auto`)
+    JustifyWithHyphenation,
 }
 
 impl CssString for HorizontalAlign {
@@ -1563,6 +1569,8 @@ impl CssString for HorizontalAlign {
             HorizontalAlign::Left => "left".to_string(),
             HorizontalAlign::Centered => "center".to_string(),
             HorizontalAlign::Right => "right".to_string(),
+            HorizontalAlign::Justify => "justify".to_string(),
+            HorizontalAlign::JustifyWithHyphenation => "justify".to_string(),
         }
     }
 }
