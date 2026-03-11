@@ -1,4 +1,5 @@
 [application]
+name = "Cantara"
 
 [web.app]
 
@@ -22,6 +23,6 @@ script = []
 script = []
 
 [bundle]
-identifier = "org.cantara.Cantara"
-publisher = "Jan Martin Reckel <jm.reckel@t-online.de>"
+identifier = "app.cantara.Cantara"
+publisher = "Jan Martin Reckel"
 icon = ["assets/favicon.png"]

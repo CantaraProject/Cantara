@@ -25,6 +25,7 @@ html, body {
     overflow-y: hidden;
     z-index: 1;
     display: grid; /* Use Grid */
+    grid-template-rows: 1fr;
 }
 
 .background {
@@ -118,11 +119,15 @@ html, body {
     overflow-y: auto;
     max-height: 100%;
     padding: 1em 2em;
-    color: inherit;
-    font-family: inherit;
-    font-size: inherit;
-    line-height: 1.6;
+    box-sizing: border-box;
 }
+
+.markdown-slide h1 { font-size: 1.6em; }
+.markdown-slide h2 { font-size: 1.4em; }
+.markdown-slide h3 { font-size: 1.2em; }
+.markdown-slide h4 { font-size: 1.1em; }
+.markdown-slide h5 { font-size: 1.0em; }
+.markdown-slide h6 { font-size: 0.9em; }
 
 .markdown-slide h1,
 .markdown-slide h2,
@@ -130,8 +135,19 @@ html, body {
 .markdown-slide h4,
 .markdown-slide h5,
 .markdown-slide h6 {
+    color: inherit !important;
     margin-top: 0.5em;
     margin-bottom: 0.3em;
+}
+
+.markdown-slide p,
+.markdown-slide li,
+.markdown-slide a,
+.markdown-slide code,
+.markdown-slide blockquote,
+.markdown-slide td,
+.markdown-slide th {
+    color: inherit !important;
 }
 
 .markdown-slide ul,
