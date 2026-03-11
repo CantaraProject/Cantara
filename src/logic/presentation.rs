@@ -119,6 +119,59 @@ pub fn get_markdown_html(main_text: &str) -> Option<&str> {
     main_text.strip_prefix(MARKDOWN_HTML_PREFIX)
 }
 
+/// Converts HTML to plain text by stripping tags.
+/// Block-level elements (p, h1-h6, li, br, div, tr) get newline separators.
+pub fn html_to_plain_text(html: &str) -> String {
+    let mut result = String::new();
+    let mut in_tag = false;
+    let mut tag_name = String::new();
+    let mut collecting_tag_name = false;
+
+    for ch in html.chars() {
+        if ch == '<' {
+            in_tag = true;
+            collecting_tag_name = true;
+            tag_name.clear();
+        } else if ch == '>' {
+            in_tag = false;
+            collecting_tag_name = false;
+            // Insert newline before block-level elements
+            let lower = tag_name.to_lowercase();
+            let block_tags = [
+                "p", "/p", "h1", "h2", "h3", "h4", "h5", "h6", "/h1", "/h2", "/h3", "/h4",
+                "/h5", "/h6", "br", "br/", "div", "/div", "li", "/li", "tr", "/tr",
+            ];
+            if block_tags.iter().any(|t| lower == *t) {
+                if !result.is_empty() && !result.ends_with('\n') {
+                    result.push('\n');
+                }
+            }
+        } else if in_tag {
+            if collecting_tag_name {
+                if ch.is_whitespace() || ch == '/' && !tag_name.is_empty() {
+                    collecting_tag_name = false;
+                } else {
+                    tag_name.push(ch);
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    // Decode common HTML entities (&amp; must be last to avoid
+    // double-decoding sequences like &amp;lt; → &lt; → <)
+    result
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .trim()
+        .to_string()
+}
+
 /// Creates a presentation from a selected_item_representation and a presentation_design
 fn create_presentation_slides(
     selected_item: &SelectedItemRepresentation,
@@ -497,5 +550,24 @@ mod tests {
         let md = "# Hello\r\n\r\n---\r\n\r\n## World";
         let slides = slides_from_markdown(md);
         assert_eq!(slides.len(), 2);
+    }
+
+    #[test]
+    fn test_html_to_plain_text() {
+        assert_eq!(
+            html_to_plain_text("<h1>Title</h1><p>Hello world</p>"),
+            "Title\nHello world"
+        );
+        assert_eq!(
+            html_to_plain_text("<ul><li>one</li><li>two</li></ul>"),
+            "one\ntwo"
+        );
+        assert_eq!(
+            html_to_plain_text("<p>a &amp; b &lt; c</p>"),
+            "a & b < c"
+        );
+        // &amp;lt; should decode to &lt; (not <)
+        assert_eq!(html_to_plain_text("&amp;lt;"), "&lt;");
+        assert_eq!(html_to_plain_text("plain text"), "plain text");
     }
 }

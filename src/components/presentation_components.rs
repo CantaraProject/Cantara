@@ -2,7 +2,9 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cantara_songlib::slides::*;
+use dioxus::html::completions::CompleteWithBraces::strong;
 use dioxus::prelude::*;
+use regex::Regex;
 use rgb::RGBA8;
 use rust_i18n::t;
 
@@ -120,6 +122,24 @@ pub fn PresentationPage() -> Element {
         }
     });
 
+    // On desktop, reactive signal notifications may not propagate across separate
+    // VirtualDom instances (windows). Poll the shared signal as a reliable fallback
+    // so that changes from the presenter console are always picked up.
+    #[cfg(feature = "desktop")]
+    use_future(move || async move {
+        loop {
+            let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
+            let shared = running_presentations.peek();
+            if let Some(rp) = shared.first() {
+                if *rp != *running_presentation.peek() {
+                    let rp = rp.clone();
+                    drop(shared);
+                    running_presentation.set(rp);
+                }
+            }
+        }
+    });
+
     // Sync changes from this window back to the shared signal
     use_effect(move || {
         let local = running_presentation.read().clone();
@@ -127,6 +147,25 @@ pub fn PresentationPage() -> Element {
         if let Some(first) = shared.first_mut() {
             if *first != local {
                 *first = local;
+            }
+        }
+    });
+
+    // Polling fallback for local→shared sync (the use_effect above may not
+    // re-run when signal writes come from async use_future tasks).
+    #[cfg(feature = "desktop")]
+    use_future(move || async move {
+        loop {
+            let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
+            let local = running_presentation.peek().clone();
+            let shared = running_presentations.peek();
+            if let Some(first) = shared.first() {
+                if *first != local {
+                    drop(shared);
+                    if let Some(first) = running_presentations.write().first_mut() {
+                        *first = local;
+                    }
+                }
             }
         }
     });
@@ -483,60 +522,18 @@ pub fn PresentationRendererComponent(
             }
             if presentation_is_visible() {
                 {
-                    // Determine if the current slide is a picture slide so we can
-                    // give its container full height while keeping text slides
-                    // content-sized for proper grid vertical alignment.
                     let slide_content = current_slide.read().clone().unwrap().slide_content.clone();
-                    let container_style = if matches!(slide_content, SlideContent::SimplePicture(_)) {
-                        "height: 100%;"
-                    } else {
-                        ""
-                    };
+                    let container_style = slide_container_style(&slide_content);
 
                     rsx! {
                         div {
                             class: "slide-container presentation-fade-in",
                             style: "{container_style}",
                             key: "{current_slide_number}",
-                            {
-                                match slide_content {
-                                    SlideContent::Title(title_slide) => rsx! {
-                                        TitleSlideComponent {
-                                            title_slide: title_slide.clone(),
-                                            title_font_representation: current_pds.read().get_default_headline_font()
-                                        }
-                                    },
-                                    SlideContent::SingleLanguageMainContent(main_slide) => {
-                                        let text = main_slide.clone().main_text();
-                                        if let Some(html) = get_markdown_html(&text) {
-                                            let html_owned = html.to_string();
-                                            rsx! {
-                                                MarkdownSlideComponent {
-                                                    html_content: html_owned,
-                                                    running_presentation: running_presentation,
-                                                }
-                                            }
-                                        } else {
-                                            rsx! {
-                                                SingleLanguageMainContentSlideRenderer {
-                                                    main_slide: main_slide.clone(),
-                                                    main_content_font: current_pds.read().get_default_font(),
-                                                    spoiler_content_font: current_pds.read().get_default_spoiler_font(),
-                                                    distance: current_pds().main_content_spoiler_content_padding,
-                                                }
-                                            }
-                                        }
-                                    },
-                                    SlideContent::Empty(empty_slide) => rsx! {
-                                        EmptySlideComponent {}
-                                    },
-                                    SlideContent::SimplePicture(picture_slide) => rsx! {
-                                        SimplePictureSlideComponent {
-                                            picture_slide: picture_slide.clone()
-                                        }
-                                    },
-                                    _ => rsx! { p { "No content provided" } }
-                                }
+                            SlideContentRenderer {
+                                slide_content: slide_content,
+                                pds: current_pds(),
+                                running_presentation: Some(running_presentation),
                             }
                         }
                     }
@@ -670,56 +667,236 @@ fn EmptySlideComponent() -> Element {
     }
 }
 
+/// Determines the container style for a slide based on its content type.
+/// Picture and markdown slides need `height: 100%` to fill the grid cell,
+/// so that their content can scroll or scale within a constrained area.
+fn slide_container_style(slide_content: &SlideContent) -> &'static str {
+    match slide_content {
+        SlideContent::SimplePicture(_) => "height: 100%;",
+        SlideContent::SingleLanguageMainContent(main_slide) => {
+            if get_markdown_html(&main_slide.clone().main_text()).is_some() {
+                "height: 100%;"
+            } else {
+                ""
+            }
+        }
+        _ => "",
+    }
+}
+
+/// Renders the content of a single slide based on its [SlideContent] type.
+/// Shared between [PresentationRendererComponent] and [StaticSlideRendererComponent]
+/// to avoid duplicating the slide content matching logic.
+#[component]
+fn SlideContentRenderer(
+    slide_content: SlideContent,
+    pds: PresentationDesignTemplate,
+    running_presentation: Option<Signal<RunningPresentation>>,
+) -> Element {
+    match slide_content {
+        SlideContent::Title(title_slide) => rsx! {
+            TitleSlideComponent {
+                title_slide: title_slide.clone(),
+                title_font_representation: pds.get_default_headline_font()
+            }
+        },
+        SlideContent::SingleLanguageMainContent(main_slide) => {
+            let text = main_slide.clone().main_text();
+            if let Some(html) = get_markdown_html(&text) {
+                let html_owned = html.to_string();
+                rsx! {
+                    MarkdownSlideComponent {
+                        html_content: html_owned,
+                        running_presentation: running_presentation,
+                        main_content_font: pds.get_default_font(),
+                    }
+                }
+            } else {
+                rsx! {
+                    SingleLanguageMainContentSlideRenderer {
+                        main_slide: main_slide.clone(),
+                        main_content_font: pds.get_default_font(),
+                        spoiler_content_font: pds.get_default_spoiler_font(),
+                        distance: pds.main_content_spoiler_content_padding.clone(),
+                    }
+                }
+            }
+        },
+        SlideContent::Empty(_) => rsx! {
+            EmptySlideComponent {}
+        },
+        SlideContent::SimplePicture(picture_slide) => rsx! {
+            SimplePictureSlideComponent {
+                picture_slide: picture_slide.clone()
+            }
+        },
+        _ => rsx! { p { "No content provided" } }
+    }
+}
+
+/// Generates a CSS string from a [FontRepresentation] with `!important` flags,
+/// for use as inline style on markdown slide containers.
+fn markdown_font_css(font: FontRepresentation) -> String {
+    let mut css = CssHandler::new();
+    css.set_important(true);
+    css.extend(&CssHandler::from(font));
+    css.to_string()
+}
+
+/// This helper function injects a CSS style into all HTML tags of a string. That is needed
+/// to override default CSS definitions coming from PicoCSS.
+fn inject_css_into_html_elements(html: &str, css_style: &CssHandler) -> String {
+    // Regex breakdown:
+    // <([a-z1-6]+)  -> Matches the opening '<' and captures the tag name
+    // (?![^>]*style=) -> A negative lookahead to ensure we don't double-up if a style already exists
+    // [^>]* -> Matches any other attributes until the closing '>'
+    // >             -> Matches the closing bracket
+    let re = Regex::new(r"(?i)<([a-z1-6]+)([^>]*)>").unwrap();
+
+    // We use a replacement closure to handle the logic
+    re.replace_all(html, |caps: &regex::Captures| {
+        let tag = &caps[1];
+        let attributes = &caps[2];
+        let css_style_string = css_style.to_string();
+
+        // List of common elements that don't support/need styling (void tags or metadata)
+        let ignored_tags = ["html", "head", "meta", "link", "script", "style", "br", "hr"];
+
+        if ignored_tags.contains(&tag.to_lowercase().as_str()) {
+            format!("<{tag}{attributes}>")
+        } else {
+            // Check if style already exists to append, or just insert new
+            if attributes.contains("style=") {
+                // This is a simple version; real attribute parsing is complex!
+                format!("<{tag}{attributes} style=\"{css_style_string}\">")
+            } else {
+                format!("<{tag} style=\"{css_style_string}\"{attributes}>")
+            }
+        }
+    }).to_string()
+}
+
 /// A component for rendering a Markdown slide with scrollable content.
-/// The scroll position is synchronized via the running_presentation signal.
+///
+/// The HTML content (already converted from Markdown) is displayed inside a scrollable
+/// container. Font colors are injected into all HTML elements via inline CSS to override
+/// PicoCSS defaults.
+///
+/// ## Scroll synchronization
+///
+/// When `running_presentation` is `Some`, a bidirectional scroll sync polling loop runs
+/// to keep the scroll position consistent between the presentation window and the
+/// presenter console preview. The mechanism works as follows:
+///
+/// - Both windows (presentation and presenter console) share the same
+///   `Signal<Vec<RunningPresentation>>` context handle. Writes from one window are
+///   immediately visible to `.peek()` in the other.
+/// - Every 50ms, the loop reads the DOM `scrollTop` of the `.markdown-slide` element
+///   and compares it against the last known position:
+///   - **Local scroll detected** (DOM changed): the new position is written to the
+///     shared signal's `markdown_scroll_position` field, so the other window picks it up.
+///   - **Remote scroll detected** (signal changed): the DOM `scrollTop` is updated via
+///     JavaScript to match the signal value.
+/// - A threshold of 2px prevents feedback loops between the two directions.
+/// - DOM values are read via `document::eval` with an explicit `return` inside an IIFE,
+///   which is required by Dioxus 0.7's desktop eval to propagate return values to Rust.
+///
+/// When `running_presentation` is `None` (used in static grid thumbnails), the polling
+/// loop exits immediately and no synchronization takes place.
 #[component]
 fn MarkdownSlideComponent(
     html_content: String,
-    running_presentation: Signal<RunningPresentation>,
+    running_presentation: Option<Signal<RunningPresentation>>,
+    main_content_font: FontRepresentation,
 ) -> Element {
     /// Minimum pixel difference to trigger a scroll position sync update
     const SCROLL_SYNC_THRESHOLD: f64 = 2.0;
+    /// Polling interval in milliseconds
+    const POLL_MS: u32 = 50;
 
-    let scroll_pos = use_memo(move || running_presentation.read().markdown_scroll_position);
+    // Access the shared context signal directly — both windows (presentation
+    // and presenter console) share the exact same Signal handle, so writes
+    // from one window are immediately visible to .peek() in the other.
+    let mut shared: Signal<Vec<RunningPresentation>> = use_context();
 
-    // Apply scroll position from signal (e.g. from presenter console)
-    use_effect(move || {
-        let pos = scroll_pos();
-        let pos_json = serde_json::to_string(&pos).unwrap_or_else(|_| "0".to_string());
-        let threshold_json = serde_json::to_string(&SCROLL_SYNC_THRESHOLD).unwrap_or_else(|_| "2".to_string());
-        spawn(async move {
-            let js = format!(
-                r#"
-                var el = document.querySelector('.markdown-slide');
-                if (el && Math.abs(el.scrollTop - {pos_json}) > {threshold_json}) {{
-                    el.scrollTop = {pos_json};
-                }}
-                "#
-            );
-            let _ = document::eval(&js).await;
-        });
+    let font_css = markdown_font_css(main_content_font.clone());
+
+    let mut html_content_css = CssHandler::new();
+    html_content_css.set_important(true);
+    html_content_css.color(main_content_font.color);
+
+    let html_content = inject_css_into_html_elements(&html_content, &html_content_css);
+
+    // Bidirectional scroll sync polling loop. Runs only when running_presentation
+    // is Some (i.e. in the interactive presentation/preview, not in static thumbnails).
+    // Reads/writes the shared context signal directly, bypassing local signal chains,
+    // because reactive use_effect subscriptions don't reliably wake other windows'
+    // event loops in Dioxus desktop (each window runs a separate VirtualDom).
+    use_future(move || async move {
+        // No sync needed for static thumbnails
+        if running_presentation.is_none() { return; }
+        // Track the last position we acted on to detect changes from either side
+        let mut last_pos: f64 = 0.0;
+        loop {
+            // Sleep using a JS-level await to keep the WebView event loop alive.
+            // A Rust-side sleep (tokio/async_std) would not pump the WebView.
+            let js_sleep = format!("await new Promise(r => setTimeout(r, {POLL_MS}))");
+            let _ = document::eval(&js_sleep).await;
+
+            // Read the current DOM scroll position via JS eval.
+            // Note: Dioxus 0.7 desktop eval requires an explicit `return` inside an
+            // IIFE to propagate values back to Rust — a bare expression returns null.
+            let dom_pos = {
+                let js = r#"
+                    return (function() {
+                        var el = document.querySelector('.markdown-slide');
+                        return el ? el.scrollTop : -1;
+                    })();
+                "#;
+                document::eval(js).await.ok()
+                    .and_then(|val| val.as_f64())
+                    .unwrap_or(-1.0)
+            };
+            // Element not yet in the DOM (e.g. during initial render); retry next tick
+            if dom_pos < 0.0 {
+                continue;
+            }
+
+            // Read the shared signal without subscribing (peek avoids triggering re-renders)
+            let signal_pos = shared.peek()
+                .first()
+                .map(|rp| rp.markdown_scroll_position)
+                .unwrap_or(0.0);
+
+            if (dom_pos - last_pos).abs() > SCROLL_SYNC_THRESHOLD {
+                // Local user scrolled — push the new position to the shared signal
+                // so the other window (presenter console or presentation) picks it up
+                last_pos = dom_pos;
+                if (signal_pos - dom_pos).abs() > SCROLL_SYNC_THRESHOLD {
+                    if let Some(first) = shared.write().first_mut() {
+                        first.markdown_scroll_position = dom_pos;
+                    }
+                }
+            } else if (signal_pos - last_pos).abs() > SCROLL_SYNC_THRESHOLD {
+                // Remote scroll detected (the other window updated the signal) —
+                // apply the new scroll position to this window's DOM
+                last_pos = signal_pos;
+                let js = format!(
+                    r#"
+                    var el = document.querySelector('.markdown-slide');
+                    if (el) {{ el.scrollTop = {}; }}
+                    "#,
+                    signal_pos
+                );
+                let _ = document::eval(&js).await;
+            }
+        }
     });
 
     rsx! {
         div {
             class: "markdown-slide",
-            style: "overflow-y: auto; max-height: 100%; padding: 1em 2em;",
-            onscroll: move |_| {
-                spawn(async move {
-                    let js = r#"
-                        var el = document.querySelector('.markdown-slide');
-                        el ? el.scrollTop : 0
-                    "#;
-                    if let Ok(val) = document::eval(js).await {
-                        if let Ok(pos) = val.to_string().parse::<f64>() {
-                            let current = running_presentation.read().markdown_scroll_position;
-                            if (current - pos).abs() > SCROLL_SYNC_THRESHOLD {
-                                running_presentation.write().markdown_scroll_position = pos;
-                            }
-                        }
-                    }
-                });
-            },
+            style: format!("overflow-y: auto; max-height: 100%; padding: 1em 2em; box-sizing: border-box; {}", font_css).to_string(),
             dangerous_inner_html: html_content
         }
     }
@@ -871,6 +1048,7 @@ pub fn StaticSlideRendererComponent(
 
     let css_handler = {
         let mut css = CssHandler::new();
+        css.set_important(true);
         css.background_color(pds.background_color);
         css.padding_left(pds.padding.left.clone());
         css.padding_right(pds.padding.right.clone());
@@ -890,6 +1068,7 @@ pub fn StaticSlideRendererComponent(
 
     let background_css = {
         let mut css = CssHandler::new();
+        css.set_important(true);
         if let Some(ref image) = pds.background_image {
             css.background_image(image.as_source().path.to_str().unwrap_or_default());
             css.background_size("cover");
@@ -904,11 +1083,7 @@ pub fn StaticSlideRendererComponent(
     };
 
     let slide_content = slide.slide_content;
-    let container_style = if matches!(slide_content, SlideContent::SimplePicture(_)) {
-        "height: 100%;"
-    } else {
-        ""
-    };
+    let container_style = slide_container_style(&slide_content);
 
     rsx! {
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
@@ -923,45 +1098,9 @@ pub fn StaticSlideRendererComponent(
             div {
                 class: "slide-container",
                 style: "{container_style}",
-                {
-                    match slide_content {
-                        SlideContent::Title(title_slide) => rsx! {
-                            TitleSlideComponent {
-                                title_slide: title_slide.clone(),
-                                title_font_representation: pds.get_default_headline_font()
-                            }
-                        },
-                        SlideContent::SingleLanguageMainContent(main_slide) => {
-                            let text = main_slide.clone().main_text();
-                            if let Some(html) = get_markdown_html(&text) {
-                                let html_owned = html.to_string();
-                                rsx! {
-                                    div {
-                                        class: "markdown-slide",
-                                        dangerous_inner_html: html_owned
-                                    }
-                                }
-                            } else {
-                                rsx! {
-                                    SingleLanguageMainContentSlideRenderer {
-                                        main_slide: main_slide.clone(),
-                                        main_content_font: pds.get_default_font(),
-                                        spoiler_content_font: pds.get_default_spoiler_font(),
-                                        distance: pds.main_content_spoiler_content_padding.clone(),
-                                    }
-                                }
-                            }
-                        },
-                        SlideContent::Empty(_empty_slide) => rsx! {
-                            EmptySlideComponent {}
-                        },
-                        SlideContent::SimplePicture(picture_slide) => rsx! {
-                            SimplePictureSlideComponent {
-                                picture_slide: picture_slide.clone()
-                            }
-                        },
-                        _ => rsx! { p { "No content provided" } }
-                    }
+                SlideContentRenderer {
+                    slide_content: slide_content,
+                    pds: pds,
                 }
             }
         }
