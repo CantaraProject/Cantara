@@ -343,7 +343,7 @@ pub fn Selection() -> Element {
                 ondrop: move |event: DragEvent| async move {
                     event.prevent_default();
                     drag_over_source.set(false);
-                    process_dropped_files(event, source_files).await;
+                    process_dropped_files(event, source_files, selected_items).await;
                 },
                 onmounted: move |_| async move {
                     // Initialize layout sizing and swipe listeners once the component is mounted.
@@ -391,7 +391,7 @@ pub fn Selection() -> Element {
                             // also process these files.
                             event.stop_propagation();
                             drag_over_source.set(false);
-                            process_dropped_files(event, source_files).await;
+                            process_dropped_files(event, source_files, selected_items).await;
                         },
                         SelectionFilterSideBar {
                             active_selection: active_selection_filter
@@ -1165,14 +1165,19 @@ fn SourceDetailView(
     }
 }
 
-/// Processes files dropped into the source files drop zone.
-/// For each dropped file with a supported type, creates a temporary [SourceFile]
-/// and adds it to `source_files`. The file is not added to any repository.
+/// Processes files dropped anywhere in the selection page.
+/// For each dropped file with a supported type, creates a temporary [SourceFile],
+/// adds it to `source_files`, and immediately adds it to `selected_items`.
+/// The file is not added to any repository.
 ///
 /// - On desktop targets: the actual filesystem path is used directly.
 /// - On WASM targets: the file content is stored in the in-memory VFS
 ///   under a `drop://` prefix so the presentation renderer can access it.
-async fn process_dropped_files(event: DragEvent, mut source_files: Signal<Vec<SourceFile>>) {
+async fn process_dropped_files(
+    event: DragEvent,
+    mut source_files: Signal<Vec<SourceFile>>,
+    mut selected_items: Signal<Vec<SelectedItemRepresentation>>,
+) {
     let files = event.data().files();
     for file_data in files {
         let file_name = file_data.name();
@@ -1228,6 +1233,7 @@ async fn process_dropped_files(event: DragEvent, mut source_files: Signal<Vec<So
                 file_type,
                 md5_hash,
             };
+            selected_items.write().push(SelectedItemRepresentation::new_with_sourcefile(sf.clone()));
             source_files.write().push(sf);
         }
 
@@ -1240,6 +1246,7 @@ async fn process_dropped_files(event: DragEvent, mut source_files: Signal<Vec<So
                 file_type,
                 md5_hash,
             };
+            selected_items.write().push(SelectedItemRepresentation::new_with_sourcefile(sf.clone()));
             source_files.write().push(sf);
         }
     }
