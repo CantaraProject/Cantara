@@ -101,70 +101,120 @@ pub fn PresentationPage() -> Element {
         running_presentations.write().clear();
     });
 
-    // Sync changes from the shared signal into the local signal (e.g. from presenter console)
-    // Also close/navigate back if the presentation was ended (signal cleared).
+    // ── Desktop: polling-based bidirectional sync ──────────────────────────
+    //
+    // On desktop, each window runs a separate VirtualDom instance. Dioxus
+    // reactive primitives (use_effect, Signal subscriptions) only fire within
+    // a single VirtualDom, so they CANNOT propagate changes across windows.
+    //
+    // A previous approach used reactive use_effect hooks alongside a polling
+    // loop, but this caused race conditions: when the other window updated the
+    // shared signal, the reactive local→shared effect would re-fire, read the
+    // stale local value, and overwrite the shared signal — reverting the slide
+    // change. The fix is to use a SINGLE polling loop as the sole sync
+    // mechanism on desktop, with no reactive effects involved.
+    //
+    // The loop runs every 50ms and tracks both sides independently:
+    //
+    //   last_seen_shared  — snapshot of the shared signal from the previous tick.
+    //                       When this differs from the current shared value, the
+    //                       OTHER window must have pushed an update → pull it
+    //                       into the local signal.
+    //
+    //   last_seen_local   — snapshot of the local signal from the previous tick.
+    //                       When this differs from the current local value, THIS
+    //                       window's user action caused a change → push it to
+    //                       the shared signal.
+    //
+    // The shared-changed branch is checked FIRST (higher priority), so incoming
+    // slide changes from the presenter console are never overwritten by a stale
+    // local push.
+    //
+    // All comparisons use `eq_ignoring_scroll` to exclude the
+    // `markdown_scroll_position` field, which is synced independently by
+    // `MarkdownSlideComponent`. This prevents scroll position updates from
+    // triggering full component re-renders or interfering with slide navigation.
+    //
+    // The loop also monitors whether the shared signal was cleared (presentation
+    // ended) and closes the window in that case.
+    #[cfg(feature = "desktop")]
+    use_future(move || async move {
+        let mut last_seen_shared = running_presentations.peek()
+            .first().cloned().unwrap_or_else(|| running_presentation.peek().clone());
+        let mut last_seen_local = running_presentation.peek().clone();
+
+        loop {
+            let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
+
+            // Presentation ended (signal cleared by use_drop) → close window
+            if running_presentations.peek().is_empty() {
+                dioxus::desktop::window().close();
+                return;
+            }
+
+            let current_shared = running_presentations.peek()
+                .first().cloned();
+            let current_local = running_presentation.peek().clone();
+
+            if let Some(ref shared_rp) = current_shared {
+                // Shared signal changed (other window pushed an update) → pull into local
+                if !shared_rp.eq_ignoring_scroll(&last_seen_shared) {
+                    last_seen_shared = shared_rp.clone();
+                    if !shared_rp.eq_ignoring_scroll(&current_local) {
+                        last_seen_local = shared_rp.clone();
+                        running_presentation.set(shared_rp.clone());
+                    }
+                }
+                // Local signal changed (this window's user action) → push to shared
+                else if !current_local.eq_ignoring_scroll(&last_seen_local) {
+                    last_seen_local = current_local.clone();
+                    if !current_local.eq_ignoring_scroll(shared_rp) {
+                        last_seen_shared = current_local.clone();
+                        if let Some(first) = running_presentations.write().first_mut() {
+                            *first = current_local;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // ── Web: reactive bidirectional sync ─────────────────────────────────
+    //
+    // On the web there is only a single VirtualDom, so reactive use_effect
+    // hooks work correctly and no polling is needed.
+
+    // shared→local: propagate changes from the shared signal (e.g. from the
+    // synced presenter console tab) into the local signal. Also navigates
+    // back to selection if the presentation was ended.
+    #[cfg(not(feature = "desktop"))]
     use_effect(move || {
         let current = running_presentations.read();
         if current.is_empty() {
-            #[cfg(feature = "desktop")]
-            dioxus::desktop::window().close();
-            // On web, navigate back if routed
-            #[cfg(not(feature = "desktop"))]
             if is_routed {
                 nav.replace(crate::Route::Selection {});
             }
             return;
         }
         if let Some(rp) = current.first() {
-            if *rp != *running_presentation.peek() {
+            if !rp.eq_ignoring_scroll(&running_presentation.peek()) {
                 running_presentation.set(rp.clone());
             }
         }
     });
 
-    // On desktop, reactive signal notifications may not propagate across separate
-    // VirtualDom instances (windows). Poll the shared signal as a reliable fallback
-    // so that changes from the presenter console are always picked up.
-    #[cfg(feature = "desktop")]
-    use_future(move || async move {
-        loop {
-            let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
-            let shared = running_presentations.peek();
-            if let Some(rp) = shared.first() {
-                if *rp != *running_presentation.peek() {
-                    let rp = rp.clone();
-                    drop(shared);
-                    running_presentation.set(rp);
-                }
-            }
-        }
-    });
-
-    // Sync changes from this window back to the shared signal
+    // local→shared: push local changes (e.g. user clicked next slide) back
+    // to the shared signal. Uses .peek() for the shared read to avoid
+    // subscribing to it (only local changes should trigger this effect).
+    #[cfg(not(feature = "desktop"))]
     use_effect(move || {
         let local = running_presentation.read().clone();
-        let mut shared = running_presentations.write();
-        if let Some(first) = shared.first_mut() {
-            if *first != local {
-                *first = local;
-            }
-        }
-    });
-
-    // Polling fallback for local→shared sync (the use_effect above may not
-    // re-run when signal writes come from async use_future tasks).
-    #[cfg(feature = "desktop")]
-    use_future(move || async move {
-        loop {
-            let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
-            let local = running_presentation.peek().clone();
-            let shared = running_presentations.peek();
-            if let Some(first) = shared.first() {
-                if *first != local {
-                    drop(shared);
-                    if let Some(first) = running_presentations.write().first_mut() {
-                        *first = local;
-                    }
+        let shared = running_presentations.peek();
+        if let Some(first) = shared.first() {
+            if !first.eq_ignoring_scroll(&local) {
+                drop(shared);
+                if let Some(first) = running_presentations.write().first_mut() {
+                    *first = local;
                 }
             }
         }
@@ -832,16 +882,36 @@ fn MarkdownSlideComponent(
     // Reads/writes the shared context signal directly, bypassing local signal chains,
     // because reactive use_effect subscriptions don't reliably wake other windows'
     // event loops in Dioxus desktop (each window runs a separate VirtualDom).
+    //
+    // The loop captures the slide position at mount time and exits immediately if the
+    // position changes (i.e. slide change). This ensures scroll sync never interferes
+    // with slide navigation — slide changes always take priority.
     use_future(move || async move {
         // No sync needed for static thumbnails
         if running_presentation.is_none() { return; }
-        // Track the last position we acted on to detect changes from either side
+
+        // Capture the slide position when this component was mounted.
+        // If the position changes, we must stop immediately — the component will
+        // be unmounted/recreated for the new slide anyway.
+        let initial_position = shared.peek()
+            .first()
+            .and_then(|rp| rp.position.clone());
+
         let mut last_pos: f64 = 0.0;
         loop {
             // Sleep using a JS-level await to keep the WebView event loop alive.
             // A Rust-side sleep (tokio/async_std) would not pump the WebView.
             let js_sleep = format!("await new Promise(r => setTimeout(r, {POLL_MS}))");
             let _ = document::eval(&js_sleep).await;
+
+            // Check if the slide position changed — if so, stop this loop immediately.
+            // Slide changes must never be interfered with by scroll sync writes.
+            let current_position = shared.peek()
+                .first()
+                .and_then(|rp| rp.position.clone());
+            if current_position != initial_position {
+                break;
+            }
 
             // Read the current DOM scroll position via JS eval.
             // Note: Dioxus 0.7 desktop eval requires an explicit `return` inside an
