@@ -702,10 +702,8 @@ fn SlideContentRenderer(
         },
         SlideContent::SingleLanguageMainContent(main_slide) => {
             let text = main_slide.clone().main_text();
-            println!("[SlideContentRenderer] text starts_with md prefix: {}, running_presentation.is_some(): {}", text.starts_with("<!--md-->"), running_presentation.is_some());
             if let Some(html) = get_markdown_html(&text) {
                 let html_owned = html.to_string();
-                println!("[SlideContentRenderer] Rendering MarkdownSlideComponent, html len={}", html_owned.len());
                 rsx! {
                     MarkdownSlideComponent {
                         html_content: html_owned,
@@ -779,9 +777,32 @@ fn inject_css_into_html_elements(html: &str, css_style: &CssHandler) -> String {
 }
 
 /// A component for rendering a Markdown slide with scrollable content.
-/// When `running_presentation` is provided, the scroll position is synchronized
-/// via the signal (used in the interactive presentation). When `None`, scroll
-/// sync is disabled (used in static thumbnails).
+///
+/// The HTML content (already converted from Markdown) is displayed inside a scrollable
+/// container. Font colors are injected into all HTML elements via inline CSS to override
+/// PicoCSS defaults.
+///
+/// ## Scroll synchronization
+///
+/// When `running_presentation` is `Some`, a bidirectional scroll sync polling loop runs
+/// to keep the scroll position consistent between the presentation window and the
+/// presenter console preview. The mechanism works as follows:
+///
+/// - Both windows (presentation and presenter console) share the same
+///   `Signal<Vec<RunningPresentation>>` context handle. Writes from one window are
+///   immediately visible to `.peek()` in the other.
+/// - Every 50ms, the loop reads the DOM `scrollTop` of the `.markdown-slide` element
+///   and compares it against the last known position:
+///   - **Local scroll detected** (DOM changed): the new position is written to the
+///     shared signal's `markdown_scroll_position` field, so the other window picks it up.
+///   - **Remote scroll detected** (signal changed): the DOM `scrollTop` is updated via
+///     JavaScript to match the signal value.
+/// - A threshold of 2px prevents feedback loops between the two directions.
+/// - DOM values are read via `document::eval` with an explicit `return` inside an IIFE,
+///   which is required by Dioxus 0.7's desktop eval to propagate return values to Rust.
+///
+/// When `running_presentation` is `None` (used in static grid thumbnails), the polling
+/// loop exits immediately and no synchronization takes place.
 #[component]
 fn MarkdownSlideComponent(
     html_content: String,
@@ -806,68 +827,66 @@ fn MarkdownSlideComponent(
 
     let html_content = inject_css_into_html_elements(&html_content, &html_content_css);
 
-    // Bidirectional scroll sync via a single polling loop that reads/writes
-    // the shared context signal directly (bypassing local signal chains).
+    // Bidirectional scroll sync polling loop. Runs only when running_presentation
+    // is Some (i.e. in the interactive presentation/preview, not in static thumbnails).
+    // Reads/writes the shared context signal directly, bypassing local signal chains,
+    // because reactive use_effect subscriptions don't reliably wake other windows'
+    // event loops in Dioxus desktop (each window runs a separate VirtualDom).
     use_future(move || async move {
-        println!("[MarkdownScroll] use_future ENTERED, running_presentation.is_some()={}", running_presentation.is_some());
+        // No sync needed for static thumbnails
         if running_presentation.is_none() { return; }
-        println!("[MarkdownScroll] Starting polling loop, shared vec len={}", shared.peek().len());
+        // Track the last position we acted on to detect changes from either side
         let mut last_pos: f64 = 0.0;
         loop {
+            // Sleep using a JS-level await to keep the WebView event loop alive.
+            // A Rust-side sleep (tokio/async_std) would not pump the WebView.
             let js_sleep = format!("await new Promise(r => setTimeout(r, {POLL_MS}))");
             let _ = document::eval(&js_sleep).await;
 
-            // 1. Read current DOM scroll position
+            // Read the current DOM scroll position via JS eval.
+            // Note: Dioxus 0.7 desktop eval requires an explicit `return` inside an
+            // IIFE to propagate values back to Rust — a bare expression returns null.
             let dom_pos = {
                 let js = r#"
-                    var el = document.querySelector('.markdown-slide');
-                    el ? el.scrollTop : -1
+                    return (function() {
+                        var el = document.querySelector('.markdown-slide');
+                        return el ? el.scrollTop : -1;
+                    })();
                 "#;
-                match document::eval(js).await {
-                    Ok(val) => {
-                        let s = val.to_string();
-                        s.parse::<f64>().unwrap_or(-1.0)
-                    },
-                    Err(e) => {
-                        println!("[MarkdownScroll] eval error: {:?}", e);
-                        -1.0
-                    },
-                }
+                document::eval(js).await.ok()
+                    .and_then(|val| val.as_f64())
+                    .unwrap_or(-1.0)
             };
+            // Element not yet in the DOM (e.g. during initial render); retry next tick
             if dom_pos < 0.0 {
-                println!("[MarkdownScroll] element not found, dom_pos={dom_pos}");
                 continue;
             }
 
-            // 2. Read shared signal's scroll position (peek = no subscription)
+            // Read the shared signal without subscribing (peek avoids triggering re-renders)
             let signal_pos = shared.peek()
                 .first()
                 .map(|rp| rp.markdown_scroll_position)
                 .unwrap_or(0.0);
 
-            // DEBUG: trace the values
-            println!("[MarkdownScroll] dom_pos={dom_pos:.1} signal_pos={signal_pos:.1} last_pos={last_pos:.1}");
-
             if (dom_pos - last_pos).abs() > SCROLL_SYNC_THRESHOLD {
-                // Local scroll happened → push directly to shared signal
+                // Local user scrolled — push the new position to the shared signal
+                // so the other window (presenter console or presentation) picks it up
                 last_pos = dom_pos;
                 if (signal_pos - dom_pos).abs() > SCROLL_SYNC_THRESHOLD {
-                    println!("[MarkdownScroll] WRITING dom_pos={dom_pos:.1} to shared signal");
                     if let Some(first) = shared.write().first_mut() {
                         first.markdown_scroll_position = dom_pos;
                     }
                 }
             } else if (signal_pos - last_pos).abs() > SCROLL_SYNC_THRESHOLD {
-                // Remote change → apply to DOM
-                println!("[MarkdownScroll] APPLYING signal_pos={signal_pos:.1} to DOM");
+                // Remote scroll detected (the other window updated the signal) —
+                // apply the new scroll position to this window's DOM
                 last_pos = signal_pos;
-                let pos_json = serde_json::to_string(&signal_pos)
-                    .unwrap_or_else(|_| "0".to_string());
                 let js = format!(
                     r#"
                     var el = document.querySelector('.markdown-slide');
-                    if (el) {{ el.scrollTop = {pos_json}; }}
-                    "#
+                    if (el) {{ el.scrollTop = {}; }}
+                    "#,
+                    signal_pos
                 );
                 let _ = document::eval(&js).await;
             }
