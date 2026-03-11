@@ -67,6 +67,24 @@ pub fn PresenterConsolePage() -> Element {
         }
     });
 
+    // On desktop, reactive signal notifications may not propagate across separate
+    // VirtualDom instances (windows). Poll the shared signal as a reliable fallback
+    // so that changes from the presentation window are always picked up.
+    #[cfg(feature = "desktop")]
+    use_future(move || async move {
+        loop {
+            let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
+            let shared = running_presentations.peek();
+            if let Some(rp) = shared.first() {
+                if *rp != *running_presentation.peek() {
+                    let rp = rp.clone();
+                    drop(shared);
+                    running_presentation.set(rp);
+                }
+            }
+        }
+    });
+
     // Sync changes from presenter console back to the shared signal
     use_effect(move || {
         let local = running_presentation.read().clone();
@@ -74,6 +92,25 @@ pub fn PresenterConsolePage() -> Element {
         if let Some(first) = shared.first_mut() {
             if *first != local {
                 *first = local;
+            }
+        }
+    });
+
+    // Polling fallback for local→shared sync (the use_effect above may not
+    // re-run when signal writes come from async use_future tasks).
+    #[cfg(feature = "desktop")]
+    use_future(move || async move {
+        loop {
+            let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
+            let local = running_presentation.peek().clone();
+            let shared = running_presentations.peek();
+            if let Some(first) = shared.first() {
+                if *first != local {
+                    drop(shared);
+                    if let Some(first) = running_presentations.write().first_mut() {
+                        *first = local;
+                    }
+                }
             }
         }
     });

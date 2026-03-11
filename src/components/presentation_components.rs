@@ -122,6 +122,24 @@ pub fn PresentationPage() -> Element {
         }
     });
 
+    // On desktop, reactive signal notifications may not propagate across separate
+    // VirtualDom instances (windows). Poll the shared signal as a reliable fallback
+    // so that changes from the presenter console are always picked up.
+    #[cfg(feature = "desktop")]
+    use_future(move || async move {
+        loop {
+            let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
+            let shared = running_presentations.peek();
+            if let Some(rp) = shared.first() {
+                if *rp != *running_presentation.peek() {
+                    let rp = rp.clone();
+                    drop(shared);
+                    running_presentation.set(rp);
+                }
+            }
+        }
+    });
+
     // Sync changes from this window back to the shared signal
     use_effect(move || {
         let local = running_presentation.read().clone();
@@ -129,6 +147,25 @@ pub fn PresentationPage() -> Element {
         if let Some(first) = shared.first_mut() {
             if *first != local {
                 *first = local;
+            }
+        }
+    });
+
+    // Polling fallback for local→shared sync (the use_effect above may not
+    // re-run when signal writes come from async use_future tasks).
+    #[cfg(feature = "desktop")]
+    use_future(move || async move {
+        loop {
+            let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
+            let local = running_presentation.peek().clone();
+            let shared = running_presentations.peek();
+            if let Some(first) = shared.first() {
+                if *first != local {
+                    drop(shared);
+                    if let Some(first) = running_presentations.write().first_mut() {
+                        *first = local;
+                    }
+                }
             }
         }
     });
@@ -665,8 +702,10 @@ fn SlideContentRenderer(
         },
         SlideContent::SingleLanguageMainContent(main_slide) => {
             let text = main_slide.clone().main_text();
+            println!("[SlideContentRenderer] text starts_with md prefix: {}, running_presentation.is_some(): {}", text.starts_with("<!--md-->"), running_presentation.is_some());
             if let Some(html) = get_markdown_html(&text) {
                 let html_owned = html.to_string();
+                println!("[SlideContentRenderer] Rendering MarkdownSlideComponent, html len={}", html_owned.len());
                 rsx! {
                     MarkdownSlideComponent {
                         html_content: html_owned,
@@ -751,6 +790,13 @@ fn MarkdownSlideComponent(
 ) -> Element {
     /// Minimum pixel difference to trigger a scroll position sync update
     const SCROLL_SYNC_THRESHOLD: f64 = 2.0;
+    /// Polling interval in milliseconds
+    const POLL_MS: u32 = 50;
+
+    // Access the shared context signal directly — both windows (presentation
+    // and presenter console) share the exact same Signal handle, so writes
+    // from one window are immediately visible to .peek() in the other.
+    let mut shared: Signal<Vec<RunningPresentation>> = use_context();
 
     let font_css = markdown_font_css(main_content_font.clone());
 
@@ -760,27 +806,71 @@ fn MarkdownSlideComponent(
 
     let html_content = inject_css_into_html_elements(&html_content, &html_content_css);
 
-    // Poll-based scroll sync: periodically read the signal and apply the scroll
-    // position to the DOM. This is needed because on desktop, the presentation
-    // and presenter console run in separate VirtualDom instances (separate windows),
-    // and reactive signal notifications may not wake the other window's event loop.
-    // The polling timer keeps the event loop active, ensuring reliable cross-window sync.
+    // Bidirectional scroll sync via a single polling loop that reads/writes
+    // the shared context signal directly (bypassing local signal chains).
     use_future(move || async move {
-        let Some(rp_signal) = running_presentation else { return };
+        println!("[MarkdownScroll] use_future ENTERED, running_presentation.is_some()={}", running_presentation.is_some());
+        if running_presentation.is_none() { return; }
+        println!("[MarkdownScroll] Starting polling loop, shared vec len={}", shared.peek().len());
+        let mut last_pos: f64 = 0.0;
         loop {
-            let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
-            let pos = rp_signal.read().markdown_scroll_position;
-            let pos_json = serde_json::to_string(&pos).unwrap_or_else(|_| "0".to_string());
-            let threshold = SCROLL_SYNC_THRESHOLD;
-            let js = format!(
-                r#"
-                var el = document.querySelector('.markdown-slide');
-                if (el && Math.abs(el.scrollTop - {pos_json}) > {threshold}) {{
-                    el.scrollTop = {pos_json};
-                }}
-                "#
-            );
-            let _ = document::eval(&js).await;
+            let js_sleep = format!("await new Promise(r => setTimeout(r, {POLL_MS}))");
+            let _ = document::eval(&js_sleep).await;
+
+            // 1. Read current DOM scroll position
+            let dom_pos = {
+                let js = r#"
+                    var el = document.querySelector('.markdown-slide');
+                    el ? el.scrollTop : -1
+                "#;
+                match document::eval(js).await {
+                    Ok(val) => {
+                        let s = val.to_string();
+                        s.parse::<f64>().unwrap_or(-1.0)
+                    },
+                    Err(e) => {
+                        println!("[MarkdownScroll] eval error: {:?}", e);
+                        -1.0
+                    },
+                }
+            };
+            if dom_pos < 0.0 {
+                println!("[MarkdownScroll] element not found, dom_pos={dom_pos}");
+                continue;
+            }
+
+            // 2. Read shared signal's scroll position (peek = no subscription)
+            let signal_pos = shared.peek()
+                .first()
+                .map(|rp| rp.markdown_scroll_position)
+                .unwrap_or(0.0);
+
+            // DEBUG: trace the values
+            println!("[MarkdownScroll] dom_pos={dom_pos:.1} signal_pos={signal_pos:.1} last_pos={last_pos:.1}");
+
+            if (dom_pos - last_pos).abs() > SCROLL_SYNC_THRESHOLD {
+                // Local scroll happened → push directly to shared signal
+                last_pos = dom_pos;
+                if (signal_pos - dom_pos).abs() > SCROLL_SYNC_THRESHOLD {
+                    println!("[MarkdownScroll] WRITING dom_pos={dom_pos:.1} to shared signal");
+                    if let Some(first) = shared.write().first_mut() {
+                        first.markdown_scroll_position = dom_pos;
+                    }
+                }
+            } else if (signal_pos - last_pos).abs() > SCROLL_SYNC_THRESHOLD {
+                // Remote change → apply to DOM
+                println!("[MarkdownScroll] APPLYING signal_pos={signal_pos:.1} to DOM");
+                last_pos = signal_pos;
+                let pos_json = serde_json::to_string(&signal_pos)
+                    .unwrap_or_else(|_| "0".to_string());
+                let js = format!(
+                    r#"
+                    var el = document.querySelector('.markdown-slide');
+                    if (el) {{ el.scrollTop = {pos_json}; }}
+                    "#
+                );
+                let _ = document::eval(&js).await;
+            }
         }
     });
 
@@ -788,24 +878,6 @@ fn MarkdownSlideComponent(
         div {
             class: "markdown-slide",
             style: format!("overflow-y: auto; max-height: 100%; padding: 1em 2em; box-sizing: border-box; {}", font_css).to_string(),
-            onscroll: move |_| {
-                if let Some(mut running_presentation) = running_presentation {
-                    spawn(async move {
-                        let js = r#"
-                            var el = document.querySelector('.markdown-slide');
-                            el ? el.scrollTop : 0
-                        "#;
-                        if let Ok(val) = document::eval(js).await {
-                            if let Ok(pos) = val.to_string().parse::<f64>() {
-                                let current = running_presentation.read().markdown_scroll_position;
-                                if (current - pos).abs() > SCROLL_SYNC_THRESHOLD {
-                                    running_presentation.write().markdown_scroll_position = pos;
-                                }
-                            }
-                        }
-                    });
-                }
-            },
             dangerous_inner_html: html_content
         }
     }
