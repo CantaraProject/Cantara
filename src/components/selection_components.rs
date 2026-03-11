@@ -283,6 +283,7 @@ pub fn Selection() -> Element {
     });
 
 
+    rsx! {
         div {
             class: "wrapper",
             style: "position: relative;",
