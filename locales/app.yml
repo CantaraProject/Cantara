@@ -9,6 +9,15 @@ selection:
   export:
     en: Export...
     de: Exportieren...
+  drag_drop_hint:
+    en: "Drag & drop supported files here to add them temporarily"
+    de: "Unterstützte Dateien hier hineinziehen, um sie temporär hinzuzufügen"
+  drag_drop_active:
+    en: "Drop files here"
+    de: "Dateien hier ablegen"
+  drag_drop_unsupported:
+    en: "Unsupported file type"
+    de: "Nicht unterstützter Dateityp"
   detail_view:
     en: Detail View...
     de: Detailansicht
