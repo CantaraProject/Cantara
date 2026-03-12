@@ -143,9 +143,18 @@ pub fn PresenterConsolePage() -> Element {
         let shared = running_presentations.peek();
         if let Some(first) = shared.first() {
             if !first.eq_ignoring_scroll(&local) {
+                // We are about to push non-scroll changes from `local` into the
+                // shared signal. However, scroll synchronization writes directly
+                // to the shared signal, and `eq_ignoring_scroll` prevents scroll-
+                // only updates from being reflected in `running_presentation`.
+                // To avoid overwriting a newer shared scroll position with a
+                // stale local one, preserve the shared `markdown_scroll_position`
+                // when applying the update.
                 drop(shared);
                 if let Some(first) = running_presentations.write().first_mut() {
-                    *first = local;
+                    let mut merged = local.clone();
+                    merged.markdown_scroll_position = first.markdown_scroll_position;
+                    *first = merged;
                 }
             }
         }
