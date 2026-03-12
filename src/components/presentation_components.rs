@@ -169,9 +169,12 @@ pub fn PresentationPage() -> Element {
                 else if !current_local.eq_ignoring_scroll(&last_seen_local) {
                     last_seen_local = current_local.clone();
                     if !current_local.eq_ignoring_scroll(shared_rp) {
-                        last_seen_shared = current_local.clone();
+                        // Merge local non-scroll changes with the current shared scroll position
+                        let mut merged = current_local.clone();
+                        merged.markdown_scroll_position = shared_rp.markdown_scroll_position;
+                        last_seen_shared = merged.clone();
                         if let Some(first) = running_presentations.write().first_mut() {
-                            *first = current_local;
+                            *first = merged;
                         }
                     }
                 }
