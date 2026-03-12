@@ -100,7 +100,11 @@ pub fn PresenterConsolePage() -> Element {
                     if !current_local.eq_ignoring_scroll(shared_rp) {
                         last_seen_shared = current_local.clone();
                         if let Some(first) = running_presentations.write().first_mut() {
+                            // Preserve the shared scroll position to avoid clobbering
+                            // scroll-sync updates with potentially stale local state.
+                            let preserved_scroll = first.markdown_scroll_position;
                             *first = current_local;
+                            first.markdown_scroll_position = preserved_scroll;
                         }
                     }
                 }
