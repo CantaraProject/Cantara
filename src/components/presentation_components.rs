@@ -217,7 +217,12 @@ pub fn PresentationPage() -> Element {
             if !first.eq_ignoring_scroll(&local) {
                 drop(shared);
                 if let Some(first) = running_presentations.write().first_mut() {
-                    *first = local;
+                    // Merge local changes into the shared state, but preserve the
+                    // shared markdown_scroll_position to avoid overwriting a newer
+                    // scroll value with a stale local one.
+                    let mut merged = local;
+                    merged.markdown_scroll_position = first.markdown_scroll_position;
+                    *first = merged;
                 }
             }
         }
