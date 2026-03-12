@@ -1332,6 +1332,12 @@ fn start_presentation(
             presentation_dom,
             Config::new()
                 .with_menu(None)
+                // Disable the OS-level drag-drop handler for the presentation window.
+                // Files should only be dropped onto the selection window, not the
+                // presentation window. On Windows, receiving drag-drop events in the
+                // presentation window can cause unexpected VirtualDom teardown and
+                // signal access errors.
+                .with_disable_drag_drop_handler(true)
                 .with_window(presentation_window_builder),
         );
 
@@ -1373,6 +1379,9 @@ fn start_presentation(
                     console_dom,
                     Config::new()
                         .with_menu(None)
+                        // Disable the OS-level drag-drop handler for the presenter console
+                        // window for the same reason as the presentation window.
+                        .with_disable_drag_drop_handler(true)
                         .with_window(console_window_builder),
                 );
             }

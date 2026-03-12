@@ -97,8 +97,14 @@ pub fn PresentationPage() -> Element {
 
     // When this window/component is destroyed (e.g. user closes the window),
     // clear the shared running presentations so the presenter console also closes.
+    // Use try_write() instead of write() to avoid a panic when the owning scope
+    // (the main window's App component) has already been dropped before this
+    // use_drop callback fires — which can happen on Windows when a drag-drop
+    // event triggers an unexpected teardown sequence.
     use_drop(move || {
-        running_presentations.write().clear();
+        if let Ok(mut guard) = running_presentations.try_write() {
+            guard.clear();
+        }
     });
 
     // ── Desktop: polling-based bidirectional sync ──────────────────────────
