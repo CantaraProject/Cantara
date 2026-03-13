@@ -34,13 +34,10 @@ pub fn invalidate_search_cache() {
     }
 }
 
-/// Extracts plain text from a PDF file (non-WASM only).
-/// Returns all page texts concatenated, or None if extraction fails.
-#[cfg(not(target_arch = "wasm32"))]
-fn extract_pdf_text(path: &std::path::Path) -> Option<String> {
-    let doc = lopdf::Document::load(path).ok()?;
-    let pages = doc.get_pages();
-    let page_numbers: Vec<u32> = pages.keys().copied().collect();
+/// Shared helper: extracts all page texts from an already-loaded `lopdf::Document`.
+/// Returns the concatenated text, or `None` if no text could be extracted.
+fn extract_text_from_pdf_document(doc: &lopdf::Document) -> Option<String> {
+    let page_numbers: Vec<u32> = doc.get_pages().keys().copied().collect();
     let mut texts = Vec::new();
     for page_num in page_numbers {
         if let Ok(text) = doc.extract_text(&[page_num]) {
@@ -52,6 +49,14 @@ fn extract_pdf_text(path: &std::path::Path) -> Option<String> {
     } else {
         Some(texts.join("\n"))
     }
+}
+
+/// Extracts plain text from a PDF file (non-WASM only).
+/// Returns all page texts concatenated, or None if extraction fails.
+#[cfg(not(target_arch = "wasm32"))]
+fn extract_pdf_text(path: &std::path::Path) -> Option<String> {
+    let doc = lopdf::Document::load(path).ok()?;
+    extract_text_from_pdf_document(&doc)
 }
 
 /// Extracts plain text from a specific page of a PDF file (non-WASM only).
@@ -77,19 +82,7 @@ pub fn extract_pdf_page_text(path: &std::path::Path, page_number: u32) -> Option
 #[cfg(target_arch = "wasm32")]
 fn extract_pdf_text_from_bytes(bytes: &[u8]) -> Option<String> {
     let doc = lopdf::Document::load_mem(bytes).ok()?;
-    let pages = doc.get_pages();
-    let page_numbers: Vec<u32> = pages.keys().copied().collect();
-    let mut texts = Vec::new();
-    for page_num in page_numbers {
-        if let Ok(text) = doc.extract_text(&[page_num]) {
-            texts.push(text);
-        }
-    }
-    if texts.is_empty() {
-        None
-    } else {
-        Some(texts.join("\n"))
-    }
+    extract_text_from_pdf_document(&doc)
 }
 
 /// Extracts plain text from a specific page of a PDF stored in the web VFS (WASM only).
