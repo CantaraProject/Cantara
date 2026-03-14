@@ -599,7 +599,8 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
                 class: "presentation-preview",
                 style: format!("position: relative; width: {}px; height: {}px; border-radius: 4px; overflow: hidden; {}", native_w, native_h, zoom_css),
                 PresentationRendererComponent {
-                    running_presentation: running_presentation
+                    running_presentation: running_presentation,
+                    fire_timer: false,
                 }
             }
         }

@@ -113,6 +113,50 @@ pub fn default_sidebar_order() -> Vec<SelectionSidebarType> {
     ]
 }
 
+/// Specifies what happens after the last slide of a chapter when a timer is active.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default, Debug)]
+pub enum AfterLastSlide {
+    /// Go to the next slide in the next chapter (if available), default behavior.
+    #[default]
+    GoToNextChapter,
+    /// Restart from the first slide of the current chapter.
+    RestartCurrentChapter,
+}
+
+/// Settings for the automatic slide advance timer.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct SlideTimerSettings {
+    /// Number of seconds before automatically advancing to the next slide.
+    pub timer_seconds: u32,
+    /// What to do after reaching the last slide of the chapter.
+    pub after_last_slide: AfterLastSlide,
+}
+
+impl Default for SlideTimerSettings {
+    fn default() -> Self {
+        SlideTimerSettings {
+            timer_seconds: 5,
+            after_last_slide: AfterLastSlide::default(),
+        }
+    }
+}
+
+/// The transition effect to use between slides.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default, Debug)]
+pub enum SlideTransition {
+    /// No transition – slide appears instantly.
+    None,
+    /// Fade in (default, previously hardcoded).
+    #[default]
+    Fade,
+    /// Slide in from the right (new slide enters from right).
+    SlideFromRight,
+    /// Slide in from the left (new slide enters from left).
+    SlideFromLeft,
+    /// Zoom in from the center.
+    ZoomIn,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {

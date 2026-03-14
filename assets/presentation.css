@@ -73,6 +73,21 @@ html, body {
     animation: presentationFadeIn 400ms ease-in-out;
 }
 
+/* Slide in from right */
+.presentation-slide-from-right {
+    animation: presentationSlideFromRight 350ms ease-out;
+}
+
+/* Slide in from left */
+.presentation-slide-from-left {
+    animation: presentationSlideFromLeft 350ms ease-out;
+}
+
+/* Zoom in from center */
+.presentation-zoom-in {
+    animation: presentationZoomIn 400ms ease-out;
+}
+
 .slide-container {
     z-index: 2!important;
     width: 100%;
@@ -84,6 +99,39 @@ html, body {
         opacity: 0;
     }
     to {
+        opacity: 1;
+    }
+}
+
+@keyframes presentationSlideFromRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes presentationSlideFromLeft {
+    from {
+        transform: translateX(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes presentationZoomIn {
+    from {
+        transform: scale(0.85);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
         opacity: 1;
     }
 }

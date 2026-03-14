@@ -124,7 +124,8 @@ pub fn PresentationViewer(
             style: format!("position: relative; width: 1024px; height: 576px; {}", zoom_css),
             onclick: move |event| if let Some(onclick_event) = onclick { onclick_event.call(event) },
             PresentationRendererComponent {
-                running_presentation: presentation_signal
+                running_presentation: presentation_signal,
+                fire_timer: false,
             }
             if let Some(title) = title {
                 div {
