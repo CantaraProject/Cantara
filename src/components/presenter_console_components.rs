@@ -504,6 +504,63 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
     }
 }
 
+/// Async PDF page text extractor and renderer for the presenter console.
+///
+/// Extraction is performed asynchronously via `spawn` so it never blocks the UI thread on
+/// the initial render.  A "…" loading indicator is shown while extraction is in progress.
+/// Results come from `PDF_PAGE_CACHE` (keyed by path+page), so they are computed at most
+/// once per path+page combination across the lifetime of the process.
+///
+/// The component should be rendered with `key: "{path}#{page_number}"` so that Dioxus
+/// destroys and re-creates it (fresh state) whenever the active page changes.
+#[component]
+fn PdfPageTextContent(path: String, page_number: u32, page_info: String) -> Element {
+    // None           = extraction in progress (loading)
+    // Some(None)     = extraction returned no text
+    // Some(Some(s))  = extracted text is available
+    let mut pdf_text: Signal<Option<Option<String>>> = use_signal(|| None);
+
+    // Spawn the extraction once on mount.  The `key` prop on the call site ensures this
+    // component is re-created (and the effect re-runs) whenever path/page changes.
+    use_effect(move || {
+        let path_clone = path.clone();
+        spawn(async move {
+            #[cfg(not(target_arch = "wasm32"))]
+            let result = crate::logic::search::extract_pdf_page_text(
+                std::path::Path::new(&path_clone),
+                page_number,
+            );
+            #[cfg(target_arch = "wasm32")]
+            let result = crate::logic::settings::RepositoryType::web_read_file(&path_clone)
+                .and_then(|bytes| {
+                    crate::logic::search::extract_pdf_page_text_from_bytes(
+                        &bytes,
+                        page_number,
+                        &path_clone,
+                    )
+                });
+            pdf_text.set(Some(result));
+        });
+    });
+
+    rsx! {
+        div {
+            class: "slide-text-content",
+            em { "📄 {t!(\"general.pdf\")}{page_info}" }
+            match pdf_text() {
+                // Still loading
+                None => rsx! { p { em { "…" } } },
+                // Text extracted successfully
+                Some(Some(text)) if !text.trim().is_empty() => rsx! {
+                    p { { text.trim().to_string() } }
+                },
+                // No extractable text (or empty) — render nothing extra
+                _ => rsx! {}
+            }
+        }
+    }
+}
+
 /// Extracts and renders text from a slide for the presenter console text panel
 #[component]
 fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
@@ -560,28 +617,13 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
                     .unwrap_or(1);
                 let page_info = format!(" ({})", t!("general.pdf_page", page => page_number));
 
-                // Try to extract text from the PDF page
-                #[cfg(not(target_arch = "wasm32"))]
-                let pdf_text = crate::logic::search::extract_pdf_page_text(
-                    std::path::Path::new(base_path),
-                    page_number,
-                );
-                #[cfg(target_arch = "wasm32")]
-                let pdf_text = crate::logic::settings::RepositoryType::web_read_file(base_path)
-                    .and_then(|bytes| crate::logic::search::extract_pdf_page_text_from_bytes(&bytes, page_number, base_path));
-
+                // Render the async sub-component; keyed so it re-creates on slide change.
                 rsx! {
-                    div {
-                        class: "slide-text-content",
-                        em { "📄 {t!(\"general.pdf\")}{page_info}" }
-                        if let Some(text) = pdf_text {
-                            if !text.trim().is_empty() {
-                                p {
-                                    class: "slide-text-pdf",
-                                    { text.trim().to_string() }
-                                }
-                            }
-                        }
+                    PdfPageTextContent {
+                        key: "{base_path}#{page_number}",
+                        path: base_path.to_string(),
+                        page_number,
+                        page_info,
                     }
                 }
             } else {
