@@ -415,6 +415,11 @@ pub fn PresentationPage() -> Element {
 pub fn PresentationRendererComponent(
     /// The running presentation as a signal: This will be changed by the component if the user moves the current slide
     running_presentation: Signal<RunningPresentation>,
+    /// Whether this instance should fire the auto-advance timer.
+    /// Defaults to `true`. Set to `false` in secondary views (presenter console preview,
+    /// example viewer) so only the primary presentation window drives the timer.
+    #[props(default = true)]
+    fire_timer: bool,
 ) -> Element {
     let current_slide: Memo<Option<Slide>> =
         use_memo(move || running_presentation.read().get_current_slide());
@@ -458,11 +463,21 @@ pub fn PresentationRendererComponent(
     // most-recent timer fires – if the user (or a previous timer) navigated to
     // a new slide before the sleep completed, the old task detects the changed
     // generation and exits without advancing again.
+    //
+    // `fire_timer` is false in secondary views (presenter console preview, example
+    // viewer) so that only the primary presentation window drives the timer.
+    // Without this guard every window hosting a PresentationRendererComponent would
+    // independently advance the slide, causing slides to be skipped.
     let mut timer_generation: Signal<u64> = use_signal(|| 0);
 
     use_effect(move || {
         // Track slide changes by reading current_slide_number (subscribes to it)
         let _ = current_slide_number();
+
+        // Only the primary presentation window should fire the timer.
+        if !fire_timer {
+            return;
+        }
 
         // Increment the generation so any in-flight timer task will abort.
         let generation_id = {
