@@ -103,8 +103,10 @@ pub fn PresentationViewer(
     selected: Option<bool>,
     onclick: Option<EventHandler<MouseEvent>>,
 ) -> Element {
-    let scale_percentage = ((width as f64 / 1024.0) * 100.0).round();
-    let zoom_css = format!("zoom: {}%;", scale_percentage);
+    // Render at native presentation resolution and scale down to desired width
+    let (native_w, native_h) = presentation.presentation_resolution;
+    let zoom_factor = width as f64 / native_w as f64;
+    let zoom_css = format!("zoom: {};", zoom_factor);
     let css_class = selected.map_or("rounded-corners-inactive", |s| {
         if s {
             "rounded-corners-active"
@@ -121,7 +123,7 @@ pub fn PresentationViewer(
     rsx! {
         div {
             class: format!("{} presentation-preview inline-div", css_class),
-            style: format!("position: relative; width: 1024px; height: 576px; {}", zoom_css),
+            style: format!("position: relative; width: {}px; height: {}px; {}", native_w, native_h, zoom_css),
             onclick: move |event| if let Some(onclick_event) = onclick { onclick_event.call(event) },
             PresentationRendererComponent {
                 running_presentation: presentation_signal,
@@ -196,15 +198,17 @@ pub fn SelectedItemPreview(
 
     let total_slides = use_memo(move || presentation_signal.read().total_slides());
 
-    let scale_percentage = ((width as f64 / 1024.0) * 100.0).round();
-    let zoom_css = format!("zoom: {}%;", scale_percentage);
+    // Render at native presentation resolution and scale down to desired width
+    let (native_w, native_h) = presentation.presentation_resolution;
+    let zoom_factor = width as f64 / native_w as f64;
+    let zoom_css = format!("zoom: {};", zoom_factor);
 
     rsx! {
         div {
             class: "presentation-preview",
             style: format!(
-                "position: relative; width: 1024px; height: 576px; cursor: pointer; overflow: hidden; border-radius: 8px; {}",
-                zoom_css
+                "position: relative; width: {}px; height: {}px; cursor: pointer; overflow: hidden; border-radius: 8px; {}",
+                native_w, native_h, zoom_css
             ),
             PresentationRendererComponent {
                 running_presentation: presentation_signal,
