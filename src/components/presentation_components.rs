@@ -495,41 +495,9 @@ pub fn PresentationRendererComponent(
             spawn(async move {
                 // Sleep via JS setTimeout – works on both desktop (WebView) and web.
                 // A pure Rust sleep (tokio/async_std) does not pump the WebView event loop.
-                //
-                // To avoid accumulating many pending timeouts, we keep a single active JS
-                // timeout and cancel/resolve any previous one before scheduling a new timer.
-                let js_sleep = format!(
-                    r#"
-                        (async function(ms) {{
-                            // Cancel any previous timeout, if present.
-                            if (window.__slideTimerId !== undefined) {{
-                                clearTimeout(window.__slideTimerId);
-                                window.__slideTimerId = undefined;
-                            }}
-
-                            // Immediately resolve any previous pending sleep promise so that
-                            // older Rust tasks wake up and can observe the new generation.
-                            if (window.__slideTimerResolve) {{
-                                try {{
-                                    window.__slideTimerResolve();
-                                }} catch (e) {{
-                                    // Ignore errors from double-resolving, etc.
-                                }}
-                                window.__slideTimerResolve = undefined;
-                            }}
-
-                            // Create a new promise and associated timeout for this sleep.
-                            await new Promise(function(resolve) {{
-                                window.__slideTimerResolve = resolve;
-                                window.__slideTimerId = setTimeout(function() {{
-                                    window.__slideTimerId = undefined;
-                                    window.__slideTimerResolve = undefined;
-                                    resolve();
-                                }}, ms);
-                            }});
-                        }})({ms});
-                    "#
-                );
+                // The generation counter (checked below) is sufficient to prevent a stale
+                // sleeping task from advancing the slide after the user navigated away.
+                let js_sleep = format!("await new Promise(r => setTimeout(r, {ms}))");
                 let _ = document::eval(&js_sleep).await;
 
                 // If the slide changed while we were sleeping, abort.
