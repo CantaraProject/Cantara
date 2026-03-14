@@ -1,7 +1,7 @@
 //! This module contains the components for the Presenter Console window.
 //! The presenter console shows the current slide text, a live preview, and navigation controls.
 
-use crate::logic::presentation::{get_markdown_html, get_picture_path};
+use crate::logic::presentation::{get_markdown_html, get_picture_path, html_to_plain_text};
 use crate::logic::settings::{PresentationDesign, PresenterConsoleView, use_settings};
 use crate::logic::states::RunningPresentation;
 #[cfg(target_arch = "wasm32")]
@@ -44,36 +44,118 @@ pub fn PresenterConsolePage() -> Element {
     let view: Signal<PresenterConsoleView> =
         use_signal(move || settings.read().presenter_console_view);
 
-    // Sync changes from the shared signal into the local signal.
-    // Also close this window / navigate back if the presentation was ended (signal cleared).
+    // ── Desktop: polling-based bidirectional sync ──────────────────────────
+    //
+    // Single polling loop handles ALL synchronization between the local signal
+    // and the shared context signal. Reactive use_effect hooks are NOT used on
+    // desktop to avoid race conditions (see PresentationPage for full explanation).
+    //
+    // The loop tracks `last_seen_shared` and `last_seen_local` independently so
+    // that only actual changes from each side trigger a sync. The shared-changed
+    // branch is checked first to give incoming updates from the presentation
+    // window priority over stale local state.
+    //
+    // All comparisons use `eq_ignoring_scroll` to exclude `markdown_scroll_position`,
+    // which is synced independently by `MarkdownSlideComponent`.
+    //
+    // Also monitors whether the shared signal was cleared (presentation ended)
+    // and navigates back or closes the window accordingly.
+    #[cfg(feature = "desktop")]
+    use_future(move || async move {
+        let mut last_seen_shared = running_presentations.peek()
+            .first().cloned().unwrap_or_else(|| running_presentation.peek().clone());
+        let mut last_seen_local = running_presentation.peek().clone();
+
+        loop {
+            let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
+
+            // Presentation ended (signal cleared by PresentationPage's use_drop)
+            if running_presentations.peek().is_empty() {
+                if is_main_window {
+                    if let Some(nav) = &nav {
+                        nav.replace(crate::Route::Selection {});
+                    }
+                } else {
+                    dioxus::desktop::window().close();
+                }
+                return;
+            }
+
+            let current_shared = running_presentations.peek()
+                .first().cloned();
+            let current_local = running_presentation.peek().clone();
+
+            if let Some(ref shared_rp) = current_shared {
+                // Shared changed (presentation window pushed an update) → pull into local
+                if !shared_rp.eq_ignoring_scroll(&last_seen_shared) {
+                    last_seen_shared = shared_rp.clone();
+                    if !shared_rp.eq_ignoring_scroll(&current_local) {
+                        last_seen_local = shared_rp.clone();
+                        running_presentation.set(shared_rp.clone());
+                    }
+                }
+                // Local changed (user clicked next/prev in console) → push to shared
+                else if !current_local.eq_ignoring_scroll(&last_seen_local) {
+                    last_seen_local = current_local.clone();
+                    if !current_local.eq_ignoring_scroll(shared_rp) {
+                        last_seen_shared = current_local.clone();
+                        if let Some(first) = running_presentations.write().first_mut() {
+                            // Preserve the shared scroll position to avoid clobbering
+                            // scroll-sync updates with potentially stale local state.
+                            let preserved_scroll = first.markdown_scroll_position;
+                            *first = current_local;
+                            first.markdown_scroll_position = preserved_scroll;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // ── Web: reactive bidirectional sync ─────────────────────────────────
+    //
+    // On the web there is only a single VirtualDom, so reactive use_effect
+    // hooks work correctly and no polling is needed.
+
+    // shared→local: propagate changes and handle presentation-ended navigation.
+    #[cfg(not(feature = "desktop"))]
     use_effect(move || {
         let current = running_presentations.read();
         if current.is_empty() {
             if is_main_window {
-                // Navigate back to the selection route when running in the main window.
                 if let Some(nav) = &nav {
                     nav.replace(crate::Route::Selection {});
                 }
-            } else {
-                #[cfg(feature = "desktop")]
-                dioxus::desktop::window().close();
             }
             return;
         }
         if let Some(rp) = current.first() {
-            if *rp != *running_presentation.peek() {
+            if !rp.eq_ignoring_scroll(&running_presentation.peek()) {
                 running_presentation.set(rp.clone());
             }
         }
     });
 
-    // Sync changes from presenter console back to the shared signal
+    // local→shared: push local changes back to the shared signal.
+    #[cfg(not(feature = "desktop"))]
     use_effect(move || {
         let local = running_presentation.read().clone();
-        let mut shared = running_presentations.write();
-        if let Some(first) = shared.first_mut() {
-            if *first != local {
-                *first = local;
+        let shared = running_presentations.peek();
+        if let Some(first) = shared.first() {
+            if !first.eq_ignoring_scroll(&local) {
+                // We are about to push non-scroll changes from `local` into the
+                // shared signal. However, scroll synchronization writes directly
+                // to the shared signal, and `eq_ignoring_scroll` prevents scroll-
+                // only updates from being reflected in `running_presentation`.
+                // To avoid overwriting a newer shared scroll position with a
+                // stale local one, preserve the shared `markdown_scroll_position`
+                // when applying the update.
+                drop(shared);
+                if let Some(first) = running_presentations.write().first_mut() {
+                    let mut merged = local.clone();
+                    merged.markdown_scroll_position = first.markdown_scroll_position;
+                    *first = merged;
+                }
             }
         }
     });
@@ -437,12 +519,11 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
         SlideContent::SingleLanguageMainContent(main_slide) => {
             let text = main_slide.clone().main_text();
             if let Some(html) = get_markdown_html(&text) {
-                let html_owned = html.to_string();
+                let plain = html_to_plain_text(html);
                 rsx! {
                     div {
-                        class: "slide-text-content markdown-slide",
-                        style: "overflow-y: auto; max-height: 300px;",
-                        dangerous_inner_html: html_owned
+                        class: "slide-text-content",
+                        p { { plain } }
                     }
                 }
             } else {

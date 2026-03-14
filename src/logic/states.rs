@@ -93,7 +93,21 @@ impl SelectedItemRepresentation {
     }
 }
 
-/// A created presentation which is able to run
+/// A running presentation that holds all state needed to display and navigate slides.
+///
+/// This struct is shared between the presentation window and the presenter console
+/// via a `Signal<Vec<RunningPresentation>>` context. On desktop, each window runs
+/// a separate VirtualDom, so changes are synchronized via a polling loop (see
+/// `PresentationPage` and `PresenterConsolePage`).
+///
+/// ## Scroll position and `eq_ignoring_scroll`
+///
+/// The `markdown_scroll_position` field is synced separately by `MarkdownSlideComponent`
+/// using its own dedicated polling loop. To prevent scroll updates from triggering
+/// full component re-renders or interfering with slide navigation, the cross-window
+/// sync loops compare presentations using [`eq_ignoring_scroll`](Self::eq_ignoring_scroll)
+/// rather than the derived `PartialEq`. Slide navigation methods (`next_slide`,
+/// `previous_slide`, `jump_to`) automatically reset the scroll position to 0.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunningPresentation {
     pub presentation: Vec<SlideChapter>,
@@ -104,7 +118,10 @@ pub struct RunningPresentation {
     /// Defaults to 1920x1080 (16:9) when no monitor info is available.
     #[serde(default = "default_presentation_resolution")]
     pub presentation_resolution: (u32, u32),
-    /// The current scroll position for markdown slides, synchronized across instances.
+    /// The current DOM `scrollTop` value for markdown slides, synchronized between
+    /// the presentation window and the presenter console preview. This field is
+    /// excluded from [`eq_ignoring_scroll`](Self::eq_ignoring_scroll) comparisons
+    /// and is synced by a dedicated polling loop in `MarkdownSlideComponent`.
     #[serde(default)]
     pub markdown_scroll_position: f64,
 }
@@ -121,21 +138,28 @@ impl RunningPresentation {
         }
     }
 
-    /// Go to the next slide (if any exists)
+    /// Go to the next slide (if any exists).
+    /// Resets `markdown_scroll_position` to 0 so the new slide starts at the top.
     pub fn next_slide(&mut self) {
         if let Some(ref mut pos) = self.position {
-            let _ = pos.try_next(&self.presentation);
+            if pos.try_next(&self.presentation).is_ok() {
+                self.markdown_scroll_position = 0.0;
+            }
         }
     }
 
-    /// Go to the previous slide (if any exists)
+    /// Go to the previous slide (if any exists).
+    /// Resets `markdown_scroll_position` to 0 so the new slide starts at the top.
     pub fn previous_slide(&mut self) {
         if let Some(ref mut pos) = self.position {
-            let _ = pos.try_back(&self.presentation);
+            if pos.try_back(&self.presentation).is_ok() {
+                self.markdown_scroll_position = 0.0;
+            }
         }
     }
 
-    /// Jump to a specific chapter and slide position
+    /// Jump to a specific chapter and slide position.
+    /// Resets `markdown_scroll_position` to 0 so the new slide starts at the top.
     pub fn jump_to(&mut self, chapter: usize, slide: usize) {
         if chapter < self.presentation.len() {
             let chapter_slides = &self.presentation[chapter].slides;
@@ -152,6 +176,7 @@ impl RunningPresentation {
                     chapter_slide: slide,
                     slide_total: total,
                 });
+                self.markdown_scroll_position = 0.0;
             }
         }
     }
@@ -189,6 +214,25 @@ impl RunningPresentation {
                 .unwrap_or(PresentationDesign::default()),
             None => PresentationDesign::default(),
         }
+    }
+
+    /// Compares two `RunningPresentation` instances for structural equality,
+    /// ignoring `markdown_scroll_position`.
+    ///
+    /// This is the primary comparison used by the cross-window sync polling loops
+    /// in `PresentationPage` and `PresenterConsolePage`. It detects meaningful
+    /// state changes (slide navigation, black screen toggle, resolution change)
+    /// without being triggered by scroll position updates.
+    ///
+    /// Using the derived `PartialEq` (which includes `markdown_scroll_position`)
+    /// for sync would cause scroll position writes from `MarkdownSlideComponent`
+    /// to trigger full component re-renders and race with slide navigation,
+    /// leading to slide changes being reverted.
+    pub fn eq_ignoring_scroll(&self, other: &Self) -> bool {
+        self.presentation == other.presentation
+            && self.position == other.position
+            && self.is_black_screen == other.is_black_screen
+            && self.presentation_resolution == other.presentation_resolution
     }
 
     pub fn get_current_slide_settings(&self) -> SlideSettings {
@@ -339,6 +383,7 @@ mod tests {
             name: "Test Song".to_string(),
             path: PathBuf::from("test/path.song"),
             file_type: SourceFileType::Song,
+            md5_hash: None,
         };
 
         let slide = Slide {

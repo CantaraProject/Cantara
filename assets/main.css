@@ -101,6 +101,25 @@ body {
     border: var(--pico-border-width) solid var(--pico-primary-hover-border);
 }
 
+/* Drag and drop zone styling */
+.drop-zone {
+    position: relative;
+}
+
+.drop-zone.drag-active {
+    outline: 2px dashed var(--pico-primary);
+    outline-offset: -4px;
+    background-color: color-mix(in srgb, var(--pico-primary) 8%, transparent) !important;
+}
+
+.drop-zone-hint {
+    text-align: center;
+    padding: 8px 4px;
+    color: var(--pico-muted-color);
+    font-size: 0.8em;
+    pointer-events: none;
+}
+
 .scrollable-container {
     height: 20px;
     overflow-y: auto;

@@ -19,6 +19,7 @@ use crate::Route;
 use cantara_songlib::slides::SlideSettings;
 #[cfg(feature = "desktop")]
 use dioxus::desktop::tao;
+use dioxus::html::HasFileData;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::*;
@@ -212,6 +213,9 @@ pub fn Selection() -> Element {
         use_signal(|| SelectionSidebarType::Songs);
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
+    // Track drag-over state for the source files drop zone
+    let mut drag_over_source: Signal<bool> = use_signal(|| false);
+
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
 
     // Update search results when filter_string changes
@@ -254,6 +258,31 @@ pub fn Selection() -> Element {
             source_files.set(files);
         });
     });
+
+    // On desktop (including Windows), patch window.interpreter.handleWindowsDragDrop so that
+    // if dxDragLastElement is null when a file drop occurs the content area is used as the
+    // drop target.  This handles the case where the wry DragDropEvent::Over fires but
+    // handleWindowsDragOver hasn't yet run (e.g. very fast drops) or the user drops without
+    // moving the mouse first.
+    #[cfg(feature = "desktop")]
+    use_effect(|| {
+        let _ = document::eval(r#"
+            (function() {
+                if (window._cantara_drop_patched) return;
+                if (!window.interpreter || typeof window.interpreter.handleWindowsDragDrop !== 'function') return;
+                window._cantara_drop_patched = true;
+                var orig = window.interpreter.handleWindowsDragDrop.bind(window.interpreter);
+                window.interpreter.handleWindowsDragDrop = function() {
+                    if (!window.dxDragLastElement) {
+                        window.dxDragLastElement =
+                            document.getElementById('selection-content') || document.body;
+                    }
+                    orig();
+                };
+            })();
+        "#);
+    });
+
 
     rsx! {
         div {
@@ -306,6 +335,17 @@ pub fn Selection() -> Element {
                         search_visible.set(false);
                     }
                 },
+                // Fallback drag handlers on the content area so that files dropped anywhere on
+                // the page are caught — important on Windows where the synthetic drop event may
+                // fire on an element outside the source-files panel.
+                ondragover: move |event: DragEvent| {
+                    event.prevent_default();
+                },
+                ondrop: move |event: DragEvent| async move {
+                    event.prevent_default();
+                    drag_over_source.set(false);
+                    process_dropped_files(event, source_files, selected_items).await;
+                },
                 onmounted: move |_| async move {
                     // Initialize layout sizing and swipe listeners once the component is mounted.
                     let _ = document::eval("initSelectionLayout();").await;
@@ -336,9 +376,24 @@ pub fn Selection() -> Element {
                 div {
                     class: "grid swipe-container height-100",
 
-                    // The area where the selectable elements (sources) are shown
+                    // The area where the selectable elements (sources) are shown, also serves as a drop zone
                     div {
-                        class: "height-100 swipe-panel",
+                        class: if drag_over_source() { "height-100 swipe-panel drop-zone drag-active" } else { "height-100 swipe-panel drop-zone" },
+                        ondragover: move |event: DragEvent| {
+                            event.prevent_default();
+                            drag_over_source.set(true);
+                        },
+                        ondragleave: move |_| {
+                            drag_over_source.set(false);
+                        },
+                        ondrop: move |event: DragEvent| async move {
+                            event.prevent_default();
+                            // Stop bubbling so the fallback handler on `main` doesn't
+                            // also process these files.
+                            event.stop_propagation();
+                            drag_over_source.set(false);
+                            process_dropped_files(event, source_files, selected_items).await;
+                        },
                         SelectionFilterSideBar {
                             active_selection: active_selection_filter
                         }
@@ -368,6 +423,18 @@ pub fn Selection() -> Element {
                                 source_files: source_files,
                                 active_detailed_item_id: active_detailed_item_id,
                                 selected_items: selected_items
+                            }
+                        }
+                        // Drop zone hint shown when dragging over
+                        if drag_over_source() {
+                            div {
+                                class: "drop-zone-hint",
+                                { t!("selection.drag_drop_active").to_string() }
+                            }
+                        } else {
+                            div {
+                                class: "drop-zone-hint",
+                                { t!("selection.drag_drop_hint").to_string() }
                             }
                         }
                     },
@@ -682,6 +749,7 @@ fn MarkdownSourceItems(
                                 name: t!("selection.markdown.spontaneous_name").to_string(),
                                 path: std::path::PathBuf::new(),
                                 file_type: SourceFileType::Markdown,
+                                md5_hash: None,
                             };
                             let mut item = SelectedItemRepresentation::new_with_sourcefile(source_file);
                             item.inline_markdown = Some(text.clone());
@@ -1098,6 +1166,93 @@ fn SourceDetailView(
     }
 }
 
+/// Processes files dropped anywhere in the selection page.
+/// For each dropped file with a supported type, creates a temporary [SourceFile],
+/// adds it to `source_files`, and immediately adds it to `selected_items`.
+/// The file is not added to any repository.
+///
+/// - On desktop targets: the actual filesystem path is used directly.
+/// - On WASM targets: the file content is stored in the in-memory VFS
+///   under a `drop://` prefix so the presentation renderer can access it.
+async fn process_dropped_files(
+    event: DragEvent,
+    mut source_files: Signal<Vec<SourceFile>>,
+    mut selected_items: Signal<Vec<SelectedItemRepresentation>>,
+) {
+    let files = event.data().files();
+    for file_data in files {
+        let file_name = file_data.name();
+        let file_path = file_data.path();
+
+        // Determine file extension from path (desktop) or name (web)
+        let file_name_path = std::path::Path::new(&file_name);
+        let extension = file_path
+            .extension()
+            .or_else(|| file_name_path.extension())
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let file_type = match extension.as_str() {
+            "song" => SourceFileType::Song,
+            "png" | "jpg" | "jpeg" => SourceFileType::Image,
+            "pdf" => SourceFileType::Pdf,
+            _ => {
+                log::info!("Skipping dropped file with unsupported extension: {}", file_name);
+                continue;
+            }
+        };
+
+        let stem = file_path
+            .file_stem()
+            .or_else(|| file_name_path.file_stem())
+            .and_then(|s| s.to_str())
+            .unwrap_or(&file_name)
+            .to_string();
+
+        // Read the file bytes (async; works on both desktop and web)
+        let content = match file_data.read_bytes().await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                log::warn!("Failed to read dropped file '{}': {}", file_name, e);
+                continue;
+            }
+        };
+
+        let md5_hash = Some(format!("{:x}", md5::compute(&*content)));
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // On WASM the file has no real filesystem path; store content in the web VFS
+            // so that the presentation renderer can access it later.
+            use crate::logic::settings::RepositoryType;
+            let vfs_path = format!("drop://{}", file_name);
+            RepositoryType::store_web_file(&vfs_path, content.to_vec());
+            let sf = SourceFile {
+                name: stem,
+                path: std::path::PathBuf::from(&vfs_path),
+                file_type,
+                md5_hash,
+            };
+            selected_items.write().push(SelectedItemRepresentation::new_with_sourcefile(sf.clone()));
+            source_files.write().push(sf);
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // On desktop the path returned by FileData is the real filesystem path.
+            let sf = SourceFile {
+                name: stem,
+                path: file_path,
+                file_type,
+                md5_hash,
+            };
+            selected_items.write().push(SelectedItemRepresentation::new_with_sourcefile(sf.clone()));
+            source_files.write().push(sf);
+        }
+    }
+}
+
 /// Helper function to start a presentation from the selection page.
 /// Supports multi-screen placement and optional presenter console.
 #[cfg(feature = "desktop")]
@@ -1178,6 +1333,12 @@ fn start_presentation(
             presentation_dom,
             Config::new()
                 .with_menu(None)
+                // Disable the OS-level drag-drop handler for the presentation window.
+                // Files should only be dropped onto the selection window, not the
+                // presentation window. On Windows, receiving drag-drop events in the
+                // presentation window can cause unexpected VirtualDom teardown and
+                // signal access errors.
+                .with_disable_drag_drop_handler(true)
                 .with_window(presentation_window_builder),
         );
 
@@ -1219,6 +1380,9 @@ fn start_presentation(
                     console_dom,
                     Config::new()
                         .with_menu(None)
+                        // Disable the OS-level drag-drop handler for the presenter console
+                        // window for the same reason as the presentation window.
+                        .with_disable_drag_drop_handler(true)
                         .with_window(console_window_builder),
                 );
             }
