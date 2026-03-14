@@ -136,6 +136,16 @@ html, body {
     }
 }
 
+/* Countdown bar animation for auto-advance timer preview */
+@keyframes countdownBar {
+    from {
+        width: 100%;
+    }
+    to {
+        width: 0%;
+    }
+}
+
 /* Context menu styles for the presentation */
 .presentation-context-menu {
     position: fixed;

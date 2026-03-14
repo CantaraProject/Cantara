@@ -351,6 +351,38 @@ pub fn add_presentation(
     None
 }
 
+/// Creates a preview presentation from a single selected item with its settings.
+/// Falls back to defaults when the item has no custom design or slide settings.
+pub fn create_single_item_presentation(
+    selected_item: &SelectedItemRepresentation,
+    default_presentation_design: &PresentationDesign,
+    default_slide_settings: &SlideSettings,
+) -> RunningPresentation {
+    let used_presentation_design = selected_item
+        .presentation_design_option
+        .clone()
+        .unwrap_or(default_presentation_design.clone());
+
+    let used_slide_settings = selected_item
+        .slide_settings_option
+        .clone()
+        .unwrap_or(default_slide_settings.clone());
+
+    let slides = create_presentation_slides(selected_item, &used_slide_settings)
+        .unwrap_or_default();
+
+    let chapter = SlideChapter {
+        slides,
+        source_file: selected_item.source_file.clone(),
+        presentation_design_option: Some(used_presentation_design),
+        slide_settings_option: Some(used_slide_settings),
+        timer_settings_option: selected_item.timer_settings_option.clone(),
+        transition_option: selected_item.transition_effect,
+    };
+
+    RunningPresentation::new(vec![chapter])
+}
+
 /// Creates an example presentation with the song Amazing Grace and a given presentation design
 pub fn create_amazing_grace_presentation(
     presentation_design: &PresentationDesign,
