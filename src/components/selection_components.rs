@@ -1049,7 +1049,7 @@ fn PresentationOptions(
                     .as_ref()
                     .map(|t| t.after_last_slide)
                     .unwrap_or_default();
-                let current_transition = item.transition_option;
+                let current_transition = item.transition_effect;
 
                 rsx! {
                     div {
