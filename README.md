@@ -3,9 +3,12 @@
 
 ## Overview
 
-Cantara is a powerful song presentation software designed for churches and small groups. It allows you to quickly create beautiful presentations with song lyrics, chords, sheet music, and more. This repository contains version 3.0, a complete rewrite of [the original Cantara](https://github.com/reckel-jm/cantara) in Rust using the Dioxus framework.
+Cantara is a powerful song presentation software designed for churches and small groups. It allows you to quickly create beautiful presentations with song lyrics, sheet music, PDF presentations and more. This repository contains version 3.0, a complete rewrite of [the original Cantara](https://github.com/reckel-jm/cantara) in Rust using the Dioxus framework.
 
 *Work is currently in progress.* Contributions are welcome!
+
+**Try it out**:
+You can find a [web browser demo version](https://cantaraproject.github.io/Cantara)  with limited features of Cantara.
 
 ### Key Features
 
@@ -75,10 +78,10 @@ As this is a rewrite, the implementation status is not directly comparable to th
 | Feature | Status |
 | --- | --- |
 | Song Lyrics Presentation | ✅ Implemented |
-| Presentation Styling | Partially implemented |
+| Presentation Styling |  ✅ Implemented |
 | Chord Presentation | ❌ Not Implemented, in Progress |
-| Image Presentation | ❌ Not Implemented, in Progress |
-| PDF Presentation | ❌ Not Implemented, in Progress |
+| Image Presentation |  ✅ Implemented |
+| PDF Presentation |  ✅ Implemented |
 | Search Functionality | ✅ Implemented |
 | Import SongText Files | ❌ Not Implemented, in Progress |
 | Export SongText Files | ❌ Not Implemented, in Progress |

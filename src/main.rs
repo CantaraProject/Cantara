@@ -43,6 +43,9 @@ const POSITIONING_JS: Asset = asset!("/assets/positioning.js");
 /// The Cantara Logo
 pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
 
+/// The favicon / window icon
+const FAVICON: Asset = asset!("/assets/favicon.png");
+
 /// The test state for debugging purposes (will be removed in the final version)
 static TEST_STATE: GlobalSignal<String> = Global::new(|| "test".to_string());
 
@@ -100,12 +103,23 @@ fn main() {
         }
 
         use dioxus::desktop::tao;
+
+        let icon = {
+            let icon_bytes = include_bytes!("../assets/favicon.png");
+            let icon_image = image::load_from_memory(icon_bytes).expect("Failed to load icon");
+            let icon_rgba = icon_image.to_rgba8();
+            let (width, height) = icon_rgba.dimensions();
+            tao::window::Icon::from_rgba(icon_rgba.into_raw(), width, height)
+                .expect("Failed to create window icon")
+        };
+
         let window = tao::window::WindowBuilder::new()
             .with_resizable(true)
             .with_title("Cantara")
             .with_inner_size(tao::dpi::LogicalSize::new(900.0, 800.0))
             .with_decorations(true)
-            .with_visible(true);
+            .with_visible(true)
+            .with_window_icon(Some(icon));
         dioxus::LaunchBuilder::new()
             .with_cfg(
                 dioxus::desktop::Config::new()
@@ -163,6 +177,7 @@ fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        document::Link { rel: "icon", href: FAVICON }
         document::Script { src: POSITIONING_JS }
         document::Title { "Cantara" }
 
