@@ -51,6 +51,30 @@ fn extract_text_from_pdf_document(doc: &lopdf::Document) -> Option<String> {
     }
 }
 
+/// Shared helper: iterates every page of `doc`, attempts text extraction, and
+/// inserts each successfully-extracted page into `PDF_PAGE_CACHE` under the key
+/// `"{path_str}#page={N}"`.  Acquires the lock once for the entire batch.
+/// Used by both `extract_pdf_page_text` (on-demand) and `refresh_search_cache`
+/// (pre-population at file-load time) so the logic lives in exactly one place.
+#[cfg(not(target_arch = "wasm32"))]
+fn cache_all_pdf_page_texts(doc: &lopdf::Document, path_str: &str) {
+    if let Ok(mut map) = pdf_page_cache().lock() {
+        for pnum in doc.get_pages().keys().copied() {
+            match doc.extract_text(&[pnum]) {
+                Ok(text) => {
+                    map.insert(format!("{}#page={}", path_str, pnum), text);
+                }
+                Err(e) => {
+                    log::debug!(
+                        "Text extraction failed for page {} of {}: {}",
+                        pnum, path_str, e
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Extracts plain text from a PDF file (non-WASM only).
 /// Returns all page texts concatenated, or None if extraction fails.
 #[cfg(not(target_arch = "wasm32"))]
@@ -65,16 +89,22 @@ fn extract_pdf_text(path: &std::path::Path) -> Option<String> {
 }
 
 /// Extracts plain text from a specific page of a PDF file (non-WASM only).
-/// Results are cached in `PDF_PAGE_CACHE` so the PDF is only parsed once per
-/// path+page combination.
+///
+/// On a cache miss, the **entire** document is loaded once and every page's text is
+/// inserted into `PDF_PAGE_CACHE` via `cache_all_pdf_page_texts`.  This avoids
+/// redundant file-system reads when the presenter console renders multiple pages of
+/// the same PDF in the same pass.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn extract_pdf_page_text(path: &std::path::Path, page_number: u32) -> Option<String> {
     let cache_key = format!("{}#page={}", path.display(), page_number);
+    // Fast path: return cached text if available.
     if let Ok(map) = pdf_page_cache().lock() {
         if let Some(cached) = map.get(&cache_key) {
             return Some(cached.clone());
         }
     }
+    // Cache miss: load the document and populate the cache for ALL pages so
+    // that subsequent calls for different pages of the same PDF are O(1).
     let doc = match lopdf::Document::load(path) {
         Ok(doc) => doc,
         Err(e) => {
@@ -82,17 +112,12 @@ pub fn extract_pdf_page_text(path: &std::path::Path, page_number: u32) -> Option
             return None;
         }
     };
-    match doc.extract_text(&[page_number]) {
-        Ok(text) => {
-            if let Ok(mut map) = pdf_page_cache().lock() {
-                map.insert(cache_key, text.clone());
-            }
-            Some(text)
-        }
-        Err(e) => {
-            log::warn!("Failed to extract text from PDF page {} ({}): {}", page_number, path.display(), e);
-            None
-        }
+    cache_all_pdf_page_texts(&doc, &path.display().to_string());
+    // Return the requested page (now in cache if extraction succeeded).
+    if let Ok(map) = pdf_page_cache().lock() {
+        map.get(&cache_key).cloned()
+    } else {
+        None
     }
 }
 
@@ -139,8 +164,23 @@ pub fn refresh_search_cache(source_files: &[SourceFile]) {
             }
             #[cfg(not(target_arch = "wasm32"))]
             SourceFileType::Pdf => {
-                if let Some(content) = extract_pdf_text(&sf.path) {
-                    entries.push((sf.path.clone(), content));
+                // Load the document once and populate both the full-document text cache
+                // (used by search) and the per-page text cache (used by presenter console).
+                // This ensures the presenter console's synchronous extraction is always
+                // an O(1) cache hit after the source files have been indexed.
+                match lopdf::Document::load(&sf.path) {
+                    Ok(doc) => {
+                        if let Some(content) = extract_text_from_pdf_document(&doc) {
+                            entries.push((sf.path.clone(), content));
+                        }
+                        cache_all_pdf_page_texts(&doc, &sf.path.display().to_string());
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to load PDF for cache refresh ({}): {}",
+                            sf.path.display(), e
+                        );
+                    }
                 }
             }
             _ => {}

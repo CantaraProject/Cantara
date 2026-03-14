@@ -504,58 +504,42 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
     }
 }
 
-/// Async PDF page text extractor and renderer for the presenter console.
+/// Extracts and renders per-page PDF text for the presenter console.
 ///
-/// Extraction is performed asynchronously via `spawn` so it never blocks the UI thread on
-/// the initial render.  A "…" loading indicator is shown while extraction is in progress.
-/// Results come from `PDF_PAGE_CACHE` (keyed by path+page), so they are computed at most
-/// once per path+page combination across the lifetime of the process.
+/// The extraction calls `extract_pdf_page_text` which hits `PDF_PAGE_CACHE` first.
+/// Because `refresh_search_cache` pre-populates the page cache when source files are
+/// loaded, this is almost always an O(1) hash-map lookup with no file I/O.
+/// On a cold cache miss it loads the entire PDF once and caches every page, so
+/// subsequent slides of the same document are still instant.
 ///
-/// The component should be rendered with `key: "{path}#{page_number}"` so that Dioxus
-/// destroys and re-creates it (fresh state) whenever the active page changes.
+/// The caller must supply `key: "{path}#{page_number}"` so Dioxus destroys and
+/// re-creates this component (fresh extraction state) on every slide change.
 #[component]
 fn PdfPageTextContent(path: String, page_number: u32, page_info: String) -> Element {
-    // None           = extraction in progress (loading)
-    // Some(None)     = extraction returned no text
-    // Some(Some(s))  = extracted text is available
-    let mut pdf_text: Signal<Option<Option<String>>> = use_signal(|| None);
+    #[cfg(not(target_arch = "wasm32"))]
+    let text = crate::logic::search::extract_pdf_page_text(
+        std::path::Path::new(&path),
+        page_number,
+    );
 
-    // Spawn the extraction once on mount.  The `key` prop on the call site ensures this
-    // component is re-created (and the effect re-runs) whenever path/page changes.
-    use_effect(move || {
-        let path_clone = path.clone();
-        spawn(async move {
-            #[cfg(not(target_arch = "wasm32"))]
-            let result = crate::logic::search::extract_pdf_page_text(
-                std::path::Path::new(&path_clone),
+    #[cfg(target_arch = "wasm32")]
+    let text = crate::logic::settings::RepositoryType::web_read_file(&path)
+        .and_then(|bytes| {
+            crate::logic::search::extract_pdf_page_text_from_bytes(
+                &bytes,
                 page_number,
-            );
-            #[cfg(target_arch = "wasm32")]
-            let result = crate::logic::settings::RepositoryType::web_read_file(&path_clone)
-                .and_then(|bytes| {
-                    crate::logic::search::extract_pdf_page_text_from_bytes(
-                        &bytes,
-                        page_number,
-                        &path_clone,
-                    )
-                });
-            pdf_text.set(Some(result));
+                &path,
+            )
         });
-    });
 
     rsx! {
         div {
             class: "slide-text-content",
             em { "📄 {t!(\"general.pdf\")}{page_info}" }
-            match pdf_text() {
-                // Still loading
-                None => rsx! { p { em { "…" } } },
-                // Text extracted successfully
-                Some(Some(text)) if !text.trim().is_empty() => rsx! {
+            if let Some(text) = text {
+                if !text.trim().is_empty() {
                     p { { text.trim().to_string() } }
-                },
-                // No extractable text (or empty) — render nothing extra
-                _ => rsx! {}
+                }
             }
         }
     }
