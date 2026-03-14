@@ -55,8 +55,13 @@ fn extract_text_from_pdf_document(doc: &lopdf::Document) -> Option<String> {
 /// Returns all page texts concatenated, or None if extraction fails.
 #[cfg(not(target_arch = "wasm32"))]
 fn extract_pdf_text(path: &std::path::Path) -> Option<String> {
-    let doc = lopdf::Document::load(path).ok()?;
-    extract_text_from_pdf_document(&doc)
+    match lopdf::Document::load(path) {
+        Ok(doc) => extract_text_from_pdf_document(&doc),
+        Err(e) => {
+            log::warn!("Failed to load PDF for text extraction ({}): {}", path.display(), e);
+            None
+        }
+    }
 }
 
 /// Extracts plain text from a specific page of a PDF file (non-WASM only).
@@ -70,12 +75,25 @@ pub fn extract_pdf_page_text(path: &std::path::Path, page_number: u32) -> Option
             return Some(cached.clone());
         }
     }
-    let doc = lopdf::Document::load(path).ok()?;
-    let text = doc.extract_text(&[page_number]).ok()?;
-    if let Ok(mut map) = pdf_page_cache().lock() {
-        map.insert(cache_key, text.clone());
+    let doc = match lopdf::Document::load(path) {
+        Ok(doc) => doc,
+        Err(e) => {
+            log::warn!("Failed to load PDF for page text extraction ({}): {}", path.display(), e);
+            return None;
+        }
+    };
+    match doc.extract_text(&[page_number]) {
+        Ok(text) => {
+            if let Ok(mut map) = pdf_page_cache().lock() {
+                map.insert(cache_key, text.clone());
+            }
+            Some(text)
+        }
+        Err(e) => {
+            log::warn!("Failed to extract text from PDF page {} ({}): {}", page_number, path.display(), e);
+            None
+        }
     }
-    Some(text)
 }
 
 /// Extracts plain text from a PDF stored in the web VFS (WASM only).
@@ -300,6 +318,7 @@ mod tests {
             name: "example".to_string(),
             path: PathBuf::from("testfiles/example.md"),
             file_type: SourceFileType::Markdown,
+            md5_hash: None,
         };
         let results = search_source_files(&[sf], "slide");
         assert!(!results.is_empty(), "Should find markdown file by content");
@@ -312,6 +331,7 @@ mod tests {
             name: "Example".to_string(),
             path: PathBuf::from("testfiles/Example.pdf"),
             file_type: SourceFileType::Pdf,
+            md5_hash: None,
         };
         let results = search_source_files(&[sf], "test");
         assert!(
@@ -321,11 +341,28 @@ mod tests {
     }
 
     #[test]
+    fn search_pdf_with_text() {
+        // MultiPage.pdf has pages with embedded text ("Page 1", "Page 2", "Page 3").
+        // Query "page 2" contains a space+digit so it matches the content but not the
+        // filename "MultiPage" (which would only match the bare word "page").
+        let sf = SourceFile {
+            name: "MultiPage".to_string(),
+            path: PathBuf::from("testfiles/MultiPage.pdf"),
+            file_type: SourceFileType::Pdf,
+            md5_hash: None,
+        };
+        let results = search_source_files(&[sf], "page 2");
+        assert!(!results.is_empty(), "PDF with embedded text should produce search results");
+        assert!(!results[0].is_title_match, "Should be a content match, not a title match");
+    }
+
+    #[test]
     fn search_returns_markdown_title_match() {
         let sf = SourceFile {
             name: "example".to_string(),
             path: PathBuf::from("testfiles/example.md"),
             file_type: SourceFileType::Markdown,
+            md5_hash: None,
         };
         let results = search_source_files(&[sf], "example");
         assert!(!results.is_empty(), "Should find markdown file by title");
@@ -338,6 +375,7 @@ mod tests {
             name: "example".to_string(),
             path: PathBuf::from("testfiles/example.md"),
             file_type: SourceFileType::Markdown,
+            md5_hash: None,
         };
         invalidate_search_cache();
         refresh_search_cache(&[sf.clone()]);
@@ -346,6 +384,25 @@ mod tests {
         assert!(
             content.unwrap().contains("slide"),
             "Markdown content should contain 'slide'"
+        );
+    }
+
+    #[test]
+    fn refresh_cache_includes_pdf_text() {
+        // MultiPage.pdf has embedded text ("Page 1", "Page 2", "Page 3") across its pages.
+        let sf = SourceFile {
+            name: "MultiPage".to_string(),
+            path: PathBuf::from("testfiles/MultiPage.pdf"),
+            file_type: SourceFileType::Pdf,
+            md5_hash: None,
+        };
+        invalidate_search_cache();
+        refresh_search_cache(&[sf.clone()]);
+        let content = read_source_file_content(&sf);
+        assert!(content.is_some(), "PDF content should be cached after refresh");
+        assert!(
+            content.unwrap().contains("Page"),
+            "Cached PDF content should contain 'Page'"
         );
     }
 }
