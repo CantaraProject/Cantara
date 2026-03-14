@@ -504,6 +504,47 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
     }
 }
 
+/// Extracts and renders per-page PDF text for the presenter console.
+///
+/// The extraction calls `extract_pdf_page_text` which hits `PDF_PAGE_CACHE` first.
+/// Because `refresh_search_cache` pre-populates the page cache when source files are
+/// loaded, this is almost always an O(1) hash-map lookup with no file I/O.
+/// On a cold cache miss it loads the entire PDF once and caches every page, so
+/// subsequent slides of the same document are still instant.
+///
+/// The caller must supply `key: "{path}#{page_number}"` so Dioxus destroys and
+/// re-creates this component (fresh extraction state) on every slide change.
+#[component]
+fn PdfPageTextContent(path: String, page_number: u32, page_info: String) -> Element {
+    #[cfg(not(target_arch = "wasm32"))]
+    let text = crate::logic::search::extract_pdf_page_text(
+        std::path::Path::new(&path),
+        page_number,
+    );
+
+    #[cfg(target_arch = "wasm32")]
+    let text = crate::logic::settings::RepositoryType::web_read_file(&path)
+        .and_then(|bytes| {
+            crate::logic::search::extract_pdf_page_text_from_bytes(
+                &bytes,
+                page_number,
+                &path,
+            )
+        });
+
+    rsx! {
+        div {
+            class: "slide-text-content",
+            em { "📄 {t!(\"general.pdf\")}{page_info}" }
+            if let Some(text) = text {
+                if !text.trim().is_empty() {
+                    p { { text.trim().to_string() } }
+                }
+            }
+        }
+    }
+}
+
 /// Extracts and renders text from a slide for the presenter console text panel
 #[component]
 fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
@@ -553,19 +594,28 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
             let path = get_picture_path(&picture_slide);
             let base_path = path.split('#').next().unwrap_or(&path);
             let is_pdf = base_path.to_lowercase().ends_with(".pdf");
-            let label = if is_pdf {
+            if is_pdf {
                 // Extract page number from fragment (e.g. #page=2)
-                let page_info = path.split("#page=").nth(1)
-                    .map(|p| format!(" ({})", t!("general.pdf_page", page => p)))
-                    .unwrap_or_default();
-                format!("{}{}", t!("general.pdf"), page_info)
+                let page_number: u32 = path.split("#page=").nth(1)
+                    .and_then(|p| p.parse().ok())
+                    .unwrap_or(1);
+                let page_info = format!(" ({})", t!("general.pdf_page", page => page_number));
+
+                // Render the async sub-component; keyed so it re-creates on slide change.
+                rsx! {
+                    PdfPageTextContent {
+                        key: "{base_path}#{page_number}",
+                        path: base_path.to_string(),
+                        page_number,
+                        page_info,
+                    }
+                }
             } else {
-                t!("general.picture").to_string()
-            };
-            rsx! {
-                div {
-                    class: "slide-text-content",
-                    em { "📄 {label}" }
+                rsx! {
+                    div {
+                        class: "slide-text-content",
+                        em { "📄 {t!(\"general.picture\")}" }
+                    }
                 }
             }
         }

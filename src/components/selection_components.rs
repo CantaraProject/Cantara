@@ -255,7 +255,21 @@ pub fn Selection() -> Element {
 
         spawn(async move {
             let files = settings.read().get_sourcefiles_async().await;
-            source_files.set(files);
+            // Set source files immediately so the UI is responsive without waiting for
+            // the (potentially slow) cache pre-population below.
+            source_files.set(files.clone());
+            // Refresh search cache in a background OS thread so PDF parsing doesn't
+            // block the Dioxus async runtime or freeze the UI during startup.
+            // Fire-and-forget: refresh_search_cache only logs on errors (no panics),
+            // so the thread handle is intentionally dropped.
+            // On WASM there is no native PDF parsing in refresh_search_cache (the
+            // non-wasm branch is a no-op for PDFs), so synchronous is fine there.
+            #[cfg(not(target_arch = "wasm32"))]
+            std::thread::spawn(move || {
+                crate::logic::search::refresh_search_cache(&files);
+            });
+            #[cfg(target_arch = "wasm32")]
+            crate::logic::search::refresh_search_cache(&files);
         });
     });
 
