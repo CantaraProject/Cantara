@@ -276,7 +276,19 @@ pub fn PresenterConsolePage() -> Element {
 
             PresenterControlBar {
                 running_presentation: running_presentation,
-                on_quit: move |_| quit_presentation()
+                on_quit: move |_| quit_presentation(),
+                on_edit_selection: {
+                    if is_main_window {
+                        let nav_clone = nav.clone();
+                        Some(EventHandler::new(move |_: ()| {
+                            if let Some(ref n) = nav_clone {
+                                n.push(crate::Route::Selection {});
+                            }
+                        }))
+                    } else {
+                        None
+                    }
+                },
             }
         }
     }
@@ -681,6 +693,8 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
 fn PresenterControlBar(
     running_presentation: Signal<RunningPresentation>,
     on_quit: EventHandler<()>,
+    #[props(default)]
+    on_edit_selection: Option<EventHandler<()>>,
 ) -> Element {
     let rp = running_presentation.read();
     let current_total = rp
@@ -743,6 +757,18 @@ fn PresenterControlBar(
                         running_presentation.write().toggle_black_screen();
                     },
                     { t!("presenter.black_screen").to_string() }
+                }
+                if let Some(ref handler) = on_edit_selection {
+                    button {
+                        class: "outline secondary",
+                        onclick: {
+                            let handler = handler.clone();
+                            move |_| {
+                                handler.call(());
+                            }
+                        },
+                        { t!("presenter.edit_selection").to_string() }
+                    }
                 }
                 button {
                     class: "outline secondary",

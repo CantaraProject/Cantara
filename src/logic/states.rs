@@ -2,6 +2,7 @@ use std::{fs, path::PathBuf};
 
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use super::{settings::{PresentationDesign, SlideTimerSettings, SlideTransition}, sourcefiles::SourceFile};
 use cantara_songlib::slides::{Slide, SlideSettings};
@@ -327,6 +328,16 @@ pub struct RunningPresentationPosition {
 }
 
 impl RunningPresentationPosition {
+    /// Creates a position from raw values. Used when restoring position
+    /// after a presentation update.
+    pub fn from_raw(chapter: usize, chapter_slide: usize, slide_total: usize) -> Self {
+        RunningPresentationPosition {
+            chapter,
+            chapter_slide,
+            slide_total,
+        }
+    }
+
     /// Creates a new position if there is at least one slide available
     pub fn new(presentation: &Vec<SlideChapter>) -> Option<Self> {
         if !presentation.is_empty() && !presentation.first().unwrap().slides.is_empty() {
@@ -398,6 +409,10 @@ impl RunningPresentationPosition {
 /// Contains slide, the source file and the presentation design for each chapter (e.g. a song)
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct SlideChapter {
+    /// Stable identifier for matching chapters across presentation updates.
+    /// Generated once at slide generation time.
+    #[serde(default = "Uuid::new_v4")]
+    pub id: Uuid,
     pub slides: Vec<Slide>,
     pub source_file: SourceFile,
     pub presentation_design_option: Option<PresentationDesign>,
@@ -418,6 +433,7 @@ impl SlideChapter {
         slide_settings: Option<SlideSettings>,
     ) -> Self {
         SlideChapter {
+            id: Uuid::new_v4(),
             slides,
             source_file,
             presentation_design_option: presentation_design,

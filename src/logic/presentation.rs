@@ -3,13 +3,14 @@
 use super::{
     settings::PresentationDesign,
     sourcefiles::{SourceFile, SourceFileType},
-    states::{RunningPresentation, SelectedItemRepresentation, SlideChapter},
+    states::{RunningPresentation, RunningPresentationPosition, SelectedItemRepresentation, SlideChapter},
 };
 
 use cantara_songlib::importer::classic_song::slides_from_classic_song;
 use cantara_songlib::slides::{Slide, SlideContent, SimplePictureSlide, SingleLanguageMainContentSlide, SlideSettings};
 use dioxus::prelude::*;
 use std::{error::Error, path::{Path, PathBuf}};
+use uuid::Uuid;
 
 /// Prefix marker used to identify slides containing rendered Markdown HTML
 /// in the `main_text` field of a `SingleLanguageMainContentSlide`.
@@ -328,6 +329,7 @@ pub fn add_presentation(
 
         match create_presentation_slides(selected_item, &used_slide_settings) {
             Ok(slides) => presentation.push(SlideChapter {
+                id: Uuid::new_v4(),
                 slides,
                 source_file: selected_item.source_file.clone(),
                 presentation_design_option: Some(used_presentation_design),
@@ -372,6 +374,7 @@ pub fn create_single_item_presentation(
         .unwrap_or_default();
 
     let chapter = SlideChapter {
+        id: Uuid::new_v4(),
         slides,
         source_file: selected_item.source_file.clone(),
         presentation_design_option: Some(used_presentation_design),
@@ -407,6 +410,143 @@ pub fn create_amazing_grace_presentation(
     );
 
     RunningPresentation::new(vec![slide_chapter])
+}
+
+/// Updates a running presentation in-place by regenerating slide chapters
+/// from the current selection, while preserving the viewing position.
+///
+/// Chapters are always fully regenerated from the selected items (so changes
+/// to settings like style or max lines per slide take effect). The current
+/// viewing position is restored by matching the old chapter's UUID to the
+/// new chapter set. If the current chapter was removed, the position falls
+/// back to the first chapter or `None` if no chapters remain.
+pub fn update_presentation(
+    selected_items: &[SelectedItemRepresentation],
+    running_presentations: &mut Signal<Vec<RunningPresentation>>,
+    default_presentation_design: &PresentationDesign,
+    default_slide_settings: &SlideSettings,
+) {
+    // Must have a running presentation to update
+    let Some(old_rp) = running_presentations.peek().first().cloned() else {
+        return;
+    };
+
+    // Remember current position for restoration
+    let old_position = old_rp.position.clone();
+    let old_chapter_id = old_position.as_ref().and_then(|pos| {
+        old_rp.presentation.get(pos.chapter()).map(|ch| ch.id)
+    });
+    let old_chapter_slide = old_position
+        .as_ref()
+        .map(|pos| pos.chapter_slide())
+        .unwrap_or(0);
+
+    // Generate new chapters from current selection.
+    // Each chapter gets a fresh UUID — we do NOT reuse old UUIDs because the
+    // user may have changed settings (style, max lines, etc.) and the slides
+    // are fully regenerated. The old UUID is only used to find which new
+    // chapter corresponds to the one the user was viewing.
+    let mut new_chapters: Vec<SlideChapter> = vec![];
+    // Build a mapping from source_file.path to old chapter id for position tracking.
+    // We use an index to handle duplicate paths (e.g. multiple inline markdown items).
+    let mut old_path_ids: Vec<(std::path::PathBuf, Uuid)> = old_rp
+        .presentation
+        .iter()
+        .map(|ch| (ch.source_file.path.clone(), ch.id))
+        .collect();
+
+    for selected_item in selected_items {
+        let used_presentation_design = selected_item
+            .presentation_design_option
+            .clone()
+            .unwrap_or(default_presentation_design.clone());
+
+        let used_slide_settings = selected_item
+            .slide_settings_option
+            .clone()
+            .unwrap_or(default_slide_settings.clone());
+
+        match create_presentation_slides(selected_item, &used_slide_settings) {
+            Ok(slides) => {
+                // Try to find a matching old chapter by source_file path to carry
+                // over its UUID for position tracking. Remove it from the list so
+                // duplicate paths match in order.
+                let carried_id =
+                    if let Some(pos) = old_path_ids.iter().position(|(p, _)| {
+                        *p == selected_item.source_file.path
+                    }) {
+                        let (_, id) = old_path_ids.remove(pos);
+                        Some(id)
+                    } else {
+                        None
+                    };
+
+                new_chapters.push(SlideChapter {
+                    id: Uuid::new_v4(),
+                    slides,
+                    source_file: selected_item.source_file.clone(),
+                    presentation_design_option: Some(used_presentation_design),
+                    slide_settings_option: Some(used_slide_settings),
+                    timer_settings_option: selected_item.timer_settings_option.clone(),
+                    transition_option: selected_item.transition_effect,
+                });
+
+                // Store the carried_id alongside the new chapter index for position lookup
+                if let Some(old_id) = carried_id {
+                    let new_ch = new_chapters.last_mut().unwrap();
+                    // Temporarily reuse the old UUID so we can find this chapter below.
+                    // This is safe because we generate a new UUID right after position
+                    // restoration is complete.
+                    new_ch.id = old_id;
+                }
+            }
+            Err(_) => { /* skip failed items */ }
+        }
+    }
+
+    // Determine new position
+    let new_position = if new_chapters.is_empty() {
+        None
+    } else if let Some(target_id) = old_chapter_id {
+        // Try to find the old chapter in the new set by its carried UUID
+        if let Some(new_ch_idx) = new_chapters.iter().position(|ch| ch.id == target_id) {
+            let slide_count = new_chapters[new_ch_idx].slides.len();
+            if slide_count == 0 {
+                // Chapter exists but has no slides — fall back to first chapter
+                RunningPresentationPosition::new(&new_chapters)
+            } else {
+                let clamped_slide = old_chapter_slide.min(slide_count - 1);
+                // Recompute slide_total
+                let mut total: usize = 0;
+                for i in 0..new_ch_idx {
+                    total += new_chapters[i].slides.len();
+                }
+                total += clamped_slide;
+                Some(RunningPresentationPosition::from_raw(
+                    new_ch_idx,
+                    clamped_slide,
+                    total,
+                ))
+            }
+        } else {
+            // Current chapter was deleted; fall back to first chapter
+            RunningPresentationPosition::new(&new_chapters)
+        }
+    } else {
+        RunningPresentationPosition::new(&new_chapters)
+    };
+
+    // Now assign fresh UUIDs to all chapters so they don't carry stale old IDs
+    for ch in &mut new_chapters {
+        ch.id = Uuid::new_v4();
+    }
+
+    // Update the running presentation in-place (preserves window state)
+    if let Some(first) = running_presentations.write().first_mut() {
+        first.presentation = new_chapters;
+        first.position = new_position;
+        // Keep: is_black_screen, presentation_resolution, markdown_scroll_position
+    }
 }
 
 #[cfg(test)]

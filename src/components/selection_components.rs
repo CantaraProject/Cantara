@@ -331,6 +331,41 @@ pub fn Selection() -> Element {
                 }
             }
 
+            // Running presentation indicator bar
+            if !running_presentations.read().is_empty() {
+                div {
+                    class: "running-presentation-bar",
+                    span { { t!("selection.presentation_running").to_string() } }
+                    button {
+                        class: "outline",
+                        onclick: move |_| {
+                            presentation::update_presentation(
+                                &selected_items.read(),
+                                &mut running_presentations,
+                                &default_presentation_design_memo(),
+                                &default_song_slide_settings_memo(),
+                            );
+                        },
+                        { t!("selection.update_presentation").to_string() }
+                    }
+                    if settings.read().presenter_console_in_main_window && settings.read().show_presenter_console {
+                        button {
+                            onclick: move |_| {
+                                // Update the presentation with current selection before returning
+                                presentation::update_presentation(
+                                    &selected_items.read(),
+                                    &mut running_presentations,
+                                    &default_presentation_design_memo(),
+                                    &default_song_slide_settings_memo(),
+                                );
+                                nav.push(crate::Route::PresenterConsolePage {});
+                            },
+                            { t!("selection.return_to_presenter").to_string() }
+                        }
+                    }
+                }
+            }
+
             // Display search results if there are any and search_visible is true
             if search_visible() {
                 SearchResults {
@@ -522,14 +557,32 @@ pub fn Selection() -> Element {
                     },
                     button {
                         class: "primary smaller-buttons",
-                        onclick: move |_| start_presentation(&selected_items.read().clone(), &mut running_presentations, &default_presentation_design_memo(), &default_song_slide_settings_memo(), &settings.read()),
+                        onclick: move |_| {
+                            if running_presentations.read().is_empty() {
+                                start_presentation(&selected_items.read().clone(), &mut running_presentations, &default_presentation_design_memo(), &default_song_slide_settings_memo(), &settings.read());
+                            } else {
+                                presentation::update_presentation(
+                                    &selected_items.read(),
+                                    &mut running_presentations,
+                                    &default_presentation_design_memo(),
+                                    &default_song_slide_settings_memo(),
+                                );
+                                if settings.read().presenter_console_in_main_window && settings.read().show_presenter_console {
+                                    nav.push(crate::Route::PresenterConsolePage {});
+                                }
+                            }
+                        },
                         span {
                             class: "mobile-only",
                             Icon { icon: FaPlay }
                         }
                         span {
                             class: "desktop-only",
-                            { t!("selection.start_presentation").to_string() }
+                            if running_presentations.read().is_empty() {
+                                { t!("selection.start_presentation").to_string() }
+                            } else {
+                                { t!("selection.update_presentation").to_string() }
+                            }
                         }
                     }
                 }
