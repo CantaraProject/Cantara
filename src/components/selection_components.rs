@@ -1038,8 +1038,17 @@ fn PresentationOptions(
 
                 // Derive timer state for the current item
                 let timer_enabled = item.timer_settings_option.is_some();
-                let timer_seconds = item.timer_settings_option.as_ref().map(|t| t.timer_seconds).unwrap_or(5);
-                let after_last = item.timer_settings_option.as_ref().map(|t| t.after_last_slide).unwrap_or_default();
+                let default_timer_settings = SlideTimerSettings::default();
+                let timer_seconds = item
+                    .timer_settings_option
+                    .as_ref()
+                    .map(|t| t.timer_seconds)
+                    .unwrap_or(default_timer_settings.timer_seconds);
+                let after_last = item
+                    .timer_settings_option
+                    .as_ref()
+                    .map(|t| t.after_last_slide)
+                    .unwrap_or_default();
                 let current_transition = item.transition_option;
 
                 rsx! {
