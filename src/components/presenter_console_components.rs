@@ -591,6 +591,10 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
     let scale_percentage = ((480.0f64 / native_w as f64) * 100.0).round();
     let zoom_css = format!("zoom: {}%;", scale_percentage);
 
+    let timer_seconds = rp.get_current_timer_settings().map(|t| t.timer_seconds);
+    let current_slide = rp.position.as_ref().map(|p| p.slide_total()).unwrap_or(0);
+    let total_slides = rp.total_slides();
+
     rsx! {
         div {
             class: "presenter-preview-panel",
@@ -601,6 +605,21 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
                 PresentationRendererComponent {
                     running_presentation: running_presentation,
                     fire_timer: false,
+                }
+                // Countdown timer bar
+                if let Some(seconds) = timer_seconds {
+                    div {
+                        key: "{current_slide}",
+                        style: format!(
+                            "position: absolute; bottom: 0; left: 0; height: 6px; width: 100%; background: rgba(255, 255, 255, 0.7); z-index: 100; animation: countdownBar {}s linear forwards;",
+                            seconds
+                        ),
+                    }
+                }
+                // Slide counter
+                div {
+                    style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 20px; z-index: 100;",
+                    { format!("{} / {}", current_slide + 1, total_slides) }
                 }
             }
         }

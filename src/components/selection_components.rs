@@ -1,6 +1,6 @@
 //! This module includes the components for song selection
 
-use super::shared_components::{ExamplePresentationViewer, ImageIcon, MarkdownIcon, MusicIcon, PdfIcon};
+use super::shared_components::{ImageIcon, MarkdownIcon, MusicIcon, PdfIcon, SelectedItemPreview};
 use crate::TEST_STATE;
 use crate::logic::presentation;
 use crate::logic::search::{SearchResult, search_source_files};
@@ -974,37 +974,6 @@ fn PresentationOptions(
     }
     let item_index = active_id.unwrap();
 
-    let preview_pd = use_memo(move || {
-        let items = selected_items.read();
-        let idx_opt = active_selected_item_id();
-        if let Some(idx) = idx_opt {
-            items
-                .get(idx)
-                .and_then(|item| item.presentation_design_option.clone())
-                .unwrap_or_else(|| settings.read().presentation_designs[0].clone())
-        } else {
-            settings.read().presentation_designs[0].clone()
-        }
-    });
-
-    let preview_ss = use_memo(move || {
-        let items = selected_items.read();
-        let idx_opt = active_selected_item_id();
-        if let Some(idx) = idx_opt {
-            items
-                .get(idx)
-                .and_then(|item| item.slide_settings_option.clone())
-                .unwrap_or_else(|| settings.read().song_slide_settings[0].clone())
-        } else {
-            settings.read().song_slide_settings[0].clone()
-        }
-    });
-
-    let mut current_ss_signal = use_signal(|| SlideSettings::default());
-    use_effect(move || {
-        current_ss_signal.set(preview_ss());
-    });
-
     rsx! {
         div {
             role: "group",
@@ -1228,9 +1197,10 @@ fn PresentationOptions(
                     }
                     div {
                         style: "margin-top: 20px; display: flex; flex-direction: column; align-items: center;",
-                        ExamplePresentationViewer {
-                            presentation_design: preview_pd(),
-                            song_slide_settings: Some(current_ss_signal),
+                        SelectedItemPreview {
+                            selected_item: item.clone(),
+                            default_presentation_design: settings.read().presentation_designs[0].clone(),
+                            default_slide_settings: settings.read().song_slide_settings[0].clone(),
                             width: 400,
                         }
                     }

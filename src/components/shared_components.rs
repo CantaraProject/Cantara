@@ -1,9 +1,9 @@
 //! Shared components reusable across different parts of the program.
 
 use crate::components::presentation_components::PresentationRendererComponent;
-use crate::logic::presentation::create_amazing_grace_presentation;
+use crate::logic::presentation::{create_amazing_grace_presentation, create_single_item_presentation};
 use crate::logic::settings::{CssSize, PresentationDesign};
-use crate::logic::states::RunningPresentation;
+use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
@@ -103,8 +103,10 @@ pub fn PresentationViewer(
     selected: Option<bool>,
     onclick: Option<EventHandler<MouseEvent>>,
 ) -> Element {
-    let scale_percentage = ((width as f64 / 1024.0) * 100.0).round();
-    let zoom_css = format!("zoom: {}%;", scale_percentage);
+    // Render at native presentation resolution and scale down to desired width
+    let (native_w, native_h) = presentation.presentation_resolution;
+    let zoom_factor = width as f64 / native_w as f64;
+    let zoom_css = format!("zoom: {};", zoom_factor);
     let css_class = selected.map_or("rounded-corners-inactive", |s| {
         if s {
             "rounded-corners-active"
@@ -121,7 +123,7 @@ pub fn PresentationViewer(
     rsx! {
         div {
             class: format!("{} presentation-preview inline-div", css_class),
-            style: format!("position: relative; width: 1024px; height: 576px; {}", zoom_css),
+            style: format!("position: relative; width: {}px; height: {}px; {}", native_w, native_h, zoom_css),
             onclick: move |event| if let Some(onclick_event) = onclick { onclick_event.call(event) },
             PresentationRendererComponent {
                 running_presentation: presentation_signal,
@@ -155,6 +157,85 @@ pub fn ExamplePresentationViewer(
         PresentationViewer {
             presentation,
             width,
+        }
+    }
+}
+
+/// Displays a live preview of the currently selected item with its actual slides,
+/// transition effects, and countdown timer bar. Click advances to the next slide.
+#[component]
+pub fn SelectedItemPreview(
+    selected_item: SelectedItemRepresentation,
+    default_presentation_design: PresentationDesign,
+    default_slide_settings: SlideSettings,
+    width: usize,
+) -> Element {
+    let timer_seconds = selected_item
+        .timer_settings_option
+        .as_ref()
+        .map(|t| t.timer_seconds);
+
+    let presentation = create_single_item_presentation(
+        &selected_item,
+        &default_presentation_design,
+        &default_slide_settings,
+    );
+
+    let mut presentation_signal = use_signal(|| presentation.clone());
+    // Only reset when slide content/settings change, not when position changes due to clicks
+    if presentation_signal.peek().presentation != presentation.presentation {
+        presentation_signal.set(presentation.clone());
+    }
+
+    let current_slide_number = use_memo(move || {
+        presentation_signal
+            .read()
+            .position
+            .as_ref()
+            .map(|p| p.slide_total())
+            .unwrap_or(0)
+    });
+
+    let total_slides = use_memo(move || presentation_signal.read().total_slides());
+
+    // Render at native presentation resolution and scale down to desired width
+    let (native_w, native_h) = presentation.presentation_resolution;
+    let zoom_factor = width as f64 / native_w as f64;
+    let zoom_css = format!("zoom: {};", zoom_factor);
+
+    rsx! {
+        div {
+            class: "presentation-preview",
+            style: format!(
+                "position: relative; width: {}px; height: {}px; cursor: pointer; overflow: hidden; border-radius: 8px; {}",
+                native_w, native_h, zoom_css
+            ),
+            PresentationRendererComponent {
+                running_presentation: presentation_signal,
+                fire_timer: true,
+            }
+            // Countdown timer bar at the bottom
+            if let Some(seconds) = timer_seconds {
+                div {
+                    key: "{current_slide_number()}",
+                    style: format!(
+                        "position: absolute; bottom: 0; left: 0; height: 6px; width: 100%; background: rgba(255, 255, 255, 0.7); z-index: 100; animation: countdownBar {}s linear forwards;",
+                        seconds
+                    ),
+                }
+            }
+            // Slide counter overlay
+            if total_slides() == 0 {
+                div {
+                    style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 20px; z-index: 100;",
+                    { "0 / 0" }
+                }
+            } else {
+                div {
+                    style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 20px; z-index: 100;",
+                    { format!("{} / {}", current_slide_number() + 1, total_slides()) }
+                }
+            }
         }
     }
 }
