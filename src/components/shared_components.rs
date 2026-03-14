@@ -225,9 +225,16 @@ pub fn SelectedItemPreview(
                 }
             }
             // Slide counter overlay
-            div {
-                style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 20px; z-index: 100;",
-                { format!("{} / {}", current_slide_number() + 1, total_slides()) }
+            if total_slides() == 0 {
+                div {
+                    style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 20px; z-index: 100;",
+                    { "0 / 0" }
+                }
+            } else {
+                div {
+                    style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 20px; z-index: 100;",
+                    { format!("{} / {}", current_slide_number() + 1, total_slides()) }
+                }
             }
         }
     }
