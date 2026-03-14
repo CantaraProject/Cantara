@@ -283,12 +283,21 @@ impl RunningPresentation {
     pub fn is_last_slide_in_chapter(&self) -> bool {
         match self.position.clone() {
             Some(pos) => {
-                let chapter_len = self
+                let chapter_len_opt = self
                     .presentation
                     .get(pos.chapter())
-                    .map(|ch| ch.slides.len())
-                    .unwrap_or(0);
-                pos.chapter_slide() + 1 >= chapter_len
+                    .map(|ch| ch.slides.len());
+
+                match chapter_len_opt {
+                    // Only consider it the last slide if the chapter exists and has at least one slide.
+                    Some(chapter_len) if chapter_len > 0 => {
+                        let current_index = pos.chapter_slide();
+                        // `current_index` is zero-based; we're on the last slide if it's exactly the last index.
+                        current_index + 1 == chapter_len
+                    }
+                    // Missing or empty chapter, or any other invalid state: not the last slide.
+                    _ => false,
+                }
             }
             None => false,
         }
