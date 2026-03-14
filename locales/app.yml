@@ -38,6 +38,42 @@ selection:
     default:
       en: Default
       de: Standard
+    timer:
+      label:
+        en: Auto-Advance Timer (seconds)
+        de: Automatischer Weiter-Timer (Sekunden)
+      disabled:
+        en: Disabled
+        de: Deaktiviert
+      after_last_slide:
+        label:
+          en: After last slide
+          de: Nach letzter Folie
+        go_to_next:
+          en: Go to next chapter
+          de: Zum nächsten Kapitel wechseln
+        restart_chapter:
+          en: Restart current chapter
+          de: Aktuelles Kapitel wiederholen
+    transition:
+      label:
+        en: Slide Transition
+        de: Folien-Übergang
+      none:
+        en: None
+        de: Kein
+      fade:
+        en: Fade
+        de: Einblenden
+      slide_from_right:
+        en: Slide from right
+        de: Von rechts einschieben
+      slide_from_left:
+        en: Slide from left
+        de: Von links einschieben
+      zoom_in:
+        en: Zoom in
+        de: Einzoomen
   markdown:
     add_text:
       en: Add Markdown Text

@@ -19,7 +19,7 @@ use crate::logic::sync::{
 use crate::{
     MAIN_CSS,
     logic::{
-        settings::{FontRepresentation, PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate},
+        settings::{AfterLastSlide, FontRepresentation, PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate, SlideTransition},
         states::RunningPresentation,
     },
 };
@@ -427,6 +427,17 @@ pub fn PresentationRendererComponent(
     let is_black_screen =
         use_memo(move || running_presentation.read().is_black_screen);
 
+    // Derive the CSS transition class for the current chapter.
+    let transition_class = use_memo(move || {
+        match running_presentation.read().get_current_transition() {
+            SlideTransition::None => "",
+            SlideTransition::Fade => "presentation-fade-in",
+            SlideTransition::SlideFromRight => "presentation-slide-from-right",
+            SlideTransition::SlideFromLeft => "presentation-slide-from-left",
+            SlideTransition::ZoomIn => "presentation-zoom-in",
+        }
+    });
+
     let mut go_to_next_slide = move || {
         running_presentation.write().next_slide();
         presentation_is_visible.set(false);
@@ -438,6 +449,55 @@ pub fn PresentationRendererComponent(
         presentation_is_visible.set(false);
         presentation_is_visible.set(true);
     };
+
+    // Auto-advance timer: each time the slide changes, a new `spawn`-ed task
+    // is launched via `use_effect`. A generation counter ensures that only the
+    // most-recent timer fires – if the user (or a previous timer) navigated to
+    // a new slide before the sleep completed, the old task detects the changed
+    // generation and exits without advancing again.
+    let mut timer_generation: Signal<u64> = use_signal(|| 0);
+
+    use_effect(move || {
+        // Track slide changes by reading current_slide_number (subscribes to it)
+        let _ = current_slide_number();
+
+        // Increment the generation so any in-flight timer task will abort.
+        let generation_id = {
+            let mut g = timer_generation.write();
+            *g += 1;
+            *g
+        };
+
+        let timer_opt = running_presentation.read().get_current_timer_settings();
+        if let Some(timer) = timer_opt {
+            let after_last = timer.after_last_slide;
+            let ms = timer.timer_seconds as u64 * 1000;
+
+            spawn(async move {
+                // Sleep via JS setTimeout – works on both desktop (WebView) and web.
+                // A pure Rust sleep (tokio/async_std) does not pump the WebView event loop.
+                let js_sleep = format!("await new Promise(r => setTimeout(r, {ms}))");
+                let _ = document::eval(&js_sleep).await;
+
+                // If the slide changed while we were sleeping, abort.
+                if *timer_generation.peek() != generation_id {
+                    return;
+                }
+
+                let is_last = running_presentation.peek().is_last_slide_in_chapter();
+                match (is_last, after_last) {
+                    (true, AfterLastSlide::RestartCurrentChapter) => {
+                        running_presentation.write().restart_current_chapter();
+                    }
+                    _ => {
+                        running_presentation.write().next_slide();
+                    }
+                }
+                presentation_is_visible.set(false);
+                presentation_is_visible.set(true);
+            });
+        }
+    });
 
     // Stop rendering if no slide can be rendered.
     if current_slide.read().clone().is_none() {
@@ -588,10 +648,11 @@ pub fn PresentationRendererComponent(
                 {
                     let slide_content = current_slide.read().clone().unwrap().slide_content.clone();
                     let container_style = slide_container_style(&slide_content);
+                    let tc = transition_class();
 
                     rsx! {
                         div {
-                            class: "slide-container presentation-fade-in",
+                            class: "slide-container {tc}",
                             style: "{container_style}",
                             key: "{current_slide_number}",
                             SlideContentRenderer {

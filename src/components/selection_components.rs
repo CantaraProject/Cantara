@@ -6,6 +6,7 @@ use crate::logic::presentation;
 use crate::logic::search::{SearchResult, search_source_files};
 use crate::logic::settings::PresentationDesign;
 use crate::logic::settings::SelectionSidebarType;
+use crate::logic::settings::{AfterLastSlide, SlideTimerSettings, SlideTransition};
 use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
 use crate::logic::settings::{Settings, default_sidebar_order, use_settings};
@@ -1035,6 +1036,12 @@ fn PresentationOptions(
                 let items = selected_items.read();
                 let item = items.get(item_index).cloned().unwrap();
 
+                // Derive timer state for the current item
+                let timer_enabled = item.timer_settings_option.is_some();
+                let timer_seconds = item.timer_settings_option.as_ref().map(|t| t.timer_seconds).unwrap_or(5);
+                let after_last = item.timer_settings_option.as_ref().map(|t| t.after_last_slide).unwrap_or_default();
+                let current_transition = item.transition_option;
+
                 rsx! {
                     div {
                         class: "grid",
@@ -1086,6 +1093,121 @@ fn PresentationOptions(
                                         value: "{idx}",
                                         selected: item.slide_settings_option.as_ref().map_or(false, |s| s == &settings.read().song_slide_settings[idx]),
                                         { format!("{} {}", t!("selection.presentation_options.slide_settings").to_string(), idx + 1) }
+                                    }
+                                }
+                            }
+                        }
+                        // Transition selector
+                        div {
+                            label { { t!("selection.presentation_options.transition.label").to_string() } }
+                            select {
+                                onchange: move |evt| {
+                                    let val = evt.value();
+                                    let transition = match val.as_str() {
+                                        "none" => SlideTransition::None,
+                                        "fade" => SlideTransition::Fade,
+                                        "slide_from_right" => SlideTransition::SlideFromRight,
+                                        "slide_from_left" => SlideTransition::SlideFromLeft,
+                                        "zoom_in" => SlideTransition::ZoomIn,
+                                        _ => SlideTransition::Fade,
+                                    };
+                                    selected_items.write()[item_index].transition_option = transition;
+                                },
+                                option {
+                                    value: "none",
+                                    selected: current_transition == SlideTransition::None,
+                                    { t!("selection.presentation_options.transition.none").to_string() }
+                                }
+                                option {
+                                    value: "fade",
+                                    selected: current_transition == SlideTransition::Fade,
+                                    { t!("selection.presentation_options.transition.fade").to_string() }
+                                }
+                                option {
+                                    value: "slide_from_right",
+                                    selected: current_transition == SlideTransition::SlideFromRight,
+                                    { t!("selection.presentation_options.transition.slide_from_right").to_string() }
+                                }
+                                option {
+                                    value: "slide_from_left",
+                                    selected: current_transition == SlideTransition::SlideFromLeft,
+                                    { t!("selection.presentation_options.transition.slide_from_left").to_string() }
+                                }
+                                option {
+                                    value: "zoom_in",
+                                    selected: current_transition == SlideTransition::ZoomIn,
+                                    { t!("selection.presentation_options.transition.zoom_in").to_string() }
+                                }
+                            }
+                        }
+                        // Timer settings
+                        div {
+                            label { { t!("selection.presentation_options.timer.label").to_string() } }
+                            div {
+                                role: "group",
+                                input {
+                                    r#type: "checkbox",
+                                    id: "timer-enabled-{item_index}",
+                                    checked: timer_enabled,
+                                    onchange: move |evt| {
+                                        let checked = evt.checked();
+                                        let mut items = selected_items.write();
+                                        if checked {
+                                            items[item_index].timer_settings_option = Some(SlideTimerSettings::default());
+                                        } else {
+                                            items[item_index].timer_settings_option = None;
+                                        }
+                                    }
+                                }
+                                label {
+                                    r#for: "timer-enabled-{item_index}",
+                                    style: "margin-left: 4px;",
+                                    { t!("selection.presentation_options.timer.label").to_string() }
+                                }
+                            }
+                            if timer_enabled {
+                                input {
+                                    r#type: "number",
+                                    min: "1",
+                                    max: "3600",
+                                    value: "{timer_seconds}",
+                                    style: "margin-top: 8px;",
+                                    onchange: move |evt| {
+                                        if let Ok(secs) = evt.value().parse::<u32>() {
+                                            if secs > 0 {
+                                                let mut items = selected_items.write();
+                                                if let Some(ref mut ts) = items[item_index].timer_settings_option {
+                                                    ts.timer_seconds = secs;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                div {
+                                    style: "margin-top: 8px;",
+                                    label { { t!("selection.presentation_options.timer.after_last_slide.label").to_string() } }
+                                    select {
+                                        onchange: move |evt| {
+                                            let val = evt.value();
+                                            let behavior = match val.as_str() {
+                                                "restart" => AfterLastSlide::RestartCurrentChapter,
+                                                _ => AfterLastSlide::GoToNextChapter,
+                                            };
+                                            let mut items = selected_items.write();
+                                            if let Some(ref mut ts) = items[item_index].timer_settings_option {
+                                                ts.after_last_slide = behavior;
+                                            }
+                                        },
+                                        option {
+                                            value: "next",
+                                            selected: after_last == AfterLastSlide::GoToNextChapter,
+                                            { t!("selection.presentation_options.timer.after_last_slide.go_to_next").to_string() }
+                                        }
+                                        option {
+                                            value: "restart",
+                                            selected: after_last == AfterLastSlide::RestartCurrentChapter,
+                                            { t!("selection.presentation_options.timer.after_last_slide.restart_chapter").to_string() }
+                                        }
                                     }
                                 }
                             }

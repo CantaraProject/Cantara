@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf};
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::{settings::PresentationDesign, sourcefiles::SourceFile};
+use super::{settings::{PresentationDesign, SlideTimerSettings, SlideTransition}, sourcefiles::SourceFile};
 use cantara_songlib::slides::{Slide, SlideSettings};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Default)]
@@ -80,6 +80,12 @@ pub struct SelectedItemRepresentation {
     /// Optional inline markdown content for spontaneous markdown text.
     /// When set, this content is used instead of reading from the source file path.
     pub inline_markdown: Option<String>,
+
+    /// Optional timer settings for automatic slide advance. If [None], no timer is used.
+    pub timer_settings_option: Option<SlideTimerSettings>,
+
+    /// The transition effect for this selection. Uses the default (Fade) when not set.
+    pub transition_option: SlideTransition,
 }
 
 impl SelectedItemRepresentation {
@@ -89,6 +95,8 @@ impl SelectedItemRepresentation {
             presentation_design_option: None,
             slide_settings_option: None,
             inline_markdown: None,
+            timer_settings_option: None,
+            transition_option: SlideTransition::default(),
         }
     }
 }
@@ -247,6 +255,52 @@ impl RunningPresentation {
             None => SlideSettings::default(),
         }
     }
+
+    /// Returns the transition for the current chapter.
+    pub fn get_current_transition(&self) -> SlideTransition {
+        match self.position.clone() {
+            Some(pos) => self
+                .presentation
+                .get(pos.chapter())
+                .map(|ch| ch.transition_option)
+                .unwrap_or_default(),
+            None => SlideTransition::default(),
+        }
+    }
+
+    /// Returns the timer settings for the current chapter, if any.
+    pub fn get_current_timer_settings(&self) -> Option<SlideTimerSettings> {
+        match self.position.clone() {
+            Some(pos) => self
+                .presentation
+                .get(pos.chapter())
+                .and_then(|ch| ch.timer_settings_option.clone()),
+            None => None,
+        }
+    }
+
+    /// Returns true if the current slide is the last slide in its chapter.
+    pub fn is_last_slide_in_chapter(&self) -> bool {
+        match self.position.clone() {
+            Some(pos) => {
+                let chapter_len = self
+                    .presentation
+                    .get(pos.chapter())
+                    .map(|ch| ch.slides.len())
+                    .unwrap_or(0);
+                pos.chapter_slide() + 1 >= chapter_len
+            }
+            None => false,
+        }
+    }
+
+    /// Restart the current chapter from its first slide.
+    pub fn restart_current_chapter(&mut self) {
+        if let Some(ref pos) = self.position {
+            let chapter = pos.chapter();
+            self.jump_to(chapter, 0);
+        }
+    }
 }
 
 /// This represents a position in a running presentation.
@@ -339,6 +393,12 @@ pub struct SlideChapter {
     pub source_file: SourceFile,
     pub presentation_design_option: Option<PresentationDesign>,
     pub slide_settings_option: Option<SlideSettings>,
+    /// Optional timer settings for automatic slide advance.
+    #[serde(default)]
+    pub timer_settings_option: Option<SlideTimerSettings>,
+    /// The transition effect for this chapter.
+    #[serde(default)]
+    pub transition_option: SlideTransition,
 }
 
 impl SlideChapter {
@@ -353,6 +413,8 @@ impl SlideChapter {
             source_file,
             presentation_design_option: presentation_design,
             slide_settings_option: slide_settings,
+            timer_settings_option: None,
+            transition_option: SlideTransition::default(),
         }
     }
 }
