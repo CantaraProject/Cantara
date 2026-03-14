@@ -1097,6 +1097,9 @@ fn PresentationOptions(
                                 }
                             }
                         }
+                    }
+                    div {
+                        class: "grid",
                         // Transition selector
                         div {
                             label { { t!("selection.presentation_options.transition.label").to_string() } }
@@ -1147,6 +1150,7 @@ fn PresentationOptions(
                                 role: "group",
                                 input {
                                     r#type: "checkbox",
+                                    role: "switch",
                                     id: "timer-enabled-{item_index}",
                                     checked: timer_enabled,
                                     onchange: move |evt| {
