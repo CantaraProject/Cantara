@@ -53,24 +53,29 @@ fn extract_text_from_pdf_document(doc: &lopdf::Document) -> Option<String> {
 
 /// Shared helper: iterates every page of `doc`, attempts text extraction, and
 /// inserts each successfully-extracted page into `PDF_PAGE_CACHE` under the key
-/// `"{path_str}#page={N}"`.  Acquires the lock once for the entire batch.
-/// Used by both `extract_pdf_page_text` (on-demand) and `refresh_search_cache`
-/// (pre-population at file-load time) so the logic lives in exactly one place.
+/// `"{path_str}#page={N}"`.
+/// Text extraction is done outside the lock to avoid blocking concurrent readers.
 #[cfg(not(target_arch = "wasm32"))]
 fn cache_all_pdf_page_texts(doc: &lopdf::Document, path_str: &str) {
-    if let Ok(mut map) = pdf_page_cache().lock() {
-        for pnum in doc.get_pages().keys().copied() {
-            match doc.extract_text(&[pnum]) {
-                Ok(text) => {
-                    map.insert(format!("{}#page={}", path_str, pnum), text);
-                }
-                Err(e) => {
-                    log::debug!(
-                        "Text extraction failed for page {} of {}: {}",
-                        pnum, path_str, e
-                    );
-                }
+    // Extract all page texts outside the lock
+    let mut page_texts: Vec<(String, String)> = Vec::new();
+    for pnum in doc.get_pages().keys().copied() {
+        match doc.extract_text(&[pnum]) {
+            Ok(text) => {
+                page_texts.push((format!("{}#page={}", path_str, pnum), text));
             }
+            Err(e) => {
+                log::debug!(
+                    "Text extraction failed for page {} of {}: {}",
+                    pnum, path_str, e
+                );
+            }
+        }
+    }
+    // Acquire the lock only for the bulk insert
+    if let Ok(mut map) = pdf_page_cache().lock() {
+        for (key, text) in page_texts {
+            map.insert(key, text);
         }
     }
 }
@@ -88,32 +93,12 @@ fn extract_pdf_text(path: &std::path::Path) -> Option<String> {
     }
 }
 
-/// Extracts plain text from a specific page of a PDF file (non-WASM only).
-///
-/// On a cache miss, the **entire** document is loaded once and every page's text is
-/// inserted into `PDF_PAGE_CACHE` via `cache_all_pdf_page_texts`.  This avoids
-/// redundant file-system reads when the presenter console renders multiple pages of
-/// the same PDF in the same pass.
+/// Returns cached plain text for a specific page of a PDF file (non-WASM only).
+/// Only returns content from `PDF_PAGE_CACHE`; never parses PDFs synchronously.
+/// The cache is populated by `refresh_search_cache` in a background thread.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn extract_pdf_page_text(path: &std::path::Path, page_number: u32) -> Option<String> {
     let cache_key = format!("{}#page={}", path.display(), page_number);
-    // Fast path: return cached text if available.
-    if let Ok(map) = pdf_page_cache().lock() {
-        if let Some(cached) = map.get(&cache_key) {
-            return Some(cached.clone());
-        }
-    }
-    // Cache miss: load the document and populate the cache for ALL pages so
-    // that subsequent calls for different pages of the same PDF are O(1).
-    let doc = match lopdf::Document::load(path) {
-        Ok(doc) => doc,
-        Err(e) => {
-            log::warn!("Failed to load PDF for page text extraction ({}): {}", path.display(), e);
-            return None;
-        }
-    };
-    cache_all_pdf_page_texts(&doc, &path.display().to_string());
-    // Return the requested page (now in cache if extraction succeeded).
     if let Ok(map) = pdf_page_cache().lock() {
         map.get(&cache_key).cloned()
     } else {
@@ -212,40 +197,14 @@ pub fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
             }
             None
         }
-        #[cfg(not(target_arch = "wasm32"))]
         SourceFileType::Pdf => {
-            // Check cache without holding the lock during PDF parsing.
+            // Only return cached content for PDFs. Never parse PDFs synchronously here
+            // because this function is called on the UI thread during search. The
+            // background thread in refresh_search_cache populates the cache; until
+            // then, PDF content search is simply skipped.
             if let Ok(map) = cache().lock() {
                 if let Some(cached) = map.get(&source_file.path) {
                     return Some(cached.clone());
-                }
-            }
-            // Not cached: extract from PDF outside the lock, then insert.
-            if let Some(content) = extract_pdf_text(&source_file.path) {
-                if let Ok(mut map) = cache().lock() {
-                    map.insert(source_file.path.clone(), content.clone());
-                }
-                return Some(content);
-            }
-            None
-        }
-        #[cfg(target_arch = "wasm32")]
-        SourceFileType::Pdf => {
-            // Try cache first
-            if let Ok(mut map) = cache().lock() {
-                if let Some(cached) = map.get(&source_file.path) {
-                    return Some(cached.clone());
-                }
-            }
-            // Read from web VFS
-            if let Some(path_str) = source_file.path.to_str() {
-                if let Some(bytes) = crate::logic::settings::RepositoryType::web_read_file(path_str) {
-                    if let Some(content) = extract_pdf_text_from_bytes(&bytes) {
-                        if let Ok(mut map) = cache().lock() {
-                            map.insert(source_file.path.clone(), content.clone());
-                        }
-                        return Some(content);
-                    }
                 }
             }
             None
@@ -391,6 +350,10 @@ mod tests {
             file_type: SourceFileType::Pdf,
             md5_hash: None,
         };
+        // PDF content search requires the cache to be populated first
+        // (read_source_file_content never parses PDFs synchronously).
+        invalidate_search_cache();
+        refresh_search_cache(&[sf.clone()]);
         let results = search_source_files(&[sf], "page 2");
         assert!(!results.is_empty(), "PDF with embedded text should produce search results");
         assert!(!results[0].is_title_match, "Should be a content match, not a title match");
