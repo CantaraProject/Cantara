@@ -489,7 +489,8 @@ pub fn PresentationRendererComponent(
         let timer_opt = running_presentation.read().get_current_timer_settings();
         if let Some(timer) = timer_opt {
             let after_last = timer.after_last_slide;
-            let ms = timer.timer_seconds as u64 * 1000;
+            let seconds = if timer.timer_seconds == 0 { 1 } else { timer.timer_seconds } as u64;
+            let ms = seconds * 1000;
 
             spawn(async move {
                 // Sleep via JS setTimeout – works on both desktop (WebView) and web.
