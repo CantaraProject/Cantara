@@ -28,6 +28,7 @@ sys-locale = "=0.3.2"
 cantara-songlib = "0.1.5"
 markdown = "1.0.0"
 rgb = { version = "0.8.52", features = ["serde"] }
+image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
 log = "0.4.28"
 # reqwest without default TLS on all targets; TLS and blocking added for non-WASM below
 # On WASM, the browser's native fetch API handles HTTP/TLS natively
@@ -92,6 +93,7 @@ default = ["desktop"]
 web = ["dioxus/web"]
 desktop = [
     "dioxus/desktop",
+    "dep:image",
 ]
 mobile = ["dioxus/mobile"]
 
