@@ -489,12 +489,47 @@ pub fn PresentationRendererComponent(
         let timer_opt = running_presentation.read().get_current_timer_settings();
         if let Some(timer) = timer_opt {
             let after_last = timer.after_last_slide;
-            let ms = timer.timer_seconds as u64 * 1000;
+            let seconds = if timer.timer_seconds == 0 { 1 } else { timer.timer_seconds } as u64;
+            let ms = seconds * 1000;
 
             spawn(async move {
                 // Sleep via JS setTimeout – works on both desktop (WebView) and web.
                 // A pure Rust sleep (tokio/async_std) does not pump the WebView event loop.
-                let js_sleep = format!("await new Promise(r => setTimeout(r, {ms}))");
+                //
+                // To avoid accumulating many pending timeouts, we keep a single active JS
+                // timeout and cancel/resolve any previous one before scheduling a new timer.
+                let js_sleep = format!(
+                    r#"
+                        (async function(ms) {{
+                            // Cancel any previous timeout, if present.
+                            if (window.__slideTimerId !== undefined) {{
+                                clearTimeout(window.__slideTimerId);
+                                window.__slideTimerId = undefined;
+                            }}
+
+                            // Immediately resolve any previous pending sleep promise so that
+                            // older Rust tasks wake up and can observe the new generation.
+                            if (window.__slideTimerResolve) {{
+                                try {{
+                                    window.__slideTimerResolve();
+                                }} catch (e) {{
+                                    // Ignore errors from double-resolving, etc.
+                                }}
+                                window.__slideTimerResolve = undefined;
+                            }}
+
+                            // Create a new promise and associated timeout for this sleep.
+                            await new Promise(function(resolve) {{
+                                window.__slideTimerResolve = resolve;
+                                window.__slideTimerId = setTimeout(function() {{
+                                    window.__slideTimerId = undefined;
+                                    window.__slideTimerResolve = undefined;
+                                    resolve();
+                                }}, ms);
+                            }});
+                        }})({ms});
+                    "#
+                );
                 let _ = document::eval(&js_sleep).await;
 
                 // If the slide changed while we were sleeping, abort.
