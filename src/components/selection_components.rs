@@ -1040,7 +1040,7 @@ fn PresentationOptions(
                 let timer_enabled = item.timer_settings_option.is_some();
                 let timer_seconds = item.timer_settings_option.as_ref().map(|t| t.timer_seconds).unwrap_or(5);
                 let after_last = item.timer_settings_option.as_ref().map(|t| t.after_last_slide).unwrap_or_default();
-                let current_transition = item.transition_option;
+                let current_transition = item.transition_effect;
 
                 rsx! {
                     div {
@@ -1114,7 +1114,7 @@ fn PresentationOptions(
                                         "zoom_in" => SlideTransition::ZoomIn,
                                         _ => SlideTransition::Fade,
                                     };
-                                    selected_items.write()[item_index].transition_option = transition;
+                                    selected_items.write()[item_index].transition_effect = transition;
                                 },
                                 option {
                                     value: "none",

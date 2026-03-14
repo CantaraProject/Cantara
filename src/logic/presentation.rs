@@ -333,7 +333,7 @@ pub fn add_presentation(
                 presentation_design_option: Some(used_presentation_design),
                 slide_settings_option: Some(used_slide_settings),
                 timer_settings_option: selected_item.timer_settings_option.clone(),
-                transition_option: selected_item.transition_option,
+                transition_option: selected_item.transition_effect,
             }),
             Err(_) => {
                 // TODO: Implement error handling, the user should get a message if an error occurs...
@@ -401,7 +401,7 @@ mod tests {
             slide_settings_option: None,
             inline_markdown: None,
             timer_settings_option: None,
-            transition_option: Default::default(),
+            transition_effect: Default::default(),
         };
         assert!(create_presentation_slides(&select_item, &SlideSettings::default()).is_ok());
     }
@@ -419,7 +419,7 @@ mod tests {
             slide_settings_option: None,
             inline_markdown: None,
             timer_settings_option: None,
-            transition_option: Default::default(),
+            transition_effect: Default::default(),
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default());
         assert!(result.is_ok());
@@ -450,7 +450,7 @@ mod tests {
             slide_settings_option: None,
             inline_markdown: None,
             timer_settings_option: None,
-            transition_option: Default::default(),
+            transition_effect: Default::default(),
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default());
         assert!(result.is_ok());
@@ -479,7 +479,7 @@ mod tests {
             slide_settings_option: None,
             inline_markdown: None,
             timer_settings_option: None,
-            transition_option: Default::default(),
+            transition_effect: Default::default(),
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default());
         assert!(result.is_ok());
@@ -504,7 +504,7 @@ mod tests {
             slide_settings_option: None,
             inline_markdown: None,
             timer_settings_option: None,
-            transition_option: Default::default(),
+            transition_effect: Default::default(),
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default());
         assert!(result.is_ok());

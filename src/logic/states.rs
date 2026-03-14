@@ -85,7 +85,7 @@ pub struct SelectedItemRepresentation {
     pub timer_settings_option: Option<SlideTimerSettings>,
 
     /// The transition effect for this selection. Uses the default (Fade) when not set.
-    pub transition_option: SlideTransition,
+    pub transition_effect: SlideTransition,
 }
 
 impl SelectedItemRepresentation {
@@ -96,7 +96,7 @@ impl SelectedItemRepresentation {
             slide_settings_option: None,
             inline_markdown: None,
             timer_settings_option: None,
-            transition_option: SlideTransition::default(),
+            transition_effect: SlideTransition::default(),
         }
     }
 }
