@@ -81,8 +81,11 @@ pub fn PresentationPage() -> Element {
     #[cfg(not(target_arch = "wasm32"))]
     let is_synced_tab = false;
 
-    // If there's still no presentation data, show an error
+    // If there's still no presentation data, close the window (desktop) or show an error
     if running_presentations.read().is_empty() {
+        #[cfg(feature = "desktop")]
+        dioxus::desktop::window().close();
+
         return rsx! {
             document::Link { rel: "stylesheet", href: MAIN_CSS }
             div {
