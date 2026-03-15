@@ -302,18 +302,15 @@ fn create_presentation_slides(
 
 /// Adds a presentation to the global running presentations signal
 /// Returns the number (id) of the created presentation
-pub fn add_presentation(
+/// Builds a [RunningPresentation] from the selected items without writing to
+/// any signal. This is the pure computation step used by [add_presentation]
+/// and by the web `start_presentation` (which needs the data before opening
+/// the presentation tab, i.e. before any signal writes).
+pub fn build_presentation(
     selected_items: &Vec<SelectedItemRepresentation>,
-    running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
-) -> Option<usize> {
-    // Right now, we only allow one running presentation at the same time.
-    // Later, Cantara is going to support multiple presentations.
-    if running_presentations.len() > 0 {
-        running_presentations.write().clear();
-    }
-
+) -> Option<RunningPresentation> {
     let mut presentation: Vec<SlideChapter> = vec![];
 
     for selected_item in selected_items {
@@ -344,9 +341,28 @@ pub fn add_presentation(
     }
 
     if !presentation.is_empty() {
+        Some(RunningPresentation::new(presentation))
+    } else {
+        None
+    }
+}
+
+pub fn add_presentation(
+    selected_items: &Vec<SelectedItemRepresentation>,
+    running_presentations: &mut Signal<Vec<RunningPresentation>>,
+    default_presentation_design: &PresentationDesign,
+    default_slide_settings: &SlideSettings,
+) -> Option<usize> {
+    // Right now, we only allow one running presentation at the same time.
+    // Later, Cantara is going to support multiple presentations.
+    if running_presentations.len() > 0 {
+        running_presentations.write().clear();
+    }
+
+    if let Some(rp) = build_presentation(selected_items, default_presentation_design, default_slide_settings) {
         running_presentations
             .write()
-            .push(RunningPresentation::new(presentation));
+            .push(rp);
         return Some(running_presentations.len() - 1);
     }
 

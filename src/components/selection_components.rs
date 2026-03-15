@@ -13,8 +13,8 @@ use crate::logic::settings::{Settings, default_sidebar_order, use_settings};
 use crate::logic::sourcefiles::SourceFile;
 #[cfg(target_arch = "wasm32")]
 use crate::logic::sync::{
-    SYNC_KEY_ACTIVE, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE, SYNC_KEY_PRESENTATION,
-    SYNC_KEY_QUIT,
+    SYNC_KEY_ACTIVE, SYNC_KEY_FILES, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE,
+    SYNC_KEY_PRESENTATION, SYNC_KEY_QUIT,
 };
 use crate::Route;
 use cantara_songlib::slides::SlideSettings;
@@ -1569,73 +1569,125 @@ fn start_presentation(
     default_slide_settings: &SlideSettings,
     settings_read: &Settings,
 ) {
-    if presentation::add_presentation(
+    // Build the presentation data without writing to any signal yet.
+    // On web, window.open() must be called BEFORE signal writes because
+    // window.open() can trigger synchronous browser callbacks (e.g. focus/blur)
+    // that re-enter the Dioxus diff engine. If signals are dirty at that point,
+    // the diff engine tries to process the dirty component whose scope is still
+    // borrowed from the current event handler, causing a "RefCell already
+    // borrowed" panic.
+    let Some(rp) = presentation::build_presentation(
         selected_items,
-        running_presentations,
         default_presentation_design,
         default_slide_settings,
-    )
-        .is_some()
-    {
-        let nav = navigator();
-        if settings_read.show_presenter_console {
-            // Store the presentation data in localStorage for the new-tab presentation
-            #[cfg(target_arch = "wasm32")]
+    ) else {
+        return;
+    };
+
+    let nav = navigator();
+    if settings_read.show_presenter_console {
+        // Store the presentation data in localStorage for the new-tab presentation
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Ok(json) = serde_json::to_string(&rp) {
+                let _ = web_sys::window()
+                    .and_then(|w| w.local_storage().ok().flatten())
+                    .map(|s| {
+                        let _ = s.set_item(SYNC_KEY_PRESENTATION, &json);
+                        let _ = s.set_item(SYNC_KEY_ACTIVE, "true");
+                        let _ = s.remove_item(SYNC_KEY_QUIT);
+                        let _ = s.remove_item(SYNC_KEY_POSITION);
+                        let _ = s.remove_item(SYNC_KEY_POSITION_FROM_CONSOLE);
+                    });
+            }
+
+            // Collect VFS files (e.g. PDFs) needed by the presentation and store
+            // them in localStorage so the new tab can populate its own VFS.
             {
-                if let Some(rp) = running_presentations.read().first() {
-                    if let Ok(json) = serde_json::to_string(rp) {
-                        let _ = web_sys::window()
-                            .and_then(|w| w.local_storage().ok().flatten())
-                            .map(|s| {
-                                let _ = s.set_item(SYNC_KEY_PRESENTATION, &json);
-                                let _ = s.set_item(SYNC_KEY_ACTIVE, "true");
-                                let _ = s.remove_item(SYNC_KEY_QUIT);
-                                let _ = s.remove_item(SYNC_KEY_POSITION);
-                                let _ = s.remove_item(SYNC_KEY_POSITION_FROM_CONSOLE);
-                            });
-                    }
-                }
-                // Open the presentation in a new browser tab.
-                // Derive the URL from window.location at runtime so that any deployment
-                // base path (e.g. /Cantara/ on GitHub Pages) is handled automatically.
-                if let Some(win) = web_sys::window() {
-                    let location = win.location();
-                    match (location.origin(), location.pathname()) {
-                        (Ok(origin), Ok(pathname)) => {
-                            // The Selection page is the root route "/". Stripping the
-                            // trailing slash gives the deployment base, e.g. "/Cantara"
-                            // for GitHub Pages or "" for local dev.
-                            let base = pathname.trim_end_matches('/');
-                            let url = format!("{}{}/presentation", origin, base);
-                            match win.open_with_url_and_target(&url, "_blank") {
-                                Ok(Some(_)) => {
-                                    // Successfully opened new tab/window.
-                                }
-                                Ok(None) | Err(_) => {
-                                    // Popup likely blocked or failed to open; inform the user.
-                                    let _ = win.alert_with_message(
-                                        "Unable to open the presentation in a new tab.\n\
-Please allow pop-ups for this site or open the presentation manually.",
+                use crate::logic::presentation::get_picture_path;
+                use crate::logic::settings::RepositoryType;
+                use cantara_songlib::slides::SlideContent;
+                use std::collections::HashMap;
+
+                let mut files: HashMap<String, String> = HashMap::new();
+                for chapter in &rp.presentation {
+                    for slide in &chapter.slides {
+                        if let SlideContent::SimplePicture(ref pic) = slide.slide_content {
+                            let path = get_picture_path(pic);
+                            let base_path = path.split('#').next().unwrap_or(&path).to_string();
+                            if base_path.to_lowercase().ends_with(".pdf")
+                                && !files.contains_key(&base_path)
+                            {
+                                if let Some(bytes) = RepositoryType::web_read_file(&base_path) {
+                                    files.insert(
+                                        base_path,
+                                        base64::Engine::encode(
+                                            &base64::engine::general_purpose::STANDARD,
+                                            &bytes,
+                                        ),
                                     );
                                 }
                             }
                         }
-                        _ => {
-                            // Location API unavailable (should not happen in a browser).
-                            let _ = win.alert_with_message(
-                                "Unable to determine the app URL. \
-Please open the presentation tab manually.",
-                            );
-                        }
+                    }
+                }
+                if !files.is_empty() {
+                    if let Ok(files_json) = serde_json::to_string(&files) {
+                        let _ = web_sys::window()
+                            .and_then(|w| w.local_storage().ok().flatten())
+                            .map(|s| s.set_item(SYNC_KEY_FILES, &files_json));
                     }
                 }
             }
-            // Navigate the current tab to the presenter console
-            nav.push(crate::Route::PresenterConsolePage {});
-        } else {
-            // No presenter console: start presentation directly in the same tab
-            nav.push(crate::Route::PresentationPage {});
+            // Open the presentation in a new browser tab.
+            // This MUST happen before the signal write below — see comment above.
+            // Derive the URL from window.location at runtime so that any deployment
+            // base path (e.g. /Cantara/ on GitHub Pages) is handled automatically.
+            if let Some(win) = web_sys::window() {
+                let location = win.location();
+                match (location.origin(), location.pathname()) {
+                    (Ok(origin), Ok(pathname)) => {
+                        // The Selection page is the root route "/". Stripping the
+                        // trailing slash gives the deployment base, e.g. "/Cantara"
+                        // for GitHub Pages or "" for local dev.
+                        let base = pathname.trim_end_matches('/');
+                        let url = format!("{}{}/presentation", origin, base);
+                        match win.open_with_url_and_target(&url, "_blank") {
+                            Ok(Some(_)) => {
+                                // Successfully opened new tab/window.
+                            }
+                            Ok(None) | Err(_) => {
+                                // Popup likely blocked or failed to open; inform the user.
+                                let _ = win.alert_with_message(
+                                    "Unable to open the presentation in a new tab.\n\
+Please allow pop-ups for this site or open the presentation manually.",
+                                );
+                            }
+                        }
+                    }
+                    _ => {
+                        // Location API unavailable (should not happen in a browser).
+                        let _ = win.alert_with_message(
+                            "Unable to determine the app URL. \
+Please open the presentation tab manually.",
+                        );
+                    }
+                }
+            }
         }
+
+        // NOW write to the signal — window.open() is done, so browser callbacks
+        // won't re-enter Dioxus while the signal is dirty.
+        running_presentations.write().clear();
+        running_presentations.write().push(rp);
+
+        // Navigate the current tab to the presenter console
+        nav.push(crate::Route::PresenterConsolePage {});
+    } else {
+        // No presenter console: write to signal and start presentation in same tab
+        running_presentations.write().clear();
+        running_presentations.write().push(rp);
+        nav.push(crate::Route::PresentationPage {});
     }
 }
 

@@ -122,6 +122,10 @@ pub fn PresenterConsolePage() -> Element {
     use_effect(move || {
         let current = running_presentations.read();
         if current.is_empty() {
+            // Drop the read guard BEFORE navigating — on web (single VirtualDom),
+            // nav.replace() triggers a synchronous re-render/diff that would
+            // attempt to borrow the same RefCell, causing a panic.
+            drop(current);
             if is_main_window {
                 if let Some(nav) = &nav {
                     nav.replace(crate::Route::Selection {});
@@ -131,7 +135,9 @@ pub fn PresenterConsolePage() -> Element {
         }
         if let Some(rp) = current.first() {
             if !rp.eq_ignoring_scroll(&running_presentation.peek()) {
-                running_presentation.set(rp.clone());
+                let rp = rp.clone();
+                drop(current);
+                running_presentation.set(rp);
             }
         }
     });
