@@ -474,18 +474,6 @@ pub fn Selection() -> Element {
                                 selected_items: selected_items
                             }
                         }
-                        // Drop zone hint shown when dragging over
-                        if drag_over_source() {
-                            div {
-                                class: "drop-zone-hint",
-                                { t!("selection.drag_drop_active").to_string() }
-                            }
-                        } else {
-                            div {
-                                class: "drop-zone-hint",
-                                { t!("selection.drag_drop_hint").to_string() }
-                            }
-                        }
                     },
 
                     // The area where the selected elements are shown
