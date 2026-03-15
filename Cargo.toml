@@ -88,6 +88,7 @@ base64 = "0.22.1"
 # lopdf -> rand -> rand_core -> getrandom 0.3, zip -> getrandom 0.4
 getrandom = { version = "0.3", features = ["wasm_js"] }
 getrandom_0_4 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+uuid = { version = "1", features = ["js"] }
 
 [features]
 default = ["desktop"]
