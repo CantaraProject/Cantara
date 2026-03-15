@@ -13,8 +13,8 @@ use crate::logic::presentation::{get_markdown_html, get_picture_path};
 use crate::logic::settings::{CssSize, HorizontalAlign, VerticalAlign};
 #[cfg(target_arch = "wasm32")]
 use crate::logic::sync::{
-    SYNC_KEY_ACTIVE, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE, SYNC_KEY_PRESENTATION,
-    SYNC_KEY_QUIT,
+    SYNC_KEY_ACTIVE, SYNC_KEY_FILES, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE,
+    SYNC_KEY_PRESENTATION, SYNC_KEY_QUIT,
 };
 use crate::{
     MAIN_CSS,
@@ -47,21 +47,49 @@ pub fn PresentationPage() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
     // On web, check if this is a synced new-tab presentation (opened by the presenter console).
-    // In that case the running_presentations signal will be empty, and we load data from localStorage.
+    // In that case the running_presentations signal will be empty, and we load data from
+    // localStorage. The data is stored in a local variable first; it is pushed into the
+    // shared signal via use_effect (after rendering completes) to avoid writing to a signal
+    // during the render phase, which causes "RefCell already borrowed" panics on web.
     #[cfg(target_arch = "wasm32")]
-    {
-        if running_presentations.read().is_empty() {
-            // Try to load synced presentation data from localStorage
-            if let Some(json) = web_sys::window()
+    let synced_rp: Option<RunningPresentation> = {
+        if running_presentations.peek().is_empty() {
+            // Restore VFS file data (e.g. PDFs) from localStorage so that
+            // PdfPageCanvas can read them. This must happen before the
+            // presentation renders.
+            if let Some(files_json) = web_sys::window()
+                .and_then(|w| w.local_storage().ok().flatten())
+                .and_then(|s| s.get_item(SYNC_KEY_FILES).ok().flatten())
+            {
+                use crate::logic::settings::RepositoryType;
+                use std::collections::HashMap;
+
+                if let Ok(files) = serde_json::from_str::<HashMap<String, String>>(&files_json) {
+                    for (path, b64) in &files {
+                        if let Ok(bytes) = base64::Engine::decode(
+                            &base64::engine::general_purpose::STANDARD,
+                            b64,
+                        ) {
+                            RepositoryType::store_web_file(path, bytes);
+                        }
+                    }
+                }
+                // Clean up to free localStorage space
+                let _ = web_sys::window()
+                    .and_then(|w| w.local_storage().ok().flatten())
+                    .map(|s| s.remove_item(SYNC_KEY_FILES));
+            }
+
+            web_sys::window()
                 .and_then(|w| w.local_storage().ok().flatten())
                 .and_then(|s| s.get_item(SYNC_KEY_PRESENTATION).ok().flatten())
-            {
-                if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json) {
-                    running_presentations.write().push(rp);
-                }
-            }
+                .and_then(|json| serde_json::from_str(&json).ok())
+        } else {
+            None
         }
-    }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let synced_rp: Option<RunningPresentation> = None;
 
     // On non-desktop builds, navigator() is used to detect whether this is a routed page
     // and to navigate back on quit. On desktop this page always runs as a standalone window
@@ -81,8 +109,9 @@ pub fn PresentationPage() -> Element {
     #[cfg(not(target_arch = "wasm32"))]
     let is_synced_tab = false;
 
-    // If there's still no presentation data, close the window (desktop) or show an error
-    if running_presentations.read().is_empty() {
+    // If there's still no presentation data (and no synced data from localStorage),
+    // close the window (desktop) or show an error.
+    if running_presentations.peek().is_empty() && synced_rp.is_none() {
         #[cfg(feature = "desktop")]
         dioxus::desktop::window().close();
 
@@ -95,8 +124,10 @@ pub fn PresentationPage() -> Element {
         };
     }
 
+    let initial_rp = synced_rp
+        .unwrap_or_else(|| running_presentations.peek().first().unwrap().clone());
     let mut running_presentation: Signal<RunningPresentation> =
-        use_signal(move || running_presentations.get(0).unwrap().clone());
+        use_signal(move || initial_rp);
 
     // When this window/component is destroyed (e.g. user closes the window),
     // clear the shared running presentations so the presenter console also closes.
@@ -107,6 +138,16 @@ pub fn PresentationPage() -> Element {
     use_drop(move || {
         if let Ok(mut guard) = running_presentations.try_write() {
             guard.clear();
+        }
+    });
+
+    // Deferred: for synced new-tab presentations, push the localStorage data
+    // into the shared signal after rendering (not during) so other subscribers
+    // (e.g. the shared→local effect) can see it.
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        if is_synced_tab && running_presentations.peek().is_empty() {
+            running_presentations.write().push(running_presentation.peek().clone());
         }
     });
 
@@ -203,6 +244,11 @@ pub fn PresentationPage() -> Element {
     use_effect(move || {
         let current = running_presentations.read();
         if current.is_empty() {
+            // Drop the read guard BEFORE navigating — on web (single VirtualDom),
+            // nav.replace() triggers a synchronous re-render/diff that would
+            // attempt to borrow the same RefCell, causing a "RefCell already
+            // borrowed" panic.
+            drop(current);
             if is_routed {
                 nav.replace(crate::Route::Selection {});
             }
@@ -210,7 +256,9 @@ pub fn PresentationPage() -> Element {
         }
         if let Some(rp) = current.first() {
             if !rp.eq_ignoring_scroll(&running_presentation.peek()) {
-                running_presentation.set(rp.clone());
+                let rp = rp.clone();
+                drop(current);
+                running_presentation.set(rp);
             }
         }
     });
@@ -313,6 +361,7 @@ pub fn PresentationPage() -> Element {
                     let _ = s.remove_item(SYNC_KEY_PRESENTATION);
                     let _ = s.remove_item(SYNC_KEY_POSITION);
                     let _ = s.remove_item(SYNC_KEY_POSITION_FROM_CONSOLE);
+                    let _ = s.remove_item(SYNC_KEY_FILES);
                 });
         }
         running_presentations.write().clear();
