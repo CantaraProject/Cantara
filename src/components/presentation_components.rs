@@ -7,6 +7,7 @@ use dioxus::prelude::*;
 use regex::Regex;
 use rgb::RGBA8;
 use rust_i18n::t;
+use uuid::Uuid;
 
 use crate::logic::css::{CssHandler, PlaceItems};
 use crate::logic::presentation::{get_markdown_html, get_picture_path};
@@ -333,6 +334,26 @@ pub fn PresentationPage() -> Element {
                         last_sync_json.set(json.clone());
                         if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json) {
                             if *running_presentation.peek() != rp {
+                                // Load any new VFS files (e.g. PDFs) that the
+                                // update_presentation call stored in localStorage
+                                if let Some(files_json) = web_sys::window()
+                                    .and_then(|w| w.local_storage().ok().flatten())
+                                    .and_then(|s| s.get_item(SYNC_KEY_FILES).ok().flatten())
+                                {
+                                    use crate::logic::settings::RepositoryType;
+                                    use std::collections::HashMap;
+
+                                    if let Ok(files) = serde_json::from_str::<HashMap<String, String>>(&files_json) {
+                                        for (path, b64) in &files {
+                                            if let Ok(bytes) = BASE64.decode(b64) {
+                                                RepositoryType::store_web_file(path, bytes);
+                                            }
+                                        }
+                                    }
+                                    let _ = web_sys::window()
+                                        .and_then(|w| w.local_storage().ok().flatten())
+                                        .map(|s| s.remove_item(SYNC_KEY_FILES));
+                                }
                                 running_presentation.set(rp);
                             }
                         }
@@ -715,20 +736,22 @@ pub fn PresentationRendererComponent(
                 style: background_css()
             }
             if presentation_is_visible() {
-                {
-                    let slide_content = current_slide.read().clone().unwrap().slide_content.clone();
-                    let container_style = slide_container_style(&slide_content);
-                    let tc = transition_class();
+                if let Some(slide) = current_slide.read().clone() {
+                    {
+                        let slide_content = slide.slide_content.clone();
+                        let container_style = slide_container_style(&slide_content);
+                        let tc = transition_class();
 
-                    rsx! {
-                        div {
-                            class: "slide-container {tc}",
-                            style: "{container_style}",
-                            key: "{current_slide_number}",
-                            SlideContentRenderer {
-                                slide_content: slide_content,
-                                pds: current_pds(),
-                                running_presentation: Some(running_presentation),
+                        rsx! {
+                            div {
+                                class: "slide-container {tc}",
+                                style: "{container_style}",
+                                key: "{current_slide_number}",
+                                SlideContentRenderer {
+                                    slide_content: slide_content,
+                                    pds: current_pds(),
+                                    running_presentation: Some(running_presentation),
+                                }
                             }
                         }
                     }
@@ -1165,10 +1188,15 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
 /// is self-contained and does not depend on external script loading order.
 #[component]
 fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
+    // Use a unique ID per mount cycle to prevent conflicts when the component
+    // unmounts and remounts during live updates. Old async render tasks will
+    // target a canvas ID that no longer exists in the DOM and exit gracefully.
+    let mount_id = use_hook(Uuid::new_v4);
     let canvas_id = format!(
-        "pdf-canvas-{}-{}",
+        "pdf-canvas-{}-{}-{}",
         pdf_path.replace(['/', '\\', '.', ' ', ':'], "-"),
-        page_num
+        page_num,
+        mount_id.as_simple()
     );
 
     // Read the PDF file and encode it as base64 so we can hand it to JS
@@ -1210,6 +1238,11 @@ fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
                 let b64 = base64_data.read().clone();
                 let pdfjs_url = pdfjs_url.clone();
                 let worker_url = worker_url.clone();
+                // Skip rendering if the PDF data is empty (file not in VFS)
+                if b64.is_empty() {
+                    log::warn!("PDF data empty for {}, skipping render", pdf_path);
+                    return;
+                }
                 spawn(async move {
                     // Use serde_json to safely escape all string values for JavaScript
                     let js_pdfjs_url = serde_json::to_string(&pdfjs_url).unwrap_or_default();

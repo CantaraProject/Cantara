@@ -563,6 +563,61 @@ pub fn update_presentation(
         first.position = new_position;
         // Keep: is_black_screen, presentation_resolution, markdown_scroll_position
     }
+
+    // On web, immediately sync the updated state to localStorage so the synced
+    // presentation tab picks it up. Without this, the presenter console's
+    // use_effect might not be mounted yet (e.g. user is on the selection page),
+    // and the presentation tab would keep reading stale data from
+    // SYNC_KEY_POSITION_FROM_CONSOLE. We also clear SYNC_KEY_POSITION to
+    // prevent the presentation tab's old state from being read back by the
+    // presenter console and reverting the update.
+    #[cfg(target_arch = "wasm32")]
+    {
+        use super::settings::RepositoryType;
+        use super::sync::{SYNC_KEY_FILES, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE};
+        use std::collections::HashMap;
+
+        if let Some(rp) = running_presentations.peek().first() {
+            if let Ok(json) = serde_json::to_string(rp) {
+                // Collect VFS files (e.g. PDFs) so the synced tab can render them
+                let mut files: HashMap<String, String> = HashMap::new();
+                for chapter in &rp.presentation {
+                    for slide in &chapter.slides {
+                        if let SlideContent::SimplePicture(ref pic) = slide.slide_content {
+                            let path = get_picture_path(pic);
+                            let base_path = path.split('#').next().unwrap_or(&path).to_string();
+                            if base_path.to_lowercase().ends_with(".pdf")
+                                && !files.contains_key(&base_path)
+                            {
+                                if let Some(bytes) = RepositoryType::web_read_file(&base_path) {
+                                    files.insert(
+                                        base_path,
+                                        base64::Engine::encode(
+                                            &base64::engine::general_purpose::STANDARD,
+                                            &bytes,
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let _ = web_sys::window()
+                    .and_then(|w| w.local_storage().ok().flatten())
+                    .map(|s| {
+                        let _ = s.set_item(SYNC_KEY_POSITION_FROM_CONSOLE, &json);
+                        let _ = s.remove_item(SYNC_KEY_POSITION);
+                        // Sync VFS files if there are any PDFs
+                        if !files.is_empty() {
+                            if let Ok(files_json) = serde_json::to_string(&files) {
+                                let _ = s.set_item(SYNC_KEY_FILES, &files_json);
+                            }
+                        }
+                    });
+            }
+        }
+    }
 }
 
 #[cfg(test)]
