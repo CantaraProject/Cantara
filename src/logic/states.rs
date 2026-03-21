@@ -2,6 +2,7 @@ use std::{fs, path::PathBuf};
 
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use super::{settings::{PresentationDesign, SlideTimerSettings, SlideTransition}, sourcefiles::SourceFile};
 use cantara_songlib::slides::{Slide, SlideSettings};
@@ -200,26 +201,22 @@ impl RunningPresentation {
     }
 
     pub fn get_current_slide(&self) -> Option<Slide> {
-        self.position.clone().map(|pos| {
+        self.position.as_ref().and_then(|pos| {
             self.presentation
-                .get(pos.chapter())
-                .unwrap()
+                .get(pos.chapter())?
                 .slides
                 .get(pos.chapter_slide())
-                .unwrap()
-                .clone()
+                .cloned()
         })
     }
 
     pub fn get_current_presentation_design(&self) -> PresentationDesign {
-        match self.position.clone() {
+        match self.position.as_ref() {
             Some(pos) => self
                 .presentation
                 .get(pos.chapter())
-                .unwrap()
-                .presentation_design_option
-                .clone()
-                .unwrap_or(PresentationDesign::default()),
+                .and_then(|ch| ch.presentation_design_option.clone())
+                .unwrap_or_default(),
             None => PresentationDesign::default(),
         }
     }
@@ -244,14 +241,12 @@ impl RunningPresentation {
     }
 
     pub fn get_current_slide_settings(&self) -> SlideSettings {
-        match self.position.clone() {
+        match self.position.as_ref() {
             Some(pos) => self
                 .presentation
                 .get(pos.chapter())
-                .unwrap()
-                .slide_settings_option
-                .clone()
-                .unwrap_or(SlideSettings::default()),
+                .and_then(|ch| ch.slide_settings_option.clone())
+                .unwrap_or_default(),
             None => SlideSettings::default(),
         }
     }
@@ -327,6 +322,16 @@ pub struct RunningPresentationPosition {
 }
 
 impl RunningPresentationPosition {
+    /// Creates a position from raw values. Used when restoring position
+    /// after a presentation update.
+    pub fn from_raw(chapter: usize, chapter_slide: usize, slide_total: usize) -> Self {
+        RunningPresentationPosition {
+            chapter,
+            chapter_slide,
+            slide_total,
+        }
+    }
+
     /// Creates a new position if there is at least one slide available
     pub fn new(presentation: &Vec<SlideChapter>) -> Option<Self> {
         if !presentation.is_empty() && !presentation.first().unwrap().slides.is_empty() {
@@ -343,11 +348,12 @@ impl RunningPresentationPosition {
     /// Tries to go to the next position if it exists (and returns okay),
     /// if the next position does not exist, an error will be returned.
     pub fn try_next(&mut self, presentation: &Vec<SlideChapter>) -> Result<(), ()> {
-        if self.chapter_slide < self.cur_chapter_slide_length(presentation) - 1 {
+        let chapter_len = self.cur_chapter_slide_length(presentation);
+        if chapter_len > 0 && self.chapter_slide < chapter_len - 1 {
             self.chapter_slide += 1;
             self.slide_total += 1;
             Ok(())
-        } else if self.chapter < presentation.len() - 1 {
+        } else if self.chapter < presentation.len().saturating_sub(1) {
             self.chapter += 1;
             self.chapter_slide = 0;
             self.slide_total += 1;
@@ -366,7 +372,7 @@ impl RunningPresentationPosition {
             Ok(())
         } else if self.chapter > 0 {
             self.chapter -= 1;
-            self.chapter_slide = self.cur_chapter_slide_length(presentation) - 1;
+            self.chapter_slide = self.cur_chapter_slide_length(presentation).saturating_sub(1);
             self.slide_total -= 1;
             Ok(())
         } else {
@@ -376,7 +382,10 @@ impl RunningPresentationPosition {
 
     /// Helper function for getting the current slide length
     fn cur_chapter_slide_length(&self, presentation: &Vec<SlideChapter>) -> usize {
-        presentation.get(self.chapter).unwrap().slides.len()
+        presentation
+            .get(self.chapter)
+            .map(|ch| ch.slides.len())
+            .unwrap_or(0)
     }
 
     /// Get the number of the current chapter
@@ -398,6 +407,10 @@ impl RunningPresentationPosition {
 /// Contains slide, the source file and the presentation design for each chapter (e.g. a song)
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct SlideChapter {
+    /// Stable identifier for matching chapters across presentation updates.
+    /// Generated once at slide generation time.
+    #[serde(default = "Uuid::new_v4")]
+    pub id: Uuid,
     pub slides: Vec<Slide>,
     pub source_file: SourceFile,
     pub presentation_design_option: Option<PresentationDesign>,
@@ -408,6 +421,13 @@ pub struct SlideChapter {
     /// The transition effect for this chapter.
     #[serde(default)]
     pub transition_option: SlideTransition,
+    /// Inline markdown content, if this chapter was created from an inline
+    /// (spontaneous) markdown item rather than a file on disk.
+    /// Stored here so `update_presentation` can use it as part of the chapter
+    /// fingerprint to distinguish two items that share the same `source_file.path`
+    /// but have different content (e.g. two inline-text items).
+    #[serde(default)]
+    pub inline_markdown: Option<String>,
 }
 
 impl SlideChapter {
@@ -418,12 +438,14 @@ impl SlideChapter {
         slide_settings: Option<SlideSettings>,
     ) -> Self {
         SlideChapter {
+            id: Uuid::new_v4(),
             slides,
             source_file,
             presentation_design_option: presentation_design,
             slide_settings_option: slide_settings,
             timer_settings_option: None,
             transition_option: SlideTransition::default(),
+            inline_markdown: None,
         }
     }
 }
