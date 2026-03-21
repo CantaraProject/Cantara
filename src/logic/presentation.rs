@@ -333,6 +333,7 @@ pub fn build_presentation(
                 slide_settings_option: Some(used_slide_settings),
                 timer_settings_option: selected_item.timer_settings_option.clone(),
                 transition_option: selected_item.transition_effect,
+                inline_markdown: selected_item.inline_markdown.clone(),
             }),
             Err(_) => {
                 // TODO: Implement error handling, the user should get a message if an error occurs...
@@ -397,6 +398,7 @@ pub fn create_single_item_presentation(
         slide_settings_option: Some(used_slide_settings),
         timer_settings_option: selected_item.timer_settings_option.clone(),
         transition_option: selected_item.transition_effect,
+        inline_markdown: selected_item.inline_markdown.clone(),
     };
 
     RunningPresentation::new(vec![chapter])
@@ -464,13 +466,29 @@ fn apply_presentation_update(
     // are fully regenerated. The old UUID is only used to find which new
     // chapter corresponds to the one the user was viewing.
     let mut new_chapters: Vec<SlideChapter> = vec![];
-    // Build a mapping from source_file.path to old chapter id for position tracking.
-    // We use an index to handle duplicate paths (e.g. multiple inline markdown items).
-    let mut old_path_ids: Vec<(std::path::PathBuf, Uuid)> = old_rp
-        .presentation
-        .iter()
-        .map(|ch| (ch.source_file.path.clone(), ch.id))
-        .collect();
+
+    // Build a fingerprint → queue mapping for position tracking.
+    //
+    // The fingerprint is (source_file.path, source_file.md5_hash, inline_markdown).
+    // Using all three fields correctly distinguishes items that share the same path
+    // but have different content (e.g. two inline-text items, or a file whose hash
+    // changed). For truly identical items (same fingerprint) we use FIFO order, which
+    // is the best possible behaviour when the items are indistinguishable.
+    //
+    // This replaces the old Vec<(PathBuf, Uuid)> + linear-scan approach, which
+    // matched only by path and could carry the wrong UUID to the wrong chapter
+    // when the same path appeared more than once and the selection was reordered.
+    type ChapterKey = (std::path::PathBuf, Option<String>, Option<String>);
+    let mut old_key_ids: std::collections::HashMap<ChapterKey, std::collections::VecDeque<Uuid>> =
+        std::collections::HashMap::new();
+    for ch in &old_rp.presentation {
+        let key: ChapterKey = (
+            ch.source_file.path.clone(),
+            ch.source_file.md5_hash.clone(),
+            ch.inline_markdown.clone(),
+        );
+        old_key_ids.entry(key).or_default().push_back(ch.id);
+    }
 
     for selected_item in selected_items {
         let used_presentation_design = selected_item
@@ -485,37 +503,28 @@ fn apply_presentation_update(
 
         match create_presentation_slides(selected_item, &used_slide_settings) {
             Ok(slides) => {
-                // Try to find a matching old chapter by source_file path to carry
-                // over its UUID for position tracking. Remove it from the list so
-                // duplicate paths match in order.
-                let carried_id =
-                    if let Some(pos) = old_path_ids.iter().position(|(p, _)| {
-                        *p == selected_item.source_file.path
-                    }) {
-                        let (_, id) = old_path_ids.remove(pos);
-                        Some(id)
-                    } else {
-                        None
-                    };
+                // Carry the old UUID for this content fingerprint (FIFO within
+                // identical fingerprints) so we can restore the viewing position.
+                let key: ChapterKey = (
+                    selected_item.source_file.path.clone(),
+                    selected_item.source_file.md5_hash.clone(),
+                    selected_item.inline_markdown.clone(),
+                );
+                let carried_id = old_key_ids.get_mut(&key).and_then(|q| q.pop_front());
 
                 new_chapters.push(SlideChapter {
-                    id: Uuid::new_v4(),
+                    // Temporarily use the carried old UUID so we can find this
+                    // chapter in the position-restore step below. A fresh UUID is
+                    // assigned after that step completes.
+                    id: carried_id.unwrap_or_else(Uuid::new_v4),
                     slides,
                     source_file: selected_item.source_file.clone(),
                     presentation_design_option: Some(used_presentation_design),
                     slide_settings_option: Some(used_slide_settings),
                     timer_settings_option: selected_item.timer_settings_option.clone(),
                     transition_option: selected_item.transition_effect,
+                    inline_markdown: selected_item.inline_markdown.clone(),
                 });
-
-                // Store the carried_id alongside the new chapter index for position lookup
-                if let Some(old_id) = carried_id {
-                    let new_ch = new_chapters.last_mut().unwrap();
-                    // Temporarily reuse the old UUID so we can find this chapter below.
-                    // This is safe because we generate a new UUID right after position
-                    // restoration is complete.
-                    new_ch.id = old_id;
-                }
             }
             Err(_) => { /* skip failed items */ }
         }
@@ -949,6 +958,38 @@ mod tests {
         assert_eq!(pos.chapter(), 0, "still in chapter 0");
         assert_eq!(pos.chapter_slide(), 0, "clamped to slide 0 (only slide)");
         assert_eq!(pos.slide_total(), 0);
+    }
+
+    /// (2b) Two items share the same path but have different inline content.
+    /// After the selection is reordered the position must follow the correct
+    /// item (the one the user was actually viewing), not slide to the other.
+    #[test]
+    fn test_update_preserves_position_when_duplicate_paths_reordered() {
+        // Both items share path "shared.md" but have different content (1 vs 2 slides).
+        let item_one = inline_md_item("shared.md", "# Solo");
+        let item_two = inline_md_item("shared.md", "# First\n\n---\n\n# Second");
+
+        let items_initial = [item_one.clone(), item_two.clone()];
+        let mut rp = build_rp(&items_initial);
+        // Navigate to chapter 1 (item_two), slide 1
+        rp.jump_to(1, 1);
+        assert_eq!(rp.position.as_ref().unwrap().chapter(), 1);
+        assert_eq!(rp.position.as_ref().unwrap().chapter_slide(), 1);
+
+        // Regenerate with the order swapped: [item_two, item_one]
+        let items_swapped = [item_two, item_one];
+        let updated = apply_presentation_update(
+            rp,
+            &items_swapped,
+            &PresentationDesign::default(),
+            &SlideSettings::default(),
+        );
+
+        let pos = updated.position.expect("position should survive reorder");
+        // item_two is now chapter 0; user should still be on its slide 1
+        assert_eq!(pos.chapter(), 0, "position should follow item_two to its new index");
+        assert_eq!(pos.chapter_slide(), 1, "slide within item_two should be preserved");
+        assert_eq!(pos.slide_total(), 1, "slide_total = 0 slides before + slide 1");
     }
 
     /// (3) When the currently active chapter is removed from the selection

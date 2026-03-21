@@ -421,6 +421,13 @@ pub struct SlideChapter {
     /// The transition effect for this chapter.
     #[serde(default)]
     pub transition_option: SlideTransition,
+    /// Inline markdown content, if this chapter was created from an inline
+    /// (spontaneous) markdown item rather than a file on disk.
+    /// Stored here so `update_presentation` can use it as part of the chapter
+    /// fingerprint to distinguish two items that share the same `source_file.path`
+    /// but have different content (e.g. two inline-text items).
+    #[serde(default)]
+    pub inline_markdown: Option<String>,
 }
 
 impl SlideChapter {
@@ -438,6 +445,7 @@ impl SlideChapter {
             slide_settings_option: slide_settings,
             timer_settings_option: None,
             transition_option: SlideTransition::default(),
+            inline_markdown: None,
         }
     }
 }
