@@ -436,17 +436,18 @@ pub fn create_amazing_grace_presentation(
 /// viewing position is restored by matching the old chapter's UUID to the
 /// new chapter set. If the current chapter was removed, the position falls
 /// back to the first chapter or `None` if no chapters remain.
-pub fn update_presentation(
+/// Pure computation for [`update_presentation`]: regenerates chapters from
+/// `selected_items` and computes the new position, preserving all other fields
+/// from `old_rp` (black screen state, resolution, scroll position).
+///
+/// Separated from the signal-mutating wrapper so it can be unit-tested without
+/// a Dioxus runtime.
+fn apply_presentation_update(
+    old_rp: RunningPresentation,
     selected_items: &[SelectedItemRepresentation],
-    running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
-) {
-    // Must have a running presentation to update
-    let Some(old_rp) = running_presentations.peek().first().cloned() else {
-        return;
-    };
-
+) -> RunningPresentation {
     // Remember current position for restoration
     let old_position = old_rp.position.clone();
     let old_chapter_id = old_position.as_ref().and_then(|pos| {
@@ -557,10 +558,38 @@ pub fn update_presentation(
         ch.id = Uuid::new_v4();
     }
 
+    RunningPresentation {
+        presentation: new_chapters,
+        position: new_position,
+        // Preserve fields that are unrelated to content regeneration
+        is_black_screen: old_rp.is_black_screen,
+        presentation_resolution: old_rp.presentation_resolution,
+        markdown_scroll_position: old_rp.markdown_scroll_position,
+    }
+}
+
+pub fn update_presentation(
+    selected_items: &[SelectedItemRepresentation],
+    running_presentations: &mut Signal<Vec<RunningPresentation>>,
+    default_presentation_design: &PresentationDesign,
+    default_slide_settings: &SlideSettings,
+) {
+    // Must have a running presentation to update
+    let Some(old_rp) = running_presentations.peek().first().cloned() else {
+        return;
+    };
+
+    let updated = apply_presentation_update(
+        old_rp,
+        selected_items,
+        default_presentation_design,
+        default_slide_settings,
+    );
+
     // Update the running presentation in-place (preserves window state)
     if let Some(first) = running_presentations.write().first_mut() {
-        first.presentation = new_chapters;
-        first.position = new_position;
+        first.presentation = updated.presentation;
+        first.position = updated.position;
         // Keep: is_black_screen, presentation_resolution, markdown_scroll_position
     }
 
@@ -830,5 +859,123 @@ mod tests {
         // &amp;lt; should decode to &lt; (not <)
         assert_eq!(html_to_plain_text("&amp;lt;"), "&lt;");
         assert_eq!(html_to_plain_text("plain text"), "plain text");
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers for update_presentation tests
+    // -------------------------------------------------------------------------
+
+    fn inline_md_item(path: &str, markdown: &str) -> SelectedItemRepresentation {
+        SelectedItemRepresentation {
+            source_file: SourceFile {
+                name: path.to_string(),
+                path: PathBuf::from_str(path).unwrap(),
+                file_type: crate::logic::sourcefiles::SourceFileType::Markdown,
+                md5_hash: None,
+            },
+            presentation_design_option: None,
+            slide_settings_option: None,
+            inline_markdown: Some(markdown.to_string()),
+            timer_settings_option: None,
+            transition_effect: Default::default(),
+        }
+    }
+
+    /// Build a `RunningPresentation` from inline-markdown items (no disk I/O).
+    fn build_rp(items: &[SelectedItemRepresentation]) -> RunningPresentation {
+        let design = PresentationDesign::default();
+        let settings = SlideSettings::default();
+        let rp = build_presentation(&items.to_vec(), &design, &settings);
+        rp.expect("build_presentation should succeed for inline markdown items")
+    }
+
+    // -------------------------------------------------------------------------
+    // update_presentation tests
+    // -------------------------------------------------------------------------
+
+    /// (1) When the same chapters are regenerated the position (chapter index
+    /// and slide-within-chapter) is preserved exactly.
+    #[test]
+    fn test_update_preserves_position_on_regeneration() {
+        // Chapter 0: 2 slides, Chapter 1: 3 slides
+        let item_a = inline_md_item("a.md", "# S1\n\n---\n\n# S2");
+        let item_b = inline_md_item("b.md", "# S1\n\n---\n\n# S2\n\n---\n\n# S3");
+        let items = [item_a.clone(), item_b.clone()];
+
+        let mut rp = build_rp(&items);
+        // Navigate to chapter 1, slide 1  (slide_total = 2 + 1 = 3)
+        rp.jump_to(1, 1);
+        assert_eq!(rp.position.as_ref().unwrap().chapter(), 1);
+        assert_eq!(rp.position.as_ref().unwrap().chapter_slide(), 1);
+
+        let updated = apply_presentation_update(
+            rp,
+            &items,
+            &PresentationDesign::default(),
+            &SlideSettings::default(),
+        );
+
+        let pos = updated.position.expect("position should survive regeneration");
+        assert_eq!(pos.chapter(), 1, "chapter index should be preserved");
+        assert_eq!(pos.chapter_slide(), 1, "slide-within-chapter should be preserved");
+        // slide_total = chapter-0 slides (2) + chapter_slide (1)
+        assert_eq!(pos.slide_total(), 3, "slide_total should be recomputed correctly");
+    }
+
+    /// (2) When the chapter is regenerated with fewer slides than the current
+    /// slide index, the position is clamped to the last available slide.
+    #[test]
+    fn test_update_clamps_slide_index_when_fewer_slides() {
+        // Chapter 0: starts with 3 slides; user is on slide 2
+        let item_3slides = inline_md_item("a.md", "# S1\n\n---\n\n# S2\n\n---\n\n# S3");
+        let items_initial = [item_3slides];
+
+        let mut rp = build_rp(&items_initial);
+        rp.jump_to(0, 2); // last slide
+        assert_eq!(rp.position.as_ref().unwrap().chapter_slide(), 2);
+
+        // Regenerate with only 1 slide for the same chapter
+        let item_1slide = inline_md_item("a.md", "# Only");
+        let items_updated = [item_1slide];
+
+        let updated = apply_presentation_update(
+            rp,
+            &items_updated,
+            &PresentationDesign::default(),
+            &SlideSettings::default(),
+        );
+
+        let pos = updated.position.expect("position should still exist");
+        assert_eq!(pos.chapter(), 0, "still in chapter 0");
+        assert_eq!(pos.chapter_slide(), 0, "clamped to slide 0 (only slide)");
+        assert_eq!(pos.slide_total(), 0);
+    }
+
+    /// (3) When the currently active chapter is removed from the selection
+    /// the position falls back to the first chapter.
+    #[test]
+    fn test_update_falls_back_to_first_chapter_when_current_removed() {
+        // Two chapters; user is on chapter 1
+        let item_a = inline_md_item("a.md", "# SlideA");
+        let item_b = inline_md_item("b.md", "# SlideB");
+        let items_initial = [item_a.clone(), item_b.clone()];
+
+        let mut rp = build_rp(&items_initial);
+        rp.jump_to(1, 0);
+        assert_eq!(rp.position.as_ref().unwrap().chapter(), 1);
+
+        // Regenerate with only chapter A (chapter B is gone)
+        let items_updated = [item_a];
+
+        let updated = apply_presentation_update(
+            rp,
+            &items_updated,
+            &PresentationDesign::default(),
+            &SlideSettings::default(),
+        );
+
+        let pos = updated.position.expect("position should fall back, not be None");
+        assert_eq!(pos.chapter(), 0, "should fall back to first chapter");
+        assert_eq!(pos.chapter_slide(), 0);
     }
 }
