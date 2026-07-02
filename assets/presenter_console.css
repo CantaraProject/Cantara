@@ -7,55 +7,65 @@
     width: 100%;
     overflow: hidden;
     outline: none;
+    gap: 0.7rem;
+    padding: 0.75rem;
 }
 
 /* Header */
 .presenter-header {
-    padding: 10px 20px;
-    background-color: var(--pico-primary-background);
-    color: var(--pico-primary-inverse);
+    padding: 0.75rem 1rem;
+    background:
+        linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(147, 51, 234, 0.18)),
+        var(--cantara-surface-background);
+    color: var(--pico-color);
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    border-radius: calc(var(--pico-border-radius) + 0.15rem);
 }
 
 .presenter-header h3 {
     margin: 0;
-    font-size: 1rem;
-    color: var(--pico-primary-inverse);
+    font-size: 0.98rem;
+    color: inherit;
 }
 
 /* View toggle buttons */
 .presenter-view-toggle {
     display: flex;
-    gap: 2px;
-    background-color: rgba(255, 255, 255, 0.15);
-    border-radius: var(--pico-border-radius);
-    padding: 2px;
+    gap: 0.15rem;
+    background-color: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: calc(var(--pico-border-radius) - 0.15rem);
+    padding: 0.2rem;
 }
 
 .view-toggle-btn {
     margin: 0;
-    padding: 4px 12px;
-    font-size: 0.8rem;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.78rem;
     border: none;
     background: transparent;
-    color: var(--pico-primary-inverse);
+    color: inherit;
     cursor: pointer;
-    border-radius: var(--pico-border-radius);
-    opacity: 0.7;
-    transition: opacity 0.15s ease, background-color 0.15s ease;
+    border-radius: calc(var(--pico-border-radius) - 0.25rem);
+    opacity: 0.8;
+    transition:
+        opacity 0.15s ease,
+        background-color 0.15s ease,
+        box-shadow 0.15s ease;
 }
 
 .view-toggle-btn:hover {
     opacity: 1;
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(255, 255, 255, 0.12);
 }
 
 .view-toggle-btn.active {
     opacity: 1;
-    background-color: rgba(255, 255, 255, 0.25);
+    background-color: rgba(255, 255, 255, 0.22);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
     font-weight: 600;
 }
 
@@ -67,8 +77,8 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
-    gap: 10px;
-    padding: 10px;
+    gap: 0.75rem;
+    padding: 0;
 }
 
 @media (max-width: 900px) {
@@ -82,20 +92,18 @@
 .presenter-text-panel {
     overflow-y: auto;
     min-height: 0;
-    padding: 10px;
-    border: 1px solid var(--pico-muted-border-color);
-    border-radius: var(--pico-border-radius);
-    background-color: var(--pico-card-background-color);
+    padding: 0.8rem;
+    border-radius: calc(var(--pico-border-radius) + 0.05rem);
 }
 
 .presenter-chapter {
-    margin-bottom: 15px;
+    margin-bottom: 0.85rem;
 }
 
 .presenter-chapter-title {
-    margin: 0 0 8px 0;
-    padding: 5px 10px;
-    font-size: 0.95rem;
+    margin: 0 0 0.55rem 0;
+    padding: 0.45rem 0.7rem;
+    font-size: 0.9rem;
     color: var(--pico-muted-color);
     border-bottom: 1px solid var(--pico-muted-border-color);
 }
@@ -107,21 +115,25 @@
 }
 
 .presenter-slide-item {
-    padding: 8px 12px;
-    margin: 4px 0;
+    padding: 0.55rem 0.75rem;
+    margin: 0.3rem 0;
     cursor: pointer;
-    border-radius: var(--pico-border-radius);
+    border-radius: calc(var(--pico-border-radius) - 0.1rem);
     border-left: 3px solid transparent;
-    transition: background-color 0.15s ease, border-color 0.15s ease;
+    transition:
+        background-color 0.15s ease,
+        border-color 0.15s ease,
+        box-shadow 0.15s ease;
 }
 
 .presenter-slide-item:hover {
-    background-color: var(--pico-secondary-hover-background);
+    background-color: rgba(255, 255, 255, 0.16);
 }
 
 .presenter-slide-item.active {
-    background-color: var(--pico-primary-focus);
+    background-color: rgba(59, 130, 246, 0.18);
     border-left-color: var(--pico-primary);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
     font-weight: 500;
 }
 
@@ -153,42 +165,40 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 10px;
-    border: 1px solid var(--pico-muted-border-color);
-    border-radius: var(--pico-border-radius);
-    background-color: var(--pico-card-background-color);
+    padding: 0.8rem;
+    border-radius: calc(var(--pico-border-radius) + 0.05rem);
     overflow: hidden;
 }
 
 .presenter-preview-panel h4 {
-    margin: 0 0 10px 0;
+    margin: 0 0 0.75rem 0;
     font-size: 0.95rem;
     color: var(--pico-muted-color);
 }
 
 /* Control Bar */
 .presenter-control-bar {
-    padding: 10px 20px;
-    background-color: var(--pico-card-background-color);
-    border-top: 1px solid var(--pico-muted-border-color);
+    padding: 0.75rem 1rem;
     flex-shrink: 0;
+    border-radius: calc(var(--pico-border-radius) + 0.15rem);
 }
 
 .presenter-controls {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: 0.65rem;
+    flex-wrap: wrap;
 }
 
 .presenter-controls button {
     margin: 0;
-    padding: 8px 16px;
-    font-size: 0.9rem;
+    padding: 0.55rem 0.9rem;
+    font-size: 0.85rem;
 }
 
 .slide-counter {
-    font-size: 1rem;
+    font-size: 0.95rem;
     font-weight: 600;
     min-width: 80px;
     text-align: center;
@@ -198,8 +208,8 @@
 /* Chapter jump dropdown in control bar */
 .chapter-select {
     margin: 0;
-    padding: 6px 10px;
-    font-size: 0.9rem;
+    padding: 0.45rem 0.7rem;
+    font-size: 0.85rem;
     max-width: 200px;
     height: auto;
 }
@@ -213,23 +223,22 @@
 .presenter-grid-panel {
     overflow-y: auto;
     min-height: 0;
-    padding: 10px;
-    border: 1px solid var(--pico-muted-border-color);
-    border-radius: var(--pico-border-radius);
-    background-color: var(--pico-card-background-color);
+    padding: 0.8rem;
+    border-radius: calc(var(--pico-border-radius) + 0.05rem);
 }
 
 /* Grid toolbar with size slider */
 .presenter-grid-toolbar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 12px;
-    padding: 4px 0;
+    gap: 0.5rem;
+    margin-bottom: 0.85rem;
+    padding: 0.2rem 0;
+    flex-wrap: wrap;
 }
 
 .presenter-grid-size-label {
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     color: var(--pico-muted-color);
     white-space: nowrap;
     margin: 0;
@@ -243,31 +252,41 @@
 }
 
 .presenter-grid-chapter {
-    margin-bottom: 20px;
+    margin-bottom: 1rem;
 }
 
 /* Slide thumbnail grid — grid-template-columns is set inline via style */
 .presenter-grid-slides {
     display: grid;
-    gap: 10px;
+    gap: 0.75rem;
 }
 
 .presenter-grid-slide {
     position: relative;
-    border: 2px solid var(--pico-muted-border-color);
-    border-radius: var(--pico-border-radius);
+    border: 1px solid var(--cantara-surface-border);
+    border-radius: calc(var(--pico-border-radius) - 0.05rem);
     cursor: pointer;
     overflow: hidden;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    background: var(--cantara-surface-background-strong);
+    backdrop-filter: blur(14px) saturate(160%);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    transition:
+        border-color 0.15s ease,
+        box-shadow 0.15s ease,
+        transform 0.15s ease;
 }
 
 .presenter-grid-slide:hover {
     border-color: var(--pico-secondary);
+    transform: translateY(-1px);
 }
 
 .presenter-grid-slide.active {
     border-color: var(--pico-primary);
-    box-shadow: 0 0 0 2px var(--pico-primary-focus);
+    box-shadow:
+        0 0 0 2px rgba(59, 130, 246, 0.22),
+        inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 .presenter-grid-slide-inner {
