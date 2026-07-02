@@ -30,8 +30,12 @@ jobs:
         uses: cargo-bins/cargo-binstall@main
       - name: Run npm install
         run: npm install
-      - name: Install dioxus-cli
-        run: cargo binstall dioxus-cli
+      - name: Install dioxus-cli (macOS)
+        if: matrix.os == 'macos-latest'
+        run: cargo install dioxus-cli --locked
+      - name: Install dioxus-cli (Linux/Windows)
+        if: matrix.os != 'macos-latest'
+        run: cargo binstall -y dioxus-cli
       - name: Install dependencies under Linux
         if: matrix.os == 'ubuntu-latest'
         run: |-
