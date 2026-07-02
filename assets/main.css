@@ -277,10 +277,11 @@ ol {
     hyphens: auto;
 }
 
-.selection_item {
+.selection_item,
+article.selection_item {
     text-align: left !important;
     border: 1px solid var(--cantara-surface-border);
-    background: var(--cantara-surface-background-strong) !important;
+    background: var(--cantara-surface-background-strong);
 }
 
 .selection_item:hover {
@@ -488,6 +489,10 @@ div.inline-div {
     border: 1px solid var(--cantara-surface-border);
     border-radius: calc(var(--pico-border-radius) + 0.1rem);
     padding: 0.8rem;
+    background: var(--cantara-surface-background-strong);
+    box-shadow: var(--cantara-surface-shadow), var(--cantara-surface-highlight);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
 }
 
 .directory-entry {
