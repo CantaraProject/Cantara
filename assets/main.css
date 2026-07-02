@@ -99,6 +99,7 @@ article,
 .presenter-text-panel,
 .presenter-preview-panel,
 .presenter-grid-panel,
+.presenter-grid-slide,
 .presenter-control-bar,
 .presenter-header {
     background: var(--cantara-surface-background);
@@ -345,12 +346,14 @@ div.inline-div {
     float: left;
     height: 100%;
     width: 50px;
+    background: var(--cantara-surface-background);
     border-radius: calc(var(--pico-border-radius) + 0.1rem);
 }
 
 .sidebar-element {
     width: 100%;
     height: 50px;
+    background: var(--cantara-surface-background-strong);
     border-radius: 0.8rem;
 }
 
