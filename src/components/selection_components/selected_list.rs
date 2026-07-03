@@ -112,14 +112,14 @@ fn SelectedItem(
                 onclick: move |_| {
                     active_selected_item_id.set(Some(id))
                 },
-                match selected_items.read().get(id).unwrap().source_file.file_type {
-                    SourceFileType::Song => rsx! { MusicIcon {} },
-                    SourceFileType::Image => rsx! { ImageIcon {} },
-                    SourceFileType::Pdf => rsx! { PdfIcon {} },
-                    SourceFileType::Markdown => rsx! { MarkdownIcon {} },
+                match selected_items.read().get(id).map(|i| i.source_file.file_type.clone()) {
+                    Some(SourceFileType::Song) => rsx! { MusicIcon {} },
+                    Some(SourceFileType::Image) => rsx! { ImageIcon {} },
+                    Some(SourceFileType::Pdf) => rsx! { PdfIcon {} },
+                    Some(SourceFileType::Markdown) => rsx! { MarkdownIcon {} },
                     _ => rsx! {},
                 },
-                { selected_items.read().get(id).unwrap().source_file.name.clone() },
+                { selected_items.read().get(id).map(|i| i.source_file.name.clone()).unwrap_or_default() },
             }
 
             span {

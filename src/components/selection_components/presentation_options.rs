@@ -27,10 +27,10 @@ pub(crate) fn PresentationOptions(
     });
 
     let active_id = active_selected_item_id.read();
-    if active_id.is_none() {
+    let Some(item_index) = *active_id else {
         return rsx! {};
-    }
-    let item_index = active_id.unwrap();
+    };
+    drop(active_id);
 
     rsx! {
         div {
@@ -61,7 +61,9 @@ pub(crate) fn PresentationOptions(
             }
             PresentationOptionTabState::Specific => {
                 let items = selected_items.read();
-                let item = items.get(item_index).cloned().unwrap();
+                let Some(item) = items.get(item_index).cloned() else {
+                    return rsx! {};
+                };
 
                 let timer_enabled = item.timer_settings_option.is_some();
                 let default_timer_settings = SlideTimerSettings::default();

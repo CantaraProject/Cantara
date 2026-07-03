@@ -37,7 +37,12 @@ pub fn PresenterConsolePage() -> Element {
     let nav = if is_main_window { Some(navigator()) } else { None };
 
     let mut running_presentation: Signal<RunningPresentation> =
-        use_signal(move || running_presentations.get(0).unwrap().clone());
+        use_signal(move || {
+            running_presentations.read().first().cloned().unwrap_or_else(|| {
+                log::warn!("PresenterConsolePage: expected non-empty presentation list");
+                RunningPresentation::new(vec![])
+            })
+        });
 
     // View mode signal, initialized from settings
     let settings = use_settings();
@@ -234,7 +239,9 @@ pub fn PresenterConsolePage() -> Element {
         running_presentations.write().clear();
         if is_main_window {
             // nav is Some when is_main_window is true
-            nav.as_ref().unwrap().replace(crate::Route::Selection {});
+            if let Some(nav_ref) = nav.as_ref() {
+                nav_ref.replace(crate::Route::Selection {});
+            }
         } else {
             #[cfg(feature = "desktop")]
             dioxus::desktop::window().close();

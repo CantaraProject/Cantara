@@ -39,7 +39,7 @@ pub fn SongSlideSettingsPage(
 
     // From here on, the selected_slide_settings is guaranteed to be Some
     let selected_slide_settings =
-        use_memo(move || selected_slide_settings_option.read().clone().unwrap());
+        use_memo(move || selected_slide_settings_option.read().clone().unwrap_or_default());
 
     rsx! {
         div {
@@ -55,8 +55,9 @@ pub fn SongSlideSettingsPage(
                     slide_settings: selected_slide_settings(),
                     on_settings_changed: move |updated_settings: SlideSettings| {
                         let mut settings_write = settings.write();
-                        let origin_settings = settings_write.song_slide_settings.get_mut(index as usize).unwrap();
-                        *origin_settings = updated_settings;
+                        if let Some(origin_settings) = settings_write.song_slide_settings.get_mut(index as usize) {
+                            *origin_settings = updated_settings;
+                        }
                     }
                 }
             }

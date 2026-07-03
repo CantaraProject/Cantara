@@ -45,7 +45,7 @@ pub fn PresentationDesignSettingsPage(
     // From here on, the selected_presentation_design is guaranteed to be Some
 
     let selected_presentation_design =
-        use_memo(move || selected_presentation_design_option.read().clone().unwrap());
+        use_memo(move || selected_presentation_design_option.read().clone().unwrap_or_default());
 
     rsx! {
         div {
@@ -63,9 +63,10 @@ pub fn PresentationDesignSettingsPage(
                     presentation_design: selected_presentation_design(),
                     on_pd_changed: move |pd: PresentationDesign| {
                         let mut settings_write = settings.write();
-                        let origin_pd = settings_write.presentation_designs.get_mut(index as usize).unwrap();
-                        origin_pd.name = pd.name;
-                        origin_pd.description = pd.description;
+                        if let Some(origin_pd) = settings_write.presentation_designs.get_mut(index as usize) {
+                            origin_pd.name = pd.name;
+                            origin_pd.description = pd.description;
+                        }
                     }
                 }
 
@@ -75,8 +76,10 @@ pub fn PresentationDesignSettingsPage(
                         presentation_design_template: pd_template,
                         onchange: move |new_pdt: PresentationDesignTemplate| {
                             let mut settings_write = settings.write();
-                            if let PresentationDesignSettings::Template(pdt) = &mut settings_write.presentation_designs.get_mut(index as usize).unwrap().presentation_design_settings {
-                                *pdt = new_pdt.clone();
+                            if let Some(design) = settings_write.presentation_designs.get_mut(index as usize) {
+                                if let PresentationDesignSettings::Template(pdt) = &mut design.presentation_design_settings {
+                                    *pdt = new_pdt.clone();
+                                }
                             }
                         }
                     }
