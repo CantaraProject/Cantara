@@ -6,6 +6,8 @@
 //! ## Module Structure
 //!
 //! - [`selection_components`]: Components for selecting songs and other content for presentations
+//!   - Internally split into domain-focused modules (search UI, source lists, selected list,
+//!     sidebar filtering, and presentation options)
 //! - [`presentation_components`]: Components for rendering and displaying presentations
 //! - [`presentation_design_settings_components`]: Components for customizing presentation appearance
 //! - [`settings_components`]: Components for application settings
