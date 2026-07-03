@@ -45,7 +45,13 @@ test.describe('App startup', () => {
 test.describe('Navigation', () => {
   test('wizard or selection page is shown on first load', async ({ page }) => {
     await page.goto('/');
-    await page.waitForTimeout(3000);
+
+    // Poll until the body has visible text content, giving the WASM bundle
+    // enough time to initialise and render in CI (can take more than 3 s).
+    await page.waitForFunction(
+      () => (document.body.textContent ?? '').trim().length > 0,
+      { timeout: 15000 }
+    );
 
     // The app should show either the wizard (first run) or the selection page
     const body = await page.locator('body').textContent();
