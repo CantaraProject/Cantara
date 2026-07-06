@@ -1,68 +1,20 @@
-use std::{fs, path::PathBuf};
+//! Runtime state and presentation navigation types used by UI components.
+//!
+//! This module intentionally contains only in-memory state representations and
+//! navigation behavior. Persistent application configuration is implemented in
+//! [`crate::logic::settings`].
 
-use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::{settings::{PresentationDesign, SlideTimerSettings, SlideTransition}, sourcefiles::SourceFile};
+use super::{
+    settings::{PresentationDesign, SlideTimerSettings, SlideTransition},
+    sourcefiles::SourceFile,
+};
 use cantara_songlib::slides::{Slide, SlideSettings};
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Default)]
-pub struct Settings {
-    pub song_repos: Vec<Repository>,
-    pub wizard_completed: bool,
-}
-
-impl Settings {
-    /// Load settings from storage or creates a new default settings if
-    /// the program is run for the first time.
-    pub fn load() -> Self {
-        match get_settings_file() {
-            Some(file) => match std::fs::read_to_string(file) {
-                Ok(content) => match serde_json::from_str(&content) {
-                    Ok(settings) => settings,
-                    Err(_) => Self::default(),
-                },
-                Err(_) => Self::default(),
-            },
-            None => Self::default(),
-        }
-    }
-
-    pub fn save(&self) {
-        if let Some(file) = get_settings_file() {
-            let _ = fs::create_dir_all(get_settings_folder().unwrap());
-            if std::fs::write(file, serde_json::to_string_pretty(self).unwrap()).is_ok() {}
-        }
-    }
-
-    pub fn add_repository(&mut self, repo: Repository) {
-        if !self.song_repos.contains(&repo) {
-            self.song_repos.push(repo);
-        }
-    }
-
-    pub fn add_repository_folder(&mut self, folder: String) {
-        self.song_repos.push(Repository::LocaleFilePath(folder));
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
-pub enum Repository {
-    LocaleFilePath(String),
-    Remote(String),
-}
 
 #[derive(Clone)]
 pub struct RuntimeInformation {
     pub language: String,
-}
-
-pub fn get_settings_file() -> Option<PathBuf> {
-    get_settings_folder().map(|settings_folder| settings_folder.join("settings.json"))
-}
-
-pub fn get_settings_folder() -> Option<PathBuf> {
-    dirs::config_local_dir().map(|dir| dir.join("cantara"))
 }
 
 /// This struct represents a selected item
@@ -435,14 +387,6 @@ fn default_presentation_resolution() -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn test_load_settings() {
-        let settings = get_settings_folder().unwrap();
-        dbg!(&settings);
-        println!("Settings folder: {:?}", settings);
-    }
 
     #[test]
     fn test_running_presentation_serialization() {
