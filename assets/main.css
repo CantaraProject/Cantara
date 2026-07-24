@@ -4,6 +4,53 @@ body {
     height: 100vh;
     margin: 0;
 }
+
+/* Do not scale the CSS size as the default pico css configuration would do */
+:root,
+:host {
+    --pico-font-size: 100%;
+    --pico-border-radius: 1rem;
+    --pico-spacing: 0.85rem;
+    --pico-form-element-spacing-vertical: 0.6rem;
+    --pico-form-element-spacing-horizontal: 0.85rem;
+    --pico-nav-element-spacing-vertical: 0.45rem;
+    --pico-nav-element-spacing-horizontal: 0.65rem;
+    --pico-typography-spacing-vertical: 0.75rem;
+    --pico-block-spacing-vertical: 0.9rem;
+    --pico-grid-column-gap: 0.85rem;
+    --pico-grid-row-gap: 0.85rem;
+    --cantara-surface-background: rgba(255, 255, 255, 0.48);
+    --cantara-surface-background-strong: rgba(255, 255, 255, 0.68);
+    --cantara-surface-border: rgba(255, 255, 255, 0.42);
+    --cantara-surface-shadow: 0 18px 50px rgba(15, 23, 42, 0.18);
+    --cantara-surface-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.38);
+    --cantara-shell-background:
+        radial-gradient(circle at top left, rgba(14, 165, 233, 0.22), transparent 28%),
+        radial-gradient(circle at top right, rgba(139, 92, 246, 0.18), transparent 24%),
+        linear-gradient(160deg, #f4f8ff 0%, #edf4ff 48%, #eef3fb 100%);
+    --cantara-shell-overlay: linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0));
+    --cantara-shell-line: rgba(148, 163, 184, 0.16);
+}
+
+:root[data-theme="dark"] {
+    --cantara-surface-background: rgba(15, 23, 42, 0.58);
+    --cantara-surface-background-strong: rgba(15, 23, 42, 0.74);
+    --cantara-surface-border: rgba(148, 163, 184, 0.22);
+    --cantara-surface-shadow: 0 24px 60px rgba(2, 6, 23, 0.4);
+    --cantara-surface-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    --cantara-shell-background:
+        radial-gradient(circle at top left, rgba(14, 165, 233, 0.18), transparent 26%),
+        radial-gradient(circle at top right, rgba(168, 85, 247, 0.14), transparent 22%),
+        linear-gradient(160deg, #08111f 0%, #0f172a 52%, #111c30 100%);
+    --cantara-shell-overlay: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
+    --cantara-shell-line: rgba(148, 163, 184, 0.12);
+}
+
+.wrapper,
+body {
+    position: relative;
+}
+
 .wrapper {
     height: 100vh;
     display: flex;
@@ -11,15 +58,151 @@ body {
 }
 
 body {
-    background-color: var(--pico-table-row-stripped-background-color);
+    background: var(--cantara-shell-background);
+    background-attachment: fixed;
+    color: var(--pico-color);
+}
+
+body::before,
+body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+}
+
+body::before {
+    z-index: -2;
+    background:
+        radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.28), transparent 18%),
+        radial-gradient(circle at 88% 16%, rgba(255, 255, 255, 0.12), transparent 14%),
+        radial-gradient(circle at 50% 100%, rgba(56, 189, 248, 0.12), transparent 26%);
+    filter: blur(2px);
+}
+
+body::after {
+    z-index: -1;
+    background:
+        var(--cantara-shell-overlay),
+        linear-gradient(180deg, transparent 0%, var(--cantara-shell-line) 100%);
+}
+
+main.container,
+main.container-fluid,
+article,
+.wizard-step,
+.selection_item,
+.search-results,
+.selection-sidebar,
+.sidebar-element,
+.directory-entry,
+.presenter-text-panel,
+.presenter-preview-panel,
+.presenter-grid-panel,
+.presenter-grid-slide,
+.presenter-control-bar,
+.presenter-header {
+    background: var(--cantara-surface-background);
+    border: 1px solid var(--cantara-surface-border);
+    box-shadow: var(--cantara-surface-shadow), var(--cantara-surface-highlight);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+}
+
+article,
+.wizard-step,
+.selection_item,
+.search-results,
+.directory-entry,
+.sidebar-element {
+    background: var(--cantara-surface-background-strong);
+}
+
+main.container,
+main.container-fluid {
+    border-radius: calc(var(--pico-border-radius) + 0.15rem);
+    padding: 0.85rem;
+    margin-top: 0.85rem;
+    margin-bottom: 0.85rem;
+}
+
+article {
+    padding: 1rem 1.1rem;
+    margin-bottom: 0.75rem;
+}
+
+button,
+input,
+select,
+textarea,
+[role="button"] {
+    border-radius: calc(var(--pico-border-radius) - 0.1rem);
+}
+
+button,
+[role="button"] {
+    box-shadow:
+        0 10px 24px rgba(37, 99, 235, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.24);
+    transition:
+        transform 160ms ease,
+        box-shadow 160ms ease,
+        background-color 160ms ease,
+        border-color 160ms ease;
+}
+
+button:hover,
+[role="button"]:hover {
+    transform: translateY(-1px);
+    box-shadow:
+        0 14px 26px rgba(37, 99, 235, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
+
+button.secondary,
+[role="button"].secondary {
+    background: rgba(148, 163, 184, 0.16);
+    border-color: rgba(148, 163, 184, 0.22);
+}
+
+input,
+select,
+textarea {
+    background-color: rgba(255, 255, 255, 0.3);
+    border-color: rgba(148, 163, 184, 0.28);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] textarea {
+    background-color: rgba(15, 23, 42, 0.4);
+}
+
+progress,
+hr {
+    opacity: 0.88;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+ul,
+ol {
+    margin-top: 0;
 }
 
 /* Fixed top bar */
 .top-bar {
     width: 100%;
-    background-color: var(--pico-background-color);
-    border-bottom: 1px solid var(--pico-border-color);
-    padding: var(--pico-spacing);
+    background: var(--cantara-surface-background);
+    border-bottom: 1px solid var(--cantara-surface-border);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+    padding: 0.8rem 1rem;
 }
 
 .no-padding {
@@ -51,8 +234,10 @@ body {
 /* Fixed bottom bar */
 .bottom-bar {
     width: 100%;
-    background-color: var(--pico-background-color);
-    padding: 0;
+    background: var(--cantara-surface-background);
+    border-top: 1px solid var(--cantara-surface-border);
+    box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.08);
+    padding: 0.65rem 0.9rem;
 }
 
 /* Main content area */
@@ -61,10 +246,11 @@ body {
     min-width: 100%;
     max-height: 100%;
     overflow-y: auto;
+    gap: 0.75rem;
 }
 
 .content-background {
-    background-color: var(--pico-table-row-stripped-background-color);
+    background-color: transparent;
 }
 
 .no-margin {
@@ -113,14 +299,15 @@ body {
     hyphens: auto;
 }
 
-.selection_item {
+.selection_item,
+article.selection_item {
     text-align: left !important;
-    border: var(--pico-border-width) solid var(--pico-card-border-color);
-    background-color: var(--pico-background-color) !important;
+    border: 1px solid var(--cantara-surface-border);
+    background: var(--cantara-surface-background-strong);
 }
 
 .selection_item:hover {
-    border: var(--pico-border-width) solid var(--pico-primary-hover-border);
+    border: 1px solid var(--pico-primary-hover-border);
 }
 
 /* Drag and drop zone styling */
@@ -182,13 +369,15 @@ div.inline-div {
     float: left;
     height: 100%;
     width: 50px;
-    background-color: var(--pico-background-color);
+    background: var(--cantara-surface-background);
+    border-radius: calc(var(--pico-border-radius) + 0.1rem);
 }
 
 .sidebar-element {
     width: 100%;
     height: 50px;
-    background-color: var(--pico-table-row-stripped-background-color);
+    background: var(--cantara-surface-background-strong);
+    border-radius: 0.8rem;
 }
 
 /* Show the elements only on mobile screens (max-width: 767px) */
@@ -278,12 +467,6 @@ div.inline-div {
     border: 18px solid var(--pico-primary-border);
 }
 
-/* Do not scale the CSS size as the default pico css configuration would do */
-:root,
-:host {
-    --pico-font-size: 100%;
-}
-
 .badge {
     background-color: var(--pico-del-color);
     color: var(--pico-background-color);
@@ -325,19 +508,26 @@ div.inline-div {
     top: 80px;
     bottom: 0;
     margin-top: 5px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 10px;
-    background-color: var(--pico-background-color);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    border: 1px solid var(--cantara-surface-border);
+    border-radius: calc(var(--pico-border-radius) + 0.1rem);
+    padding: 0.8rem;
+    background: var(--cantara-surface-background-strong);
+    box-shadow: var(--cantara-surface-shadow), var(--cantara-surface-highlight);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
 }
 
 .directory-entry {
     cursor: pointer;
     padding: 0.5em 0.75em;
     border-bottom: 1px solid var(--pico-border-color);
+    border-radius: 0.8rem;
 }
 
 .directory-entry:hover {
-    background-color: var(--pico-table-row-stripped-background-color);
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+:root[data-theme="dark"] .directory-entry:hover {
+    background-color: rgba(148, 163, 184, 0.12);
 }
