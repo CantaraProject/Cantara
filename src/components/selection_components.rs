@@ -1,16 +1,33 @@
-//! This module includes the components for song selection
+//! Components for source selection, filtering, and presentation startup.
+//!
+//! Internal structure:
+//! - `search_ui`: search input and result rendering
+//! - `source_items`: source lists, detail modal, and drop-file ingestion
+//! - `selected_list`: selected item list and reordering UI
+//! - `sidebar`: source-category sidebar and ordering
+//! - `presentation_options`: per-item presentation option editing
 
-use super::shared_components::{ImageIcon, MarkdownIcon, MusicIcon, PdfIcon, SelectedItemPreview};
-use crate::TEST_STATE;
+mod presentation_options;
+mod search_ui;
+mod selected_list;
+mod sidebar;
+mod source_items;
+
+use self::presentation_options::PresentationOptions;
+use self::search_ui::{SearchInput, SearchResults};
+use self::selected_list::SelectedItems;
+use self::sidebar::SelectionFilterSideBar;
+use self::source_items::{
+    process_dropped_files, ImageSourceItems, MarkdownSourceItems, PdfSourceItems, SongSourceItems,
+    SourceDetailView,
+};
 use crate::logic::presentation;
-use crate::logic::search::{SearchResult, search_source_files};
+use crate::logic::search::{search_source_files, SearchResult};
 use crate::logic::settings::PresentationDesign;
 use crate::logic::settings::SelectionSidebarType;
-use crate::logic::settings::{AfterLastSlide, SlideTimerSettings, SlideTransition};
-use crate::logic::sourcefiles::SourceFileType;
-use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
-use crate::logic::settings::{Settings, default_sidebar_order, use_settings};
+use crate::logic::settings::Settings;
 use crate::logic::sourcefiles::SourceFile;
+use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
 #[cfg(target_arch = "wasm32")]
 use crate::logic::sync::{
     SYNC_KEY_ACTIVE, SYNC_KEY_FILES, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE,
@@ -20,182 +37,13 @@ use crate::Route;
 use cantara_songlib::slides::SlideSettings;
 #[cfg(feature = "desktop")]
 use dioxus::desktop::tao;
-use dioxus::html::HasFileData;
 use dioxus::prelude::*;
+use dioxus_free_icons::icons::fa_solid_icons::{FaFileExport, FaFileImport, FaGear, FaPlay};
 use dioxus_free_icons::Icon;
-use dioxus_free_icons::icons::fa_regular_icons::*;
-use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp, FaGear, FaFileImport, FaFileExport, FaPlay};
 use rust_i18n::t;
 use std::rc::Rc;
 
 rust_i18n::i18n!("locales", fallback = "en");
-
-/// Component to display search results
-#[component]
-fn SearchResults(
-    search_results: Signal<Vec<SearchResult>>,
-    query: Signal<String>,
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-    search_visible: Signal<bool>,
-) -> Element {
-    let results = search_results.read().clone();
-    if results.is_empty() {
-        return rsx! { div {} };
-    }
-
-    let query_str = query.read().clone();
-
-    rsx! {
-        div {
-            class: "search-results scrollable-container",
-            tabindex: 0,
-            // Prevent clicks inside search results from closing them
-            onclick: move |event| {
-                event.stop_propagation();
-            },
-            onmounted: move |element| {
-                let _ = element.set_focus(true);
-            },
-            onkeydown: move |event: Event<KeyboardData>| {
-                let key = event.key();
-
-                // Handle Escape key to close search results
-                if key == Key::Escape {
-                    search_visible.set(false);
-                    event.stop_propagation();
-                }
-            },
-            h3 { { t!("search.results").to_string() } }
-
-            for (index, result) in results.iter().enumerate() {
-                {
-                    let source_file = result.source_file.clone();
-                    let matched_content = result.matched_content.clone();
-                    let is_title_match = result.is_title_match;
-
-                    rsx! {
-                        div {
-                            class: "search-result",
-                            style: "margin-bottom: 10px; padding: 5px; border-bottom: 1px solid #eee;",
-                            // Show number for first 10 results
-                            if index < 10 {
-                                div {
-                                    style: "display: inline-block; margin-right: 5px; font-weight: bold; color: #666;",
-                                    // Use 0 for the 10th item
-                                    {
-                                        let number = if index == 9 { "0" } else { &(index + 1).to_string() };
-                                        t!("search.result_number", number => number).to_string()
-                                    }
-                                }
-                            }
-                            div {
-                                class: "search-result-title",
-                                style: "font-weight: bold; cursor: pointer;",
-                                onclick: move |_| {
-                                    selected_items.write().push(
-                                        SelectedItemRepresentation::new_with_sourcefile(source_file.clone())
-                                    );
-                                    // Close search results after selection
-                                    search_visible.set(false);
-                                },
-                                // For title matches, we'll manually split and highlight
-                                if is_title_match {
-                                    {
-                                        let title = source_file.name.clone();
-                                        let title_lower = title.to_lowercase();
-                                        let query_lower = query_str.to_lowercase();
-
-                                        if let Some(pos) = title_lower.find(&query_lower) {
-                                            // Convert to character indices for safe slicing
-                                            let title_chars: Vec<char> = title.chars().collect();
-
-                                            // Find the character index corresponding to the byte index
-                                            let mut char_pos: usize = 0;
-                                            for (i, _) in title_lower.char_indices() {
-                                                if i == pos {
-                                                    break;
-                                                }
-                                                char_pos += 1;
-                                            }
-
-                                            // Calculate the end position in character indices
-                                            let query_char_len = query_lower.chars().count();
-                                            let char_end = char_pos + query_char_len;
-
-                                            // Create the substrings using character indices
-                                            let before: String = title_chars[0..char_pos].iter().collect();
-                                            let highlight: String = title_chars[char_pos..char_end].iter().collect();
-                                            let after: String = title_chars[char_end..].iter().collect();
-
-                                            rsx! {
-                                                span { {before} }
-                                                span {
-                                                    style: "background-color: yellow; font-weight: bold;",
-                                                    {highlight}
-                                                }
-                                                span { {after} }
-                                            }
-                                        } else {
-                                            rsx! { span { {title.clone()} } }
-                                        }
-                                    }
-                                } else {
-                                    span { {source_file.name.clone()} }
-                                }
-                            }
-
-                            if let Some(content) = matched_content {
-                                div {
-                                    class: "search-result-content",
-                                    style: "margin-top: 5px; font-size: 0.9em; color: #666;",
-                                    // For content matches, we'll manually split and highlight
-                                    {
-                                        let content_lower = content.to_lowercase();
-                                        let query_lower = query_str.to_lowercase();
-
-                                        if let Some(pos) = content_lower.find(&query_lower) {
-                                            // Convert to character indices for safe slicing
-                                            let content_chars: Vec<char> = content.chars().collect();
-
-                                            // Find the character index corresponding to the byte index
-                                            let mut char_pos: usize = 0;
-                                            for (i, _) in content_lower.char_indices() {
-                                                if i == pos {
-                                                    break;
-                                                }
-                                                char_pos += 1;
-                                            }
-
-                                            // Calculate the end position in character indices
-                                            let query_char_len = query_lower.chars().count();
-                                            let char_end = char_pos + query_char_len;
-
-                                            // Create the substrings using character indices
-                                            let before: String = content_chars[0..char_pos].iter().collect();
-                                            let highlight: String = content_chars[char_pos..char_end].iter().collect();
-                                            let after: String = content_chars[char_end..].iter().collect();
-
-                                            rsx! {
-                                                span { "..." {before} }
-                                                span {
-                                                    style: "background-color: yellow; font-weight: bold;",
-                                                    {highlight}
-                                                }
-                                                span { {after} "..." }
-                                            }
-                                        } else {
-                                            rsx! { span { "..." {content.clone()} "..." } }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 #[component]
 pub fn Selection() -> Element {
@@ -214,12 +62,10 @@ pub fn Selection() -> Element {
         use_signal(|| SelectionSidebarType::Songs);
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
-    // Track drag-over state for the source files drop zone
     let mut drag_over_source: Signal<bool> = use_signal(|| false);
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
 
-    // Update search results when filter_string changes
     use_effect(move || {
         let query = filter_string.read().clone();
         if !query.is_empty() {
@@ -255,15 +101,8 @@ pub fn Selection() -> Element {
 
         spawn(async move {
             let files = settings.read().get_sourcefiles_async().await;
-            // Set source files immediately so the UI is responsive without waiting for
-            // the (potentially slow) cache pre-population below.
             source_files.set(files.clone());
-            // Refresh search cache in a background OS thread so PDF parsing doesn't
-            // block the Dioxus async runtime or freeze the UI during startup.
-            // Fire-and-forget: refresh_search_cache only logs on errors (no panics),
-            // so the thread handle is intentionally dropped.
-            // On WASM there is no native PDF parsing in refresh_search_cache (the
-            // non-wasm branch is a no-op for PDFs), so synchronous is fine there.
+
             #[cfg(not(target_arch = "wasm32"))]
             std::thread::spawn(move || {
                 crate::logic::search::refresh_search_cache(&files);
@@ -273,14 +112,10 @@ pub fn Selection() -> Element {
         });
     });
 
-    // On desktop (including Windows), patch window.interpreter.handleWindowsDragDrop so that
-    // if dxDragLastElement is null when a file drop occurs the content area is used as the
-    // drop target.  This handles the case where the wry DragDropEvent::Over fires but
-    // handleWindowsDragOver hasn't yet run (e.g. very fast drops) or the user drops without
-    // moving the mouse first.
     #[cfg(feature = "desktop")]
     use_effect(|| {
-        let _ = document::eval(r#"
+        let _ = document::eval(
+            r#"
             (function() {
                 if (window._cantara_drop_patched) return;
                 if (!window.interpreter || typeof window.interpreter.handleWindowsDragDrop !== 'function') return;
@@ -294,17 +129,15 @@ pub fn Selection() -> Element {
                     orig();
                 };
             })();
-        "#);
+        "#,
+        );
     });
-
 
     rsx! {
         div {
             class: "wrapper",
             style: "position: relative;",
-            // Add onkeydown handler to the wrapper div to handle number key presses globally
             onkeydown: move |event: Event<KeyboardData>| {
-                // Handle number keys for quick selection when search results are visible
                 if search_visible() {
                     let key_str = event.key().to_string();
                     if key_str.len() == 1 {
@@ -315,7 +148,6 @@ pub fn Selection() -> Element {
                                 selected_items.write().push(
                                     SelectedItemRepresentation::new_with_sourcefile(results[index].source_file.clone())
                                 );
-                                // Close search results after selection
                                 search_visible.set(false);
                                 event.stop_propagation();
                             }
@@ -378,15 +210,11 @@ pub fn Selection() -> Element {
             main {
                 id: "selection-content",
                 class: "content content-background height-100",
-                // Close search results when clicking on the main content
                 onclick: move |_| {
                     if search_visible() {
                         search_visible.set(false);
                     }
                 },
-                // Fallback drag handlers on the content area so that files dropped anywhere on
-                // the page are caught — important on Windows where the synthetic drop event may
-                // fire on an element outside the source-files panel.
                 ondragover: move |event: DragEvent| {
                     event.prevent_default();
                 },
@@ -396,17 +224,14 @@ pub fn Selection() -> Element {
                     process_dropped_files(event, source_files, selected_items).await;
                 },
                 onmounted: move |_| async move {
-                    // Initialize layout sizing and swipe listeners once the component is mounted.
                     let _ = document::eval("initSelectionLayout();").await;
                 },
                 onkeydown: move |event: Event<KeyboardData>| async move {
-                    // Don't focus search input if a number key is pressed and search results are visible
                     let key = event.key().to_string();
                     if search_visible() && key.len() == 1 && key.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                         return;
                     }
 
-                    // Don't steal focus from other input fields (e.g. markdown textarea)
                     let is_other_input_focused = document::eval(r#"
                         (function() {
                             var a = document.activeElement;
@@ -425,7 +250,6 @@ pub fn Selection() -> Element {
                 div {
                     class: "grid swipe-container height-100",
 
-                    // The area where the selectable elements (sources) are shown, also serves as a drop zone
                     div {
                         class: if drag_over_source() { "height-100 swipe-panel drop-zone drag-active" } else { "height-100 swipe-panel drop-zone" },
                         ondragover: move |event: DragEvent| {
@@ -437,8 +261,6 @@ pub fn Selection() -> Element {
                         },
                         ondrop: move |event: DragEvent| async move {
                             event.prevent_default();
-                            // Stop bubbling so the fallback handler on `main` doesn't
-                            // also process these files.
                             event.stop_propagation();
                             drag_over_source.set(false);
                             process_dropped_files(event, source_files, selected_items).await;
@@ -476,7 +298,6 @@ pub fn Selection() -> Element {
                         }
                     },
 
-                    // The area where the selected elements are shown
                     div {
                         class: "height-100 scrollable-container swipe-panel",
                         if !selected_items.read().is_empty() {
@@ -487,7 +308,6 @@ pub fn Selection() -> Element {
                         }
                     }
 
-                    // The area of distinct presentation settings
                     div {
                         class: "swipe-panel",
                         PresentationOptions {
@@ -497,7 +317,6 @@ pub fn Selection() -> Element {
                     }
                 }
             }
-            // Swipe indicator dots (visible only on mobile via CSS)
             div {
                 class: "swipe-indicator",
                 div { class: "swipe-dot active", onclick: move |_| { let _ = document::eval("scrollToPanel(0);"); } }
@@ -586,832 +405,6 @@ pub fn Selection() -> Element {
     }
 }
 
-#[component]
-fn SearchInput(
-    input_signal: Signal<String>,
-    element_signal: Signal<Option<Rc<MountedData>>>,
-) -> Element {
-    rsx! {
-        div {
-            role: "group",
-            onmounted: move |element| element_signal.set(Some(element.data())),
-            input {
-                id: "searchinput",
-                type: "search",
-                name: "search",
-                placeholder: t!("search").to_string(),
-                aria_label: t!("search").to_string(),
-                value: input_signal,
-                oninput: move |event| {
-                    let value = event.value();
-                    input_signal.set(value);
-                },
-            }
-        }
-    }
-}
-
-#[component]
-fn SongSourceItems(
-    source_files: Signal<Vec<SourceFile>>,
-    active_detailed_item_id: Signal<Option<usize>>,
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-) -> Element {
-    rsx! {
-        div {
-            class: "scrollable-container",
-            onmounted: move |_| async move {
-                let _ = document::eval("initSelectionLayout();").await;
-            },
-            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Song) {
-                SongSourceItem {
-                    id: id,
-                    source_files: source_files,
-                    active_detailed_item_id: active_detailed_item_id,
-                    selected_items: selected_items
-                }
-            }
-        }
-    }
-}
-
-/// This component renders one source item which can be selected
-#[component]
-fn SongSourceItem(
-    source_files: Signal<Vec<SourceFile>>,
-    id: usize,
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-    active_detailed_item_id: Signal<Option<usize>>,
-) -> Element {
-    rsx! {
-        div {
-            role: "button",
-            class: "outline secondary selection_item",
-            tabindex: 0,
-            onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
-            ); },
-            oncontextmenu: move |_| {
-                active_detailed_item_id.set(Some(id));
-            },
-            { source_files.get(id).unwrap().clone().name }
-        }
-    }
-}
-
-/// The component renders the list of available pictures
-#[component]
-fn ImageSourceItems(
-    source_files: Signal<Vec<SourceFile>>,
-    active_detailed_item_id: Signal<Option<usize>>,
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-) -> Element {
-    rsx! {
-        div {
-            class: "scrollable-container",
-            onmounted: move |_| async move {
-                let _ = document::eval("initSelectionLayout();").await;
-            },
-            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Image) {
-                ImageSourceItem {
-                    id: id,
-                    source_files: source_files,
-                    active_detailed_item_id: active_detailed_item_id,
-                    selected_items: selected_items
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn ImageSourceItem(
-    source_files: Signal<Vec<SourceFile>>,
-    id: usize,
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-    active_detailed_item_id: Signal<Option<usize>>,
-) -> Element {
-    rsx! {
-        div {
-            role: "button",
-            class: "outline secondary selection_item",
-            tabindex: 0,
-            onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
-            ); },
-            oncontextmenu: move |_| {
-                active_detailed_item_id.set(Some(id));
-            },
-            { source_files.get(id).unwrap().clone().name },
-            br { },
-            img {
-                height: "300px",
-                src: source_files.get(id).unwrap().clone().path.to_str().unwrap_or("")
-            }
-        }
-    }
-}
-
-/// The component renders the list of available PDF files
-#[component]
-fn PdfSourceItems(
-    source_files: Signal<Vec<SourceFile>>,
-    active_detailed_item_id: Signal<Option<usize>>,
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-) -> Element {
-    rsx! {
-        div {
-            class: "scrollable-container",
-            onmounted: move |_| async move {
-                let _ = document::eval("initSelectionLayout();").await;
-            },
-            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Pdf) {
-                PdfSourceItem {
-                    id: id,
-                    source_files: source_files,
-                    active_detailed_item_id: active_detailed_item_id,
-                    selected_items: selected_items
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn PdfSourceItem(
-    source_files: Signal<Vec<SourceFile>>,
-    id: usize,
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-    active_detailed_item_id: Signal<Option<usize>>,
-) -> Element {
-    rsx! {
-        div {
-            role: "button",
-            class: "outline secondary selection_item",
-            tabindex: 0,
-            onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
-            ); },
-            oncontextmenu: move |_| {
-                active_detailed_item_id.set(Some(id));
-            },
-            { source_files.get(id).unwrap().clone().name }
-        }
-    }
-}
-
-/// The component renders the list of available Markdown files plus a form for spontaneous markdown text input
-#[component]
-fn MarkdownSourceItems(
-    source_files: Signal<Vec<SourceFile>>,
-    active_detailed_item_id: Signal<Option<usize>>,
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-) -> Element {
-    let mut spontaneous_text: Signal<String> = use_signal(|| String::new());
-
-    rsx! {
-        div {
-            class: "scrollable-container",
-            onmounted: move |_| async move {
-                let _ = document::eval("initSelectionLayout();").await;
-            },
-            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Markdown) {
-                MarkdownSourceItem {
-                    id: id,
-                    source_files: source_files,
-                    active_detailed_item_id: active_detailed_item_id,
-                    selected_items: selected_items
-                }
-            }
-            // Spontaneous markdown text input form
-            details {
-                summary { { t!("selection.markdown.add_text").to_string() } }
-                textarea {
-                    rows: "8",
-                    placeholder: t!("selection.markdown.placeholder").to_string(),
-                    value: spontaneous_text,
-                    oninput: move |event| {
-                        spontaneous_text.set(event.value());
-                    },
-                }
-                button {
-                    class: "outline",
-                    disabled: spontaneous_text.read().trim().is_empty(),
-                    onclick: move |_| {
-                        let text = spontaneous_text.read().clone();
-                        if !text.trim().is_empty() {
-                            let source_file = SourceFile {
-                                name: t!("selection.markdown.spontaneous_name").to_string(),
-                                path: std::path::PathBuf::new(),
-                                file_type: SourceFileType::Markdown,
-                                md5_hash: None,
-                            };
-                            let mut item = SelectedItemRepresentation::new_with_sourcefile(source_file);
-                            item.inline_markdown = Some(text.clone());
-                            selected_items.write().push(item);
-                            spontaneous_text.set(String::new());
-                        }
-                    },
-                    { t!("selection.markdown.add_button").to_string() }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn MarkdownSourceItem(
-    source_files: Signal<Vec<SourceFile>>,
-    id: usize,
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-    active_detailed_item_id: Signal<Option<usize>>,
-) -> Element {
-    rsx! {
-        div {
-            role: "button",
-            class: "outline secondary selection_item",
-            tabindex: 0,
-            onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
-            ); },
-            oncontextmenu: move |_| {
-                active_detailed_item_id.set(Some(id));
-            },
-            { source_files.get(id).unwrap().clone().name }
-        }
-    }
-}
-
-#[component]
-fn SelectedItems(
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-    active_selected_item_id: Signal<Option<usize>>,
-) -> Element {
-    // Track drag state for custom mouse-based reordering
-    let mut dragging_from: Signal<Option<usize>> = use_signal(|| None);
-    let mut hover_over: Signal<Option<usize>> = use_signal(|| None);
-    // Animation signals: target index to animate and a flip to retrigger animation
-    let mut anim_target: Signal<Option<usize>> = use_signal(|| None);
-    let mut anim_flip: Signal<bool> = use_signal(|| false);
-
-    rsx! {
-        div {
-            class: "selected-container",
-            onmouseup: move |_| {
-                if let (Some(from), Some(to)) = (dragging_from(), hover_over()) {
-                    if from != to {
-                        let mut items = selected_items.write();
-                        let len_before = items.len();
-                        if from < len_before && to <= len_before {
-                            let item = items.remove(from);
-                            let insert_at = if to > from { to - 1 } else { to };
-                            let final_index = insert_at;
-                            items.insert(insert_at, item);
-                            // trigger animation on the moved item
-                            anim_target.set(Some(final_index));
-                            anim_flip.set(!anim_flip());
-                        }
-                    }
-                }
-                dragging_from.set(None);
-                hover_over.set(None);
-            },
-            onmouseleave: move |_| {
-                // Cancel drag if pointer leaves container
-                dragging_from.set(None);
-                hover_over.set(None);
-            },
-            for (number, _) in selected_items.read().iter().enumerate() {
-                SelectedItem {
-                    selected_items: selected_items,
-                    id: number,
-                    active_selected_item_id: active_selected_item_id,
-                    dragging_from: dragging_from,
-                    hover_over: hover_over,
-                    anim_target: anim_target,
-                    anim_flip: anim_flip,
-                }
-            }
-            // Bottom drop zone to allow moving below the last item
-            if dragging_from().is_some() {
-                div {
-                    style: {
-                        let active = hover_over() == Some(selected_items.read().len());
-                        let mut s = String::from("height: 12px; margin-top: 6px; border-top: 2px dashed #bbb;");
-                        if active { s.push_str(" border-color: #666;"); }
-                        s
-                    },
-                    onmouseenter: move |_| {
-                        hover_over.set(Some(selected_items.read().len()));
-                    },
-                }
-            }
-        }
-    }
-}
-
-/// This component renders a selected item
-#[component]
-fn SelectedItem(
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-    id: usize,
-    active_selected_item_id: Signal<Option<usize>>,
-    dragging_from: Signal<Option<usize>>,
-    hover_over: Signal<Option<usize>>,
-    anim_target: Signal<Option<usize>>,
-    anim_flip: Signal<bool>,
-) -> Element {
-    rsx! {
-        div {
-            role: "button",
-            class: "outline secondary selection_item",
-            style: {
-                let mut s = String::from("display: flex; align-items: left; cursor: grab; transition: background-color 300ms ease-out;");
-                if dragging_from().is_some() && hover_over() == Some(id) {
-                    s.push_str(" outline: 2px dashed #888; background-color: rgba(0,0,0,0.03);");
-                }
-                if anim_target() == Some(id) {
-                    s.push_str(" background-color: rgba(255,230,150,0.8);");
-                }
-                s
-            },
-            tabindex: 0,
-            onmouseenter: move |_| {
-                if dragging_from.read().is_some() {
-                    hover_over.set(Some(id));
-                }
-            },
-            onmouseup: move |_| {
-                // If mouse is released over the same item, the container onmouseup will also handle it
-            },
-            span {
-                style: "flex-grow: 1; display: flex; align-items: center; gap: 0.5em;",
-                onmousedown: move |_| {
-                    anim_target.set(None);
-                    dragging_from.set(Some(id));
-                    hover_over.set(Some(id));
-                },
-                onclick: move |_| {
-                    active_selected_item_id.set(Some(id))
-                },
-                match selected_items.read().get(id).unwrap().source_file.file_type {
-                    SourceFileType::Song => rsx! { MusicIcon {} },
-                    SourceFileType::Image => rsx! { ImageIcon {} },
-                    SourceFileType::Pdf => rsx! { PdfIcon {} },
-                    SourceFileType::Markdown => rsx! { MarkdownIcon {} },
-                    _ => rsx! {},
-                },
-                { selected_items.read().get(id).unwrap().source_file.name.clone() },
-            }
-
-            // Delete a selected item
-            span {
-                class: "right-justified",
-                // Move Item Up
-                if id > 0 {
-                    span {
-                        onclick: move |_| { selected_items.write().swap(id, id-1); },
-                        Icon {
-                            icon: FaArrowUp,
-                        }
-                    }
-                }
-                if id < selected_items.len() - 1 {
-                    span {
-                        onclick: move |_| { selected_items.write().swap(id, id+1); },
-                        Icon {
-                            icon: FaArrowDown,
-                        }
-                    }
-                }
-                // Delete a selected item
-                span {
-                    onclick: move |_| {
-                        if *active_selected_item_id.read() == Some(id) {
-                            active_selected_item_id.set(None);
-                        }
-                        selected_items.write().remove(id);
-                    },
-                    Icon {
-                        icon: FaTrashCan,
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum PresentationOptionTabState {
-    General,
-    Specific,
-}
-
-/// The component for setting up presentation options
-#[component]
-fn PresentationOptions(
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-    active_selected_item_id: Signal<Option<usize>>,
-) -> Element {
-    let mut tab_state: Signal<PresentationOptionTabState> =
-        use_signal(|| PresentationOptionTabState::General);
-    let settings = use_settings();
-
-    use_effect(move || {
-        if active_selected_item_id.read().is_some() {
-            tab_state.set(PresentationOptionTabState::Specific);
-        }
-    });
-
-    let active_id = active_selected_item_id.read();
-    if active_id.is_none() {
-        return rsx! {};
-    }
-    let item_index = active_id.unwrap();
-
-    rsx! {
-        div {
-            role: "group",
-            button {
-                class: "smaller-buttons",
-                class: if *tab_state.read() != PresentationOptionTabState::General {
-                    "secondary"
-                },
-                onclick: move |_| { tab_state.set(PresentationOptionTabState::General) },
-                { t!("selection.presentation_options.tab.general").to_string() }
-            }
-            button {
-                class: "smaller-buttons",
-                class: if *tab_state.read() != PresentationOptionTabState::Specific {
-                    "secondary"
-                },
-                onclick: move |_| { tab_state.set(PresentationOptionTabState::Specific) },
-                { t!("selection.presentation_options.tab.specific").to_string() }
-            }
-        }
-
-        match *tab_state.read() {
-            PresentationOptionTabState::General => {
-                rsx! {
-                    p { { TEST_STATE.read().clone() } }
-                }
-            }
-            PresentationOptionTabState::Specific => {
-                let items = selected_items.read();
-                let item = items.get(item_index).cloned().unwrap();
-
-                // Derive timer state for the current item
-                let timer_enabled = item.timer_settings_option.is_some();
-                let default_timer_settings = SlideTimerSettings::default();
-                let timer_seconds = item
-                    .timer_settings_option
-                    .as_ref()
-                    .map(|t| t.timer_seconds)
-                    .unwrap_or(default_timer_settings.timer_seconds);
-                let after_last = item
-                    .timer_settings_option
-                    .as_ref()
-                    .map(|t| t.after_last_slide)
-                    .unwrap_or_default();
-                let current_transition = item.transition_effect;
-
-                rsx! {
-                    div {
-                        class: "grid",
-                        div {
-                            label { { t!("selection.presentation_options.design").to_string() } }
-                            select {
-                                onchange: move |evt| {
-                                    let val = evt.value();
-                                    let mut items = selected_items.write();
-                                    if val == "default" {
-                                        items[item_index].presentation_design_option = None;
-                                    } else if let Ok(idx) = val.parse::<usize>() {
-                                        items[item_index].presentation_design_option = Some(settings.read().presentation_designs[idx].clone());
-                                    }
-                                },
-                                option {
-                                    value: "default",
-                                    selected: item.presentation_design_option.is_none(),
-                                    { t!("selection.presentation_options.default").to_string() }
-                                }
-                                for (idx, pd) in settings.read().presentation_designs.iter().enumerate() {
-                                    option {
-                                        value: "{idx}",
-                                        selected: item.presentation_design_option.as_ref().map_or(false, |p| p.name == pd.name),
-                                        "{pd.name}"
-                                    }
-                                }
-                            }
-                        }
-                        div {
-                            label { { t!("selection.presentation_options.slide_settings").to_string() } }
-                            select {
-                                onchange: move |evt| {
-                                    let val = evt.value();
-                                    let mut items = selected_items.write();
-                                    if val == "default" {
-                                        items[item_index].slide_settings_option = None;
-                                    } else if let Ok(idx) = val.parse::<usize>() {
-                                        items[item_index].slide_settings_option = Some(settings.read().song_slide_settings[idx].clone());
-                                    }
-                                },
-                                option {
-                                    value: "default",
-                                    selected: item.slide_settings_option.is_none(),
-                                    { t!("selection.presentation_options.default").to_string() }
-                                }
-                                for (idx, _) in settings.read().song_slide_settings.iter().enumerate() {
-                                    option {
-                                        value: "{idx}",
-                                        selected: item.slide_settings_option.as_ref().map_or(false, |s| s == &settings.read().song_slide_settings[idx]),
-                                        { format!("{} {}", t!("selection.presentation_options.slide_settings").to_string(), idx + 1) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    div {
-                        class: "grid",
-                        // Transition selector
-                        div {
-                            label { { t!("selection.presentation_options.transition.label").to_string() } }
-                            select {
-                                onchange: move |evt| {
-                                    let val = evt.value();
-                                    let transition = match val.as_str() {
-                                        "none" => SlideTransition::None,
-                                        "fade" => SlideTransition::Fade,
-                                        "slide_from_right" => SlideTransition::SlideFromRight,
-                                        "slide_from_left" => SlideTransition::SlideFromLeft,
-                                        "zoom_in" => SlideTransition::ZoomIn,
-                                        _ => SlideTransition::Fade,
-                                    };
-                                    selected_items.write()[item_index].transition_effect = transition;
-                                },
-                                option {
-                                    value: "none",
-                                    selected: current_transition == SlideTransition::None,
-                                    { t!("selection.presentation_options.transition.none").to_string() }
-                                }
-                                option {
-                                    value: "fade",
-                                    selected: current_transition == SlideTransition::Fade,
-                                    { t!("selection.presentation_options.transition.fade").to_string() }
-                                }
-                                option {
-                                    value: "slide_from_right",
-                                    selected: current_transition == SlideTransition::SlideFromRight,
-                                    { t!("selection.presentation_options.transition.slide_from_right").to_string() }
-                                }
-                                option {
-                                    value: "slide_from_left",
-                                    selected: current_transition == SlideTransition::SlideFromLeft,
-                                    { t!("selection.presentation_options.transition.slide_from_left").to_string() }
-                                }
-                                option {
-                                    value: "zoom_in",
-                                    selected: current_transition == SlideTransition::ZoomIn,
-                                    { t!("selection.presentation_options.transition.zoom_in").to_string() }
-                                }
-                            }
-                        }
-                        // Timer settings
-                        div {
-                            label { { t!("selection.presentation_options.timer.label").to_string() } }
-                            div {
-                                role: "group",
-                                input {
-                                    r#type: "checkbox",
-                                    role: "switch",
-                                    id: "timer-enabled-{item_index}",
-                                    checked: timer_enabled,
-                                    onchange: move |evt| {
-                                        let checked = evt.checked();
-                                        let mut items = selected_items.write();
-                                        if checked {
-                                            items[item_index].timer_settings_option = Some(SlideTimerSettings::default());
-                                        } else {
-                                            items[item_index].timer_settings_option = None;
-                                        }
-                                    }
-                                }
-                                label {
-                                    r#for: "timer-enabled-{item_index}",
-                                    style: "margin-left: 4px;",
-                                    { t!("selection.presentation_options.timer.label").to_string() }
-                                }
-                            }
-                            if timer_enabled {
-                                input {
-                                    r#type: "number",
-                                    min: "1",
-                                    max: "3600",
-                                    value: "{timer_seconds}",
-                                    style: "margin-top: 8px;",
-                                    onchange: move |evt| {
-                                        if let Ok(secs) = evt.value().parse::<u32>() {
-                                            if secs > 0 {
-                                                let mut items = selected_items.write();
-                                                if let Some(ref mut ts) = items[item_index].timer_settings_option {
-                                                    ts.timer_seconds = secs;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                div {
-                                    style: "margin-top: 8px;",
-                                    label { { t!("selection.presentation_options.timer.after_last_slide.label").to_string() } }
-                                    select {
-                                        onchange: move |evt| {
-                                            let val = evt.value();
-                                            let behavior = match val.as_str() {
-                                                "restart" => AfterLastSlide::RestartCurrentChapter,
-                                                _ => AfterLastSlide::GoToNextChapter,
-                                            };
-                                            let mut items = selected_items.write();
-                                            if let Some(ref mut ts) = items[item_index].timer_settings_option {
-                                                ts.after_last_slide = behavior;
-                                            }
-                                        },
-                                        option {
-                                            value: "next",
-                                            selected: after_last == AfterLastSlide::GoToNextChapter,
-                                            { t!("selection.presentation_options.timer.after_last_slide.go_to_next").to_string() }
-                                        }
-                                        option {
-                                            value: "restart",
-                                            selected: after_last == AfterLastSlide::RestartCurrentChapter,
-                                            { t!("selection.presentation_options.timer.after_last_slide.restart_chapter").to_string() }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    div {
-                        style: "margin-top: 20px; display: flex; flex-direction: column; align-items: center;",
-                        SelectedItemPreview {
-                            selected_item: item.clone(),
-                            default_presentation_design: settings.read().presentation_designs[0].clone(),
-                            default_slide_settings: settings.read().song_slide_settings[0].clone(),
-                            width: 400,
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// This component provides a Detail View for a source file which will open as a modal dialog (in front of anything else)
-/// if the signal active_detailed_item_id is set to a non None value.
-#[component]
-fn SourceDetailView(
-    source_files: Signal<Vec<SourceFile>>,
-    active_detailed_item_id: Signal<Option<usize>>,
-) -> Element {
-    let item = use_memo(move || {
-        source_files
-            .read()
-            .get(active_detailed_item_id.unwrap())
-            .unwrap()
-            .clone()
-    });
-    let path_string = use_memo(move || item.read().path.to_str().unwrap_or("").to_string());
-
-    rsx! {
-        dialog {
-            style: "position: fixed",
-            open: true,
-            article {
-                header {
-                    p { { t!("selection.detail_view").to_string() } }
-                }
-                table {
-                    tbody {
-                        tr {
-                            td { strong { { t!("general.type").to_string() } } }
-                            td {
-                                match item().file_type {
-                                    SourceFileType::Song => t!("general.song").to_string(),
-                                    SourceFileType::Image => t!("general.picture").to_string(),
-                                    SourceFileType::Presentation => t!("general.presentation").to_string(),
-                                    SourceFileType::Video => t!("general.video").to_string(),
-                                    SourceFileType::Pdf => t!("general.pdf").to_string(),
-                                    SourceFileType::Markdown => t!("general.markdown").to_string()
-                                }
-                            }
-                        }
-                        tr {
-                            td { strong { { t!("general.title").to_string() } } }
-                            td { { item.read().name.clone() } }
-                        }
-                        tr {
-                            td { strong { { t!("general.file_path").to_string() } } }
-                            td { { path_string } }
-                        }
-                    }
-                }
-                footer {
-                    button {
-                        onclick: move |_| { active_detailed_item_id.set(None) },
-                        { t!("general.close").to_string() }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Processes files dropped anywhere in the selection page.
-/// For each dropped file with a supported type, creates a temporary [SourceFile],
-/// adds it to `source_files`, and immediately adds it to `selected_items`.
-/// The file is not added to any repository.
-///
-/// - On desktop targets: the actual filesystem path is used directly.
-/// - On WASM targets: the file content is stored in the in-memory VFS
-///   under a `drop://` prefix so the presentation renderer can access it.
-async fn process_dropped_files(
-    event: DragEvent,
-    mut source_files: Signal<Vec<SourceFile>>,
-    mut selected_items: Signal<Vec<SelectedItemRepresentation>>,
-) {
-    let files = event.data().files();
-    for file_data in files {
-        let file_name = file_data.name();
-        let file_path = file_data.path();
-
-        // Determine file extension from path (desktop) or name (web)
-        let file_name_path = std::path::Path::new(&file_name);
-        let extension = file_path
-            .extension()
-            .or_else(|| file_name_path.extension())
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        let file_type = match extension.as_str() {
-            "song" => SourceFileType::Song,
-            "png" | "jpg" | "jpeg" => SourceFileType::Image,
-            "pdf" => SourceFileType::Pdf,
-            _ => {
-                log::info!("Skipping dropped file with unsupported extension: {}", file_name);
-                continue;
-            }
-        };
-
-        let stem = file_path
-            .file_stem()
-            .or_else(|| file_name_path.file_stem())
-            .and_then(|s| s.to_str())
-            .unwrap_or(&file_name)
-            .to_string();
-
-        // Read the file bytes (async; works on both desktop and web)
-        let content = match file_data.read_bytes().await {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                log::warn!("Failed to read dropped file '{}': {}", file_name, e);
-                continue;
-            }
-        };
-
-        let md5_hash = Some(format!("{:x}", md5::compute(&*content)));
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            // On WASM the file has no real filesystem path; store content in the web VFS
-            // so that the presentation renderer can access it later.
-            use crate::logic::settings::RepositoryType;
-            let vfs_path = format!("drop://{}", file_name);
-            RepositoryType::store_web_file(&vfs_path, content.to_vec());
-            let sf = SourceFile {
-                name: stem,
-                path: std::path::PathBuf::from(&vfs_path),
-                file_type,
-                md5_hash,
-            };
-            selected_items.write().push(SelectedItemRepresentation::new_with_sourcefile(sf.clone()));
-            source_files.write().push(sf);
-        }
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            // On desktop the path returned by FileData is the real filesystem path.
-            let sf = SourceFile {
-                name: stem,
-                path: file_path,
-                file_type,
-                md5_hash,
-            };
-            selected_items.write().push(SelectedItemRepresentation::new_with_sourcefile(sf.clone()));
-            source_files.write().push(sf);
-        }
-    }
-}
-
 /// Helper function to start a presentation from the selection page.
 /// Supports multi-screen placement and optional presenter console.
 #[cfg(feature = "desktop")]
@@ -1438,41 +431,31 @@ fn start_presentation(
         let desktop = dioxus::desktop::window();
         let monitors = enumerate_monitors(&desktop);
 
-        // Resolve presentation monitor (prefer non-primary)
         let presentation_monitor =
             resolve_monitor(&monitors, &settings_read.presentation_screen, false);
 
-        // Set the presentation resolution from the monitor
         if let Some(ref monitor) = presentation_monitor {
             if let Some(rp) = running_presentations.write().last_mut() {
                 rp.presentation_resolution = monitor.size;
             }
         }
 
-        // Resolve presenter monitor (prefer primary)
-        let presenter_monitor =
-            resolve_monitor(&monitors, &settings_read.presenter_screen, true);
+        let presenter_monitor = resolve_monitor(&monitors, &settings_read.presenter_screen, true);
 
         let show_presenter_console = settings_read.show_presenter_console;
         let always_fullscreen = settings_read.always_start_fullscreen;
 
-        // Build the presentation window
         let mut presentation_window_builder = tao::window::WindowBuilder::new()
             .with_resizable(true)
             .with_visible(true);
 
         if let Some(ref monitor) = presentation_monitor {
-            // Position on the target monitor and use true fullscreen (borderless)
-            // to ensure the taskbar is hidden
             presentation_window_builder = presentation_window_builder
                 .with_position(tao::dpi::PhysicalPosition::new(
                     monitor.position.0,
                     monitor.position.1,
                 ))
-                .with_inner_size(tao::dpi::PhysicalSize::new(
-                    monitor.size.0,
-                    monitor.size.1,
-                ))
+                .with_inner_size(tao::dpi::PhysicalSize::new(monitor.size.0, monitor.size.1))
                 .with_decorations(false)
                 .with_fullscreen(Some(tao::window::Fullscreen::Borderless(None)));
         } else if always_fullscreen {
@@ -1492,23 +475,15 @@ fn start_presentation(
             presentation_dom,
             Config::new()
                 .with_menu(None)
-                // Disable the OS-level drag-drop handler for the presentation window.
-                // Files should only be dropped onto the selection window, not the
-                // presentation window. On Windows, receiving drag-drop events in the
-                // presentation window can cause unexpected VirtualDom teardown and
-                // signal access errors.
                 .with_disable_drag_drop_handler(true)
                 .with_window(presentation_window_builder),
         );
 
-        // Open presenter console if enabled
         if show_presenter_console {
             if settings_read.presenter_console_in_main_window {
-                // Navigate the main window to the presenter console route
                 let nav = navigator();
                 nav.push(crate::Route::PresenterConsolePage {});
             } else {
-                // Open presenter console as a separate window
                 let mut console_window_builder = tao::window::WindowBuilder::new()
                     .with_resizable(true)
                     .with_decorations(true)
@@ -1539,8 +514,6 @@ fn start_presentation(
                     console_dom,
                     Config::new()
                         .with_menu(None)
-                        // Disable the OS-level drag-drop handler for the presenter console
-                        // window for the same reason as the presentation window.
                         .with_disable_drag_drop_handler(true)
                         .with_window(console_window_builder),
                 );
@@ -1676,108 +649,5 @@ Please open the presentation tab manually.",
         running_presentations.write().clear();
         running_presentations.write().push(rp);
         nav.push(crate::Route::PresentationPage {});
-    }
-}
-
-/// This component renders a sidebar for the selection where the user can filter the sources.
-/// The order of the icons is determined by `settings.sidebar_order` and can be reordered
-/// via drag and drop. Changes are persisted to settings automatically.
-#[component]
-fn SelectionFilterSideBar(active_selection: Signal<SelectionSidebarType>) -> Element {
-    let mut settings = use_settings();
-
-    // Effective order: use settings value if non-empty, otherwise fall back to the default.
-    let mut order: Signal<Vec<SelectionSidebarType>> = use_signal(|| {
-        let s = settings.read();
-        if s.sidebar_order.is_empty() {
-            default_sidebar_order()
-        } else {
-            s.sidebar_order.clone()
-        }
-    });
-
-    // Drag-and-drop state
-    let mut dragging_from: Signal<Option<usize>> = use_signal(|| None);
-    let mut hover_over: Signal<Option<usize>> = use_signal(|| None);
-    // True when the most recent mousedown/mouseup sequence moved an item;
-    // used by onclick to avoid selecting an icon after a drag.
-    let mut drag_completed: Signal<bool> = use_signal(|| false);
-
-    rsx! {
-        div {
-            class: "selection-sidebar",
-            onmouseup: move |_| {
-                let did_drag = if let (Some(from), Some(to)) = (dragging_from(), hover_over()) {
-                    if from != to {
-                        let mut new_order = order.read().clone();
-                        let len = new_order.len();
-                        if from < len && to < len {
-                            new_order.swap(from, to);
-                            order.set(new_order.clone());
-                            // Persist the new order to settings
-                            settings.write().sidebar_order = new_order;
-                            settings.read().save();
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
-                drag_completed.set(did_drag);
-                dragging_from.set(None);
-                hover_over.set(None);
-            },
-            onmouseleave: move |_| {
-                dragging_from.set(None);
-                hover_over.set(None);
-            },
-            for (idx, filter_type) in order.read().clone().iter().enumerate() {
-                {
-                    let ft = *filter_type;
-                    rsx! {
-                        div {
-                            key: "{idx}",
-                            role: "button",
-                            class: if active_selection() == ft { "outline" } else { "outline secondary" },
-                            style: {
-                                let mut s = String::from("padding: 12px; cursor: grab;");
-                                if dragging_from().is_some() && hover_over() == Some(idx) {
-                                    s.push_str(" outline: 2px dashed #888; background-color: rgba(0,0,0,0.05);");
-                                }
-                                s
-                            },
-                            onmousedown: move |_| {
-                                drag_completed.set(false);
-                                dragging_from.set(Some(idx));
-                                hover_over.set(Some(idx));
-                            },
-                            onmouseenter: move |_| {
-                                if dragging_from.read().is_some() {
-                                    hover_over.set(Some(idx));
-                                }
-                            },
-                            onclick: move |_| {
-                                // Skip selection if this click follows a completed drag reorder.
-                                if drag_completed() {
-                                    drag_completed.set(false);
-                                } else {
-                                    active_selection.set(ft);
-                                }
-                            },
-                            match ft {
-                                SelectionSidebarType::Songs => rsx! { MusicIcon {} },
-                                SelectionSidebarType::Pictures => rsx! { ImageIcon {} },
-                                SelectionSidebarType::Pdfs => rsx! { PdfIcon {} },
-                                SelectionSidebarType::Markdown => rsx! { MarkdownIcon {} },
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }

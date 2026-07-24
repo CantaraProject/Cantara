@@ -12,8 +12,8 @@
 //!
 //! ## Module Structure
 //!
-//! - [`settings`]: Manages application settings, presentation designs, and configuration
-//! - [`states`]: Handles application state and runtime information
+//! - [`settings`]: Manages persistent application settings, repositories, and configuration I/O
+//! - [`states`]: Handles in-memory runtime state for selections and running presentations
 //! - [`sourcefiles`]: Manages source files (songs, images, etc.) and repositories
 //! - [`presentation`]: Controls presentation creation and management
 //! - [`conversions`]: Provides utilities for data conversion and transformation

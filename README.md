@@ -71,6 +71,15 @@ This will start a development server with hot reloading.
 The project is documented with Rust's documentation features.
 Generate documentation with `cargo doc` to explore the structure and the meaning of the modules and symbols.
 
+High-level structure:
+
+- `src/main.rs`: app bootstrap, routing, and shared context setup
+- `src/components/`: Dioxus UI components (pages and reusable widgets)
+- `src/logic/settings.rs`: persistent settings, repository configuration, and settings file I/O
+- `src/logic/states.rs`: in-memory runtime state for selections and running presentations
+- `src/logic/presentation.rs`: presentation assembly and content transformation helpers
+- `src/logic/sourcefiles.rs`: source-file discovery and type classification
+
 ## Implementation Status
 
 As this is a rewrite, the implementation status is not directly comparable to the original Cantara repository. The following table shows the features that are currently implemented or planned for this version:
