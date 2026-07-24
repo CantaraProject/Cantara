@@ -20,9 +20,8 @@ test.describe('App startup', () => {
     page.on('pageerror', (err) => errors.push(err.message));
 
     await page.goto('/');
-    // Give WASM time to initialize
-    await page.waitForTimeout(3000);
-
+    // Wait for WASM/app initialization (root element mounted)
+    await expect(page.locator('#main')).toBeAttached();
     // Filter out benign WebAssembly/source-map noise that is unrelated to the app
     const appErrors = errors.filter(
       (e) =>
