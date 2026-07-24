@@ -34,10 +34,8 @@ test.describe('App startup', () => {
 
   test('root element is rendered', async ({ page }) => {
     await page.goto('/');
-    await page.waitForTimeout(3000);
     // The Dioxus app mounts under the #main element
-    const main = page.locator('#main');
-    await expect(main).toBeAttached();
+    await expect(page.locator('#main')).toBeAttached();
   });
 });
 
