@@ -10,6 +10,96 @@ on:
     branches: [master]
 
 jobs:
+  test-logic:
+    name: Rust logic & UI unit tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Provide npm (needed for assets)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run npm install
+        run: npm install
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+      - name: Run Rust tests
+        run: cargo test
+
+  test-e2e:
+    name: Playwright E2E tests (web)
+    runs-on: ubuntu-latest
+    needs: test-logic
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Provide npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run npm install
+        run: npm install
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Install Rust wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Install cargo bininstall
+        uses: cargo-bins/cargo-binstall@main
+      - name: Install dioxus-cli
+        run: cargo binstall -y dioxus-cli
+      - name: Clone bundled song repositories
+        env:
+          CANTARA_BUNDLED_REPOS: "reckel-jm/cantara-songrepo"
+        run: |
+          IFS=',' read -ra REPOS <<< "$CANTARA_BUNDLED_REPOS"
+          for repo in "${REPOS[@]}"; do
+            repo=$(echo "$repo" | xargs)
+            echo "Cloning https://github.com/${repo} ..."
+            git clone --depth 1 "https://github.com/${repo}.git" "bundled_repos/${repo}"
+          done
+      - name: Build web release
+        run: dx build --platform web --release
+      - name: Start web server
+        run: |
+          npx serve target/dx/cantara/release/web/public -p 8080 &
+          # Wait for the server to be ready (fail if it never becomes reachable)
+          ready=0
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8080 > /dev/null; then
+              echo "Server ready"
+              ready=1
+              break
+            fi
+            echo "Waiting for server... ($i)"
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "Server did not become ready in time"
+            exit 1
+          fi
+      - name: Run Playwright tests
+        env:
+          APP_URL: http://localhost:8080
+        run: npx playwright test
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
   build:
     runs-on: ${{ matrix.os }}
     strategy:

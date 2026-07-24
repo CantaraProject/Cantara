@@ -620,4 +620,47 @@ mod tests {
         assert_eq!(html_to_plain_text("&amp;lt;"), "&lt;");
         assert_eq!(html_to_plain_text("plain text"), "plain text");
     }
+
+    #[test]
+    fn test_slides_from_markdown_single_section() {
+        let md = "# One slide only";
+        let slides = slides_from_markdown(md);
+        assert_eq!(slides.len(), 1);
+    }
+
+    #[test]
+    fn test_slides_from_markdown_all_empty_sections() {
+        let md = "\n---\n\n---\n";
+        let slides = slides_from_markdown(md);
+        assert_eq!(slides.len(), 0);
+    }
+
+    #[test]
+    fn test_get_markdown_html_empty_prefix_only() {
+        // A text that is exactly the prefix and nothing else
+        let text = MARKDOWN_HTML_PREFIX;
+        // strip_prefix returns Some("") for exact prefix
+        assert_eq!(get_markdown_html(text), Some(""));
+    }
+
+    #[test]
+    fn test_presentation_creation_inline_markdown() {
+        let item = SelectedItemRepresentation {
+            source_file: crate::logic::sourcefiles::SourceFile {
+                name: "Inline".to_string(),
+                path: std::path::PathBuf::new(),
+                file_type: crate::logic::sourcefiles::SourceFileType::Markdown,
+                md5_hash: None,
+            },
+            presentation_design_option: None,
+            slide_settings_option: None,
+            inline_markdown: Some("# Title\n\n---\n\n## Slide 2".to_string()),
+            timer_settings_option: None,
+            transition_effect: Default::default(),
+        };
+        let result = create_presentation_slides(&item, &SlideSettings::default());
+        assert!(result.is_ok());
+        let slides = result.unwrap();
+        assert_eq!(slides.len(), 2);
+    }
 }

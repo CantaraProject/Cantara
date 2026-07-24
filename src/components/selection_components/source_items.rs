@@ -35,18 +35,26 @@ fn SongSourceItem(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     active_detailed_item_id: Signal<Option<usize>>,
 ) -> Element {
+    let Some(sf) = source_files.read().get(id).cloned() else {
+        return rsx! {};
+    };
+    let name = sf.name.clone();
     rsx! {
         div {
             role: "button",
             class: "outline secondary selection_item",
             tabindex: 0,
-            onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
-            ); },
+            onclick: move |_| {
+                if let Some(file) = source_files.read().get(id).cloned() {
+                    selected_items.write().push(
+                        SelectedItemRepresentation::new_with_sourcefile(file)
+                    );
+                }
+            },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
             },
-            { source_files.get(id).unwrap().clone().name }
+            { name }
         }
     }
 }
@@ -82,22 +90,31 @@ fn ImageSourceItem(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     active_detailed_item_id: Signal<Option<usize>>,
 ) -> Element {
+    let Some(sf) = source_files.read().get(id).cloned() else {
+        return rsx! {};
+    };
+    let name = sf.name.clone();
+    let path_str = sf.path.to_str().unwrap_or("").to_string();
     rsx! {
         div {
             role: "button",
             class: "outline secondary selection_item",
             tabindex: 0,
-            onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
-            ); },
+            onclick: move |_| {
+                if let Some(file) = source_files.read().get(id).cloned() {
+                    selected_items.write().push(
+                        SelectedItemRepresentation::new_with_sourcefile(file)
+                    );
+                }
+            },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
             },
-            { source_files.get(id).unwrap().clone().name },
+            { name },
             br { },
             img {
                 height: "300px",
-                src: source_files.get(id).unwrap().clone().path.to_str().unwrap_or("")
+                src: path_str
             }
         }
     }
@@ -134,18 +151,26 @@ fn PdfSourceItem(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     active_detailed_item_id: Signal<Option<usize>>,
 ) -> Element {
+    let Some(sf) = source_files.read().get(id).cloned() else {
+        return rsx! {};
+    };
+    let name = sf.name.clone();
     rsx! {
         div {
             role: "button",
             class: "outline secondary selection_item",
             tabindex: 0,
-            onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
-            ); },
+            onclick: move |_| {
+                if let Some(file) = source_files.read().get(id).cloned() {
+                    selected_items.write().push(
+                        SelectedItemRepresentation::new_with_sourcefile(file)
+                    );
+                }
+            },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
             },
-            { source_files.get(id).unwrap().clone().name }
+            { name }
         }
     }
 }
@@ -214,18 +239,24 @@ fn MarkdownSourceItem(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     active_detailed_item_id: Signal<Option<usize>>,
 ) -> Element {
+    let Some(sf) = source_files.read().get(id).cloned() else {
+        return rsx! {};
+    };
+    let name = sf.name.clone();
     rsx! {
         div {
             role: "button",
             class: "outline secondary selection_item",
             tabindex: 0,
-            onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
-            ); },
+            onclick: move |_| {
+                selected_items
+                    .write()
+                    .push(SelectedItemRepresentation::new_with_sourcefile(sf.clone()));
+            },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
             },
-            { source_files.get(id).unwrap().clone().name }
+            { name }
         }
     }
 }
@@ -236,13 +267,19 @@ pub(crate) fn SourceDetailView(
     active_detailed_item_id: Signal<Option<usize>>,
 ) -> Element {
     let item = use_memo(move || {
-        source_files
+        active_detailed_item_id
             .read()
-            .get(active_detailed_item_id.unwrap())
-            .unwrap()
-            .clone()
+            .and_then(|id| source_files.read().get(id).cloned())
     });
-    let path_string = use_memo(move || item.read().path.to_str().unwrap_or("").to_string());
+
+    // If there's no active item, render nothing
+    let Some(current_item) = item() else {
+        return rsx! {};
+    };
+
+    let path_string = use_memo(move || {
+        item().map(|i| i.path.to_str().unwrap_or("").to_string()).unwrap_or_default()
+    });
 
     rsx! {
         dialog {
@@ -257,7 +294,7 @@ pub(crate) fn SourceDetailView(
                         tr {
                             td { strong { { t!("general.type").to_string() } } }
                             td {
-                                match item().file_type {
+                                match current_item.file_type {
                                     SourceFileType::Song => t!("general.song").to_string(),
                                     SourceFileType::Image => t!("general.picture").to_string(),
                                     SourceFileType::Presentation => t!("general.presentation").to_string(),
@@ -269,7 +306,7 @@ pub(crate) fn SourceDetailView(
                         }
                         tr {
                             td { strong { { t!("general.title").to_string() } } }
-                            td { { item.read().name.clone() } }
+                            td { { current_item.name.clone() } }
                         }
                         tr {
                             td { strong { { t!("general.file_path").to_string() } } }

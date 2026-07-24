@@ -7,6 +7,7 @@ use dioxus::prelude::*;
 use regex::Regex;
 use rgb::RGBA8;
 use rust_i18n::t;
+use std::sync::LazyLock;
 
 use crate::logic::css::{CssHandler, PlaceItems};
 use crate::logic::presentation::{get_markdown_html, get_picture_path};
@@ -23,6 +24,11 @@ use crate::{
         states::RunningPresentation,
     },
 };
+
+/// Pre-compiled regex for injecting CSS into HTML element opening tags.
+static HTML_TAG_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)<([a-z1-6]+)([^>]*)>").expect("hardcoded HTML tag regex must be valid")
+});
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
@@ -96,7 +102,12 @@ pub fn PresentationPage() -> Element {
     }
 
     let mut running_presentation: Signal<RunningPresentation> =
-        use_signal(move || running_presentations.get(0).unwrap().clone());
+        use_signal(move || {
+            running_presentations.read().first().cloned().unwrap_or_else(|| {
+                log::warn!("Expected non-empty presentation list after is_empty() check");
+                RunningPresentation::new(vec![])
+            })
+        });
 
     // When this window/component is destroyed (e.g. user closes the window),
     // clear the shared running presentations so the presenter console also closes.
@@ -566,7 +577,7 @@ pub fn PresentationRendererComponent(
     });
 
     let css_main_text_color: Memo<RGBA8> =
-        use_memo(move || current_pds.read().clone().fonts.first().unwrap().color);
+        use_memo(move || current_pds.read().clone().fonts.first().map(|f| f.color).unwrap_or_default());
     let css_padding_left: Memo<CssSize> = use_memo(move || current_pds().padding.left);
     let css_padding_right: Memo<CssSize> = use_memo(move || current_pds().padding.right);
     let css_padding_top: Memo<CssSize> = use_memo(move || current_pds().padding.top);
@@ -576,8 +587,8 @@ pub fn PresentationRendererComponent(
             .read()
             .fonts
             .first()
-            .unwrap()
-            .horizontal_alignment
+            .map(|f| f.horizontal_alignment)
+            .unwrap_or_default()
     });
     let css_place_items: Memo<PlaceItems> =
         use_memo(move || match current_pds.read().vertical_alignment {
@@ -667,21 +678,25 @@ pub fn PresentationRendererComponent(
             }
             if presentation_is_visible() {
                 {
-                    let slide_content = current_slide.read().clone().unwrap().slide_content.clone();
-                    let container_style = slide_container_style(&slide_content);
-                    let tc = transition_class();
+                    if let Some(slide) = current_slide.read().clone() {
+                        let slide_content = slide.slide_content.clone();
+                        let container_style = slide_container_style(&slide_content);
+                        let tc = transition_class();
 
-                    rsx! {
-                        div {
-                            class: "slide-container {tc}",
-                            style: "{container_style}",
-                            key: "{current_slide_number}",
-                            SlideContentRenderer {
-                                slide_content: slide_content,
-                                pds: current_pds(),
-                                running_presentation: Some(running_presentation),
+                        rsx! {
+                            div {
+                                class: "slide-container {tc}",
+                                style: "{container_style}",
+                                key: "{current_slide_number}",
+                                SlideContentRenderer {
+                                    slide_content: slide_content,
+                                    pds: current_pds(),
+                                    running_presentation: Some(running_presentation),
+                                }
                             }
                         }
+                    } else {
+                        rsx! {}
                     }
                 }
             }
@@ -897,7 +912,7 @@ fn inject_css_into_html_elements(html: &str, css_style: &CssHandler) -> String {
     // (?![^>]*style=) -> A negative lookahead to ensure we don't double-up if a style already exists
     // [^>]* -> Matches any other attributes until the closing '>'
     // >             -> Matches the closing bracket
-    let re = Regex::new(r"(?i)<([a-z1-6]+)([^>]*)>").unwrap();
+    let re = &*HTML_TAG_RE;
 
     // We use a replacement closure to handle the logic
     re.replace_all(html, |caps: &regex::Captures| {
@@ -1270,5 +1285,84 @@ pub fn StaticSlideRendererComponent(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logic::css::CssHandler;
+    use cantara_songlib::slides::{EmptySlide, SlideContent};
+
+    #[test]
+    fn slide_container_style_empty_slide_returns_empty_str() {
+        let content = SlideContent::Empty(EmptySlide { black_background: false });
+        assert_eq!(slide_container_style(&content), "");
+    }
+
+    #[test]
+    fn slide_container_style_picture_returns_height_100() {
+        use cantara_songlib::slides::SimplePictureSlide;
+        let picture_slide: SimplePictureSlide =
+            serde_json::from_value(serde_json::json!({"picture_path": "test.png"}))
+                .expect("valid SimplePictureSlide");
+        let content = SlideContent::SimplePicture(picture_slide);
+        assert_eq!(slide_container_style(&content), "height: 100%;");
+    }
+
+    #[test]
+    fn slide_container_style_markdown_slide_returns_height_100() {
+        use crate::logic::presentation::MARKDOWN_HTML_PREFIX;
+        use cantara_songlib::slides::SingleLanguageMainContentSlide;
+        let markdown_text = format!("{}<p>Hello</p>", MARKDOWN_HTML_PREFIX);
+        let slide: SingleLanguageMainContentSlide =
+            serde_json::from_value(serde_json::json!({"main_text": markdown_text}))
+                .expect("valid SingleLanguageMainContentSlide");
+        let content = SlideContent::SingleLanguageMainContent(slide);
+        assert_eq!(slide_container_style(&content), "height: 100%;");
+    }
+
+    #[test]
+    fn slide_container_style_plain_text_slide_returns_empty_str() {
+        use cantara_songlib::slides::SingleLanguageMainContentSlide;
+        let slide: SingleLanguageMainContentSlide =
+            serde_json::from_value(serde_json::json!({"main_text": "Just plain text"}))
+                .expect("valid SingleLanguageMainContentSlide");
+        let content = SlideContent::SingleLanguageMainContent(slide);
+        assert_eq!(slide_container_style(&content), "");
+    }
+
+    #[test]
+    fn inject_css_adds_style_to_p_tag() {
+        let mut css = CssHandler::new();
+        css.color(rgb::RGBA8::new(255, 0, 0, 255));
+        let html = "<p>Hello</p>";
+        let result = inject_css_into_html_elements(html, &css);
+        assert!(result.contains("<p style="), "Expected style injected into <p>: {result}");
+        assert!(result.contains("Hello"));
+    }
+
+    #[test]
+    fn inject_css_skips_br_tag() {
+        let mut css = CssHandler::new();
+        css.color(rgb::RGBA8::new(0, 0, 0, 255));
+        let html = "<br>";
+        let result = inject_css_into_html_elements(html, &css);
+        // br is in the ignored list; no style attribute should be added
+        assert!(!result.contains("style="), "br tag should not receive style: {result}");
+    }
+
+    #[test]
+    fn inject_css_does_not_break_empty_html() {
+        let css = CssHandler::new();
+        let result = inject_css_into_html_elements("", &css);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn html_tag_regex_is_initialized_without_panic() {
+        // Accessing the static LazyLock should not panic
+        let re = &*HTML_TAG_RE;
+        assert!(re.is_match("<p>test</p>"));
     }
 }

@@ -1,6 +1,14 @@
 {
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report"
+  },
   "dependencies": {
     "@picocss/pico": "^2.1.1",
     "pdfjs-dist": "^5.5.207"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "serve": "^14.2.4"
   }
 }

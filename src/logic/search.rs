@@ -255,7 +255,7 @@ pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<Sear
                 let content_lower = content.to_lowercase();
                 if content_lower.contains(&query) {
                     // Find the context around the match
-                    let match_index = content_lower.find(&query).unwrap();
+                    let match_index = content_lower.find(&query).unwrap_or(0);
 
                     // Convert byte indices to char indices for safe slicing
                     let content_chars: Vec<char> = content.chars().collect();

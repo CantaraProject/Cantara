@@ -152,28 +152,19 @@ impl RunningPresentation {
     }
 
     pub fn get_current_slide(&self) -> Option<Slide> {
-        self.position.clone().map(|pos| {
-            self.presentation
-                .get(pos.chapter())
-                .unwrap()
-                .slides
-                .get(pos.chapter_slide())
-                .unwrap()
-                .clone()
-        })
+        let pos = self.position.as_ref()?;
+        self.presentation
+            .get(pos.chapter())
+            .and_then(|ch| ch.slides.get(pos.chapter_slide()))
+            .cloned()
     }
 
     pub fn get_current_presentation_design(&self) -> PresentationDesign {
-        match self.position.clone() {
-            Some(pos) => self
-                .presentation
-                .get(pos.chapter())
-                .unwrap()
-                .presentation_design_option
-                .clone()
-                .unwrap_or(PresentationDesign::default()),
-            None => PresentationDesign::default(),
-        }
+        self.position
+            .as_ref()
+            .and_then(|pos| self.presentation.get(pos.chapter()))
+            .and_then(|ch| ch.presentation_design_option.clone())
+            .unwrap_or_default()
     }
 
     /// Compares two `RunningPresentation` instances for structural equality,
@@ -196,16 +187,11 @@ impl RunningPresentation {
     }
 
     pub fn get_current_slide_settings(&self) -> SlideSettings {
-        match self.position.clone() {
-            Some(pos) => self
-                .presentation
-                .get(pos.chapter())
-                .unwrap()
-                .slide_settings_option
-                .clone()
-                .unwrap_or(SlideSettings::default()),
-            None => SlideSettings::default(),
-        }
+        self.position
+            .as_ref()
+            .and_then(|pos| self.presentation.get(pos.chapter()))
+            .and_then(|ch| ch.slide_settings_option.clone())
+            .unwrap_or_default()
     }
 
     /// Returns the transition for the current chapter.
@@ -280,8 +266,8 @@ pub struct RunningPresentationPosition {
 
 impl RunningPresentationPosition {
     /// Creates a new position if there is at least one slide available
-    pub fn new(presentation: &Vec<SlideChapter>) -> Option<Self> {
-        if !presentation.is_empty() && !presentation.first().unwrap().slides.is_empty() {
+    pub fn new(presentation: &[SlideChapter]) -> Option<Self> {
+        if presentation.first().map(|ch| !ch.slides.is_empty()).unwrap_or(false) {
             Some(RunningPresentationPosition {
                 chapter: 0,
                 chapter_slide: 0,
@@ -327,8 +313,8 @@ impl RunningPresentationPosition {
     }
 
     /// Helper function for getting the current slide length
-    fn cur_chapter_slide_length(&self, presentation: &Vec<SlideChapter>) -> usize {
-        presentation.get(self.chapter).unwrap().slides.len()
+    fn cur_chapter_slide_length(&self, presentation: &[SlideChapter]) -> usize {
+        presentation.get(self.chapter).map(|ch| ch.slides.len()).unwrap_or(0)
     }
 
     /// Get the number of the current chapter
@@ -426,5 +412,144 @@ mod tests {
         assert!(rp2.presentation[0].source_file.name == "Test Song");
         assert!(rp2.position.is_some());
         assert!(!rp2.is_black_screen);
+    }
+
+    fn make_presentation(chapter_slide_counts: &[usize]) -> RunningPresentation {
+        use crate::logic::sourcefiles::{SourceFile, SourceFileType};
+        use cantara_songlib::slides::{EmptySlide, Slide, SlideContent};
+
+        let chapters: Vec<SlideChapter> = chapter_slide_counts
+            .iter()
+            .enumerate()
+            .map(|(ci, &count)| {
+                let slides = (0..count)
+                    .map(|_| Slide {
+                        slide_content: SlideContent::Empty(EmptySlide { black_background: false }),
+                        linked_file: None,
+                    })
+                    .collect();
+                let source_file = SourceFile {
+                    name: format!("Chapter {}", ci),
+                    path: std::path::PathBuf::from("dummy"),
+                    file_type: SourceFileType::Song,
+                    md5_hash: None,
+                };
+                SlideChapter::new(slides, source_file, None, None)
+            })
+            .collect();
+        RunningPresentation::new(chapters)
+    }
+
+    #[test]
+    fn get_current_slide_returns_none_for_empty_presentation() {
+        let rp = RunningPresentation::new(vec![]);
+        assert!(rp.get_current_slide().is_none());
+    }
+
+    #[test]
+    fn get_current_slide_returns_first_slide() {
+        let rp = make_presentation(&[3]);
+        assert!(rp.get_current_slide().is_some());
+    }
+
+    #[test]
+    fn get_current_presentation_design_returns_default_when_no_position() {
+        let rp = RunningPresentation::new(vec![]);
+        let design = rp.get_current_presentation_design();
+        // When there's no position, we get the default design
+        assert_eq!(design.name, crate::logic::settings::PresentationDesign::default().name);
+    }
+
+    #[test]
+    fn get_current_slide_settings_returns_default_when_no_position() {
+        let rp = RunningPresentation::new(vec![]);
+        let settings = rp.get_current_slide_settings();
+        assert_eq!(settings, cantara_songlib::slides::SlideSettings::default());
+    }
+
+    #[test]
+    fn next_slide_advances_within_chapter() {
+        let mut rp = make_presentation(&[3]);
+        assert_eq!(rp.position.as_ref().unwrap().chapter_slide(), 0);
+        rp.next_slide();
+        assert_eq!(rp.position.as_ref().unwrap().chapter_slide(), 1);
+    }
+
+    #[test]
+    fn next_slide_advances_to_next_chapter() {
+        let mut rp = make_presentation(&[1, 2]);
+        rp.next_slide(); // chapter 0 has 1 slide → jump to chapter 1
+        assert_eq!(rp.position.as_ref().unwrap().chapter(), 1);
+        assert_eq!(rp.position.as_ref().unwrap().chapter_slide(), 0);
+    }
+
+    #[test]
+    fn previous_slide_goes_back() {
+        let mut rp = make_presentation(&[3]);
+        rp.next_slide();
+        rp.previous_slide();
+        assert_eq!(rp.position.as_ref().unwrap().chapter_slide(), 0);
+    }
+
+    #[test]
+    fn jump_to_sets_correct_position() {
+        let mut rp = make_presentation(&[3, 2]);
+        rp.jump_to(1, 1);
+        assert_eq!(rp.position.as_ref().unwrap().chapter(), 1);
+        assert_eq!(rp.position.as_ref().unwrap().chapter_slide(), 1);
+    }
+
+    #[test]
+    fn jump_to_out_of_bounds_is_noop() {
+        let mut rp = make_presentation(&[3]);
+        let original_chapter = rp.position.as_ref().map(|p| p.chapter());
+        let original_slide = rp.position.as_ref().map(|p| p.chapter_slide());
+        rp.jump_to(10, 0); // invalid chapter
+        assert_eq!(rp.position.as_ref().map(|p| p.chapter()), original_chapter);
+        assert_eq!(rp.position.as_ref().map(|p| p.chapter_slide()), original_slide);
+    }
+
+    #[test]
+    fn toggle_black_screen() {
+        let mut rp = make_presentation(&[1]);
+        assert!(!rp.is_black_screen);
+        rp.toggle_black_screen();
+        assert!(rp.is_black_screen);
+        rp.toggle_black_screen();
+        assert!(!rp.is_black_screen);
+    }
+
+    #[test]
+    fn is_last_slide_in_chapter_for_single_slide() {
+        let rp = make_presentation(&[1]);
+        assert!(rp.is_last_slide_in_chapter());
+    }
+
+    #[test]
+    fn is_last_slide_in_chapter_false_when_more_slides() {
+        let rp = make_presentation(&[3]);
+        assert!(!rp.is_last_slide_in_chapter());
+    }
+
+    #[test]
+    fn total_slides_counts_all_chapters() {
+        let rp = make_presentation(&[2, 3, 1]);
+        assert_eq!(rp.total_slides(), 6);
+    }
+
+    #[test]
+    fn position_new_returns_none_for_empty_chapters() {
+        let chapters: Vec<SlideChapter> = vec![];
+        assert!(RunningPresentationPosition::new(&chapters).is_none());
+    }
+
+    #[test]
+    fn eq_ignoring_scroll_ignores_scroll_position() {
+        let mut rp1 = make_presentation(&[2]);
+        let mut rp2 = rp1.clone();
+        rp1.markdown_scroll_position = 0.0;
+        rp2.markdown_scroll_position = 999.0;
+        assert!(rp1.eq_ignoring_scroll(&rp2));
+        assert!(rp1 != rp2);
     }
 }
