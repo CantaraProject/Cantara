@@ -44,6 +44,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Provide npm
         uses: actions/setup-node@v4
+        with:
+          node-version: '20'
       - name: Run npm install
         run: npm install
       - name: Install Playwright browsers
