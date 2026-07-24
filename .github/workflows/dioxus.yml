@@ -69,12 +69,21 @@ jobs:
       - name: Start web server
         run: |
           npx serve target/dx/cantara/release/web/public -p 8080 &
-          # Wait for the server to be ready
+          # Wait for the server to be ready (fail if it never becomes reachable)
+          ready=0
           for i in $(seq 1 15); do
-            curl -sf http://localhost:8080 > /dev/null && echo "Server ready" && break
+            if curl -sf http://localhost:8080 > /dev/null; then
+              echo "Server ready"
+              ready=1
+              break
+            fi
             echo "Waiting for server... ($i)"
             sleep 2
           done
+          if [ "$ready" -ne 1 ]; then
+            echo "Server did not become ready in time"
+            exit 1
+          fi
       - name: Run Playwright tests
         env:
           APP_URL: http://localhost:8080
