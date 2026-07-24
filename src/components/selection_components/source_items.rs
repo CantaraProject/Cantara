@@ -249,11 +249,9 @@ fn MarkdownSourceItem(
             class: "outline secondary selection_item",
             tabindex: 0,
             onclick: move |_| {
-                if let Some(file) = source_files.read().get(id).cloned() {
-                    selected_items.write().push(
-                        SelectedItemRepresentation::new_with_sourcefile(file)
-                    );
-                }
+                selected_items
+                    .write()
+                    .push(SelectedItemRepresentation::new_with_sourcefile(sf.clone()));
             },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
