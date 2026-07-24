@@ -74,6 +74,15 @@ selection:
       zoom_in:
         en: Zoom in
         de: Einzoomen
+  presentation_running:
+    en: A presentation is currently running.
+    de: Eine Präsentation läuft gerade.
+  update_presentation:
+    en: Update Presentation
+    de: Präsentation aktualisieren
+  return_to_presenter:
+    en: Return to Presenter Console
+    de: Zurück zur Moderatorenkonsole
   markdown:
     add_text:
       en: Add Markdown Text
@@ -428,6 +437,9 @@ presenter:
   quit:
     en: Quit
     de: Beenden
+  edit_selection:
+    en: Edit Selection
+    de: Auswahl bearbeiten
   empty_slide:
     en: (Empty slide)
     de: (Leere Folie)

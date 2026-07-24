@@ -36,11 +36,19 @@
         // 5. Find the canvas element
         var canvas = document.getElementById(__CANVAS_ID__);
         if (!canvas) {
-            console.error('PDF canvas not found:', __CANVAS_ID__);
+            // Canvas was removed from DOM (component unmounted) — silently exit
             return;
         }
 
-        // 6. Determine available space from the presentation container
+        // 6. Cancel any in-progress render for this canvas
+        if (!window.__pdfRenderTasks) window.__pdfRenderTasks = {};
+        var prevTask = window.__pdfRenderTasks[__CANVAS_ID__];
+        if (prevTask) {
+            try { prevTask.cancel(); } catch(_) {}
+            delete window.__pdfRenderTasks[__CANVAS_ID__];
+        }
+
+        // 7. Determine available space from the presentation container
         var el = canvas.closest('.presentation') || canvas.parentElement;
         var w = el ? el.clientWidth : 0;
         var h = el ? el.clientHeight : 0;
@@ -54,7 +62,7 @@
         if (w <= 0) w = window.innerWidth || 800;
         if (h <= 0) h = window.innerHeight || 600;
 
-        // 7. Scale the page to fit (uniform, no stretching)
+        // 8. Scale the page to fit (uniform, no stretching)
         var unscaledVp = page.getViewport({ scale: 1 });
         var scale = Math.min(w / unscaledVp.width, h / unscaledVp.height);
         var vp = page.getViewport({ scale: scale });
@@ -62,9 +70,19 @@
         canvas.width = vp.width;
         canvas.height = vp.height;
 
-        // 8. Render
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+        // 9. Re-check canvas is still in DOM right before render
+        if (!document.getElementById(__CANVAS_ID__)) {
+            return;
+        }
+
+        // 10. Render, tracking the task so it can be cancelled
+        var renderTask = page.render({ canvasContext: canvas.getContext('2d'), viewport: vp });
+        window.__pdfRenderTasks[__CANVAS_ID__] = renderTask;
+        await renderTask.promise;
+        delete window.__pdfRenderTasks[__CANVAS_ID__];
     } catch (e) {
+        // Suppress RenderingCancelledException — this is expected during live updates
+        if (e && e.name === 'RenderingCancelledException') return;
         console.error('PDF render error:', e);
     }
 })();

@@ -26,6 +26,28 @@ body {
     padding: 0 !important;
 }
 
+/* Running presentation indicator bar */
+.running-presentation-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 1rem;
+    background-color: var(--pico-primary-background);
+    color: var(--pico-primary-inverse);
+    font-size: 0.9rem;
+}
+
+.running-presentation-bar span {
+    flex: 1;
+}
+
+.running-presentation-bar button {
+    margin: 0;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
 /* Fixed bottom bar */
 .bottom-bar {
     width: 100%;
