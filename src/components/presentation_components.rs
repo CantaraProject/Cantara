@@ -25,7 +25,15 @@ use crate::{
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
-const ABCJS_CDN_LIB: &str = "https://cdn.jsdelivr.net/npm/abcjs@6.4.3/dist/abcjs-basic-min.js";
+const ABC_RENDER_JS: &str = include_str!("../../assets/abc_render_inline.js");
+/// abcjs is bundled from `node_modules` so that notation renders without a
+/// network connection — a presentation in a church hall often has none.
+#[cfg(not(target_arch = "wasm32"))]
+const ABCJS_LIB: Asset = asset!("/node_modules/abcjs/dist/abcjs-basic-min.js");
+/// On the web target `node_modules` is not available, so the library comes
+/// from a CDN, as it does for PDF.js.
+#[cfg(target_arch = "wasm32")]
+const ABCJS_CDN_LIB: &str = "https://cdn.jsdelivr.net/npm/abcjs@6.6.4/dist/abcjs-basic-min.js";
 #[cfg(not(target_arch = "wasm32"))]
 const PDFJS_LIB: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.min.mjs");
 #[cfg(not(target_arch = "wasm32"))]
@@ -409,7 +417,6 @@ pub fn PresentationPage() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
-        document::Script { src: ABCJS_CDN_LIB }
         document::Title { {t!("presentation.title").to_string()} }
         // This div is needed for fullscreen mode
         div {
@@ -954,79 +961,52 @@ fn ComplexSlideRenderer(
         css
     });
 
-    let visible_rows: Vec<SlideRow> =
-        complex_slide.rows_without_repetition().cloned().collect();
+    // The rows come in the order the user configured, and that order is kept:
+    // asking for "english, notation, german" puts the staff between the two
+    // languages. Rows whose text the notation already prints underneath its
+    // notes are dropped, so nothing is shown twice.
+    let visible_rows: Vec<SlideRow> = complex_slide.rows_without_repetition().cloned().collect();
 
-    let notation_rows: Vec<String> = visible_rows
-        .iter()
-        .filter(|row| row.is_notation())
-        .map(|row| row.content.clone())
-        .collect();
-
-    let lyric_rows: Vec<(Option<String>, String)> = visible_rows
-        .iter()
-        .filter_map(|row| match &row.kind {
-            SlideRowKind::Lyrics { language } => Some((language.clone(), row.content.clone())),
-            _ => None,
-        })
-        .collect();
-
-    let spoiler_rows: Vec<(Option<String>, String)> = complex_slide
+    let spoiler_rows: Vec<String> = complex_slide
         .spoiler
         .iter()
-        .filter_map(|row| match &row.kind {
-            SlideRowKind::Lyrics { language } => Some((language.clone(), row.content.clone())),
-            _ => None,
-        })
+        .filter(|row| !row.is_notation())
+        .map(|row| row.content.clone())
         .collect();
 
     rsx! {
         div { class: "complex-slide",
-            for abc in notation_rows {
-                div { class: "notation-row", style: "margin-bottom: 1em;",
-                    AbcNotationRenderer {
-                        abc_notation: abc,
-                        notation_font: notation_font.clone(),
+            for row in visible_rows {
+                if row.is_notation() {
+                    div { class: "complex-slide-row notation-row",
+                        AbcNotationRenderer {
+                            abc_notation: row.content.clone(),
+                            notation_font: notation_font.clone(),
+                        }
                     }
-                }
-            }
-            div { class: "lyrics-rows",
-                for (language , text) in lyric_rows {
+                } else {
                     div {
-                        class: "lyrics-row",
+                        class: "complex-slide-row lyrics-row",
                         style: main_css.read().to_string(),
-                        p { style: main_css.read().to_string(),
-                            if let Some(lang) = language {
-                                span { style: "font-weight: bold; margin-right: 0.5em;",
-                                    {format!("[{}]", lang)}
-                                }
+                        for (line_number , line) in row.content.lines().enumerate() {
+                            if line_number > 0 {
+                                br {}
                             }
-                            for (line_number , line) in text.lines().enumerate() {
-                                {line}
-                                if line_number + 1 < text.lines().count() {
-                                    br {}
-                                }
-                            }
+                            {line}
                         }
                     }
                 }
             }
+
             if !spoiler_rows.is_empty() {
-                div {
-                    class: "spoiler-section",
-                    style: "margin-top: 2em; opacity: 0.7;",
-                    for (language , text) in spoiler_rows {
-                        p { style: spoiler_css.read().to_string(),
-                            if let Some(lang) = language {
-                                span { style: "font-weight: bold; margin-right: 0.5em;",
-                                    {format!("[{}]", lang)}
-                                }
-                            }
+                div { class: "complex-slide-spoiler",
+                    for text in spoiler_rows {
+                        div { style: spoiler_css.read().to_string(),
                             for (line_number , line) in text.lines().enumerate() {
-                                {line}
-                                if line_number + 1 < text.lines().count() {
+                                if line_number > 0 {
                                     br {}
                                 }
+                                {line}
                             }
                         }
                     }
@@ -1036,8 +1016,16 @@ fn ComplexSlideRenderer(
     }
 }
 
-/// Renders ABC notation using the ABCjs JavaScript library.
-/// The component creates a div container and initializes ABCjs to render the notation as SVG.
+/// Renders one ABC notation snippet with [abcjs](https://abcjs.net).
+///
+/// Each notation row handed over by the song library is a complete ABC tune —
+/// its own header plus one `w:` lyrics line per system — so it can be drawn
+/// as-is.
+///
+/// The library is loaded by the render script itself rather than by a
+/// `document::Script` tag: a tag gives no guarantee that the library has
+/// arrived by the time the first slide draws, which used to leave the first
+/// notation blank.
 #[component]
 fn AbcNotationRenderer(
     /// The ABC notation string to render
@@ -1046,48 +1034,60 @@ fn AbcNotationRenderer(
     notation_font: FontRepresentation,
 ) -> Element {
     let container_id = use_hook(|| format!("abc-{}", Uuid::new_v4().as_simple()));
-    let id_for_rsx = container_id.clone();
 
     let notation_style = {
         let mut css = CssHandler::new();
         css.set_important(true);
-        css.extend(&CssHandler::from(notation_font));
+        css.extend(&CssHandler::from(notation_font.clone()));
         css.to_string()
     };
 
-    use_effect(move || {
-        let id = container_id.clone();
-        let abc_json = serde_json::to_string(&abc_notation).unwrap_or_else(|_| "\"\"".to_string());
-        spawn(async move {
-            // Initialize ABCjs to render the notation into the container
-            let js_code = format!(r#"
-                (function() {{
-                    var container = document.getElementById('{id}');
-                    if (!container) return;
-
-                    // Clear any existing content
-                    container.innerHTML = '';
-
-                    var abc = {abc_json};
-
-                    // Check if ABCjs is available
-                    if (typeof ABCJS !== 'undefined') {{
-                        ABCJS.renderAbc(container, abc, {{ responsive: 'resize' }});
-                    }} else {{
-                        // Fallback: show raw ABC notation if library not loaded
-                        container.innerHTML = '<pre style="white-space: pre-wrap;">' + abc + '</pre>';
-                    }}
-                }})();
-            "#);
-            let _ = document::eval(&js_code).await;
-        });
+    // abcjs styles the lyrics under the staff itself, so the font is passed on
+    // in its own format ("family size").
+    let vocal_font = serde_json::json!({
+        "face": notation_font.font_family.clone(),
+        "size": 14,
+        "weight": "normal",
+        "style": "normal",
+        "decoration": "none",
     });
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let abcjs_url = format!("{}", ABCJS_LIB);
+    #[cfg(target_arch = "wasm32")]
+    let abcjs_url = ABCJS_CDN_LIB.to_string();
 
     rsx! {
         div {
-            id: "{id_for_rsx}",
+            id: "{container_id}",
             class: "abc-notation-container",
-            style: "min-height: 50px; background: transparent; {notation_style}",
+            style: "{notation_style}",
+            onmounted: move |_| {
+                // Every value is passed through serde so that quotes and
+                // newlines in the notation cannot break out of the script.
+                let script = ABC_RENDER_JS
+                    .replace(
+                        "__CONTAINER_ID__",
+                        &serde_json::to_string(&container_id).unwrap_or_default(),
+                    )
+                    .replace(
+                        "__ABCJS_URL__",
+                        &serde_json::to_string(&abcjs_url).unwrap_or_default(),
+                    )
+                    .replace(
+                        "__ABC_NOTATION__",
+                        &serde_json::to_string(&abc_notation).unwrap_or_default(),
+                    )
+                    .replace(
+                        "__VOCAL_FONT__",
+                        &serde_json::to_string(&vocal_font).unwrap_or_default(),
+                    );
+                spawn(async move {
+                    if let Err(error) = document::eval(&script).await {
+                        log::error!("could not render ABC notation: {error:?}");
+                    }
+                });
+            },
         }
     }
 }

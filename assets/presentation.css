@@ -254,3 +254,56 @@ html, body {
     max-width: 100%;
     height: auto;
 }
+/* --------------------------------------------------------------------------
+   Complex slides: notation stacked with the lyrics of one or more languages.
+   The rows appear in the order the user configured them.
+   -------------------------------------------------------------------------- */
+
+.complex-slide {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6em;
+    width: 100%;
+    height: 100%;
+    /* The notation inherits this so it is drawn in the slide's text colour
+       rather than abcjs's default black. */
+    color: inherit;
+}
+
+.complex-slide-row {
+    width: 100%;
+    text-align: center;
+}
+
+/* abcjs sizes the staff to the width of its container. */
+.complex-slide .notation-row {
+    width: 90%;
+    max-width: 90%;
+}
+
+.abc-notation-container {
+    width: 100%;
+    color: inherit;
+}
+
+.abc-notation-container svg {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+}
+
+/* The staff is drawn with `currentColor`, so it follows the slide's colours. */
+.abc-notation-container svg path,
+.abc-notation-container svg text,
+.abc-notation-container svg tspan {
+    fill: currentColor;
+}
+
+.complex-slide-spoiler {
+    margin-top: 1.5em;
+    opacity: 0.6;
+    width: 100%;
+    text-align: center;
+}

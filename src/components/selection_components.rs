@@ -34,9 +34,7 @@ use crate::logic::sync::{
     SYNC_KEY_PRESENTATION, SYNC_KEY_QUIT,
 };
 use crate::Route;
-use cantara_songlib::exporter::lilypond::{LilypondSettings, lilypond_from_song};
-use cantara_songlib::exporter::text::{TextFormat, TextSettings, text_from_songs};
-use cantara_songlib::importer::{ccli, classic_song, cssf, song_yml};
+use crate::logic::export::{ExportError, ExportFormat, ExportedFile, song_from_content};
 use cantara_songlib::song::Song;
 use cantara_songlib::slides::SlideSettings;
 #[cfg(feature = "desktop")]
@@ -45,7 +43,6 @@ use dioxus::prelude::*;
 use dioxus_free_icons::icons::fa_solid_icons::{FaFileExport, FaFileImport, FaGear, FaPlay};
 use dioxus_free_icons::Icon;
 use rust_i18n::t;
-use std::path::Path;
 use std::rc::Rc;
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -672,166 +669,154 @@ Please open the presentation tab manually.",
     }
 }
 
-fn build_export_document(
+/// Read and parse every song of the selection.
+///
+/// Items that are not songs — pictures, PDFs, Markdown — are skipped rather
+/// than reported: a selection usually mixes them, and the user asked to export
+/// the songs.
+fn songs_of_selection(
     selected_items: &[SelectedItemRepresentation],
-    export_format: &str,
-) -> Result<(String, String), String> {
-    let songs: Vec<Song> = selected_items
+) -> Result<Vec<Song>, ExportError> {
+    selected_items
         .iter()
         .filter(|item| item.source_file.file_type == SourceFileType::Song)
-        .map(song_from_selected_item)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    if songs.is_empty() {
-        return Err("Es sind keine Lied-Dateien für den Export ausgewählt.".to_string());
-    }
-
-    match export_format {
-        "text" => {
-            let settings = TextSettings::with_format(TextFormat::Plain);
-            let content = text_from_songs(&songs, &settings)
-                .map_err(|err| format!("Text-Export fehlgeschlagen: {err}"))?;
-            Ok((content, "txt".to_string()))
-        }
-        "telegram" => {
-            let settings = TextSettings::with_format(TextFormat::Telegram);
-            let content = text_from_songs(&songs, &settings)
-                .map_err(|err| format!("Telegram-Export fehlgeschlagen: {err}"))?;
-            Ok((content, "txt".to_string()))
-        }
-        "markdown" => {
-            let settings = TextSettings::with_format(TextFormat::Markdown);
-            let content = text_from_songs(&songs, &settings)
-                .map_err(|err| format!("Markdown-Export fehlgeschlagen: {err}"))?;
-            Ok((content, "md".to_string()))
-        }
-        "lilypond" => {
-            let mut sections: Vec<String> = Vec::new();
-            for song in &songs {
-                let lilypond = lilypond_from_song(song, &LilypondSettings::default())
-                    .map_err(|err| format!("LilyPond-Export für '{}' fehlgeschlagen: {err}", song.title))?;
-                sections.push(format!("% {}\n{}", song.title, lilypond));
-            }
-            Ok((
-                sections.join("\n\n% ------------------------------------------------------------\n\n"),
-                "ly".to_string(),
-            ))
-        }
-        _ => Err("Unbekanntes Exportformat.".to_string()),
-    }
+        .map(|item| {
+            let content = read_source_file_content(&item.source_file)?;
+            let file_name = item
+                .source_file
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(&item.source_file.name);
+            song_from_content(file_name, &content)
+        })
+        .collect()
 }
 
-fn song_from_selected_item(item: &SelectedItemRepresentation) -> Result<Song, String> {
-    song_from_source_file(&item.source_file)
-}
+fn read_source_file_content(source_file: &SourceFile) -> Result<String, ExportError> {
+    let unreadable = |reason: String| ExportError::Unreadable {
+        name: source_file.name.clone(),
+        reason,
+    };
 
-fn song_from_source_file(source_file: &SourceFile) -> Result<Song, String> {
-    let content = read_source_file_content(source_file)?;
-    parse_song_from_content(&source_file.path, &content)
-}
-
-fn parse_song_from_content(path: &Path, content: &str) -> Result<Song, String> {
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("song");
-    let file_name_lower = file_name.to_lowercase();
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-
-    match extension.as_str() {
-        "song" => classic_song::import_song(content).map_err(|err| err.to_string()),
-        "ccli" => ccli::import_from_ccli_string(content).map_err(|err| err.to_string()),
-        "cssf" => cssf::import_input_string(content.to_string(), file_name.to_string())
-            .map_err(|err| err.to_string()),
-        "yml" | "yaml"
-            if file_name_lower.ends_with(".song.yml")
-                || file_name_lower.ends_with(".song.yaml") =>
-        {
-            song_yml::import_from_yml_string(content).map_err(|err| err.to_string())
-        }
-        _ => Err(format!(
-            "Nicht unterstütztes Liedformat: {}",
-            path.display()
-        )),
-    }
-}
-
-fn read_source_file_content(source_file: &SourceFile) -> Result<String, String> {
     #[cfg(target_arch = "wasm32")]
     {
         use crate::logic::settings::RepositoryType;
 
         let path_str = source_file.path.to_string_lossy().to_string();
-        let bytes = RepositoryType::web_read_file(&path_str).ok_or_else(|| {
-            format!(
-                "Datei '{}' konnte im Web-Speicher nicht gelesen werden.",
-                source_file.name
-            )
-        })?;
-        String::from_utf8(bytes).map_err(|err| {
-            format!(
-                "Datei '{}' ist kein gültiger UTF-8-Text: {err}",
-                source_file.name
-            )
-        })
+        let bytes = RepositoryType::web_read_file(&path_str)
+            .ok_or_else(|| unreadable("not found in the web storage".to_string()))?;
+        String::from_utf8(bytes).map_err(|error| unreadable(error.to_string()))
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        std::fs::read_to_string(&source_file.path)
-            .map_err(|err| format!("Datei '{}' konnte nicht gelesen werden: {err}", source_file.path.display()))
+        std::fs::read_to_string(&source_file.path).map_err(|error| unreadable(error.to_string()))
     }
 }
 
-fn save_export_document(
-    content: &str,
-    extension: &str,
-    selected_items: &[SelectedItemRepresentation],
-) -> Result<(), String> {
-    let base_name = if selected_items.len() == 1 {
-        selected_items[0].source_file.name.clone()
-    } else {
-        "cantara-export".to_string()
-    };
-    let file_name = format!("{}.{}", base_name, extension);
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        if let Some(path) = rfd::FileDialog::new()
-            .set_file_name(&file_name)
-            .save_file()
-        {
-            std::fs::write(&path, content).map_err(|err| {
-                format!("Exportdatei konnte nicht geschrieben werden ({}): {err}", path.display())
-            })?;
-            Ok(())
-        } else {
-            Err("Export wurde abgebrochen.".to_string())
+/// Turn an [`ExportError`] into a message in the user's language.
+fn export_error_message(error: &ExportError) -> String {
+    match error {
+        ExportError::NoSongs => t!("selection.export_error_no_songs").to_string(),
+        ExportError::Unreadable { name, reason } => {
+            t!("selection.export_error_unreadable", name = name, reason = reason).to_string()
+        }
+        ExportError::UnsupportedFormat { name } => {
+            t!("selection.export_error_unsupported", name = name).to_string()
+        }
+        ExportError::Unparsable { name, reason } => {
+            t!("selection.export_error_unparsable", name = name, reason = reason).to_string()
+        }
+        ExportError::SongFailed { title, reason } => {
+            t!("selection.export_error_song_failed", title = title, reason = reason).to_string()
+        }
+        ExportError::Render(reason) => {
+            t!("selection.export_error_render", reason = reason).to_string()
+        }
+        ExportError::Write { path, reason } => {
+            t!("selection.export_error_write", path = path, reason = reason).to_string()
         }
     }
+}
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        let file_name_json = serde_json::to_string(&file_name)
-            .map_err(|err| format!("Dateiname konnte nicht serialisiert werden: {err}"))?;
-        let content_json = serde_json::to_string(content)
-            .map_err(|err| format!("Exportinhalt konnte nicht serialisiert werden: {err}"))?;
+/// How a save attempt ended.
+enum SaveOutcome {
+    /// Files were written.
+    Written(usize),
+    /// The user closed the file dialog without choosing.
+    Cancelled,
+}
+
+/// Write the rendered files, asking the user where they should go.
+///
+/// A format that produces one file per song asks for a directory; a single
+/// document asks for a file name.
+#[cfg(not(target_arch = "wasm32"))]
+fn save_exported_files(
+    files: &[ExportedFile],
+    format: ExportFormat,
+) -> Result<SaveOutcome, ExportError> {
+    let write = |path: &std::path::Path, content: &str| {
+        std::fs::write(path, content).map_err(|error| ExportError::Write {
+            path: path.display().to_string(),
+            reason: error.to_string(),
+        })
+    };
+
+    if format.one_file_per_song() && files.len() > 1 {
+        let Some(directory) = rfd::FileDialog::new()
+            .set_title(t!("selection.export_choose_folder").to_string())
+            .pick_folder()
+        else {
+            return Ok(SaveOutcome::Cancelled);
+        };
+
+        for file in files {
+            write(
+                &directory.join(format!("{}.{}", file.name, format.extension())),
+                &file.content,
+            )?;
+        }
+        return Ok(SaveOutcome::Written(files.len()));
+    }
+
+    let Some(file) = files.first() else {
+        return Ok(SaveOutcome::Written(0));
+    };
+
+    let Some(path) = rfd::FileDialog::new()
+        .set_file_name(format!("{}.{}", file.name, format.extension()))
+        .save_file()
+    else {
+        return Ok(SaveOutcome::Cancelled);
+    };
+
+    write(&path, &file.content)?;
+    Ok(SaveOutcome::Written(1))
+}
+
+/// On the web there is no file system, so each file is offered as a download.
+#[cfg(target_arch = "wasm32")]
+fn save_exported_files(
+    files: &[ExportedFile],
+    format: ExportFormat,
+) -> Result<SaveOutcome, ExportError> {
+    for file in files {
+        let name = serde_json::to_string(&format!("{}.{}", file.name, format.extension()))
+            .map_err(|error| ExportError::Render(error.to_string()))?;
+        let content = serde_json::to_string(&file.content)
+            .map_err(|error| ExportError::Render(error.to_string()))?;
 
         spawn(async move {
             let js = format!(
                 r#"
                 (function() {{
-                    const filename = {file_name_json};
-                    const content = {content_json};
-                    const blob = new Blob([content], {{ type: 'text/plain;charset=utf-8' }});
+                    const blob = new Blob([{content}], {{ type: 'text/plain;charset=utf-8' }});
                     const url = URL.createObjectURL(blob);
                     const link = document.createElement('a');
                     link.href = url;
-                    link.download = filename;
+                    link.download = {name};
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
@@ -841,16 +826,16 @@ fn save_export_document(
             );
             let _ = document::eval(&js).await;
         });
-
-        Ok(())
     }
+
+    Ok(SaveOutcome::Written(files.len()))
 }
 
 fn show_export_error(error_message: &str) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let _ = rfd::MessageDialog::new()
-            .set_title("Cantara Export")
+            .set_title("Cantara")
             .set_description(error_message)
             .set_buttons(rfd::MessageButtons::Ok)
             .show();
@@ -875,70 +860,74 @@ fn ExportMenu(
     /// The currently selected items to export
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
 ) -> Element {
-    let mut export_format: Signal<String> = use_signal(|| "text".to_string());
+    let mut export_format: Signal<ExportFormat> = use_signal(|| ExportFormat::PlainText);
+
+    let song_count = use_memo(move || {
+        selected_items
+            .read()
+            .iter()
+            .filter(|item| item.source_file.file_type == SourceFileType::Song)
+            .count()
+    });
 
     let handle_export = move |_| {
         let selected = selected_items.read().clone();
-        let format = export_format.read().clone();
+        let format = *export_format.read();
 
-        match build_export_document(&selected, &format)
-            .and_then(|(content, extension)| save_export_document(&content, &extension, &selected))
-        {
-            Ok(_) => {
-                log::info!("Export abgeschlossen: {} item(s) als {}", selected.len(), format);
+        let result = songs_of_selection(&selected)
+            .and_then(|songs| format.render(&songs))
+            .and_then(|files| save_exported_files(&files, format));
+
+        match result {
+            Ok(SaveOutcome::Written(count)) => {
+                log::info!("exported {count} file(s) as {}", format.id());
                 show_export_menu.set(false);
             }
-            Err(err) => {
-                log::warn!("Export fehlgeschlagen: {}", err);
-                if err != "Export wurde abgebrochen." {
-                    show_export_error(&err);
-                }
+            // Closing the file dialog is not a failure and needs no message.
+            Ok(SaveOutcome::Cancelled) => {}
+            Err(error) => {
+                log::warn!("export failed: {error:?}");
+                show_export_error(&export_error_message(&error));
             }
         }
     };
 
     rsx! {
         div {
-            class: "modal-overlay",
-            style: "position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; display: flex; align-items: center; justify-content: center;",
+            class: "modal-overlay export-menu-overlay",
             onclick: move |_| {
                 show_export_menu.set(false);
             },
             div {
                 class: "export-menu-modal",
-                style: "background: white; padding: 2em; border-radius: 8px; max-width: 500px; width: 90%; position: relative; box-shadow: 0 4px 6px rgba(0,0,0,0.1);",
                 onclick: move |event: Event<MouseData>| {
                     event.stop_propagation();
                 },
-                h3 { style: "margin-top: 0; margin-bottom: 1em;",
-                    {t!("selection.export_title").to_string()}
+                h3 { {t!("selection.export_title").to_string()} }
+                p {
+                    {t!("selection.export_description", count = song_count()).to_string()}
                 }
-                p { style: "margin-bottom: 1em; color: #666;",
-                    {
-                        t!("selection.export_description", count = selected_items.read().len())
-                            .to_string()
-                    }
-                }
-                div { style: "margin-bottom: 1.5em;",
-                    label { style: "display: block; margin-bottom: 0.5em; font-weight: bold;",
-                        {t!("selection.export_format").to_string()}
-                    }
+
+                label {
+                    {t!("selection.export_format").to_string()}
                     select {
-                        class: "form-control",
-                        value: "{export_format()}",
+                        value: export_format.read().id(),
                         onchange: move |event| {
-                            export_format.set(event.value());
+                            if let Some(format) = ExportFormat::from_id(&event.value()) {
+                                export_format.set(format);
+                            }
                         },
-                        option { value: "text", {t!("selection.export_format_text").to_string()} }
-                        option { value: "telegram", {t!("selection.export_format_telegram").to_string()} }
-                        option { value: "markdown", {t!("selection.export_format_markdown").to_string()} }
-                        option { value: "lilypond", {t!("selection.export_format_lilypond").to_string()} }
-                        option { value: "pdf", disabled: true,
-                            {t!("selection.export_format_pdf").to_string()}
+                        for format in ExportFormat::ALL {
+                            option { value: format.id(), {t!(format.label_key()).to_string()} }
                         }
                     }
                 }
-                div { style: "display: flex; gap: 1em; justify-content: flex-end;",
+
+                if export_format.read().one_file_per_song() && song_count() > 1 {
+                    small { {t!("selection.export_choose_folder").to_string()} }
+                }
+
+                div { class: "export-menu-actions",
                     button {
                         class: "outline secondary",
                         onclick: move |_| {
@@ -946,7 +935,10 @@ fn ExportMenu(
                         },
                         {t!("settings.close").to_string()}
                     }
-                    button { class: "primary", onclick: handle_export,
+                    button {
+                        class: "primary",
+                        disabled: song_count() == 0,
+                        onclick: handle_export,
                         {t!("selection.export_button").to_string()}
                     }
                 }

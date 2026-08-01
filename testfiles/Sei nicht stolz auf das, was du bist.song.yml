@@ -1,0 +1,64 @@
+version: 0.1
+title: Sei nicht stolz auf das, was du bist
+default_language: de
+tags:
+  author: Jan Martin Reckel
+score:
+  key: d major
+  time: 4/4
+  partial: 4
+orders:
+  - stanza-refrain-stanza
+parts:
+  - type: stanza
+    name: Strophe
+    contents:
+    - type: voice
+      number: 1
+      content: |
+        d8 e | fis4 fis g4 fis8 e | a2. \breathe
+        d,8 e | fis4 fis g4 fis8 e | e2. \breathe
+        d8 e | fis4 fis g  fis8 g | a4 d b \breathe
+        d,8 e | fis4 fis4 g4 fis8 e | d2.
+    - type: lyrics
+      number: 1
+      content: |
+        Sei nicht stolz auf das, was du bist,
+        denn nur Gott gut und hei -- lig ist.
+        Su -- che ihn, so lang er sich fin -- den lässt,
+        dann kommt Hoff -- nung, Frie -- de und Freud.
+    - type: lyrics
+      number: 2
+      content: |
+        Men -- schen su -- chen Glück bei sich selbst,
+        doch ein Mensch al -- lein sich nicht hält.
+        Chris -- tus Je -- sus kam ja auf die -- se Welt,
+        um zu ge -- ben, was uns noch fehlt.
+    - type: lyrics
+      number: 3
+      content: |
+        Sün -- der, sie doch dei -- ne Schuld an,
+        Je -- sus hat sie weg -- ge -- tan. _
+        Je -- dem, der nun um -- kehrt und an ihn glaubt,
+        tut sich heut die Him -- mels -- tür auf.
+        \set ignoreMelismata = ##t Da -- rum \unset ignoreMelismata
+  - type: refrain
+    name: Refrain
+    contents:
+    - type: lyrics
+      number: 1
+      content: |
+        Denn wer sich rüh -- men will,
+        der rüh -- me sich des Herrn;
+        denn er ist uns nicht fern.
+        Wer nun an ihn glaubt,
+        und fest auf ihn ver -- traut,
+        der hat sein Le -- ben nicht auf
+        Sand ge -- baut.
+    - type: voice
+      number: 1
+      content: |
+        fis8( g ) | a8 a a a d,4. d8 | b' a g fis e4 d8( e ) |
+        fis4 fis g4 fis8( e ) | e2. r4
+        a8 a a a d,4. d8 | b' a g fis e4 d8( e ) |
+        fis4 fis fis8 a g fis | e4 e d4

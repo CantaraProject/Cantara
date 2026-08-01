@@ -12,28 +12,69 @@ use std::path::Path;
 use std::process::Command;
 
 /// File extensions that Cantara supports as source files.
-const SUPPORTED_EXTENSIONS: &[&str] = &["song", "jpg", "jpeg", "png", "pdf"];
+///
+/// Kept in step with `SourceFileType` in `src/logic/sourcefiles.rs`; this list
+/// decides what a bundled repository ships to the web build.
+const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "song", "ccli", "yml", "yaml", "cssf", "jpg", "jpeg", "png", "pdf", "md",
+];
+
+/// npm packages whose files are referenced by `asset!()` at compile time.
+/// If one of them is missing the build fails with a confusing macro error, so
+/// their presence is checked before anything else runs.
+const REQUIRED_NPM_PACKAGES: &[&str] = &["pdfjs-dist", "abcjs", "@picocss/pico"];
 
 fn main() {
-    // Check if "node_modules" folder exists
-    if fs::metadata("node_modules").is_err() {
-        // Run npm install
-        let output = Command::new("npm")
-            .arg("install")
-            .output()
-            .expect("Failed to execute npm install. Make sure that you have npm installed.");
+    println!("cargo:rerun-if-changed=package.json");
+    ensure_npm_packages();
+    generate_bundled_repos_data();
+}
 
-        // Print output for debugging
-        if !output.status.success() {
-            eprintln!(
-                "npm install failed: {:?}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            panic!("npm install failed");
-        }
+/// Install the npm dependencies if any of them is missing.
+///
+/// Checking for the `node_modules` directory alone is not enough: adding a
+/// package to `package.json` leaves the directory in place, so the new package
+/// would never be installed and the `asset!()` referencing it would fail.
+fn ensure_npm_packages() {
+    let missing: Vec<&str> = REQUIRED_NPM_PACKAGES
+        .iter()
+        .copied()
+        .filter(|package| fs::metadata(Path::new("node_modules").join(package)).is_err())
+        .collect();
+
+    if missing.is_empty() {
+        return;
     }
 
-    generate_bundled_repos_data();
+    println!(
+        "cargo:warning=installing missing npm packages: {}",
+        missing.join(", ")
+    );
+
+    let output = Command::new("npm")
+        .arg("install")
+        .output()
+        .expect("Failed to execute npm install. Make sure that you have npm installed.");
+
+    if !output.status.success() {
+        eprintln!(
+            "npm install failed: {:?}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        panic!("npm install failed");
+    }
+
+    let still_missing: Vec<&str> = missing
+        .iter()
+        .copied()
+        .filter(|package| fs::metadata(Path::new("node_modules").join(package)).is_err())
+        .collect();
+    if !still_missing.is_empty() {
+        panic!(
+            "npm install did not provide these packages: {}",
+            still_missing.join(", ")
+        );
+    }
 }
 
 /// Generates `bundled_repos_data.rs` in `OUT_DIR` containing embedded repository file data.

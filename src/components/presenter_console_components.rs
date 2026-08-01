@@ -306,13 +306,11 @@ pub fn PresenterConsolePage() -> Element {
                 on_edit_selection: {
                     if is_main_window {
                         let nav_clone = nav;
-                        Some(
-                            EventHandler::new(move |_: ()| {
-                                if let Some(ref n) = nav_clone {
-                                    n.push(crate::Route::Selection {});
-                                }
+                        Some(EventHandler::new(move |_: ()| {
+                            if let Some(ref n) = nav_clone {
+                                n.push(crate::Route::Selection {});
                             }
-                        )
+                        }))
                     } else {
                         None
                     }

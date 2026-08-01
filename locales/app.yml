@@ -117,6 +117,36 @@ selection:
   export_format_lilypond:
     en: LilyPond (Sheet Music)
     de: LilyPond (Noten)
+  export_format_abc:
+    en: ABC notation (one file per song)
+    de: ABC-Notation (eine Datei je Lied)
+  export_error_no_songs:
+    en: "No song files are selected. Pictures, PDFs and Markdown documents cannot be exported."
+    de: "Es sind keine Lied-Dateien ausgewählt. Bilder, PDFs und Markdown-Dokumente können nicht exportiert werden."
+  export_error_unreadable:
+    en: "'%{name}' could not be read: %{reason}"
+    de: "„%{name}“ konnte nicht gelesen werden: %{reason}"
+  export_error_unsupported:
+    en: "'%{name}' is not a song format Cantara can export."
+    de: "„%{name}“ ist kein Liedformat, das Cantara exportieren kann."
+  export_error_unparsable:
+    en: "'%{name}' could not be read as a song: %{reason}"
+    de: "„%{name}“ konnte nicht als Lied gelesen werden: %{reason}"
+  export_error_song_failed:
+    en: "'%{title}' could not be exported: %{reason}"
+    de: "„%{title}“ konnte nicht exportiert werden: %{reason}"
+  export_error_render:
+    en: "The export failed: %{reason}"
+    de: "Der Export ist fehlgeschlagen: %{reason}"
+  export_error_write:
+    en: "'%{path}' could not be written: %{reason}"
+    de: "„%{path}“ konnte nicht geschrieben werden: %{reason}"
+  export_choose_folder:
+    en: "One file is written per song, so please choose a folder."
+    de: "Es wird eine Datei je Lied geschrieben, bitte einen Ordner auswählen."
+  export_done:
+    en: "%{count} file(s) exported."
+    de: "%{count} Datei(en) exportiert."
   export_format_pdf:
     en: PDF (coming soon)
     de: PDF (demnächst)
@@ -537,3 +567,103 @@ dialogs:
   confirm_deletion:
     en: Are you sure that you would like to delete this element?
     de: Sind Sie sicher, dass Sie das Element löschen möchten?
+
+# Configuration of what a song slide shows: one language, several languages,
+# or the complex layout that stacks notation and languages.
+display:
+  section:
+    en: Display
+    de: Anzeige
+  mode:
+    en: Layout
+    de: Layout
+  mode_single:
+    en: One language
+    de: Eine Sprache
+  mode_single_hint:
+    en: Show the lyrics in a single language.
+    de: Zeigt den Liedtext in einer Sprache.
+  mode_multi:
+    en: Several languages
+    de: Mehrere Sprachen
+  mode_multi_hint:
+    en: Show the lyrics in several languages below one another.
+    de: Zeigt den Liedtext in mehreren Sprachen untereinander.
+  mode_complex:
+    en: Notation and languages
+    de: Noten und Sprachen
+  mode_complex_hint:
+    en: "Stack the melody and any number of languages. The notation shows the words of the first language and covers exactly the lines below it."
+    de: "Noten und beliebig viele Sprachen übereinander. Die Noten enthalten den Text der ersten Sprache und decken genau die darunter gezeigten Zeilen ab."
+  language:
+    en: Language
+    de: Sprache
+  language_placeholder:
+    en: "Language code, e.g. en"
+    de: "Sprachcode, z. B. de"
+  language_auto:
+    en: "Automatic (song default)"
+    de: "Automatisch (Standard des Liedes)"
+  languages_all:
+    en: "All available languages"
+    de: "Alle verfügbaren Sprachen"
+  rows:
+    en: Rows
+    de: Zeilen
+  rows_hint:
+    en: "The rows are shown in this order. Songs without language information show their text in the first language row."
+    de: "Die Zeilen werden in dieser Reihenfolge angezeigt. Lieder ohne Sprachangabe zeigen ihren Text in der ersten Sprachzeile."
+  row_notation:
+    en: Notation
+    de: Noten
+  add_notation:
+    en: Add notation
+    de: Noten hinzufügen
+  add_language:
+    en: Add language
+    de: Sprache hinzufügen
+  move_up:
+    en: Move up
+    de: Nach oben
+  move_down:
+    en: Move down
+    de: Nach unten
+  remove_row:
+    en: Remove
+    de: Entfernen
+  no_rows:
+    en: "No rows yet — add notation or a language."
+    de: "Noch keine Zeilen — Noten oder eine Sprache hinzufügen."
+  title_slide:
+    en: Show title slide
+    de: Titelfolie anzeigen
+  show_spoiler:
+    en: Show spoiler
+    de: Vorschau anzeigen
+  empty_last_slide:
+    en: Empty slide at the end
+    de: Leere Folie am Ende
+  meta_syntax:
+    en: Meta information template
+    de: Vorlage für Metainformationen
+  meta_syntax_hint:
+    en: "Handlebars template, e.g. {{title}} ({{author}})"
+    de: "Handlebars-Vorlage, z. B. {{title}} ({{author}})"
+  meta_where:
+    en: Show meta information on
+    de: Metainformationen anzeigen auf
+  meta_on_title:
+    en: Title slide
+    de: Titelfolie
+  meta_on_first:
+    en: First slide
+    de: Erster Folie
+  meta_on_last:
+    en: Last slide
+    de: Letzter Folie
+  max_lines:
+    en: Maximum lines per slide
+    de: Maximale Zeilen pro Folie
+  max_lines_placeholder:
+    en: Unlimited
+    de: Unbegrenzt

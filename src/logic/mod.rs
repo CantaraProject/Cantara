@@ -60,6 +60,7 @@ pub mod sourcefiles;
 
 pub mod bundled_repos;
 
+pub mod export;
 pub mod presentation;
 
 pub mod conversions;

@@ -205,6 +205,58 @@ fn default_presenter_console_in_main_window() -> bool {
     true
 }
 
+/// Bring a stored settings document up to the current shape.
+///
+/// Cantara 0.3 and earlier wrote `show_meta_information` as one of the strings
+/// `"None"`, `"FirstSlide"`, `"LastSlide"` or `"FirstSlideAndLastSlide"`,
+/// because the song library modelled it as an enum. Version 0.2 of the library
+/// replaced that with a struct of three independent flags so that the title
+/// slide became selectable on its own.
+///
+/// Without this step the whole settings file would fail to parse and
+/// [`Settings::load`] would fall back to the defaults, silently discarding
+/// every repository, presentation design and font the user had set up.
+fn migrate_settings_json(json: &str) -> String {
+    let Ok(mut document) = serde_json::from_str::<serde_json::Value>(json) else {
+        // Not valid JSON at all; leave it to the caller's error handling.
+        return json.to_string();
+    };
+
+    fn upgrade(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                if let Some(meta) = map.get("show_meta_information") {
+                    if let Some(name) = meta.as_str() {
+                        let (title_slide, first_slide, last_slide) = match name {
+                            "FirstSlide" => (false, true, false),
+                            "LastSlide" => (false, false, true),
+                            "FirstSlideAndLastSlide" => (false, true, true),
+                            // "None" and anything unrecognised mean "nowhere".
+                            _ => (false, false, false),
+                        };
+                        map.insert(
+                            "show_meta_information".to_string(),
+                            serde_json::json!({
+                                "title_slide": title_slide,
+                                "first_slide": first_slide,
+                                "last_slide": last_slide,
+                            }),
+                        );
+                    }
+                }
+                for nested in map.values_mut() {
+                    upgrade(nested);
+                }
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(upgrade),
+            _ => {}
+        }
+    }
+
+    upgrade(&mut document);
+    serde_json::to_string(&document).unwrap_or_else(|_| json.to_string())
+}
+
 impl Settings {
     /// Cleans up all temporary resources associated with all repositories
     pub fn cleanup_all_repositories(&self) {
@@ -227,7 +279,7 @@ impl Settings {
                 .and_then(|w| w.local_storage().ok().flatten())
                 .and_then(|s| s.get_item("cantara-settings").ok().flatten());
             let mut settings = match json {
-                Some(j) => serde_json::from_str(&j).unwrap_or_default(),
+                Some(j) => serde_json::from_str(&migrate_settings_json(&j)).unwrap_or_default(),
                 None => Self::default(),
             };
             settings.ensure_default_presentation_design();
@@ -241,7 +293,7 @@ impl Settings {
         {
             let mut settings = match get_settings_file() {
                 Some(file) => match std::fs::read_to_string(file) {
-                    Ok(content) => match serde_json::from_str(&content) {
+                    Ok(content) => match serde_json::from_str(&migrate_settings_json(&content)) {
                         Ok(settings) => settings,
                         Err(_) => Self::default(),
                     },
@@ -1808,6 +1860,97 @@ fn hex_string_to_rgb(hex_string: &str) -> Option<RGB8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build a settings document in the shape Cantara 0.3 wrote: everything as
+    /// it is today, but `show_meta_information` back as a plain string.
+    fn settings_json_with_old_meta(name: &str) -> String {
+        let mut document = serde_json::to_value(Settings::default()).unwrap();
+
+        let slide_settings = document
+            .get_mut("song_slide_settings")
+            .and_then(|value| value.as_array_mut())
+            .expect("the default settings carry slide settings");
+        assert!(
+            !slide_settings.is_empty(),
+            "the fixture needs at least one slide setting"
+        );
+
+        for entry in slide_settings.iter_mut() {
+            entry
+                .as_object_mut()
+                .unwrap()
+                .insert("show_meta_information".to_string(), serde_json::json!(name));
+            entry
+                .as_object_mut()
+                .unwrap()
+                .insert("meta_syntax".to_string(), serde_json::json!("{{title}}"));
+        }
+
+        serde_json::to_string(&document).unwrap()
+    }
+
+    /// Settings written by Cantara 0.3 and earlier stored
+    /// `show_meta_information` as a plain string, because the song library's
+    /// `ShowMetaInformation` was an enum. It is a struct of three flags now.
+    ///
+    /// Deserialising the whole settings file fails on the old shape, and
+    /// `Settings::load` then falls back to the defaults — which would throw
+    /// away every repository, design and font the user had configured, not
+    /// just this one field.
+    #[test]
+    fn test_settings_from_an_older_version_still_load() {
+        let old = settings_json_with_old_meta("FirstSlideAndLastSlide");
+
+        // Without the migration the whole document is rejected …
+        assert!(
+            serde_json::from_str::<Settings>(&old).is_err(),
+            "the fixture no longer reproduces the old shape"
+        );
+
+        // … and with it, everything survives.
+        let settings: Settings =
+            serde_json::from_str(&migrate_settings_json(&old)).expect("old settings should load");
+
+        let slide_settings = settings
+            .song_slide_settings
+            .first()
+            .expect("the slide settings survived");
+
+        assert!(slide_settings.show_meta_information.first_slide);
+        assert!(slide_settings.show_meta_information.last_slide);
+        assert!(!slide_settings.show_meta_information.title_slide);
+        assert_eq!(slide_settings.meta_syntax, "{{title}}");
+    }
+
+    #[test]
+    fn test_every_old_meta_name_is_understood() {
+        let cases = [
+            ("None", (false, false, false)),
+            ("FirstSlide", (false, true, false)),
+            ("LastSlide", (false, false, true)),
+            ("FirstSlideAndLastSlide", (false, true, true)),
+        ];
+
+        for (name, expected) in cases {
+            let json = migrate_settings_json(&settings_json_with_old_meta(name));
+            let settings: Settings =
+                serde_json::from_str(&json).unwrap_or_else(|error| panic!("{name}: {error}"));
+
+            let show = settings.song_slide_settings[0].show_meta_information;
+            assert_eq!(
+                (show.title_slide, show.first_slide, show.last_slide),
+                expected,
+                "for {name}"
+            );
+        }
+    }
+
+    /// Settings already in the new shape must pass through untouched.
+    #[test]
+    fn test_current_settings_are_left_alone() {
+        let current = serde_json::to_string(&Settings::default()).unwrap();
+        assert_eq!(migrate_settings_json(&current), current);
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

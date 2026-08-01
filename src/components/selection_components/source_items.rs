@@ -347,41 +347,14 @@ pub(crate) async fn process_dropped_files(
     for file_data in files {
         let file_name = file_data.name();
         let file_path = file_data.path();
-        let file_name_lower = file_name.to_lowercase();
-
-        let file_name_path = std::path::Path::new(&file_name);
-        let extension = file_path
-            .extension()
-            .or_else(|| file_name_path.extension())
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        let file_type = match extension.as_str() {
-            "song" | "ccli" => SourceFileType::Song,
-            "yml" | "yaml"
-                if file_name_lower.ends_with(".song.yml")
-                    || file_name_lower.ends_with(".song.yaml") =>
-            {
-                SourceFileType::Song
-            }
-            "png" | "jpg" | "jpeg" => SourceFileType::Image,
-            "pdf" => SourceFileType::Pdf,
-            _ => {
-                log::info!(
-                    "Skipping dropped file with unsupported extension: {}",
-                    file_name
-                );
-                continue;
-            }
+        // The same classifier the directory scan uses, so a file that can be
+        // opened from a repository can also be dropped onto the window.
+        let Some(file_type) = SourceFileType::of(&file_name) else {
+            log::info!("Skipping dropped file with unsupported extension: {file_name}");
+            continue;
         };
 
-        let stem = file_path
-            .file_stem()
-            .or_else(|| file_name_path.file_stem())
-            .and_then(|s| s.to_str())
-            .unwrap_or(&file_name)
-            .to_string();
+        let stem = SourceFileType::display_name(&file_name);
 
         let content = match file_data.read_bytes().await {
             Ok(bytes) => bytes,
