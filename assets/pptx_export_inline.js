@@ -1,16 +1,24 @@
-// Writes a .pptx from the deck description produced by `src/logic/pptx.rs`.
+// Builds a .pptx from the deck description produced by `src/logic/pptx.rs`.
 //
 // This file deliberately knows nothing about songs, slides or fonts: it walks
 // the JSON and calls PptxGenJS. Every decision about what a slide should look
 // like is made on the Rust side, where it can be tested without a browser.
 //
+// Two modes, because the two targets save files in completely different ways:
+//
+//   "download" — the web build. PptxGenJS hands the file to the browser.
+//   "base64"   — the desktop build. The bytes come back to Rust, which writes
+//                them where the user's file dialog points. The desktop WebView
+//                silently drops the `<a download>` click that `writeFile` uses,
+//                so the download mode looks like it worked and produces nothing.
+//
 // Dioxus runs this inside an async function, so the object returned at the end
-// arrives back in Rust as the result of `document::eval(..).await` — that is
-// how a failed export reaches the user instead of only the log.
+// arrives back in Rust as the result of `document::eval(..).await`.
 //
 // The Rust side substitutes the __PLACEHOLDER__ tokens before evaluating this.
 var deck = __DECK__;
 var fileName = __FILE_NAME__;
+var mode = __MODE__;
 
 try {
     // 1. Load PptxGenJS once; the promise is cached so a second export
@@ -80,7 +88,15 @@ try {
         });
     });
 
-    // 3. Hand the file to the browser's download machinery.
+    // 3. Hand over the result.
+    if (mode === 'base64') {
+        var data = await pptx.write({ outputType: 'base64' });
+        if (!data) {
+            return { ok: false, error: 'PptxGenJS produced no data' };
+        }
+        return { ok: true, slides: deck.slides.length, data: data };
+    }
+
     await pptx.writeFile({ fileName: fileName });
     return { ok: true, slides: deck.slides.length };
 } catch (error) {

@@ -851,15 +851,34 @@ fn save_exported_files(
 
 /// Writes the current selection as a PowerPoint deck.
 ///
-/// The file is built in the browser by PptxGenJS from the deck description in
-/// [`crate::logic::pptx`], so no native PowerPoint library is needed and the
-/// same code path works on the desktop and on the web.
+/// The file is built by PptxGenJS from the deck description in
+/// [`crate::logic::pptx`], so no native PowerPoint library is needed.
+///
+/// Where the bytes go differs by target, exactly as it does for the text
+/// formats: the desktop asks Rust to write the file to a path the user picked,
+/// the web lets the browser download it. Letting PptxGenJS download on the
+/// desktop does not work — the WebView drops the `<a download>` click without
+/// an error, so the export reports success and produces no file.
 fn export_pptx(
     deck: &PptxDeck,
     file_name: &str,
     mut message: Signal<Option<String>>,
     mut close_dialog: Signal<bool>,
 ) {
+    // On the desktop the user picks the destination first: it is the one step
+    // that can be cancelled, and doing it before the work avoids building a
+    // deck nobody asked to keep.
+    #[cfg(not(target_arch = "wasm32"))]
+    let target_path = {
+        let Some(path) = rfd::FileDialog::new()
+            .set_file_name(file_name)
+            .save_file()
+        else {
+            return;
+        };
+        path
+    };
+
     let Ok(deck_json) = serde_json::to_string(deck) else {
         message.set(Some(t!("selection.export_error_render", reason = "deck").to_string()));
         return;
@@ -871,35 +890,47 @@ fn export_pptx(
         return;
     };
 
+    let mode = if cfg!(target_arch = "wasm32") {
+        "\"download\""
+    } else {
+        "\"base64\""
+    };
+
     let script = PPTX_EXPORT_JS
         .replace("__DECK__", &deck_json)
         .replace("__FILE_NAME__", &name_json)
-        .replace("__PPTXGEN_URL__", &url_json);
+        .replace("__PPTXGEN_URL__", &url_json)
+        .replace("__MODE__", mode);
 
     spawn(async move {
-        // The shim returns `{ok, error}`; anything else means the evaluation
-        // itself broke. Either way the user hears about it — a download that
-        // never arrives is otherwise indistinguishable from a dead button.
-        let reason = match document::eval(&script).await {
+        // The shim returns `{ok, error, data}`; anything else means the
+        // evaluation itself broke. Either way the user hears about it — a file
+        // that never arrives is otherwise indistinguishable from a dead button.
+        let outcome = match document::eval(&script).await {
             Ok(value) => {
                 if value.get("ok").and_then(|ok| ok.as_bool()) == Some(true) {
-                    None
+                    Ok(value
+                        .get("data")
+                        .and_then(|data| data.as_str())
+                        .unwrap_or_default()
+                        .to_string())
                 } else {
-                    Some(
-                        value
-                            .get("error")
-                            .and_then(|error| error.as_str())
-                            .unwrap_or("unknown")
-                            .to_string(),
-                    )
+                    Err(value
+                        .get("error")
+                        .and_then(|error| error.as_str())
+                        .unwrap_or("unknown")
+                        .to_string())
                 }
             }
-            Err(error) => Some(format!("{error:?}")),
+            Err(error) => Err(format!("{error:?}")),
         };
 
-        match reason {
-            None => close_dialog.set(false),
-            Some(reason) => {
+        #[cfg(not(target_arch = "wasm32"))]
+        let outcome = outcome.and_then(|data| write_pptx_file(&data, &target_path));
+
+        match outcome {
+            Ok(_) => close_dialog.set(false),
+            Err(reason) => {
                 log::error!("could not write the PowerPoint file: {reason}");
                 message.set(Some(
                     t!("selection.export_error_render", reason = reason).to_string(),
@@ -907,6 +938,23 @@ fn export_pptx(
             }
         }
     });
+}
+
+/// Decodes the deck PptxGenJS produced and writes it to `path`.
+#[cfg(not(target_arch = "wasm32"))]
+fn write_pptx_file(base64_data: &str, path: &std::path::Path) -> Result<String, String> {
+    use base64::Engine;
+
+    if base64_data.is_empty() {
+        return Err("PptxGenJS returned no data".to_string());
+    }
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|error| error.to_string())?;
+
+    std::fs::write(path, bytes).map_err(|error| error.to_string())?;
+    Ok(path.display().to_string())
 }
 
 /// Where PptxGenJS is loaded from.
@@ -1207,5 +1255,54 @@ fn ExportMenu(
                 }
             }
         }
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("cantara-pptx-test-{name}.pptx"))
+    }
+
+    /// The bytes PptxGenJS produced have to reach the disk unchanged — a PPTX
+    /// is a ZIP, and one wrong byte makes PowerPoint refuse the whole file.
+    #[test]
+    fn test_the_decoded_deck_is_written_verbatim() {
+        // A minimal ZIP: the signature PowerPoint looks for first.
+        let content = b"PK\x03\x04hello";
+        let encoded = {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode(content)
+        };
+        let path = temp_path("verbatim");
+
+        write_pptx_file(&encoded, &path).expect("the file should be written");
+
+        let written = std::fs::read(&path).expect("the file should exist");
+        assert_eq!(written, content);
+        assert_eq!(&written[..2], b"PK", "the ZIP signature was mangled");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// An export that produced nothing must say so instead of leaving a
+    /// zero-byte file behind that PowerPoint cannot open.
+
+    #[test]
+    fn test_empty_data_is_refused() {
+        let path = temp_path("empty");
+
+        assert!(write_pptx_file("", &path).is_err());
+        assert!(!path.exists(), "an empty file was left behind");
+    }
+
+    #[test]
+    fn test_damaged_data_is_refused() {
+        let path = temp_path("damaged");
+
+        assert!(write_pptx_file("not base64 !!!", &path).is_err());
+        assert!(!path.exists(), "a damaged file was left behind");
     }
 }
