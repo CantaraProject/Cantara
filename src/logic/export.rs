@@ -170,6 +170,7 @@ impl ExportFormat {
 }
 
 /// One file the export produced.
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ExportedFile {
     /// The file name without its extension.
     pub name: String,
@@ -280,6 +281,63 @@ mod tests {
             ));
         song.add_guessed_part_order();
         song
+    }
+
+    /// The songs Cantara ships as test data are lyrics-only classic files.
+    /// Exporting them to LilyPond has to say so rather than doing nothing.
+    #[test]
+    fn test_lilypond_of_a_lyrics_only_song_reports_why() {
+        let content = std::fs::read_to_string("testfiles/Amazing Grace.song").unwrap();
+        let song = song_from_content("Amazing Grace.song", &content).unwrap();
+
+        match ExportFormat::LilyPond.render(&[song]) {
+            Err(ExportError::SongFailed { title, reason }) => {
+                assert_eq!(title, "Amazing Grace");
+                assert!(
+                    reason.contains("no voice content"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected a clear failure, got {:?}", other.map(|f| f.len())),
+        }
+    }
+
+    /// A song that does carry a melody exports fine.
+    #[test]
+    fn test_lilypond_of_a_song_with_a_melody() {
+        let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
+        let song = song_from_content("Amazing Grace.song.yml", &content).unwrap();
+
+        let files = ExportFormat::LilyPond.render(&[song]).expect("render");
+        assert_eq!(files.len(), 1);
+        assert!(files[0].content.contains("\\score"));
+        assert_eq!(files[0].name, "Amazing Grace");
+    }
+
+    /// Prints what the export dialog's preview would show for each format.
+    #[test]
+    #[ignore = "diagnostic output, not an assertion"]
+    fn dump_export_previews() {
+        for (file, label) in [
+            ("testfiles/Amazing Grace.song", "classic, no melody"),
+            ("testfiles/Amazing Grace.song.yml", "yaml, with melody"),
+        ] {
+            let content = std::fs::read_to_string(file).unwrap();
+            let name = std::path::Path::new(file).file_name().unwrap().to_str().unwrap();
+            let song = song_from_content(name, &content).unwrap();
+
+            for format in ExportFormat::ALL {
+                let first_line = match format.render(std::slice::from_ref(&song)) {
+                    Ok(files) => format!(
+                        "{} file(s), first line: {}",
+                        files.len(),
+                        files[0].content.lines().next().unwrap_or("")
+                    ),
+                    Err(error) => format!("ERROR {error:?}"),
+                };
+                println!("  {label:<20} {:<10} {first_line}", format.id());
+            }
+        }
     }
 
     #[test]

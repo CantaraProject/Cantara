@@ -705,6 +705,7 @@ mod tests {
     };
 
     use super::*;
+    use cantara_songlib::slides::LanguageConfiguration;
 
     /// Prints one complex slide, so the exact ABC handed to abcjs can be seen
     /// with `cargo test dump_complex_slide -- --nocapture --ignored`.
@@ -753,6 +754,88 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The meta information template configured in the slide settings has to
+    /// reach the finished slides — it was never rendered before, and the
+    /// settings were never persisted either.
+    #[test]
+    fn test_meta_information_reaches_the_slides() {
+        use cantara_songlib::slides::ShowMetaInformation;
+
+        let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
+        let settings = SlideSettings {
+            title_slide: true,
+            empty_last_slide: false,
+            show_spoiler: false,
+            max_lines: None,
+            meta_syntax: "{{title}} ({{author}})".to_string(),
+            show_meta_information: ShowMetaInformation::all(),
+            language: LanguageConfiguration::SingleLanguage(None),
+        };
+
+        let slides =
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x").unwrap();
+
+        let carrying = slides.iter().filter(|slide| slide.has_meta_text()).count();
+        assert!(carrying > 0, "no slide carries the meta information");
+
+        let rendered = serde_json::to_string(&slides).unwrap();
+        assert!(
+            rendered.contains("Amazing Grace (John Newton)"),
+            "the template was not rendered into the slides"
+        );
+
+        // And with the metadata switched off, no slide carries one.
+        let settings = SlideSettings {
+            show_meta_information: ShowMetaInformation::none(),
+            ..settings
+        };
+        let slides =
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x").unwrap();
+        assert_eq!(slides.iter().filter(|slide| slide.has_meta_text()).count(), 0);
+    }
+
+    /// Switching the layout in the settings has to change the kind of slide
+    /// that comes out.
+    #[test]
+    fn test_the_layout_setting_changes_the_slides() {
+        use cantara_songlib::slides::{ShowMetaInformation, SlideElement};
+
+        let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
+        let base = SlideSettings {
+            title_slide: false,
+            empty_last_slide: false,
+            show_spoiler: false,
+            max_lines: None,
+            meta_syntax: String::new(),
+            show_meta_information: ShowMetaInformation::none(),
+            language: LanguageConfiguration::SingleLanguage(None),
+        };
+
+        let simple =
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &base, "x").unwrap();
+        assert!(simple.iter().all(|slide| !matches!(
+            slide.slide_content,
+            SlideContent::Complex(_)
+        )));
+
+        let complex_settings = SlideSettings {
+            language: LanguageConfiguration::Complex(vec![
+                SlideElement::Notation,
+                SlideElement::Lyrics("en".to_string()),
+            ]),
+            ..base
+        };
+        let complex =
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &complex_settings, "x")
+                .unwrap();
+        assert!(
+            complex
+                .iter()
+                .any(|slide| matches!(slide.slide_content, SlideContent::Complex(_))),
+            "the complex layout produced no complex slides"
+        );
     }
 
     #[test]

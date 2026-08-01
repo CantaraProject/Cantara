@@ -831,28 +831,40 @@ fn save_exported_files(
     Ok(SaveOutcome::Written(files.len()))
 }
 
-fn show_export_error(error_message: &str) {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = rfd::MessageDialog::new()
-            .set_title("Cantara")
-            .set_description(error_message)
-            .set_buttons(rfd::MessageButtons::Ok)
-            .show();
-    }
+/// Copy a string to the system clipboard.
+///
+/// The desktop build goes through the webview so that the same code path works
+/// on every platform Cantara ships on.
+fn copy_to_clipboard(text: &str) {
+    let Ok(payload) = serde_json::to_string(text) else {
+        return;
+    };
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Ok(message_json) = serde_json::to_string(error_message) {
-            spawn(async move {
-                let _ = document::eval(&format!("window.alert({message_json});")).await;
-            });
-        }
-    }
+    spawn(async move {
+        let script = format!(
+            r#"
+            (async function() {{
+                const text = {payload};
+                try {{
+                    await navigator.clipboard.writeText(text);
+                }} catch (error) {{
+                    // Older webviews have no async clipboard API.
+                    const area = document.createElement('textarea');
+                    area.value = text;
+                    area.style.position = 'fixed';
+                    area.style.opacity = '0';
+                    document.body.appendChild(area);
+                    area.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(area);
+                }}
+            }})();
+            "#
+        );
+        let _ = document::eval(&script).await;
+    });
 }
 
-/// Export menu component that provides various export options for selected songs.
-/// The menu can be extended with additional export formats in the future.
 #[component]
 fn ExportMenu(
     /// Signal to control the visibility of the export menu
@@ -861,6 +873,7 @@ fn ExportMenu(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
 ) -> Element {
     let mut export_format: Signal<ExportFormat> = use_signal(|| ExportFormat::PlainText);
+    let mut copied = use_signal(|| false);
 
     let song_count = use_memo(move || {
         selected_items
@@ -870,25 +883,41 @@ fn ExportMenu(
             .count()
     });
 
-    let handle_export = move |_| {
+    // The document is rendered as soon as the dialog opens and again whenever
+    // the format changes, so the preview always shows what would be saved —
+    // and a format that cannot be produced says why instead of doing nothing
+    // when the button is pressed.
+    let rendered: Memo<Result<Vec<ExportedFile>, String>> = use_memo(move || {
         let selected = selected_items.read().clone();
         let format = *export_format.read();
-
-        let result = songs_of_selection(&selected)
+        songs_of_selection(&selected)
             .and_then(|songs| format.render(&songs))
-            .and_then(|files| save_exported_files(&files, format));
+            .map_err(|error| export_error_message(&error))
+    });
 
-        match result {
+    let preview_text = use_memo(move || match &*rendered.read() {
+        Ok(files) => files
+            .first()
+            .map(|file| file.content.clone())
+            .unwrap_or_default(),
+        Err(message) => message.clone(),
+    });
+
+    let handle_save = move |_| {
+        let format = *export_format.read();
+        let outcome = match &*rendered.read() {
+            Ok(files) => save_exported_files(files, format).map_err(|error| export_error_message(&error)),
+            Err(message) => Err(message.clone()),
+        };
+
+        match outcome {
             Ok(SaveOutcome::Written(count)) => {
                 log::info!("exported {count} file(s) as {}", format.id());
                 show_export_menu.set(false);
             }
             // Closing the file dialog is not a failure and needs no message.
             Ok(SaveOutcome::Cancelled) => {}
-            Err(error) => {
-                log::warn!("export failed: {error:?}");
-                show_export_error(&export_error_message(&error));
-            }
+            Err(message) => log::warn!("export failed: {message}"),
         }
     };
 
@@ -904,27 +933,65 @@ fn ExportMenu(
                     event.stop_propagation();
                 },
                 h3 { {t!("selection.export_title").to_string()} }
-                p {
-                    {t!("selection.export_description", count = song_count()).to_string()}
-                }
 
-                label {
-                    {t!("selection.export_format").to_string()}
-                    select {
-                        value: export_format.read().id(),
-                        onchange: move |event| {
-                            if let Some(format) = ExportFormat::from_id(&event.value()) {
-                                export_format.set(format);
+                div { class: "export-menu-body",
+                    div { class: "export-menu-options",
+                        p {
+                            {t!("selection.export_description", count = song_count()).to_string()}
+                        }
+
+                        label {
+                            {t!("selection.export_format").to_string()}
+                            select {
+                                value: export_format.read().id(),
+                                onchange: move |event| {
+                                    if let Some(format) = ExportFormat::from_id(&event.value()) {
+                                        export_format.set(format);
+                                        copied.set(false);
+                                    }
+                                },
+                                for format in ExportFormat::ALL {
+                                    option { value: format.id(), {t!(format.label_key()).to_string()} }
+                                }
                             }
-                        },
-                        for format in ExportFormat::ALL {
-                            option { value: format.id(), {t!(format.label_key()).to_string()} }
+                        }
+
+                        if let Ok(files) = &*rendered.read() {
+                            if files.len() > 1 {
+                                small {
+                                    {
+                                        t!("selection.export_files_note", count = files.len())
+                                            .to_string()
+                                    }
+                                }
+                            }
                         }
                     }
-                }
 
-                if export_format.read().one_file_per_song() && song_count() > 1 {
-                    small { {t!("selection.export_choose_folder").to_string()} }
+                    div { class: "export-menu-preview",
+                        label { {t!("selection.export_preview").to_string()} }
+                        textarea {
+                            class: if rendered.read().is_err() { "export-preview-text has-error" } else { "export-preview-text" },
+                            readonly: true,
+                            spellcheck: false,
+                            wrap: "off",
+                            value: "{preview_text}",
+                        }
+                        button {
+                            r#type: "button",
+                            class: "outline",
+                            disabled: rendered.read().is_err(),
+                            onclick: move |_| {
+                                copy_to_clipboard(&preview_text.read());
+                                copied.set(true);
+                            },
+                            if copied() {
+                                {t!("selection.export_copied").to_string()}
+                            } else {
+                                {t!("selection.export_copy").to_string()}
+                            }
+                        }
+                    }
                 }
 
                 div { class: "export-menu-actions",
@@ -937,9 +1004,9 @@ fn ExportMenu(
                     }
                     button {
                         class: "primary",
-                        disabled: song_count() == 0,
-                        onclick: handle_export,
-                        {t!("selection.export_button").to_string()}
+                        disabled: rendered.read().is_err(),
+                        onclick: handle_save,
+                        {t!("selection.export_save").to_string()}
                     }
                 }
             }

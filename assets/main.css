@@ -424,20 +424,79 @@ div.inline-div {
     border-radius: var(--pico-border-radius, 0.5rem);
     box-shadow: var(--pico-card-box-shadow, 0 4px 16px rgba(0, 0, 0, 0.25));
     padding: 1.5rem;
-    max-width: 32rem;
+    max-width: 60rem;
     width: 100%;
     max-height: 90vh;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .export-menu-modal h3 {
     margin-top: 0;
+    flex: 0 0 auto;
 }
 
-.export-menu-modal small {
+/* Narrow screens stack the options above the preview; from 48rem up the
+   preview moves to the right of them, which is where there is room for it. */
+.export-menu-body {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+@media (min-width: 48rem) {
+    .export-menu-body {
+        grid-template-columns: minmax(14rem, 20rem) 1fr;
+        overflow-y: visible;
+    }
+}
+
+.export-menu-options {
+    min-width: 0;
+}
+
+.export-menu-options small {
     display: block;
-    margin-bottom: 1rem;
+    margin-top: 0.5rem;
     opacity: 0.8;
+}
+
+.export-menu-preview {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.export-preview-text {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 16rem;
+    max-height: 55vh;
+    resize: vertical;
+    font-family: var(--pico-font-family-monospace, ui-monospace, monospace);
+    font-size: 0.85rem;
+    line-height: 1.4;
+    white-space: pre;
+    overflow: auto;
+    margin-bottom: 0.5rem;
+}
+
+/* A format that cannot be produced shows the reason here instead of the
+   document, so pressing the button is never a silent no-op. */
+.export-preview-text.has-error {
+    color: var(--pico-del-color, #b3261e);
+    white-space: pre-wrap;
+}
+
+.export-menu-preview button {
+    width: auto;
+    align-self: flex-start;
+    margin: 0;
 }
 
 .export-menu-actions {
@@ -445,6 +504,7 @@ div.inline-div {
     gap: 0.75rem;
     justify-content: flex-end;
     margin-top: 1rem;
+    flex: 0 0 auto;
 }
 
 .export-menu-actions button {

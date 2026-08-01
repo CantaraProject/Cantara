@@ -147,6 +147,21 @@ selection:
   export_done:
     en: "%{count} file(s) exported."
     de: "%{count} Datei(en) exportiert."
+  export_preview:
+    en: Preview
+    de: Vorschau
+  export_copy:
+    en: Copy to clipboard
+    de: In die Zwischenablage kopieren
+  export_copied:
+    en: Copied
+    de: Kopiert
+  export_files_note:
+    en: "%{count} files will be written, one per song. The preview shows the first."
+    de: "Es werden %{count} Dateien geschrieben, eine je Lied. Die Vorschau zeigt die erste."
+  export_save:
+    en: Save as file...
+    de: Als Datei speichern...
   export_format_pdf:
     en: PDF (coming soon)
     de: PDF (demnächst)

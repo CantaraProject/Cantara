@@ -69,9 +69,14 @@
             paddingleft: 0,
             paddingright: 0,
             staffwidth: element.clientWidth > 0 ? element.clientWidth : 700,
-            // The lyrics belong to the staff, so they scale with it.
             format: {
-                vocalfont: __VOCAL_FONT__
+                // abcjs only honours this as a "family size" string; an object
+                // is silently ignored and the words stay at its small default.
+                vocalfont: __VOCAL_FONT__,
+                // Engraving convention leaves the last system short. On a slide
+                // that reads as a mistake, so it is stretched like the others.
+                // This too is only honoured inside `format`.
+                stretchlast: 1
             }
         });
 

@@ -755,6 +755,8 @@ pub fn PresentationRendererComponent(
 fn TitleSlideComponent(
     title_slide: TitleSlide,
     title_font_representation: FontRepresentation,
+    /// Font for the meta information line below the headline.
+    meta_font: FontRepresentation,
 ) -> Element {
     // Build the CSS
     let css_handler: Memo<CssHandler> = use_memo(move || {
@@ -766,9 +768,26 @@ fn TitleSlideComponent(
     });
     let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
 
+    let meta_style = {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        css.opacity(1.0);
+        css.extend(&CssHandler::from(meta_font));
+        css.to_string()
+    };
+    let meta_text = title_slide
+        .meta_text
+        .clone()
+        .filter(|text| !text.trim().is_empty());
+
     rsx! {
         div { class: "headline", style: css_handler_string(),
             p { style: css_handler_string(), {title_slide.title_text} }
+            // On the title slide the meta information belongs under the
+            // headline, in the normal flow, so it reads as part of the title.
+            if let Some(text) = meta_text {
+                p { class: "headline-meta-text", style: "{meta_style}", "{text}" }
+            }
         }
     }
 }
@@ -954,9 +973,17 @@ fn ComplexSlideRenderer(
         css
     });
 
+    // Captured before the memo below moves the font, so the notation can be
+    // drawn with lyrics at least as large as the spoiler text.
+    let lyrics_font_size = spoiler_content_font.font_size.clone();
+
     let spoiler_css: Memo<CssHandler> = use_memo(move || {
         let mut css = CssHandler::new();
         css.set_important(true);
+        // The colour comes from the design's spoiler font. Pinning the opacity
+        // here — as the other slide renderers do — keeps a stylesheet rule from
+        // dimming it on top of that.
+        css.opacity(1.0);
         css.extend(&CssHandler::from(spoiler_content_font.clone()));
         css
     });
@@ -982,6 +1009,7 @@ fn ComplexSlideRenderer(
                         AbcNotationRenderer {
                             abc_notation: row.content.clone(),
                             notation_font: notation_font.clone(),
+                            lyrics_font_size: lyrics_font_size.clone(),
                         }
                     }
                 } else {
@@ -1016,6 +1044,38 @@ fn ComplexSlideRenderer(
     }
 }
 
+/// The `vocalfont` string abcjs expects for the words under the staff.
+///
+/// abcjs only accepts this as a `"family size"` **string**; an object is
+/// silently ignored and the words stay at the library's small default, which is
+/// unreadable from the back of a hall. The size is a point value that abcjs
+/// scales by about 4/3 when drawing.
+///
+/// The size follows the configured spoiler text, so the words under the notes
+/// are never smaller than the preview line on the same slide.
+fn abcjs_vocal_font(font: &FontRepresentation, size: &CssSize) -> String {
+    let points = match size {
+        CssSize::Px(value) => value * 0.75,
+        CssSize::Pt(value) => *value,
+        CssSize::Em(value) => value * 12.0,
+        CssSize::Percentage(value) => value / 100.0 * 12.0,
+        CssSize::Null => 0.0,
+    }
+    // Never below abcjs's own default.
+    .max(14.0);
+
+    let family = font
+        .font_family
+        .as_ref()
+        .and_then(|family| family.family.clone())
+        .filter(|family| !family.trim().is_empty())
+        .unwrap_or_else(|| "sans-serif".to_string());
+
+    // abcjs reads the last whitespace-separated token as the size, so a family
+    // name of several words still works.
+    format!("{} {}", family.replace(['"', '\''], ""), points.round())
+}
+
 /// Renders one ABC notation snippet with [abcjs](https://abcjs.net).
 ///
 /// Each notation row handed over by the song library is a complete ABC tune —
@@ -1032,6 +1092,8 @@ fn AbcNotationRenderer(
     abc_notation: String,
     /// Font settings for styling the notation
     notation_font: FontRepresentation,
+    /// How large the words under the notes should be drawn.
+    lyrics_font_size: CssSize,
 ) -> Element {
     let container_id = use_hook(|| format!("abc-{}", Uuid::new_v4().as_simple()));
 
@@ -1042,15 +1104,7 @@ fn AbcNotationRenderer(
         css.to_string()
     };
 
-    // abcjs styles the lyrics under the staff itself, so the font is passed on
-    // in its own format ("family size").
-    let vocal_font = serde_json::json!({
-        "face": notation_font.font_family.clone(),
-        "size": 14,
-        "weight": "normal",
-        "style": "normal",
-        "decoration": "none",
-    });
+    let vocal_font = abcjs_vocal_font(&notation_font, &lyrics_font_size);
 
     #[cfg(not(target_arch = "wasm32"))]
     let abcjs_url = format!("{}", ABCJS_LIB);
@@ -1119,8 +1173,83 @@ fn slide_container_style(slide_content: &SlideContent) -> &'static str {
 /// Renders the content of a single slide based on its [SlideContent] type.
 /// Shared between [PresentationRendererComponent] and [StaticSlideRendererComponent]
 /// to avoid duplicating the slide content matching logic.
+/// The meta information line a slide carries, if any.
+///
+/// Which slides get one is decided by the song library from
+/// `ShowMetaInformation`; the renderer only has to put it on screen.
+/// `SingleLanguageMainContentSlide::meta_text` is private in the song library
+/// and has no accessor, so it is read through serde — the same workaround this
+/// module already uses for `SimplePictureSlide::picture_path`.
+fn meta_text_of(slide_content: &SlideContent) -> Option<String> {
+    let text = match slide_content {
+        SlideContent::Title(title) => title.meta_text.clone(),
+        SlideContent::MultiLanguageMainContent(multi) => multi.meta_text.clone(),
+        SlideContent::Complex(complex) => complex.meta_text.clone(),
+        SlideContent::SingleLanguageMainContent(_) => {
+            serde_json::to_value(slide_content)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .as_object()
+                        .and_then(|map| map.values().next())
+                        .and_then(|inner| inner.get("meta_text"))
+                        .and_then(|meta| meta.as_str())
+                        .map(String::from)
+                })
+        }
+        SlideContent::Empty(_) | SlideContent::SimplePicture(_) | SlideContent::PdfPage(_) => None,
+    };
+    text.filter(|text| !text.trim().is_empty())
+}
+
+/// The meta information line in the corner of a content slide.
+///
+/// Rendered as an overlay rather than inside the slide, because the slide
+/// container is sized to its content — anything positioned inside it would
+/// land on top of the last line of lyrics instead of at the bottom of the
+/// screen.
+#[component]
+fn MetaTextCorner(text: String, meta_font: FontRepresentation) -> Element {
+    let style = {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        // The design's meta font already carries the intended colour.
+        css.opacity(1.0);
+        css.extend(&CssHandler::from(meta_font));
+        css.to_string()
+    };
+
+    rsx! {
+        div { class: "slide-meta-corner", style: "{style}", "{text}" }
+    }
+}
+
 #[component]
 fn SlideContentRenderer(
+    slide_content: SlideContent,
+    pds: PresentationDesignTemplate,
+    running_presentation: Option<Signal<RunningPresentation>>,
+) -> Element {
+    let meta_text = meta_text_of(&slide_content);
+    let meta_font = pds.get_default_meta_font();
+
+    // The title slide shows the meta information right below the headline, so
+    // it reads as part of the title. Every other slide keeps it out of the way
+    // in the bottom corner.
+    let is_title_slide = matches!(slide_content, SlideContent::Title(_));
+
+    rsx! {
+        {slide_body(slide_content, pds, running_presentation)}
+        if let Some(text) = meta_text {
+            if !is_title_slide {
+                MetaTextCorner { text, meta_font }
+            }
+        }
+    }
+}
+
+/// The slide itself, without the meta information line.
+fn slide_body(
     slide_content: SlideContent,
     pds: PresentationDesignTemplate,
     running_presentation: Option<Signal<RunningPresentation>>,
@@ -1130,6 +1259,7 @@ fn SlideContentRenderer(
             TitleSlideComponent {
                 title_slide: title_slide.clone(),
                 title_font_representation: pds.get_default_headline_font(),
+                meta_font: pds.get_default_meta_font(),
             }
         },
         SlideContent::SingleLanguageMainContent(main_slide) => {

@@ -50,13 +50,18 @@ pub fn SongSlideSettingsPage(
                 MetaSettings {
                     slide_settings: selected_slide_settings(),
                     on_settings_changed: move |updated_settings: SlideSettings| {
-                        let mut settings_write = settings.write();
-                        if let Some(origin_settings) = settings_write
-                            .song_slide_settings
-                            .get_mut(index as usize)
                         {
-                            *origin_settings = updated_settings;
+                            let mut settings_write = settings.write();
+                            if let Some(origin_settings) = settings_write
+                                .song_slide_settings
+                                .get_mut(index as usize)
+                            {
+                                *origin_settings = updated_settings;
+                            }
                         }
+                        // Persist right away: the edit page has no save button,
+                        // so without this every change was lost on restart.
+                        settings.peek().save();
                     },
                 }
             }
