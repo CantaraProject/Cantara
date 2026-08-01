@@ -40,8 +40,16 @@ use crate::logic::pptx::{PptxConversion, PptxDeck, deck_from_slides};
 
 const PPTX_EXPORT_JS: &str = include_str!("../../assets/pptx_export_inline.js");
 /// PptxGenJS is bundled from `node_modules` so that an export works offline.
+///
+/// Minification has to stay off: the bundle publishes itself with a top-level
+/// `var PptxGenJS = ...`, which only becomes a global because a classic script
+/// puts its `var`s on `window`. The minifier renames it — the file then loads
+/// without error and registers nothing at all.
 #[cfg(not(target_arch = "wasm32"))]
-const PPTXGEN_LIB: Asset = asset!("/node_modules/pptxgenjs/dist/pptxgen.bundle.js");
+const PPTXGEN_LIB: Asset = asset!(
+    "/node_modules/pptxgenjs/dist/pptxgen.bundle.js",
+    AssetOptions::js().with_minify(false)
+);
 /// The web build has no `node_modules`, so it takes the library from a CDN.
 #[cfg(target_arch = "wasm32")]
 const PPTXGEN_CDN_LIB: &str = "https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js";
@@ -846,8 +854,14 @@ fn save_exported_files(
 /// The file is built in the browser by PptxGenJS from the deck description in
 /// [`crate::logic::pptx`], so no native PowerPoint library is needed and the
 /// same code path works on the desktop and on the web.
-fn export_pptx(deck: &PptxDeck, file_name: &str) {
+fn export_pptx(
+    deck: &PptxDeck,
+    file_name: &str,
+    mut message: Signal<Option<String>>,
+    mut close_dialog: Signal<bool>,
+) {
     let Ok(deck_json) = serde_json::to_string(deck) else {
+        message.set(Some(t!("selection.export_error_render", reason = "deck").to_string()));
         return;
     };
     let Ok(name_json) = serde_json::to_string(file_name) else {
@@ -863,8 +877,34 @@ fn export_pptx(deck: &PptxDeck, file_name: &str) {
         .replace("__PPTXGEN_URL__", &url_json);
 
     spawn(async move {
-        if let Err(error) = document::eval(&script).await {
-            log::error!("could not write the PowerPoint file: {error:?}");
+        // The shim returns `{ok, error}`; anything else means the evaluation
+        // itself broke. Either way the user hears about it — a download that
+        // never arrives is otherwise indistinguishable from a dead button.
+        let reason = match document::eval(&script).await {
+            Ok(value) => {
+                if value.get("ok").and_then(|ok| ok.as_bool()) == Some(true) {
+                    None
+                } else {
+                    Some(
+                        value
+                            .get("error")
+                            .and_then(|error| error.as_str())
+                            .unwrap_or("unknown")
+                            .to_string(),
+                    )
+                }
+            }
+            Err(error) => Some(format!("{error:?}")),
+        };
+
+        match reason {
+            None => close_dialog.set(false),
+            Some(reason) => {
+                log::error!("could not write the PowerPoint file: {reason}");
+                message.set(Some(
+                    t!("selection.export_error_render", reason = reason).to_string(),
+                ));
+            }
         }
     });
 }
@@ -1017,14 +1057,23 @@ fn ExportMenu(
         Err(message) => message.clone(),
     });
 
+    // Shown in the dialog when a save fails, so the dialog stays open with a
+    // reason instead of quietly doing nothing.
+    let mut save_error: Signal<Option<String>> = use_signal(|| None);
+
     let handle_save = move |_| {
         let format = *export_format.read();
+        save_error.set(None);
 
         // The binary formats are written by the browser, not by Rust.
         if format.is_binary() {
             if let Some(conversion) = conversion.read().clone() {
-                export_pptx(&conversion.deck, "cantara-presentation.pptx");
-                show_export_menu.set(false);
+                export_pptx(
+                    &conversion.deck,
+                    "cantara-presentation.pptx",
+                    save_error,
+                    show_export_menu,
+                );
             }
             return;
         }
@@ -1043,7 +1092,10 @@ fn ExportMenu(
             }
             // Closing the file dialog is not a failure and needs no message.
             Ok(SaveOutcome::Cancelled) => {}
-            Err(message) => log::warn!("export failed: {message}"),
+            Err(message) => {
+                log::warn!("export failed: {message}");
+                save_error.set(Some(message));
+            }
         }
     };
 
@@ -1132,6 +1184,10 @@ fn ExportMenu(
                             }
                         }
                     }
+                }
+
+                if let Some(message) = save_error() {
+                    p { class: "export-save-error", role: "alert", {message} }
                 }
 
                 div { class: "export-menu-actions",

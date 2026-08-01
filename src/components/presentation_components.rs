@@ -29,7 +29,12 @@ const ABC_RENDER_JS: &str = include_str!("../../assets/abc_render_inline.js");
 /// abcjs is bundled from `node_modules` so that notation renders without a
 /// network connection — a presentation in a church hall often has none.
 #[cfg(not(target_arch = "wasm32"))]
-const ABCJS_LIB: Asset = asset!("/node_modules/abcjs/dist/abcjs-basic-min.js");
+/// Already minified, and minifying it again risks breaking the UMD wrapper that
+/// publishes `window.ABCJS` — the way it broke PptxGenJS.
+const ABCJS_LIB: Asset = asset!(
+    "/node_modules/abcjs/dist/abcjs-basic-min.js",
+    AssetOptions::js().with_minify(false)
+);
 /// On the web target `node_modules` is not available, so the library comes
 /// from a CDN, as it does for PDF.js.
 #[cfg(target_arch = "wasm32")]

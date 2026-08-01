@@ -511,3 +511,10 @@ div.inline-div {
     width: auto;
     margin: 0;
 }
+
+/* A failed export says why, right where the button is. */
+.export-save-error {
+    margin: 0.5rem 0 0;
+    color: var(--pico-del-color, #b3261e);
+    font-size: 0.9em;
+}

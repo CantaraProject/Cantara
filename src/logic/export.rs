@@ -169,7 +169,10 @@ impl ExportFormat {
     /// Render the whole selection.
     ///
     /// Returns one entry per file to write: a single document for the text
-    /// formats, one per song for the sheet-music formats.
+    /// formats, one per song for the sheet-music formats. The application
+    /// always goes through [`render_with`](Self::render_with); this is the
+    /// shorthand the tests use for the formats that need no template.
+    #[cfg(test)]
     pub fn render(self, songs: &[Song]) -> Result<Vec<ExportedFile>, ExportError> {
         self.render_with(songs, "")
     }

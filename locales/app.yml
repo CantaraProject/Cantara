@@ -100,8 +100,8 @@ selection:
     en: Export Songs
     de: Lieder exportieren
   export_description:
-    en: "Export {count} selected song(s) in your preferred format:"
-    de: "{count} ausgewählte(s) Lied(er) im gewünschten Format exportieren:"
+    en: "Export %{count} selected song(s) in your preferred format:"
+    de: "%{count} ausgewählte(s) Lied(er) im gewünschten Format exportieren:"
   export_format:
     en: Export Format
     de: Export-Format

@@ -10,7 +10,7 @@ use crate::logic::sync::{
     SYNC_KEY_QUIT,
 };
 use crate::MAIN_CSS;
-use cantara_songlib::slides::SlideContent;
+use cantara_songlib::slides::{SlideContent, SlideRow};
 use dioxus::prelude::*;
 use rust_i18n::t;
 
@@ -554,6 +554,19 @@ fn PdfPageTextContent(path: String, page_number: u32, page_info: String) -> Elem
     }
 }
 
+/// The rows of a complex slide that a moderator can actually read.
+///
+/// Notation rows are dropped — their content is ABC source. Rows flagged
+/// `redundant` are **kept**: they repeat the words printed under the notes, and
+/// on a notation slide that is the only place the text appears as text.
+fn readable_rows(rows: &[SlideRow]) -> Vec<String> {
+    rows.iter()
+        .filter(|row| !row.is_notation())
+        .map(|row| row.content.clone())
+        .filter(|content| !content.trim().is_empty())
+        .collect()
+}
+
 /// Extracts and renders text from a slide for the presenter console text panel
 #[component]
 fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
@@ -620,10 +633,51 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
                 }
             }
         }
-        _ => {
+        // The words the congregation sees, whatever the layout puts them in.
+        // The notation row is left out — its content is ABC source, not
+        // something a moderator can read — but the lyrics row that repeats what
+        // the notes carry is kept, because on a notation slide it is the only
+        // place the text appears in readable form.
+        SlideContent::Complex(complex_slide) => {
+            let lines = readable_rows(&complex_slide.rows);
+            let spoiler = readable_rows(&complex_slide.spoiler);
+
             rsx! {
-                div { class: "slide-text-unknown",
-                    em { "..." }
+                div { class: "slide-text-content",
+                    for line in lines {
+                        p { {line} }
+                    }
+                    for line in spoiler {
+                        p { class: "slide-text-spoiler", {line} }
+                    }
+                }
+            }
+        }
+        // A PDF page reached the console as "..." while the wildcard arm was
+        // still here; it gets the same text extraction as a PDF picture slide.
+        SlideContent::PdfPage(pdf_slide) => {
+            let page_number = pdf_slide.page_number;
+            let path = pdf_slide.pdf_path.clone();
+            let page_info = format!(" ({})", t!("general.pdf_page", page => page_number));
+
+            rsx! {
+                PdfPageTextContent {
+                    key: "{path}#{page_number}",
+                    path,
+                    page_number,
+                    page_info,
+                }
+            }
+        }
+        SlideContent::MultiLanguageMainContent(multi_slide) => {
+            rsx! {
+                div { class: "slide-text-content",
+                    for text in multi_slide.main_text_list.clone() {
+                        p { {text} }
+                    }
+                    for text in multi_slide.spoiler_text_vector.clone() {
+                        p { class: "slide-text-spoiler", {text} }
+                    }
                 }
             }
         }
@@ -758,5 +812,64 @@ fn PresenterControlBar(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bug this guards against: a notation slide showed nothing but "..."
+    /// in the console, because the lyrics row that carries the words under the
+    /// notes is flagged redundant and was being filtered out.
+    #[test]
+    fn test_redundant_rows_are_still_readable() {
+        let rows = vec![
+            SlideRow::notation("X:1\nK:C\nCDEF|", 4),
+            SlideRow::lyrics(Some("de".to_string()), "Sei nicht stolz auf das, was du bist")
+                .also_shown_in_notation(),
+        ];
+
+        let lines = readable_rows(&rows);
+
+        assert_eq!(lines, vec!["Sei nicht stolz auf das, was du bist"]);
+    }
+
+    /// ABC source is not something a moderator can read off a screen.
+    #[test]
+    fn test_notation_source_never_reaches_the_console() {
+        let rows = vec![
+            SlideRow::notation("X:1\nM:4/4\nK:G\nGABc|", 4),
+            SlideRow::lyrics(Some("en".to_string()), "Amazing grace"),
+        ];
+
+        for line in readable_rows(&rows) {
+            assert!(!line.contains("X:1"), "the ABC header leaked through");
+            assert!(!line.contains("K:G"), "the ABC key leaked through");
+        }
+    }
+
+    /// Every language stays, in the order the user asked for.
+    #[test]
+    fn test_every_language_is_listed_in_order() {
+        let rows = vec![
+            SlideRow::lyrics(Some("en".to_string()), "Amazing grace"),
+            SlideRow::lyrics(Some("de".to_string()), "Erstaunliche Gnade"),
+        ];
+
+        assert_eq!(
+            readable_rows(&rows),
+            vec!["Amazing grace", "Erstaunliche Gnade"]
+        );
+    }
+
+    #[test]
+    fn test_blank_rows_are_dropped() {
+        let rows = vec![
+            SlideRow::lyrics(None, "   "),
+            SlideRow::lyrics(None, "Sing to the Lord"),
+        ];
+
+        assert_eq!(readable_rows(&rows), vec!["Sing to the Lord"]);
     }
 }
