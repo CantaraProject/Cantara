@@ -940,7 +940,14 @@ fn MultiLanguageMainContentSlideRenderer(
             if !multi_slide.spoiler_text_vector.is_empty() {
                 div { class: "distance", style: distance_css.read().to_string() }
                 div { class: "spoiler-content",
-                    p { style: main_css.read().to_string(),
+                    p {
+                        style: {
+                            let mut css = CssHandler::new();
+                            css.set_important(true);
+                            css.opacity(1.0);
+                            css.extend(&CssHandler::from(spoiler_content_font.clone()));
+                            css.to_string()
+                        },
                         for text in &multi_slide.spoiler_text_vector {
                             for (num , line) in text.split("\n").enumerate() {
                                 {line}
