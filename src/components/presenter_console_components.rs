@@ -36,8 +36,32 @@ pub fn PresenterConsolePage() -> Element {
     // Only acquire the navigator if a router is present to avoid panicking.
     let nav = if is_main_window { Some(navigator()) } else { None };
 
+    if running_presentations.peek().is_empty() {
+        if is_main_window {
+            if let Some(nav) = &nav {
+                nav.replace(crate::Route::Selection {});
+            }
+        } else {
+            #[cfg(feature = "desktop")]
+            dioxus::desktop::window().close();
+        }
+        return rsx! {};
+    }
+
     let mut running_presentation: Signal<RunningPresentation> =
-        use_signal(move || running_presentations.get(0).unwrap().clone());
+        use_signal(move || running_presentations.peek().first().cloned().unwrap_or_else(|| {
+            // This fallback is only hit if the list is concurrently cleared between
+            // the empty-check above and signal initialization.
+            running_presentations
+                .peek()
+                .first()
+                .cloned()
+                .unwrap_or_else(|| {
+                    // If it was cleared, the polling/effects will immediately close/navigate.
+                    // Use the first available entry if it comes back in the same tick.
+                    RunningPresentation::new(vec![])
+                })
+        }));
 
     // View mode signal, initialized from settings
     let settings = use_settings();
@@ -239,8 +263,9 @@ pub fn PresenterConsolePage() -> Element {
         }
         running_presentations.write().clear();
         if is_main_window {
-            // nav is Some when is_main_window is true
-            nav.as_ref().unwrap().replace(crate::Route::Selection {});
+            if let Some(nav) = nav.as_ref() {
+                nav.replace(crate::Route::Selection {});
+            }
         } else {
             #[cfg(feature = "desktop")]
             dioxus::desktop::window().close();
@@ -250,7 +275,7 @@ pub fn PresenterConsolePage() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }
-        document::Title { { t!("presenter.title").to_string() } }
+        document::Title { {t!("presenter.title").to_string()} }
 
         div {
             class: "presenter-console",
@@ -271,26 +296,23 @@ pub fn PresenterConsolePage() -> Element {
                 }
             },
 
-            PresenterHeader {
-                view: view
-            }
+            PresenterHeader { view }
 
-            PresenterContent {
-                running_presentation: running_presentation,
-                view: view
-            }
+            PresenterContent { running_presentation, view }
 
             PresenterControlBar {
-                running_presentation: running_presentation,
+                running_presentation,
                 on_quit: move |_| quit_presentation(),
                 on_edit_selection: {
                     if is_main_window {
-                        let nav_clone = nav.clone();
-                        Some(EventHandler::new(move |_: ()| {
-                            if let Some(ref n) = nav_clone {
-                                n.push(crate::Route::Selection {});
+                        let nav_clone = nav;
+                        Some(
+                            EventHandler::new(move |_: ()| {
+                                if let Some(ref n) = nav_clone {
+                                    n.push(crate::Route::Selection {});
+                                }
                             }
-                        }))
+                        )
                     } else {
                         None
                     }
@@ -307,11 +329,9 @@ fn PresenterHeader(view: Signal<PresenterConsoleView>) -> Element {
     let current_view = *view.read();
 
     rsx! {
-        header {
-            class: "presenter-header",
-            h3 { { t!("presenter.status_running").to_string() } }
-            div {
-                class: "presenter-view-toggle",
+        header { class: "presenter-header",
+            h3 { {t!("presenter.status_running").to_string()} }
+            div { class: "presenter-view-toggle",
                 button {
                     class: if current_view == PresenterConsoleView::Text { "view-toggle-btn active" } else { "view-toggle-btn" },
                     onclick: move |_| {
@@ -319,7 +339,7 @@ fn PresenterHeader(view: Signal<PresenterConsoleView>) -> Element {
                         settings.write().presenter_console_view = PresenterConsoleView::Text;
                         settings.read().save();
                     },
-                    { t!("presenter.view_text").to_string() }
+                    {t!("presenter.view_text").to_string()}
                 }
                 button {
                     class: if current_view == PresenterConsoleView::Grid { "view-toggle-btn active" } else { "view-toggle-btn" },
@@ -328,7 +348,7 @@ fn PresenterHeader(view: Signal<PresenterConsoleView>) -> Element {
                         settings.write().presenter_console_view = PresenterConsoleView::Grid;
                         settings.read().save();
                     },
-                    { t!("presenter.view_grid").to_string() }
+                    {t!("presenter.view_grid").to_string()}
                 }
             }
         }
@@ -343,22 +363,14 @@ fn PresenterContent(
 ) -> Element {
     match *view.read() {
         PresenterConsoleView::Text => rsx! {
-            main {
-                class: "presenter-content",
-                PresenterTextPanel {
-                    running_presentation: running_presentation
-                }
-                PresenterPreviewPanel {
-                    running_presentation: running_presentation
-                }
+            main { class: "presenter-content",
+                PresenterTextPanel { running_presentation }
+                PresenterPreviewPanel { running_presentation }
             }
         },
         PresenterConsoleView::Grid => rsx! {
-            main {
-                class: "presenter-content presenter-content-grid",
-                PresenterGridPanel {
-                    running_presentation: running_presentation
-                }
+            main { class: "presenter-content presenter-content-grid",
+                PresenterGridPanel { running_presentation }
             }
         },
     }
@@ -372,16 +384,13 @@ fn PresenterTextPanel(running_presentation: Signal<RunningPresentation>) -> Elem
     let current_slide = rp.position.as_ref().map(|p| p.chapter_slide()).unwrap_or(0);
 
     rsx! {
-        div {
-            class: "presenter-text-panel",
-            for (ch_idx, chapter) in rp.presentation.iter().enumerate() {
-                div {
-                    class: "presenter-chapter",
-                    h4 {
-                        class: if ch_idx == current_chapter { "presenter-chapter-title active" } else { "presenter-chapter-title" },
-                        { chapter.source_file.name.clone() }
+        div { class: "presenter-text-panel",
+            for (ch_idx , chapter) in rp.presentation.iter().enumerate() {
+                div { class: "presenter-chapter",
+                    h4 { class: if ch_idx == current_chapter { "presenter-chapter-title active" } else { "presenter-chapter-title" },
+                        {chapter.source_file.name.clone()}
                     }
-                    for (sl_idx, slide) in chapter.slides.iter().enumerate() {
+                    for (sl_idx , slide) in chapter.slides.iter().enumerate() {
                         {
                             let is_active = ch_idx == current_chapter && sl_idx == current_slide;
                             rsx! {
@@ -398,13 +407,11 @@ fn PresenterTextPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                                             // Use JS scrollIntoView with block:'center' to
                                             // vertically center the active slide in the panel.
                                             let _ = document::eval(
-                                                "requestAnimationFrame(function() { var el = document.querySelector('.presenter-slide-item.active'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } });"
+                                                "requestAnimationFrame(function() { var el = document.querySelector('.presenter-slide-item.active'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } });",
                                             );
                                         }
                                     },
-                                    PresenterSlideTextContent {
-                                        slide_content: slide.slide_content.clone()
-                                    }
+                                    PresenterSlideTextContent { slide_content: slide.slide_content.clone() }
                                 }
                             }
                         }
@@ -441,15 +448,10 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
     let thumb_height = (size as f64 * native_h as f64 / native_w as f64).round() as u32;
 
     rsx! {
-        div {
-            class: "presenter-grid-panel",
+        div { class: "presenter-grid-panel",
             // Size slider
-            div {
-                class: "presenter-grid-toolbar",
-                label {
-                    class: "presenter-grid-size-label",
-                    { t!("presenter.grid_size").to_string() }
-                }
+            div { class: "presenter-grid-toolbar",
+                label { class: "presenter-grid-size-label", {t!("presenter.grid_size").to_string()} }
                 input {
                     r#type: "range",
                     class: "presenter-grid-size-slider",
@@ -465,23 +467,19 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                     },
                 }
             }
-            for (ch_idx, chapter) in rp.presentation.iter().enumerate() {
+            for (ch_idx , chapter) in rp.presentation.iter().enumerate() {
                 {
                     let design = chapter
                         .presentation_design_option
                         .clone()
                         .unwrap_or(PresentationDesign::default());
                     rsx! {
-                        div {
-                            class: "presenter-grid-chapter",
-                            h4 {
-                                class: if ch_idx == current_chapter { "presenter-chapter-title active" } else { "presenter-chapter-title" },
-                                { chapter.source_file.name.clone() }
+                        div { class: "presenter-grid-chapter",
+                            h4 { class: if ch_idx == current_chapter { "presenter-chapter-title active" } else { "presenter-chapter-title" },
+                                {chapter.source_file.name.clone()}
                             }
-                            div {
-                                class: "presenter-grid-slides",
-                                style: "{grid_style}",
-                                for (sl_idx, slide) in chapter.slides.iter().enumerate() {
+                            div { class: "presenter-grid-slides", style: "{grid_style}",
+                                for (sl_idx , slide) in chapter.slides.iter().enumerate() {
                                     {
                                         let is_active = ch_idx == current_chapter && sl_idx == current_slide;
                                         rsx! {
@@ -494,19 +492,15 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                                                 onmounted: move |_| {
                                                     if is_active {
                                                         let _ = document::eval(
-                                                            "requestAnimationFrame(function() { var el = document.querySelector('.presenter-grid-slide.active'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } });"
+                                                            "requestAnimationFrame(function() { var el = document.querySelector('.presenter-grid-slide.active'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } });",
                                                         );
                                                     }
                                                 },
                                                 div {
                                                     class: "presenter-grid-slide-inner",
                                                     style: "width: 100%; height: {thumb_height}px; overflow: hidden;",
-                                                    div {
-                                                        style: "width: {native_w}px; height: {native_h}px; {zoom_css} transform-origin: top left;",
-                                                        StaticSlideRendererComponent {
-                                                            slide: slide.clone(),
-                                                            presentation_design: design.clone()
-                                                        }
+                                                    div { style: "width: {native_w}px; height: {native_h}px; {zoom_css} transform-origin: top left;",
+                                                        StaticSlideRendererComponent { slide: slide.clone(), presentation_design: design.clone() }
                                                     }
                                                 }
                                             }
@@ -551,12 +545,11 @@ fn PdfPageTextContent(path: String, page_number: u32, page_info: String) -> Elem
         });
 
     rsx! {
-        div {
-            class: "slide-text-content",
+        div { class: "slide-text-content",
             em { "📄 {t!(\"general.pdf\")}{page_info}" }
             if let Some(text) = text {
                 if !text.trim().is_empty() {
-                    p { { text.trim().to_string() } }
+                    p { {text.trim().to_string()} }
                 }
             }
         }
@@ -569,9 +562,8 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
     match slide_content {
         SlideContent::Title(title_slide) => {
             rsx! {
-                div {
-                    class: "slide-text-title",
-                    strong { { title_slide.title_text } }
+                div { class: "slide-text-title",
+                    strong { {title_slide.title_text} }
                 }
             }
         }
@@ -580,21 +572,16 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
             if let Some(html) = get_markdown_html(&text) {
                 let plain = html_to_plain_text(html);
                 rsx! {
-                    div {
-                        class: "slide-text-content",
-                        p { { plain } }
+                    div { class: "slide-text-content",
+                        p { {plain} }
                     }
                 }
             } else {
                 rsx! {
-                    div {
-                        class: "slide-text-content",
-                        p { { main_slide.clone().main_text() } }
+                    div { class: "slide-text-content",
+                        p { {main_slide.clone().main_text()} }
                         if let Some(spoiler) = main_slide.spoiler_text() {
-                            p {
-                                class: "slide-text-spoiler",
-                                { spoiler }
-                            }
+                            p { class: "slide-text-spoiler", {spoiler} }
                         }
                     }
                 }
@@ -602,9 +589,8 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
         }
         SlideContent::Empty(_) => {
             rsx! {
-                div {
-                    class: "slide-text-empty",
-                    em { { t!("presenter.empty_slide").to_string() } }
+                div { class: "slide-text-empty",
+                    em { {t!("presenter.empty_slide").to_string()} }
                 }
             }
         }
@@ -630,8 +616,7 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
                 }
             } else {
                 rsx! {
-                    div {
-                        class: "slide-text-content",
+                    div { class: "slide-text-content",
                         em { "📄 {t!(\"general.picture\")}" }
                     }
                 }
@@ -639,8 +624,7 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
         }
         _ => {
             rsx! {
-                div {
-                    class: "slide-text-unknown",
+                div { class: "slide-text-unknown",
                     em { "..." }
                 }
             }
@@ -664,30 +648,30 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
     let total_slides = rp.total_slides();
 
     rsx! {
-        div {
-            class: "presenter-preview-panel",
-            h4 { { t!("presenter.preview").to_string() } }
+        div { class: "presenter-preview-panel",
+            h4 { {t!("presenter.preview").to_string()} }
             div {
                 class: "presentation-preview",
-                style: format!("position: relative; width: {}px; height: {}px; border-radius: 4px; overflow: hidden; {}", native_w, native_h, zoom_css),
-                PresentationRendererComponent {
-                    running_presentation: running_presentation,
-                    fire_timer: false,
-                }
+                style: format!(
+                    "position: relative; width: {}px; height: {}px; border-radius: 4px; overflow: hidden; {}",
+                    native_w,
+                    native_h,
+                    zoom_css,
+                ),
+                PresentationRendererComponent { running_presentation, fire_timer: false }
                 // Countdown timer bar
                 if let Some(seconds) = timer_seconds {
                     div {
                         key: "{current_slide}",
                         style: format!(
                             "position: absolute; bottom: 0; left: 0; height: 6px; width: 100%; background: rgba(255, 255, 255, 0.7); z-index: 100; animation: countdownBar {}s linear forwards;",
-                            seconds
+                            seconds,
                         ),
                     }
                 }
                 // Slide counter
-                div {
-                    style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 20px; z-index: 100;",
-                    { format!("{} / {}", current_slide + 1, total_slides) }
+                div { style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 20px; z-index: 100;",
+                    {format!("{} / {}", current_slide + 1, total_slides)}
                 }
             }
         }
@@ -719,27 +703,22 @@ fn PresenterControlBar(
         .collect();
 
     rsx! {
-        footer {
-            class: "presenter-control-bar",
-            div {
-                class: "presenter-controls",
+        footer { class: "presenter-control-bar",
+            div { class: "presenter-controls",
                 button {
                     class: "secondary",
                     onclick: move |_| {
                         running_presentation.write().previous_slide();
                     },
-                    { t!("presenter.previous").to_string() }
+                    {t!("presenter.previous").to_string()}
                 }
-                span {
-                    class: "slide-counter",
-                    { format!("{} / {}", current_total, total_slides) }
-                }
+                span { class: "slide-counter", {format!("{} / {}", current_total, total_slides)} }
                 button {
                     class: "secondary",
                     onclick: move |_| {
                         running_presentation.write().next_slide();
                     },
-                    { t!("presenter.next").to_string() }
+                    {t!("presenter.next").to_string()}
                 }
                 // Chapter jump dropdown
                 select {
@@ -749,12 +728,8 @@ fn PresenterControlBar(
                             running_presentation.write().jump_to(idx, 0);
                         }
                     },
-                    for (idx, name) in chapters.iter() {
-                        option {
-                            value: "{idx}",
-                            selected: *idx == current_chapter,
-                            { name.clone() }
-                        }
+                    for (idx , name) in chapters.iter() {
+                        option { value: "{idx}", selected: *idx == current_chapter, {name.clone()} }
                     }
                 }
                 button {
@@ -762,18 +737,18 @@ fn PresenterControlBar(
                     onclick: move |_| {
                         running_presentation.write().toggle_black_screen();
                     },
-                    { t!("presenter.black_screen").to_string() }
+                    {t!("presenter.black_screen").to_string()}
                 }
                 if let Some(ref handler) = on_edit_selection {
                     button {
                         class: "outline secondary",
                         onclick: {
-                            let handler = handler.clone();
+                            let handler = *handler;
                             move |_| {
                                 handler.call(());
                             }
                         },
-                        { t!("presenter.edit_selection").to_string() }
+                        {t!("presenter.edit_selection").to_string()}
                     }
                 }
                 button {
@@ -781,7 +756,7 @@ fn PresenterControlBar(
                     onclick: move |_| {
                         on_quit.call(());
                     },
-                    { t!("presenter.quit").to_string() }
+                    {t!("presenter.quit").to_string()}
                 }
             }
         }

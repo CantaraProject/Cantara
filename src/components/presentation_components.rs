@@ -4,7 +4,6 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cantara_songlib::slides::*;
 use dioxus::prelude::*;
 use regex::Regex;
-use rgb::RGBA8;
 use rust_i18n::t;
 use uuid::Uuid;
 
@@ -124,8 +123,17 @@ pub fn PresentationPage() -> Element {
         };
     }
 
-    let initial_rp = synced_rp
-        .unwrap_or_else(|| running_presentations.peek().first().unwrap().clone());
+    let Some(initial_rp) = synced_rp.or_else(|| running_presentations.peek().first().cloned()) else {
+        #[cfg(feature = "desktop")]
+        dioxus::desktop::window().close();
+
+        return rsx! {
+            document::Link { rel: "stylesheet", href: MAIN_CSS }
+            div { style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
+                p { "No presentation data found." }
+            }
+        };
+    };
     let mut running_presentation: Signal<RunningPresentation> =
         use_signal(move || initial_rp);
 
@@ -439,12 +447,12 @@ pub fn PresentationPage() -> Element {
                             use_future(move || async move {
                                 let _ = document::eval(
                                         "
-                                                            if (document.fullscreenElement) {
-                                                                document.exitFullscreen();
-                                                            } else {
-                                                                document.documentElement.requestFullscreen();
-                                                            }
-                                                        ",
+                                                                            if (document.fullscreenElement) {
+                                                                                document.exitFullscreen();
+                                                                            } else {
+                                                                                document.documentElement.requestFullscreen();
+                                                                            }
+                                                                        ",
                                     )
                                     .await;
                             });
@@ -621,30 +629,12 @@ pub fn PresentationRendererComponent(
             },
         );
 
-    let css_presentation_background_color = use_memo(move || current_pds().background_color);
-
-    let css_main_content_font_size = use_memo(move || {
-        current_pds
-            .read()
-            .fonts
-            .first()
-            .unwrap_or(&FontRepresentation::default())
-            .font_size
-            .clone()
-    });
-
-    let css_main_text_color: Memo<RGBA8> =
-        use_memo(move || current_pds.read().clone().fonts.first().unwrap().color);
-    let css_padding_left: Memo<CssSize> = use_memo(move || current_pds().padding.left);
-    let css_padding_right: Memo<CssSize> = use_memo(move || current_pds().padding.right);
-    let css_padding_top: Memo<CssSize> = use_memo(move || current_pds().padding.top);
-    let css_padding_bottom: Memo<CssSize> = use_memo(move || current_pds().padding.bottom);
     let css_text_align: Memo<HorizontalAlign> = use_memo(move || {
         current_pds
             .read()
             .fonts
             .first()
-            .unwrap()
+            .unwrap_or(&FontRepresentation::default())
             .horizontal_alignment
     });
     let css_place_items: Memo<PlaceItems> =
@@ -1212,7 +1202,10 @@ fn inject_css_into_html_elements(html: &str, css_style: &CssHandler) -> String {
     // (?![^>]*style=) -> A negative lookahead to ensure we don't double-up if a style already exists
     // [^>]* -> Matches any other attributes until the closing '>'
     // >             -> Matches the closing bracket
-    let re = Regex::new(r"(?i)<([a-z1-6]+)([^>]*)>").unwrap();
+    let re = match Regex::new(r"(?i)<([a-z1-6]+)([^>]*)>") {
+        Ok(re) => re,
+        Err(_) => return html.to_string(),
+    };
 
     // We use a replacement closure to handle the logic
     re.replace_all(html, |caps: &regex::Captures| {

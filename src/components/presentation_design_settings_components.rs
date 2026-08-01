@@ -45,51 +45,66 @@ pub fn PresentationDesignSettingsPage(
     // From here on, the selected_presentation_design is guaranteed to be Some
 
     let selected_presentation_design =
-        use_memo(move || selected_presentation_design_option.read().clone().unwrap());
+        use_memo(move || selected_presentation_design_option.read().clone().unwrap_or_default());
 
     rsx! {
-        div {
-            class: "wrapper",
-            header {
-                class: "top-bar",
-                h2 { { 
-                    t!("settings.presentation_designs_edit_header", title = selected_presentation_design().name).to_string() 
-                } }
+        div { class: "wrapper",
+            header { class: "top-bar",
+                h2 {
+                    {
+                        t!(
+                            "settings.presentation_designs_edit_header", title =
+                            selected_presentation_design().name
+                        )
+                            .to_string()
+                    }
+                }
             }
-            main {
-                class: "container-fluid content height-100",
+            main { class: "container-fluid content height-100",
 
                 MetaSettings {
                     presentation_design: selected_presentation_design(),
                     on_pd_changed: move |pd: PresentationDesign| {
                         let mut settings_write = settings.write();
-                        let origin_pd = settings_write.presentation_designs.get_mut(index as usize).unwrap();
-                        origin_pd.name = pd.name;
-                        origin_pd.description = pd.description;
-                    }
+                        if let Some(origin_pd) = settings_write
+                            .presentation_designs
+                            .get_mut(index as usize)
+                        {
+                            origin_pd.name = pd.name;
+                            origin_pd.description = pd.description;
+                        }
+                    },
                 }
 
-                if let PresentationDesignSettings::Template(pd_template) = selected_presentation_design().presentation_design_settings {
-                    hr { }
+                if let PresentationDesignSettings::Template(pd_template) = selected_presentation_design()
+                    .presentation_design_settings
+                {
+                    hr {}
                     DesignTemplateSettings {
                         presentation_design_template: pd_template,
                         onchange: move |new_pdt: PresentationDesignTemplate| {
                             let mut settings_write = settings.write();
-                            if let PresentationDesignSettings::Template(pdt) = &mut settings_write.presentation_designs.get_mut(index as usize).unwrap().presentation_design_settings {
-                                *pdt = new_pdt.clone();
+                            if let Some(current) = settings_write
+                                .presentation_designs
+                                .get_mut(index as usize)
+                            {
+                                if let PresentationDesignSettings::Template(pdt) = &mut current
+                                    .presentation_design_settings
+                                {
+                                    *pdt = new_pdt.clone();
+                                }
                             }
-                        }
+                        },
                     }
                 }
-
+            
             }
-            footer {
-                class: "bottom-bar",
+            footer { class: "bottom-bar",
                 button {
                     onclick: move |_| {
                         nav.replace(crate::Route::SettingsPage {});
                     },
-                    { t!("settings.close").to_string() }
+                    {t!("settings.close").to_string()}
                 }
             }
         }
@@ -108,28 +123,28 @@ fn MetaSettings(
     let mut pd = use_signal(|| presentation_design);
 
     rsx! {
-        h3 { { t!("general.meta_information").to_string() } }
+        h3 { {t!("general.meta_information").to_string()} }
         form {
             fieldset {
                 label {
-                    { t!("general.name").to_string() },
+                    {t!("general.name").to_string()}
                     input {
                         value: pd().name,
                         onchange: move |event| {
                             pd.write().name = event.value().clone();
                             on_pd_changed.call(pd());
-                        }
+                        },
                     }
                 }
 
                 label {
-                    { t!("general.description").to_string() },
+                    {t!("general.description").to_string()}
                     input {
                         value: pd().description,
                         onchange: move |event| {
                             pd.write().description = event.value().clone();
                             on_pd_changed.call(pd());
-                        }
+                        },
                     }
                 }
             }
@@ -153,37 +168,37 @@ fn DesignTemplateSettings(
     let mut use_background_image: Signal<bool> = use_signal(|| pdt().background_image.is_some());
 
     rsx!(
-        h3 { { t!("settings.presentation_design_configuration").to_string() } }
-        h4 { { t!("settings.background").to_string() } }
+        h3 { {t!("settings.presentation_design_configuration").to_string()} }
+        h4 { {t!("settings.background").to_string()} }
         form {
             fieldset {
 
                 // Background color
                 label {
-                    { t!("settings.color").to_string() }
+                    {t!("settings.color").to_string()}
                     input {
-                        type: "color",
+                        r#type: "color",
                         value: pdt().get_background_color_as_hex_string(),
                         onchange: move |event| {
                             _ = pdt.write().set_background_color_from_hex_str(&event.value());
                             onchange.call(pdt());
-                        }
+                        },
                     }
                 }
 
                 // Use background image
                 label {
                     input {
-                        type: "checkbox",
+                        r#type: "checkbox",
                         role: "switch",
                         checked: use_background_image,
                         onchange: move |event| {
                             use_background_image.set(event.checked());
                             pdt.write().background_image = None;
                             onchange.call(pdt());
-                        }
+                        },
                     }
-                    { t!("settings.use_background_image").to_string() }
+                    {t!("settings.use_background_image").to_string()}
                 }
 
                 if use_background_image() {
@@ -200,67 +215,72 @@ fn DesignTemplateSettings(
                             onchange: move |background_image| {
                                 pdt.write().background_image = Some(background_image);
                                 onchange.call(pdt());
-                            }
+                            },
                         }
                     }
 
                     // Adjust the background image transparency over a range input
                     label {
-                        span { { format!("{}: {}%",
-                            t!("settings.background_image_transparency"),
-                                pdt.read().background_transparency) } }
+                        span {
+                            {
+                                format!(
+                                    "{}: {}%",
+                                    t!("settings.background_image_transparency"),
+                                    pdt.read().background_transparency,
+                                )
+                            }
+                        }
                         input {
-                            type: "range",
+                            r#type: "range",
                             min: 0,
                             max: 100,
                             value: pdt.read().background_transparency,
                             oninput: move |event| {
                                 pdt.write().background_transparency = event.value().parse().unwrap_or(0);
                                 onchange.call(pdt());
-                            }
+                            },
                         }
-
+                    
                     }
                 }
             }
         }
 
         // Padding
-        h4 { { t!("settings.padding").to_string() } }
+        h4 { {t!("settings.padding").to_string()} }
         PaddingInput {
             default_padding: pdt().padding,
             onchange: move |data| {
                 pdt.write().padding = data;
                 onchange.call(pdt());
-            }
+            },
         }
 
         // Distance between the main content and spoiler content
-        h4 { { t!("settings.main_spoiler_content_distance").to_string() } }
-        fieldset {
-            role: "group",
+        h4 { {t!("settings.main_spoiler_content_distance").to_string()} }
+        fieldset { role: "group",
             NumberedValidatedLengthInput {
                 value: pdt().main_content_spoiler_content_padding,
                 placeholder: "".to_string(),
                 onchange: move |new_value| {
                     pdt.write().main_content_spoiler_content_padding = new_value;
                     onchange.call(pdt());
-                }
+                },
             }
         }
 
         // Here the settings for the vertical alignment of the content are included
-        h5 { { t!("settings.vertical_alignment.title").to_string() } }
+        h5 { {t!("settings.vertical_alignment.title").to_string()} }
         VerticalAlignmentSelector {
             default: pdt().vertical_alignment,
             onchange: move |data| {
                 pdt.write().vertical_alignment = data;
                 onchange.call(pdt());
-            }
+            },
         }
 
         // Adjust individual font settings
-        h3 { { t!("settings.fonts.title").to_string() } }
+        h3 { {t!("settings.fonts.title").to_string()} }
 
         FontRepresentationsComponent {
             fonts: pdt().fonts,
@@ -269,7 +289,7 @@ fn DesignTemplateSettings(
             onchange: move |data| {
                 pdt.write().fonts = data;
                 onchange.call(pdt());
-            }
+            },
         }
     )
 }
@@ -295,21 +315,18 @@ fn PictureSelector(
     let mut selection_index = use_signal(|| default_selection_index);
 
     rsx! {
-        for (idx, source_file) in image_source_files().iter().enumerate() {
+        for (idx , source_file) in image_source_files().iter().enumerate() {
             PictureSelectorItem {
                 source_file: source_file.clone(),
                 height: "130px",
                 max_width: "200px",
-                active: if let Some(selection_index) = selection_index() {
-                    selection_index == idx
-                } else if Some(source_file.clone().into_inner().path) == already_selected_image_path { true }
-                else { false },
+                active: if let Some(selection_index) = selection_index() { selection_index == idx } else if Some(source_file.clone().into_inner().path) == already_selected_image_path { true } else { false },
                 onclick: move |image_source_file| {
                     selection_index.set(Some(idx));
                     if let Some(onchange_event) = onchange {
                         onchange_event.call(image_source_file);
                     }
-                }
+                },
             }
         }
     }
@@ -353,64 +370,58 @@ fn PaddingInput(
     let mut padding: Signal<TopBottomLeftRight> = use_signal(|| default_padding);
 
     rsx!(
-        div {
-            class: "grid",
+        div { class: "grid",
             div {
                 label {
-                    "Left",
-                    fieldset {
-                        role: "group",
+                    "Left"
+                    fieldset { role: "group",
                         NumberedValidatedLengthInput {
                             value: padding().left,
                             placeholder: "left",
                             onchange: move |value| {
                                 padding.write().left = get_nullified_css_size(value);
                                 onchange.call(padding());
-                            }
+                            },
                         }
-                    },
+                    }
                 }
             }
             div {
                 label {
-                    "Right",
-                    fieldset {
-                        role: "group",
+                    "Right"
+                    fieldset { role: "group",
                         NumberedValidatedLengthInput {
                             value: padding().right,
                             placeholder: "right",
                             onchange: move |value| {
                                 padding.write().right = get_nullified_css_size(value);
                                 onchange.call(padding());
-                            }
+                            },
                         }
-                    },
+                    }
                 }
             }
         }
-        div {
-            class: "grid",
+        div { class: "grid",
             div {
                 label {
-                    "Top",
-                    fieldset {
-                        role: "group",
+                    "Top"
+                    fieldset { role: "group",
                         NumberedValidatedLengthInput {
                             value: padding().top,
                             placeholder: "top",
                             onchange: move |value: CssSize| {
                                 padding.write().top = get_nullified_css_size(value);
                                 onchange.call(padding());
-                            }
+                            },
                         }
-                    },
+                    }
                 }
             }
             div {
                 label {
-                    "Bottom",
-                    fieldset {
-                        role: "group",
+                    "Bottom"
+                    fieldset { role: "group",
                         NumberedValidatedLengthInput {
                             value: padding().bottom,
                             placeholder: "bottom",
@@ -418,9 +429,9 @@ fn PaddingInput(
                                 // If the content is null, we will set it accordingly
                                 padding.write().bottom = get_nullified_css_size(value);
                                 onchange.call(padding());
-                            }
+                            },
                         }
-                    },
+                    }
                 }
             }
         }
@@ -452,24 +463,27 @@ fn VerticalAlignmentSelector(
                     "top" => value_signal.set(VerticalAlign::Top),
                     "middle" => value_signal.set(VerticalAlign::Middle),
                     "bottom" => value_signal.set(VerticalAlign::Bottom),
-                    other => tracing::error!("Invalid option for vertical alignment selected, the value is: {}", other)
-                    };
+                    other => {
+                        tracing::error!(
+                            "Invalid option for vertical alignment selected, the value is: {}",
+                            other
+                        )
+                    }
+                };
                 onchange.call(value_signal());
             },
-            option {
-                value: "top",
-                selected: value_signal() == VerticalAlign::Top,
-                { t!("settings.vertical_alignment.top").to_string() }
+            option { value: "top", selected: value_signal() == VerticalAlign::Top,
+                {t!("settings.vertical_alignment.top").to_string()}
             }
             option {
                 value: "middle",
                 selected: value_signal() == VerticalAlign::Middle,
-                { t!("settings.vertical_alignment.middle").to_string() }
+                {t!("settings.vertical_alignment.middle").to_string()}
             }
             option {
                 value: "bottom",
                 selected: value_signal() == VerticalAlign::Bottom,
-                { t!("settings.vertical_alignment.bottom").to_string() }
+                {t!("settings.vertical_alignment.bottom").to_string()}
             }
         }
     )
