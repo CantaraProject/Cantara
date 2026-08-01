@@ -24,7 +24,7 @@ You can find a [web browser demo version](https://cantaraproject.github.io/Canta
 ### Prerequisites
 
 - Rust (latest stable version)
-- Dioxus CLI
+- Dioxus CLI, **at the same version as the `dioxus` dependency in `Cargo.toml`**
 
 ### Installing Rust
 
@@ -41,7 +41,19 @@ For Windows, download and run the installer from the [rustup website](https://ru
 Once Rust is installed, you can install the Dioxus CLI:
 
 ```bash
-cargo install dioxus-cli
+cargo install dioxus-cli --locked
+```
+
+The CLI and the `dioxus` crates have to be the same version. A CLI older than
+the crates fails at runtime, not at build time: assets are serialised into the
+binary by the crates and read back by the CLI, so a mismatch surfaces as
+`Failed to deserialize asset. Make sure you built with the matching version of
+the Dioxus CLI` — a panic in whichever component first uses an asset. Check with
+`dx --version` against the `dioxus` version in `Cargo.toml`, and pin the CLI if
+they drift apart:
+
+```bash
+cargo install dioxus-cli --version 0.7.10 --locked
 ```
 
 ### Building Cantara

@@ -130,7 +130,7 @@ pub fn PresentationPage() -> Element {
 
         return rsx! {
             document::Link { rel: "stylesheet", href: MAIN_CSS }
-        BundledFontFaces {}
+            BundledFontFaces {}
             div { style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
                 p { "No presentation data found." }
             }
@@ -143,7 +143,7 @@ pub fn PresentationPage() -> Element {
 
         return rsx! {
             document::Link { rel: "stylesheet", href: MAIN_CSS }
-        BundledFontFaces {}
+            BundledFontFaces {}
             div { style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
                 p { "No presentation data found." }
             }
