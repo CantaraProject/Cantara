@@ -162,6 +162,24 @@ selection:
   export_save:
     en: Save as file...
     de: Als Datei speichern...
+  export_format_handlebars:
+    en: Custom template (Handlebars)
+    de: Eigene Vorlage (Handlebars)
+  export_format_pptx:
+    en: PowerPoint presentation (.pptx)
+    de: PowerPoint-Präsentation (.pptx)
+  export_template:
+    en: Template
+    de: Vorlage
+  export_template_hint:
+    en: "Handlebars. Available: {{title}}, {{author}} and every tag, plus {{#each parts}}{{text}}{{/each}}"
+    de: "Handlebars. Verfügbar: {{title}}, {{author}} und alle Tags, sowie {{#each parts}}{{text}}{{/each}}"
+  export_pptx_note:
+    en: "A PowerPoint file with %{count} slides will be written. The preview shows the deck description."
+    de: "Es wird eine PowerPoint-Datei mit %{count} Folien geschrieben. Die Vorschau zeigt die Folienbeschreibung."
+  export_pptx_notation_note:
+    en: "%{count} slides contain notation, which PowerPoint cannot show. Their lyrics are kept."
+    de: "%{count} Folien enthalten Noten, die PowerPoint nicht darstellen kann. Ihr Text bleibt erhalten."
   export_format_pdf:
     en: PDF (coming soon)
     de: PDF (demnächst)
@@ -454,6 +472,21 @@ settings:
     en: Distance between the main content and the spoiler
     de: Abstand zwischen Hauptinhalt und Spoiler
   fonts:
+    family:
+      en: Font
+      de: Schriftart
+    family_default:
+      en: "Default"
+      de: "Standard"
+    group_bundled:
+      en: Shipped with Cantara
+      de: Mit Cantara ausgeliefert
+    group_websafe:
+      en: Available everywhere
+      de: Überall verfügbar
+    group_system:
+      en: Installed on this computer
+      de: Auf diesem Rechner installiert
     title:
       en: Font Settings
       de: Einstellung des Schriftbilds

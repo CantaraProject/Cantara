@@ -37,6 +37,11 @@ pub enum ExportFormat {
     LilyPond,
     /// ABC notation, one `.abc` file per song.
     Abc,
+    /// A Handlebars template the user supplies, rendered by the song library.
+    /// Carries the template so the dialog can offer a text field for it.
+    Handlebars,
+    /// A PowerPoint deck built from the presentation slides.
+    Pptx,
 }
 
 impl ExportFormat {
@@ -47,6 +52,8 @@ impl ExportFormat {
         ExportFormat::Markdown,
         ExportFormat::LilyPond,
         ExportFormat::Abc,
+        ExportFormat::Handlebars,
+        ExportFormat::Pptx,
     ];
 
     /// The value used in the menu's `<select>`, and what settings persist.
@@ -57,7 +64,28 @@ impl ExportFormat {
             ExportFormat::Markdown => "markdown",
             ExportFormat::LilyPond => "lilypond",
             ExportFormat::Abc => "abc",
+            ExportFormat::Handlebars => "handlebars",
+            ExportFormat::Pptx => "pptx",
         }
+    }
+
+    /// Whether the format needs a template from the user.
+    pub fn needs_template(self) -> bool {
+        matches!(self, ExportFormat::Handlebars)
+    }
+
+    /// Whether the file is binary and therefore built in the browser rather
+    /// than as text in Rust. See [`ExportFormat::Pptx`].
+    pub fn is_binary(self) -> bool {
+        matches!(self, ExportFormat::Pptx)
+    }
+
+    /// A starting point for the template of [`ExportFormat::Handlebars`].
+    pub fn default_template() -> &'static str {
+        "{{title}}{{#if author}} — {{author}}{{/if}}\n\n\
+         {{#each parts}}\
+         [{{label}}]\n{{text}}\n\n\
+         {{/each}}"
     }
 
     /// The translation key of the format's label.
@@ -68,6 +96,8 @@ impl ExportFormat {
             ExportFormat::Markdown => "selection.export_format_markdown",
             ExportFormat::LilyPond => "selection.export_format_lilypond",
             ExportFormat::Abc => "selection.export_format_abc",
+            ExportFormat::Handlebars => "selection.export_format_handlebars",
+            ExportFormat::Pptx => "selection.export_format_pptx",
         }
     }
 
@@ -78,6 +108,8 @@ impl ExportFormat {
             ExportFormat::Markdown => "md",
             ExportFormat::LilyPond => "ly",
             ExportFormat::Abc => "abc",
+            ExportFormat::Handlebars => "txt",
+            ExportFormat::Pptx => "pptx",
         }
     }
 
@@ -85,7 +117,11 @@ impl ExportFormat {
     /// sharing one document. See the module documentation for why.
     pub fn one_file_per_song(self) -> bool {
         match self {
-            ExportFormat::PlainText | ExportFormat::Telegram | ExportFormat::Markdown => false,
+            ExportFormat::PlainText
+            | ExportFormat::Telegram
+            | ExportFormat::Markdown
+            | ExportFormat::Handlebars
+            | ExportFormat::Pptx => false,
             ExportFormat::LilyPond | ExportFormat::Abc => true,
         }
     }
@@ -98,8 +134,8 @@ impl ExportFormat {
             .find(|format| format.id() == id)
     }
 
-    /// Render one song on its own.
-    fn render_one(self, song: &Song) -> Result<String, ExportError> {
+    /// Render one song, using `template` for the formats that need one.
+    fn render_one_with(self, song: &Song, template: &str) -> Result<String, ExportError> {
         let text = |format: TextFormat| {
             text_from_song(song, &TextSettings::with_format(format))
                 .map_err(|error| ExportError::Render(error.to_string()))
@@ -109,6 +145,11 @@ impl ExportFormat {
             ExportFormat::PlainText => text(TextFormat::Plain),
             ExportFormat::Telegram => text(TextFormat::Telegram),
             ExportFormat::Markdown => text(TextFormat::Markdown),
+            ExportFormat::Handlebars => text(TextFormat::Custom(template.to_string())),
+            // Built in the browser from the presentation slides, not here.
+            ExportFormat::Pptx => Err(ExportError::Render(
+                "a PowerPoint deck is built from the slides, not from a song".to_string(),
+            )),
             ExportFormat::LilyPond => lilypond_from_song(song, &LilypondSettings::default())
                 .map_err(|error| ExportError::SongFailed {
                     title: song.title.clone(),
@@ -130,6 +171,16 @@ impl ExportFormat {
     /// Returns one entry per file to write: a single document for the text
     /// formats, one per song for the sheet-music formats.
     pub fn render(self, songs: &[Song]) -> Result<Vec<ExportedFile>, ExportError> {
+        self.render_with(songs, "")
+    }
+
+    /// Render the whole selection, using `template` for the formats that need
+    /// one — currently only [`ExportFormat::Handlebars`].
+    pub fn render_with(
+        self,
+        songs: &[Song],
+        template: &str,
+    ) -> Result<Vec<ExportedFile>, ExportError> {
         if songs.is_empty() {
             return Err(ExportError::NoSongs);
         }
@@ -140,7 +191,7 @@ impl ExportFormat {
                 .map(|song| {
                     Ok(ExportedFile {
                         name: file_stem(&song.title),
-                        content: self.render_one(song)?,
+                        content: self.render_one_with(song, template)?,
                     })
                 })
                 .collect();
@@ -150,11 +201,19 @@ impl ExportFormat {
             ExportFormat::PlainText => TextFormat::Plain,
             ExportFormat::Telegram => TextFormat::Telegram,
             ExportFormat::Markdown => TextFormat::Markdown,
+            ExportFormat::Handlebars => TextFormat::Custom(template.to_string()),
             // Unreachable for the sheet-music formats, which took the branch
             // above; the match is written out so a new format cannot slip past.
             ExportFormat::LilyPond | ExportFormat::Abc => {
                 return Err(ExportError::Render(
                     "sheet music cannot be joined into one document".to_string(),
+                ));
+            }
+            // A deck is assembled from the presentation slides in the browser;
+            // `PptxDeck` handles it, not this text pipeline.
+            ExportFormat::Pptx => {
+                return Err(ExportError::Render(
+                    "a PowerPoint deck is built from the slides, not from songs".to_string(),
                 ));
             }
         };

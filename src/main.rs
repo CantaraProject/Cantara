@@ -21,6 +21,7 @@ use crate::components::presentation_design_settings_components::PresentationDesi
 use crate::components::presenter_console_components::PresenterConsolePage;
 use crate::components::selection_components::Selection;
 use crate::components::settings_components::SettingsPage;
+use crate::components::presentation_components::BundledFontFaces;
 use crate::components::song_slide_settings_components::SongSlideSettingsPage;
 use crate::components::wizard_components::Wizard;
 use dioxus::prelude::*;
@@ -177,6 +178,8 @@ fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        // Makes the fonts shipped in `assets/fonts/` usable by name.
+        BundledFontFaces {}
         document::Link { rel: "icon", href: FAVICON }
         document::Script { src: POSITIONING_JS }
         document::Title { "Cantara" }

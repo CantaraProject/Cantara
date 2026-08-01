@@ -22,12 +22,67 @@ const SUPPORTED_EXTENSIONS: &[&str] = &[
 /// npm packages whose files are referenced by `asset!()` at compile time.
 /// If one of them is missing the build fails with a confusing macro error, so
 /// their presence is checked before anything else runs.
-const REQUIRED_NPM_PACKAGES: &[&str] = &["pdfjs-dist", "abcjs", "@picocss/pico"];
+const REQUIRED_NPM_PACKAGES: &[&str] = &["pdfjs-dist", "abcjs", "pptxgenjs", "@picocss/pico"];
 
 fn main() {
     println!("cargo:rerun-if-changed=package.json");
+    println!("cargo:rerun-if-changed=assets/fonts");
     ensure_npm_packages();
     generate_bundled_repos_data();
+    generate_bundled_fonts_data();
+}
+
+/// Generates `bundled_fonts_data.rs` in `OUT_DIR` listing the fonts in
+/// `assets/fonts/` as `(family name, file name)` pairs.
+///
+/// The family name is taken from the file name, so `Open Sans.ttf` becomes the
+/// family "Open Sans". That keeps the step simple and predictable: what a user
+/// sees in the settings is what they named the file.
+fn generate_bundled_fonts_data() {
+    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
+    let dest_path = Path::new(&out_dir).join("bundled_fonts_data.rs");
+
+    let mut fonts: Vec<(String, String)> = Vec::new();
+
+    if let Ok(entries) = fs::read_dir("assets/fonts") {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let extension = path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+
+            if !matches!(extension.as_str(), "ttf" | "otf" | "woff" | "woff2") {
+                continue;
+            }
+
+            let family = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or(file_name)
+                .to_string();
+
+            fonts.push((family, file_name.to_string()));
+        }
+    }
+
+    fonts.sort();
+
+    let mut file = fs::File::create(&dest_path).expect("Failed to create bundled_fonts_data.rs");
+    writeln!(
+        file,
+        "/// Fonts shipped in `assets/fonts/`, as (family name, file name)."
+    )
+    .unwrap();
+    writeln!(file, "pub const BUNDLED_FONTS: &[(&str, &str)] = &[").unwrap();
+    for (family, file_name) in &fonts {
+        writeln!(file, "    ({:?}, {:?}),", family, file_name).unwrap();
+    }
+    writeln!(file, "];").unwrap();
 }
 
 /// Install the npm dependencies if any of them is missing.

@@ -125,6 +125,7 @@ pub fn PresentationPage() -> Element {
 
         return rsx! {
             document::Link { rel: "stylesheet", href: MAIN_CSS }
+        BundledFontFaces {}
             div { style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
                 p { "No presentation data found." }
             }
@@ -137,6 +138,7 @@ pub fn PresentationPage() -> Element {
 
         return rsx! {
             document::Link { rel: "stylesheet", href: MAIN_CSS }
+        BundledFontFaces {}
             div { style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
                 p { "No presentation data found." }
             }
@@ -416,6 +418,7 @@ pub fn PresentationPage() -> Element {
 
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        BundledFontFaces {}
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Title { {t!("presentation.title").to_string()} }
         // This div is needed for fullscreen mode
@@ -1200,6 +1203,24 @@ fn meta_text_of(slide_content: &SlideContent) -> Option<String> {
         SlideContent::Empty(_) | SlideContent::SimplePicture(_) | SlideContent::PdfPage(_) => None,
     };
     text.filter(|text| !text.trim().is_empty())
+}
+
+/// Declares the `@font-face` rules for the fonts bundled in `assets/fonts/`.
+///
+/// Needed in every window that draws text with a bundled family — the app shell
+/// and each presentation window are separate documents, so the rules cannot be
+/// inherited.
+#[component]
+pub fn BundledFontFaces() -> Element {
+    let css = use_hook(crate::logic::fonts::bundled_font_face_css);
+
+    if css.is_empty() {
+        return rsx! {};
+    }
+
+    rsx! {
+        document::Style { {css} }
+    }
 }
 
 /// The meta information line in the corner of a content slide.

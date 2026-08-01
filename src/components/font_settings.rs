@@ -1,6 +1,8 @@
 //! This module contains the functions for changing the font settings as defined in the [FontRepresentation] struct.
 
 use crate::components::shared_components::NumberedValidatedLengthInput;
+use crate::logic::css::CssFontFamily;
+use crate::logic::fonts::{self, FontFamily, FontSource};
 use crate::logic::settings::{CssSize, FontRepresentation, HorizontalAlign};
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
@@ -107,6 +109,14 @@ fn SingleFontRepresentationComponent(
         }
 
         form {
+            FontFamilySelector {
+                selected: font().font_family.clone(),
+                onchange: move |new_family: Option<CssFontFamily>| {
+                    font.write().font_family = new_family;
+                    onchange.call(font());
+                }
+            }
+
             label {
                 { t!("settings.fonts.size").to_string() }
                 fieldset {
@@ -154,6 +164,82 @@ fn SingleFontRepresentationComponent(
             }
         }
     )
+}
+
+/// Picks the font family for one text section of a presentation.
+///
+/// The families are grouped by where they come from, because the distinction
+/// matters: a font installed on this computer is not there when the same
+/// presentation is opened on another machine or in a browser, while bundled and
+/// web-safe families always are.
+#[component]
+fn FontFamilySelector(
+    /// The family currently set, or `None` for the default.
+    selected: Option<CssFontFamily>,
+
+    /// Called with the new family whenever the selection changes.
+    onchange: EventHandler<Option<CssFontFamily>>,
+) -> Element {
+    // Enumerating the installed fonts touches the file system, so it is done
+    // once and kept for as long as the settings page lives.
+    let families = use_hook(fonts::available);
+
+    let current = selected
+        .as_ref()
+        .and_then(|family| family.family.clone())
+        .unwrap_or_default();
+
+    let group = |source: FontSource| -> Vec<FontFamily> {
+        families
+            .iter()
+            .filter(|family| family.source == source)
+            .cloned()
+            .collect()
+    };
+
+    let groups = [
+        (FontSource::Bundled, "settings.fonts.group_bundled"),
+        (FontSource::WebSafe, "settings.fonts.group_websafe"),
+        (FontSource::System, "settings.fonts.group_system"),
+    ];
+
+    rsx! {
+        label {
+            { t!("settings.fonts.family").to_string() }
+            select {
+                value: "{current}",
+                onchange: move |event| {
+                    let value = event.value();
+                    if value.is_empty() {
+                        onchange.call(None);
+                    } else {
+                        onchange.call(Some(CssFontFamily::with_family(value)));
+                    }
+                },
+                // An empty value means "whatever the platform picks", which is
+                // what a fresh design starts with.
+                option { value: "", selected: current.is_empty(),
+                    { t!("settings.fonts.family_default").to_string() }
+                }
+                for (source , label) in groups {
+                    if !group(source).is_empty() {
+                        optgroup { label: t!(label).to_string(),
+                            for family in group(source) {
+                                option {
+                                    value: "{family.name}",
+                                    selected: current == family.name,
+                                    // Shown in its own font so the list can be
+                                    // read at a glance.
+                                    style: "font-family: '{family.name}';",
+                                    "{family.name}"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// An input field to change the line height

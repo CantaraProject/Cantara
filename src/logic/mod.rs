@@ -61,6 +61,8 @@ pub mod sourcefiles;
 pub mod bundled_repos;
 
 pub mod export;
+pub mod fonts;
+pub mod pptx;
 pub mod presentation;
 
 pub mod conversions;

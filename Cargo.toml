@@ -54,6 +54,9 @@ base64 = "0.22.1"
 
 # Non-WASM dependencies (blocking HTTP client, TLS, and filesystem helpers not available on WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Enumerates the installed system fonts so they can be offered in the settings.
+# `fs` is enough — the font data itself is never needed, only the family names.
+fontdb = { version = "0.23", default-features = false, features = ["fs"] }
 reqwest = { version = "0.13.2", features = ["blocking", "default-tls"] }
 tempfile = "3.23"
 

@@ -24,6 +24,7 @@ use self::source_items::{
 use crate::logic::presentation;
 use crate::logic::search::{search_source_files, SearchResult};
 use crate::logic::settings::PresentationDesign;
+use crate::logic::settings::use_settings;
 use crate::logic::settings::SelectionSidebarType;
 use crate::logic::settings::Settings;
 use crate::logic::sourcefiles::{SourceFile, SourceFileType};
@@ -35,6 +36,15 @@ use crate::logic::sync::{
 };
 use crate::Route;
 use crate::logic::export::{ExportError, ExportFormat, ExportedFile, song_from_content};
+use crate::logic::pptx::{PptxConversion, PptxDeck, deck_from_slides};
+
+const PPTX_EXPORT_JS: &str = include_str!("../../assets/pptx_export_inline.js");
+/// PptxGenJS is bundled from `node_modules` so that an export works offline.
+#[cfg(not(target_arch = "wasm32"))]
+const PPTXGEN_LIB: Asset = asset!("/node_modules/pptxgenjs/dist/pptxgen.bundle.js");
+/// The web build has no `node_modules`, so it takes the library from a CDN.
+#[cfg(target_arch = "wasm32")]
+const PPTXGEN_CDN_LIB: &str = "https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js";
 use cantara_songlib::song::Song;
 use cantara_songlib::slides::SlideSettings;
 #[cfg(feature = "desktop")]
@@ -831,6 +841,46 @@ fn save_exported_files(
     Ok(SaveOutcome::Written(files.len()))
 }
 
+/// Writes the current selection as a PowerPoint deck.
+///
+/// The file is built in the browser by PptxGenJS from the deck description in
+/// [`crate::logic::pptx`], so no native PowerPoint library is needed and the
+/// same code path works on the desktop and on the web.
+fn export_pptx(deck: &PptxDeck, file_name: &str) {
+    let Ok(deck_json) = serde_json::to_string(deck) else {
+        return;
+    };
+    let Ok(name_json) = serde_json::to_string(file_name) else {
+        return;
+    };
+    let Ok(url_json) = serde_json::to_string(&pptxgen_url()) else {
+        return;
+    };
+
+    let script = PPTX_EXPORT_JS
+        .replace("__DECK__", &deck_json)
+        .replace("__FILE_NAME__", &name_json)
+        .replace("__PPTXGEN_URL__", &url_json);
+
+    spawn(async move {
+        if let Err(error) = document::eval(&script).await {
+            log::error!("could not write the PowerPoint file: {error:?}");
+        }
+    });
+}
+
+/// Where PptxGenJS is loaded from.
+fn pptxgen_url() -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        format!("{}", PPTXGEN_LIB)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        PPTXGEN_CDN_LIB.to_string()
+    }
+}
+
 /// Copy a string to the system clipboard.
 ///
 /// The desktop build goes through the webview so that the same code path works
@@ -872,7 +922,10 @@ fn ExportMenu(
     /// The currently selected items to export
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
 ) -> Element {
+    let settings = use_settings();
     let mut export_format: Signal<ExportFormat> = use_signal(|| ExportFormat::PlainText);
+    let mut template: Signal<String> =
+        use_signal(|| ExportFormat::default_template().to_string());
     let mut copied = use_signal(|| false);
 
     let song_count = use_memo(move || {
@@ -883,15 +936,76 @@ fn ExportMenu(
             .count()
     });
 
+    // A PowerPoint deck is built from the presentation slides rather than from
+    // the songs, so it takes its own path through the design.
+    let conversion: Memo<Option<PptxConversion>> = use_memo(move || {
+        if *export_format.read() != ExportFormat::Pptx {
+            return None;
+        }
+        let design = settings
+            .read()
+            .presentation_designs
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        let slide_settings = settings
+            .read()
+            .song_slide_settings
+            .first()
+            .cloned()
+            .unwrap_or_default();
+
+        crate::logic::presentation::build_presentation(
+            &selected_items.read(),
+            &design,
+            &slide_settings,
+        )
+        .map(|presentation| {
+            let slides: Vec<_> = presentation
+                .presentation
+                .iter()
+                .flat_map(|chapter| chapter.slides.clone())
+                .collect();
+            deck_from_slides(&slides, &design)
+        })
+    });
+
     // The document is rendered as soon as the dialog opens and again whenever
-    // the format changes, so the preview always shows what would be saved —
-    // and a format that cannot be produced says why instead of doing nothing
-    // when the button is pressed.
+    // the format or the template changes, so the preview always shows what
+    // would be saved — and a format that cannot be produced says why instead of
+    // doing nothing when the button is pressed.
     let rendered: Memo<Result<Vec<ExportedFile>, String>> = use_memo(move || {
-        let selected = selected_items.read().clone();
         let format = *export_format.read();
+
+        if format == ExportFormat::Pptx {
+            return match &*conversion.read() {
+                Some(conversion) if !conversion.deck.is_empty() => {
+                    let mut note =
+                        t!("selection.export_pptx_note", count = conversion.deck.slides.len())
+                            .to_string();
+                    // PowerPoint has no way to draw a staff, so a notation
+                    // layout silently loses it. Say so rather than let the user
+                    // discover it in the finished file.
+                    if conversion.skipped_notation > 0 {
+                        note.push('\n');
+                        note.push_str(&t!(
+                            "selection.export_pptx_notation_note",
+                            count = conversion.skipped_notation
+                        ));
+                    }
+                    Ok(vec![ExportedFile {
+                        name: "cantara-presentation".to_string(),
+                        content: format!("{}\n\n{}", note, conversion.deck.to_json()),
+                    }])
+                }
+                _ => Err(export_error_message(&ExportError::NoSongs)),
+            };
+        }
+
+        let selected = selected_items.read().clone();
+        let template = template.read().clone();
         songs_of_selection(&selected)
-            .and_then(|songs| format.render(&songs))
+            .and_then(|songs| format.render_with(&songs, &template))
             .map_err(|error| export_error_message(&error))
     });
 
@@ -905,8 +1019,20 @@ fn ExportMenu(
 
     let handle_save = move |_| {
         let format = *export_format.read();
+
+        // The binary formats are written by the browser, not by Rust.
+        if format.is_binary() {
+            if let Some(conversion) = conversion.read().clone() {
+                export_pptx(&conversion.deck, "cantara-presentation.pptx");
+                show_export_menu.set(false);
+            }
+            return;
+        }
+
         let outcome = match &*rendered.read() {
-            Ok(files) => save_exported_files(files, format).map_err(|error| export_error_message(&error)),
+            Ok(files) => {
+                save_exported_files(files, format).map_err(|error| export_error_message(&error))
+            }
             Err(message) => Err(message.clone()),
         };
 
@@ -953,6 +1079,20 @@ fn ExportMenu(
                                 for format in ExportFormat::ALL {
                                     option { value: format.id(), {t!(format.label_key()).to_string()} }
                                 }
+                            }
+                        }
+
+                        if export_format.read().needs_template() {
+                            label {
+                                {t!("selection.export_template").to_string()}
+                                textarea {
+                                    class: "export-template-input",
+                                    rows: "6",
+                                    spellcheck: false,
+                                    value: "{template}",
+                                    oninput: move |event| template.set(event.value()),
+                                }
+                                small { {t!("selection.export_template_hint").to_string()} }
                             }
                         }
 
