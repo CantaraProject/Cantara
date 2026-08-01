@@ -16,7 +16,7 @@ use std::process::Command;
 /// Kept in step with `SourceFileType` in `src/logic/sourcefiles.rs`; this list
 /// decides what a bundled repository ships to the web build.
 const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "song", "ccli", "yml", "yaml", "cssf", "jpg", "jpeg", "png", "pdf", "md",
+    "song", "ccli", "yml", "yaml", "jpg", "jpeg", "png", "pdf", "md",
 ];
 
 /// npm packages whose files are referenced by `asset!()` at compile time.
