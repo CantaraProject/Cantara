@@ -2,7 +2,6 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cantara_songlib::slides::*;
-use dioxus::html::completions::CompleteWithBraces::strong;
 use dioxus::prelude::*;
 use regex::Regex;
 use rgb::RGBA8;
@@ -27,6 +26,7 @@ use crate::{
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
+const ABCJS_CDN_LIB: &str = "https://cdn.jsdelivr.net/npm/abcjs@6.4.3/dist/abcjs-basic-min.js";
 #[cfg(not(target_arch = "wasm32"))]
 const PDFJS_LIB: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.min.mjs");
 #[cfg(not(target_arch = "wasm32"))]
@@ -107,7 +107,7 @@ pub fn PresentationPage() -> Element {
         .and_then(|s| s.get_item(SYNC_KEY_ACTIVE).ok().flatten())
         .map(|v| v == "true")
         .unwrap_or(false);
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "desktop")))]
     let is_synced_tab = false;
 
     // If there's still no presentation data (and no synced data from localStorage),
@@ -118,8 +118,7 @@ pub fn PresentationPage() -> Element {
 
         return rsx! {
             document::Link { rel: "stylesheet", href: MAIN_CSS }
-            div {
-                style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
+            div { style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
                 p { "No presentation data found." }
             }
         };
@@ -402,7 +401,8 @@ pub fn PresentationPage() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
-        document::Title { { t!("presentation.title").to_string() } }
+        document::Script { src: ABCJS_CDN_LIB }
+        document::Title { {t!("presentation.title").to_string()} }
         // This div is needed for fullscreen mode
         div {
             tabindex: 0,
@@ -437,13 +437,16 @@ pub fn PresentationPage() -> Element {
                         #[cfg(not(feature = "desktop"))]
                         {
                             use_future(move || async move {
-                                let _ = document::eval("
-                                    if (document.fullscreenElement) {
-                                        document.exitFullscreen();
-                                    } else {
-                                        document.documentElement.requestFullscreen();
-                                    }
-                                ").await;
+                                let _ = document::eval(
+                                        "
+                                                            if (document.fullscreenElement) {
+                                                                document.exitFullscreen();
+                                                            } else {
+                                                                document.documentElement.requestFullscreen();
+                                                            }
+                                                        ",
+                                    )
+                                    .await;
                             });
                         }
                     }
@@ -456,9 +459,7 @@ pub fn PresentationPage() -> Element {
                     _ => {}
                 }
             },
-            PresentationRendererComponent {
-                running_presentation: running_presentation
-            }
+            PresentationRendererComponent { running_presentation }
 
             // Context menu overlay
             if *show_context_menu.read() {
@@ -471,7 +472,7 @@ pub fn PresentationPage() -> Element {
                             show_context_menu.set(false);
                             quit_presentation();
                         },
-                        { t!("presenter.quit").to_string() }
+                        {t!("presenter.quit").to_string()}
                     }
                 }
             }
@@ -593,17 +594,14 @@ pub fn PresentationRendererComponent(
     // Stop rendering if no slide can be rendered.
     if current_slide.read().clone().is_none() {
         return rsx! {
-            div {
-                style: "
+            div { style: "
                     all: initial;
                     margin:0;
                     width:100%;
                     height:100%;
                     background-color: black;
                 ",
-                p {
-                    { "No presentation data found." },
-                }
+                p { {"No presentation data found."} }
             }
         };
     }
@@ -727,14 +725,9 @@ pub fn PresentationRendererComponent(
             },
             // Black screen overlay
             if is_black_screen() {
-                div {
-                    style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: black; z-index: 1000;",
-                }
+                div { style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: black; z-index: 1000;" }
             }
-            div {
-                class: "background",
-                style: background_css()
-            }
+            div { class: "background", style: background_css() }
             if presentation_is_visible() {
                 if let Some(slide) = current_slide.read().clone() {
                     {
@@ -748,7 +741,7 @@ pub fn PresentationRendererComponent(
                                 style: "{container_style}",
                                 key: "{current_slide_number}",
                                 SlideContentRenderer {
-                                    slide_content: slide_content,
+                                    slide_content,
                                     pds: current_pds(),
                                     running_presentation: Some(running_presentation),
                                 }
@@ -777,13 +770,8 @@ fn TitleSlideComponent(
     let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
 
     rsx! {
-        div {
-            class: "headline",
-            style: css_handler_string(),
-            p {
-                style: css_handler_string(),
-                { title_slide.title_text }
-            }
+        div { class: "headline", style: css_handler_string(),
+            p { style: css_handler_string(), {title_slide.title_text} }
         }
     }
 }
@@ -840,33 +828,26 @@ fn SingleLanguageMainContentSlideRenderer(
 
     rsx! {
         div {
-            div {
-                class: "main-content",
-                style: main_css.read().to_string(),
-                p {
-                    style: main_css.read().to_string(),
-                    for (num, line) in main_slide.clone().main_text().split("\n").enumerate() {
-                        { line }
-                        if num < number_of_main_content_lines -1 {
-                            br { }
+            div { class: "main-content", style: main_css.read().to_string(),
+                p { style: main_css.read().to_string(),
+                    for (num , line) in main_slide.clone().main_text().split("\n").enumerate() {
+                        {line}
+                        if num < number_of_main_content_lines - 1 {
+                            br {}
                         }
                     }
                 }
             }
             if let Some(spoiler_content) = main_slide.spoiler_text() {
-                div {
-                    class: "distance",
-                    style: distance_css.read().to_string(),
-                }
+                div { class: "distance", style: distance_css.read().to_string() }
                 div {
                     class: "spoiler-content",
                     style: spoiler_css.read().to_string(),
-                    p {
-                        style: spoiler_css.read().to_string(),
-                        for (num, line) in spoiler_content.split("\n").enumerate() {
-                            { line }
+                    p { style: spoiler_css.read().to_string(),
+                        for (num , line) in spoiler_content.split("\n").enumerate() {
+                            {line}
                             if num < spoiler_content.split("\n").count() - 1 {
-                                br { }
+                                br {}
                             }
                         }
                     }
@@ -876,12 +857,255 @@ fn SingleLanguageMainContentSlideRenderer(
     }
 }
 
+/// Renders a multi-language slide with the main content in multiple languages stacked vertically.
+#[component]
+fn MultiLanguageMainContentSlideRenderer(
+    /// The slide as a [MultiLanguageMainContentSlide]
+    multi_slide: MultiLanguageMainContentSlide,
+
+    /// The [FontRepresentation] for the main content font.
+    main_content_font: FontRepresentation,
+
+    /// The [FontRepresentation] for the spoiler content font.
+    spoiler_content_font: FontRepresentation,
+
+    /// The distance between sections, default is `4 em`.
+    distance: Option<CssSize>,
+) -> Element {
+    let main_css: Memo<CssHandler> = use_memo(move || {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        css.opacity(1.0);
+        css.z_index(2);
+        css.extend(&CssHandler::from(main_content_font.clone()));
+        css
+    });
+
+    let distance_css: Memo<CssHandler> = use_memo(move || {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        css.min_height(distance.clone().unwrap_or(CssSize::Em(4.0)));
+        css
+    });
+
+    rsx! {
+        div {
+            for (lang_idx , text) in multi_slide.main_text_list.iter().enumerate() {
+                div { class: "language-section",
+                    p {
+                        class: "language-label",
+                        style: "font-weight: bold; margin-top: 0.5em;",
+                        {format!("Language {}", lang_idx + 1)}
+                    }
+                    p { style: main_css.read().to_string(),
+                        for (num , line) in text.split("\n").enumerate() {
+                            {line}
+                            if num < text.split("\n").count() - 1 {
+                                br {}
+                            }
+                        }
+                    }
+                }
+                if lang_idx < multi_slide.main_text_list.len() - 1 {
+                    div {
+                        class: "distance",
+                        style: distance_css.read().to_string(),
+                    }
+                }
+            }
+            if !multi_slide.spoiler_text_vector.is_empty() {
+                div { class: "distance", style: distance_css.read().to_string() }
+                div { class: "spoiler-content",
+                    p { style: main_css.read().to_string(),
+                        for text in &multi_slide.spoiler_text_vector {
+                            for (num , line) in text.split("\n").enumerate() {
+                                {line}
+                                if num < text.split("\n").count() - 1 {
+                                    br {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Renders a complex slide with notation (ABCjs) and lyrics in multiple languages.
+/// The notation is rendered using ABCjs library for musical notation display.
+#[component]
+fn ComplexSlideRenderer(
+    /// The slide as a [ComplexSlide]
+    complex_slide: ComplexSlide,
+
+    /// The [FontRepresentation] for the main content font.
+    main_content_font: FontRepresentation,
+
+    /// The [FontRepresentation] for the spoiler content font.
+    spoiler_content_font: FontRepresentation,
+
+    /// The [FontRepresentation] for the notation font.
+    notation_font: FontRepresentation,
+) -> Element {
+    let main_css: Memo<CssHandler> = use_memo(move || {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        css.opacity(1.0);
+        css.z_index(2);
+        css.extend(&CssHandler::from(main_content_font.clone()));
+        css
+    });
+
+    let spoiler_css: Memo<CssHandler> = use_memo(move || {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        css.extend(&CssHandler::from(spoiler_content_font.clone()));
+        css
+    });
+
+    let visible_rows: Vec<SlideRow> =
+        complex_slide.rows_without_repetition().cloned().collect();
+
+    let notation_rows: Vec<String> = visible_rows
+        .iter()
+        .filter(|row| row.is_notation())
+        .map(|row| row.content.clone())
+        .collect();
+
+    let lyric_rows: Vec<(Option<String>, String)> = visible_rows
+        .iter()
+        .filter_map(|row| match &row.kind {
+            SlideRowKind::Lyrics { language } => Some((language.clone(), row.content.clone())),
+            _ => None,
+        })
+        .collect();
+
+    let spoiler_rows: Vec<(Option<String>, String)> = complex_slide
+        .spoiler
+        .iter()
+        .filter_map(|row| match &row.kind {
+            SlideRowKind::Lyrics { language } => Some((language.clone(), row.content.clone())),
+            _ => None,
+        })
+        .collect();
+
+    rsx! {
+        div { class: "complex-slide",
+            for abc in notation_rows {
+                div { class: "notation-row", style: "margin-bottom: 1em;",
+                    AbcNotationRenderer {
+                        abc_notation: abc,
+                        notation_font: notation_font.clone(),
+                    }
+                }
+            }
+            div { class: "lyrics-rows",
+                for (language , text) in lyric_rows {
+                    div {
+                        class: "lyrics-row",
+                        style: main_css.read().to_string(),
+                        p { style: main_css.read().to_string(),
+                            if let Some(lang) = language {
+                                span { style: "font-weight: bold; margin-right: 0.5em;",
+                                    {format!("[{}]", lang)}
+                                }
+                            }
+                            for (line_number , line) in text.lines().enumerate() {
+                                {line}
+                                if line_number + 1 < text.lines().count() {
+                                    br {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if !spoiler_rows.is_empty() {
+                div {
+                    class: "spoiler-section",
+                    style: "margin-top: 2em; opacity: 0.7;",
+                    for (language , text) in spoiler_rows {
+                        p { style: spoiler_css.read().to_string(),
+                            if let Some(lang) = language {
+                                span { style: "font-weight: bold; margin-right: 0.5em;",
+                                    {format!("[{}]", lang)}
+                                }
+                            }
+                            for (line_number , line) in text.lines().enumerate() {
+                                {line}
+                                if line_number + 1 < text.lines().count() {
+                                    br {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Renders ABC notation using the ABCjs JavaScript library.
+/// The component creates a div container and initializes ABCjs to render the notation as SVG.
+#[component]
+fn AbcNotationRenderer(
+    /// The ABC notation string to render
+    abc_notation: String,
+    /// Font settings for styling the notation
+    notation_font: FontRepresentation,
+) -> Element {
+    let container_id = use_hook(|| format!("abc-{}", Uuid::new_v4().as_simple()));
+    let id_for_rsx = container_id.clone();
+
+    let notation_style = {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        css.extend(&CssHandler::from(notation_font));
+        css.to_string()
+    };
+
+    use_effect(move || {
+        let id = container_id.clone();
+        let abc_json = serde_json::to_string(&abc_notation).unwrap_or_else(|_| "\"\"".to_string());
+        spawn(async move {
+            // Initialize ABCjs to render the notation into the container
+            let js_code = format!(r#"
+                (function() {{
+                    var container = document.getElementById('{id}');
+                    if (!container) return;
+
+                    // Clear any existing content
+                    container.innerHTML = '';
+
+                    var abc = {abc_json};
+
+                    // Check if ABCjs is available
+                    if (typeof ABCJS !== 'undefined') {{
+                        ABCJS.renderAbc(container, abc, {{ responsive: 'resize' }});
+                    }} else {{
+                        // Fallback: show raw ABC notation if library not loaded
+                        container.innerHTML = '<pre style="white-space: pre-wrap;">' + abc + '</pre>';
+                    }}
+                }})();
+            "#);
+            let _ = document::eval(&js_code).await;
+        });
+    });
+
+    rsx! {
+        div {
+            id: "{id_for_rsx}",
+            class: "abc-notation-container",
+            style: "min-height: 50px; background: transparent; {notation_style}",
+        }
+    }
+}
+
 #[component]
 fn EmptySlideComponent() -> Element {
     rsx! {
-        div {
-            class: "empty-content",
-        }
+        div { class: "empty-content" }
     }
 }
 
@@ -915,7 +1139,7 @@ fn SlideContentRenderer(
         SlideContent::Title(title_slide) => rsx! {
             TitleSlideComponent {
                 title_slide: title_slide.clone(),
-                title_font_representation: pds.get_default_headline_font()
+                title_font_representation: pds.get_default_headline_font(),
             }
         },
         SlideContent::SingleLanguageMainContent(main_slide) => {
@@ -925,7 +1149,7 @@ fn SlideContentRenderer(
                 rsx! {
                     MarkdownSlideComponent {
                         html_content: html_owned,
-                        running_presentation: running_presentation,
+                        running_presentation,
                         main_content_font: pds.get_default_font(),
                     }
                 }
@@ -940,15 +1164,34 @@ fn SlideContentRenderer(
                 }
             }
         },
+        SlideContent::MultiLanguageMainContent(multi_slide) => rsx! {
+            MultiLanguageMainContentSlideRenderer {
+                multi_slide: multi_slide.clone(),
+                main_content_font: pds.get_default_font(),
+                spoiler_content_font: pds.get_default_spoiler_font(),
+                distance: pds.main_content_spoiler_content_padding.clone(),
+            }
+        },
+        SlideContent::Complex(complex_slide) => rsx! {
+            ComplexSlideRenderer {
+                complex_slide: complex_slide.clone(),
+                main_content_font: pds.get_default_font(),
+                spoiler_content_font: pds.get_default_spoiler_font(),
+                notation_font: pds.get_default_font(),
+            }
+        },
         SlideContent::Empty(_) => rsx! {
             EmptySlideComponent {}
         },
         SlideContent::SimplePicture(picture_slide) => rsx! {
-            SimplePictureSlideComponent {
-                picture_slide: picture_slide.clone()
+            SimplePictureSlideComponent { picture_slide: picture_slide.clone() }
+        },
+        SlideContent::PdfPage(pdf_slide) => rsx! {
+            PdfPageCanvas {
+                pdf_path: pdf_slide.pdf_path.clone(),
+                page_num: pdf_slide.page_number,
             }
         },
-        _ => rsx! { p { "No content provided" } }
     }
 }
 
@@ -1134,8 +1377,12 @@ fn MarkdownSlideComponent(
     rsx! {
         div {
             class: "markdown-slide",
-            style: format!("overflow-y: auto; max-height: 100%; padding: 1em 2em; box-sizing: border-box; {}", font_css).to_string(),
-            dangerous_inner_html: html_content
+            style: format!(
+                "overflow-y: auto; max-height: 100%; padding: 1em 2em; box-sizing: border-box; {}",
+                font_css,
+            )
+                .to_string(),
+            dangerous_inner_html: html_content,
         }
     }
 }
@@ -1156,19 +1403,14 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
             .unwrap_or(1);
 
         return rsx! {
-            div {
-                style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
-                PdfPageCanvas {
-                    pdf_path: base_path,
-                    page_num: page_num,
-                }
+            div { style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
+                PdfPageCanvas { pdf_path: base_path, page_num }
             }
         };
     }
 
     rsx! {
-        div {
-            style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
+        div { style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
             img {
                 src: "{path}",
                 style: "max-width: 100%; max-height: 100%; object-fit: contain;",
@@ -1336,20 +1578,10 @@ pub fn StaticSlideRendererComponent(
     rsx! {
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Script { src: PRESENTATION_JS }
-        div {
-            class: "presentation",
-            style: css_handler.to_string(),
-            div {
-                class: "background",
-                style: "{background_css}"
-            }
-            div {
-                class: "slide-container",
-                style: "{container_style}",
-                SlideContentRenderer {
-                    slide_content: slide_content,
-                    pds: pds,
-                }
+        div { class: "presentation", style: css_handler.to_string(),
+            div { class: "background", style: "{background_css}" }
+            div { class: "slide-container", style: "{container_style}",
+                SlideContentRenderer { slide_content, pds }
             }
         }
     }

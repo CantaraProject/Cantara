@@ -107,30 +107,30 @@ fn visit_dir(f: &mut fs::File, dir: &Path, base_path: &Path, repo_id: &str, dept
         let path = entry.path();
         if path.is_dir() {
             // Skip .git directory
-            if path.file_name().map_or(false, |n| n == ".git") {
+            if path.file_name().is_some_and(|n| n == ".git") {
                 continue;
             }
             visit_dir(f, &path, base_path, repo_id, depth + 1);
-        } else if path.is_file() {
-            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                let ext_lower = ext.to_lowercase();
-                if SUPPORTED_EXTENSIONS.iter().any(|&e| e == ext_lower) {
-                    let rel_path = path.strip_prefix(base_path).unwrap();
-                    // Use web-github:// prefix so existing WASM VFS code finds the files
-                    let vfs_path = format!(
-                        "web-github://{}/{}",
-                        repo_id,
-                        rel_path.display().to_string().replace('\\', "/")
-                    );
-                    let abs_path = fs::canonicalize(&path).unwrap();
-                    writeln!(
-                        f,
-                        "    (\"{}\", include_bytes!(\"{}\")),",
-                        vfs_path,
-                        abs_path.display().to_string().replace('\\', "/")
-                    )
-                    .unwrap();
-                }
+        } else if path.is_file()
+            && let Some(ext) = path.extension().and_then(|e| e.to_str())
+        {
+            let ext_lower = ext.to_lowercase();
+            if SUPPORTED_EXTENSIONS.iter().any(|&e| e == ext_lower) {
+                let rel_path = path.strip_prefix(base_path).unwrap();
+                // Use web-github:// prefix so existing WASM VFS code finds the files
+                let vfs_path = format!(
+                    "web-github://{}/{}",
+                    repo_id,
+                    rel_path.display().to_string().replace('\\', "/")
+                );
+                let abs_path = fs::canonicalize(&path).unwrap();
+                writeln!(
+                    f,
+                    "    (\"{}\", include_bytes!(\"{}\")),",
+                    vfs_path,
+                    abs_path.display().to_string().replace('\\', "/")
+                )
+                .unwrap();
             }
         }
     }

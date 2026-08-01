@@ -96,6 +96,33 @@ selection:
     spontaneous_name:
       en: Markdown Text
       de: Markdown-Text
+  export_title:
+    en: Export Songs
+    de: Lieder exportieren
+  export_description:
+    en: "Export {count} selected song(s) in your preferred format:"
+    de: "{count} ausgewählte(s) Lied(er) im gewünschten Format exportieren:"
+  export_format:
+    en: Export Format
+    de: Export-Format
+  export_format_text:
+    en: Plain Text
+    de: Einfacher Text
+  export_format_telegram:
+    en: Telegram Format
+    de: Telegram-Format
+  export_format_markdown:
+    en: Markdown
+    de: Markdown
+  export_format_lilypond:
+    en: LilyPond (Sheet Music)
+    de: LilyPond (Noten)
+  export_format_pdf:
+    en: PDF (coming soon)
+    de: PDF (demnächst)
+  export_button:
+    en: Export
+    de: Exportieren
 
 wizard:
   title:

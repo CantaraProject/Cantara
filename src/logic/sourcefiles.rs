@@ -140,9 +140,27 @@ pub struct SourceFile {
 pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
     let mut source_files: Vec<SourceFile> = vec![];
 
-    find_files_with_ending(start_dir, vec!["song", "jpg", "jpeg", "png", "pdf", "md"])
+    find_files_with_ending(
+        start_dir,
+        vec![
+            "song",
+            ".song.yml",
+            ".song.yaml",
+            "ccli",
+            "jpg",
+            "jpeg",
+            "png",
+            "pdf",
+            "md",
+        ],
+    )
         .iter()
         .for_each(|file| {
+            let file_name_lower = file
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("")
+                .to_lowercase();
             let file_extension: &str = file
                 .extension()
                 .unwrap_or(OsStr::new(""))
@@ -150,7 +168,12 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
                 .unwrap_or("");
             let file_type_option: Option<SourceFileType> =
                 match file_extension.to_lowercase().as_str() {
-                    "song" => Some(SourceFileType::Song),
+                    "song" | "ccli" => Some(SourceFileType::Song),
+                    "yml" | "yaml" if file_name_lower.ends_with(".song.yml")
+                        || file_name_lower.ends_with(".song.yaml") =>
+                    {
+                        Some(SourceFileType::Song)
+                    }
                     "png" => Some(SourceFileType::Image),
                     "jpg" => Some(SourceFileType::Image),
                     "jpeg" => Some(SourceFileType::Image),
@@ -240,9 +263,16 @@ impl SourceFile {
     pub fn from_web_path(vfs_path: &str) -> Option<Self> {
         // The file name is the last component of the path
         let file_name = vfs_path.split('/').last()?;
+        let file_name_lower = file_name.to_lowercase();
         let extension = file_name.rsplit('.').next()?.to_lowercase();
         let file_type = match extension.as_str() {
-            "song" => SourceFileType::Song,
+            "song" | "ccli" => SourceFileType::Song,
+            "yml" | "yaml"
+                if file_name_lower.ends_with(".song.yml")
+                    || file_name_lower.ends_with(".song.yaml") =>
+            {
+                SourceFileType::Song
+            }
             "png" | "jpg" | "jpeg" => SourceFileType::Image,
             "pdf" => SourceFileType::Pdf,
             "md" => SourceFileType::Markdown,

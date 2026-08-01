@@ -16,12 +16,17 @@ pub(crate) fn SongSourceItems(
             onmounted: move |_| async move {
                 let _ = document::eval("initSelectionLayout();").await;
             },
-            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Song) {
+            for (id , _) in source_files
+                .read()
+                .iter()
+                .enumerate()
+                .filter(|(_, sf)| sf.file_type == SourceFileType::Song)
+            {
                 SongSourceItem {
-                    id: id,
-                    source_files: source_files,
-                    active_detailed_item_id: active_detailed_item_id,
-                    selected_items: selected_items
+                    id,
+                    source_files,
+                    active_detailed_item_id,
+                    selected_items,
                 }
             }
         }
@@ -40,13 +45,19 @@ fn SongSourceItem(
             role: "button",
             class: "outline secondary selection_item",
             tabindex: 0,
-            onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
-            ); },
+            onclick: move |_| {
+                selected_items
+                    .write()
+                    .push(
+                        SelectedItemRepresentation::new_with_sourcefile(
+                            source_files.get(id).unwrap().clone(),
+                        ),
+                    );
+            },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
             },
-            { source_files.get(id).unwrap().clone().name }
+            {source_files.get(id).unwrap().clone().name}
         }
     }
 }
@@ -63,12 +74,17 @@ pub(crate) fn ImageSourceItems(
             onmounted: move |_| async move {
                 let _ = document::eval("initSelectionLayout();").await;
             },
-            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Image) {
+            for (id , _) in source_files
+                .read()
+                .iter()
+                .enumerate()
+                .filter(|(_, sf)| sf.file_type == SourceFileType::Image)
+            {
                 ImageSourceItem {
-                    id: id,
-                    source_files: source_files,
-                    active_detailed_item_id: active_detailed_item_id,
-                    selected_items: selected_items
+                    id,
+                    source_files,
+                    active_detailed_item_id,
+                    selected_items,
                 }
             }
         }
@@ -87,17 +103,23 @@ fn ImageSourceItem(
             role: "button",
             class: "outline secondary selection_item",
             tabindex: 0,
-            onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
-            ); },
+            onclick: move |_| {
+                selected_items
+                    .write()
+                    .push(
+                        SelectedItemRepresentation::new_with_sourcefile(
+                            source_files.get(id).unwrap().clone(),
+                        ),
+                    );
+            },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
             },
-            { source_files.get(id).unwrap().clone().name },
-            br { },
+            {source_files.get(id).unwrap().clone().name}
+            br {}
             img {
                 height: "300px",
-                src: source_files.get(id).unwrap().clone().path.to_str().unwrap_or("")
+                src: source_files.get(id).unwrap().clone().path.to_str().unwrap_or(""),
             }
         }
     }
@@ -115,12 +137,17 @@ pub(crate) fn PdfSourceItems(
             onmounted: move |_| async move {
                 let _ = document::eval("initSelectionLayout();").await;
             },
-            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Pdf) {
+            for (id , _) in source_files
+                .read()
+                .iter()
+                .enumerate()
+                .filter(|(_, sf)| sf.file_type == SourceFileType::Pdf)
+            {
                 PdfSourceItem {
-                    id: id,
-                    source_files: source_files,
-                    active_detailed_item_id: active_detailed_item_id,
-                    selected_items: selected_items
+                    id,
+                    source_files,
+                    active_detailed_item_id,
+                    selected_items,
                 }
             }
         }
@@ -139,13 +166,19 @@ fn PdfSourceItem(
             role: "button",
             class: "outline secondary selection_item",
             tabindex: 0,
-            onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
-            ); },
+            onclick: move |_| {
+                selected_items
+                    .write()
+                    .push(
+                        SelectedItemRepresentation::new_with_sourcefile(
+                            source_files.get(id).unwrap().clone(),
+                        ),
+                    );
+            },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
             },
-            { source_files.get(id).unwrap().clone().name }
+            {source_files.get(id).unwrap().clone().name}
         }
     }
 }
@@ -164,16 +197,21 @@ pub(crate) fn MarkdownSourceItems(
             onmounted: move |_| async move {
                 let _ = document::eval("initSelectionLayout();").await;
             },
-            for (id, _) in source_files.read().iter().enumerate().filter(|(_, sf)| sf.file_type == SourceFileType::Markdown) {
+            for (id , _) in source_files
+                .read()
+                .iter()
+                .enumerate()
+                .filter(|(_, sf)| sf.file_type == SourceFileType::Markdown)
+            {
                 MarkdownSourceItem {
-                    id: id,
-                    source_files: source_files,
-                    active_detailed_item_id: active_detailed_item_id,
-                    selected_items: selected_items
+                    id,
+                    source_files,
+                    active_detailed_item_id,
+                    selected_items,
                 }
             }
             details {
-                summary { { t!("selection.markdown.add_text").to_string() } }
+                summary { {t!("selection.markdown.add_text").to_string()} }
                 textarea {
                     rows: "8",
                     placeholder: t!("selection.markdown.placeholder").to_string(),
@@ -200,7 +238,7 @@ pub(crate) fn MarkdownSourceItems(
                             spontaneous_text.set(String::new());
                         }
                     },
-                    { t!("selection.markdown.add_button").to_string() }
+                    {t!("selection.markdown.add_button").to_string()}
                 }
             }
         }
@@ -219,13 +257,19 @@ fn MarkdownSourceItem(
             role: "button",
             class: "outline secondary selection_item",
             tabindex: 0,
-            onclick: move |_| { selected_items.write().push(
-                SelectedItemRepresentation::new_with_sourcefile(source_files.get(id).unwrap().clone())
-            ); },
+            onclick: move |_| {
+                selected_items
+                    .write()
+                    .push(
+                        SelectedItemRepresentation::new_with_sourcefile(
+                            source_files.get(id).unwrap().clone(),
+                        ),
+                    );
+            },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
             },
-            { source_files.get(id).unwrap().clone().name }
+            {source_files.get(id).unwrap().clone().name}
         }
     }
 }
@@ -245,17 +289,17 @@ pub(crate) fn SourceDetailView(
     let path_string = use_memo(move || item.read().path.to_str().unwrap_or("").to_string());
 
     rsx! {
-        dialog {
-            style: "position: fixed",
-            open: true,
+        dialog { style: "position: fixed", open: true,
             article {
                 header {
-                    p { { t!("selection.detail_view").to_string() } }
+                    p { {t!("selection.detail_view").to_string()} }
                 }
                 table {
                     tbody {
                         tr {
-                            td { strong { { t!("general.type").to_string() } } }
+                            td {
+                                strong { {t!("general.type").to_string()} }
+                            }
                             td {
                                 match item().file_type {
                                     SourceFileType::Song => t!("general.song").to_string(),
@@ -263,24 +307,27 @@ pub(crate) fn SourceDetailView(
                                     SourceFileType::Presentation => t!("general.presentation").to_string(),
                                     SourceFileType::Video => t!("general.video").to_string(),
                                     SourceFileType::Pdf => t!("general.pdf").to_string(),
-                                    SourceFileType::Markdown => t!("general.markdown").to_string()
+                                    SourceFileType::Markdown => t!("general.markdown").to_string(),
                                 }
                             }
                         }
                         tr {
-                            td { strong { { t!("general.title").to_string() } } }
-                            td { { item.read().name.clone() } }
+                            td {
+                                strong { {t!("general.title").to_string()} }
+                            }
+                            td { {item.read().name.clone()} }
                         }
                         tr {
-                            td { strong { { t!("general.file_path").to_string() } } }
-                            td { { path_string } }
+                            td {
+                                strong { {t!("general.file_path").to_string()} }
+                            }
+                            td { {path_string} }
                         }
                     }
                 }
                 footer {
-                    button {
-                        onclick: move |_| { active_detailed_item_id.set(None) },
-                        { t!("general.close").to_string() }
+                    button { onclick: move |_| { active_detailed_item_id.set(None) },
+                        {t!("general.close").to_string()}
                     }
                 }
             }
@@ -297,6 +344,7 @@ pub(crate) async fn process_dropped_files(
     for file_data in files {
         let file_name = file_data.name();
         let file_path = file_data.path();
+        let file_name_lower = file_name.to_lowercase();
 
         let file_name_path = std::path::Path::new(&file_name);
         let extension = file_path
@@ -307,7 +355,13 @@ pub(crate) async fn process_dropped_files(
             .to_lowercase();
 
         let file_type = match extension.as_str() {
-            "song" => SourceFileType::Song,
+            "song" | "ccli" => SourceFileType::Song,
+            "yml" | "yaml"
+                if file_name_lower.ends_with(".song.yml")
+                    || file_name_lower.ends_with(".song.yaml") =>
+            {
+                SourceFileType::Song
+            }
             "png" | "jpg" | "jpeg" => SourceFileType::Image,
             "pdf" => SourceFileType::Pdf,
             _ => {
