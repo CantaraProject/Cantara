@@ -292,11 +292,8 @@ pub fn song_from_content(file_name: &str, content: &str) -> Result<Song, ExportE
 
     // Formats that carry no title of their own are named after the file.
     if song.title.trim().is_empty() {
-        song.title = Path::new(file_name)
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or(file_name)
-            .to_string();
+        let base = file_name.rsplit('/').next().unwrap_or(file_name);
+        song.title = crate::logic::sourcefiles::SourceFileType::display_name(base);
     }
 
     Ok(song)
