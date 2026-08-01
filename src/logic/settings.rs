@@ -1144,7 +1144,7 @@ impl RepositoryType {
     ) -> Result<TempDir, String> {
         let temp_dir = create_temp_dir()?;
         let zip_path = temp_dir.path().join("download.zip");
-        let mut builder = Client::builder()
+        let builder = Client::builder()
             .http1_only();
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
@@ -1213,7 +1213,7 @@ impl RepositoryType {
     ) -> Result<TempDir, String> {
         let temp_dir = create_temp_dir()?;
         let zip_path = temp_dir.path().join("download.zip");
-        let mut builder = AsyncClient::builder()
+        let builder = AsyncClient::builder()
             .http1_only();
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {

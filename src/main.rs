@@ -149,13 +149,19 @@ fn App() -> Element {
     #[cfg(all(feature = "desktop", target_os = "linux"))]
     use_effect(move || {
         match dark_light::detect() {
-            dark_light::Mode::Dark => {
-                let _ = document::eval("document.documentElement.setAttribute('data-theme', 'dark')");
+            Ok(mode) => match mode {
+                dark_light::Mode::Dark => {
+                    let _ = document::eval("document.documentElement.setAttribute('data-theme', 'dark')");
+                },
+                dark_light::Mode::Light => {
+                    let _ = document::eval("document.documentElement.setAttribute('data-theme', 'light')");
+                },
+                _ => {}
             },
-            dark_light::Mode::Light => {
+            Err(e) => {
+                log::error!("Failed to detect system theme: {}", e);
                 let _ = document::eval("document.documentElement.setAttribute('data-theme', 'light')");
-            },
-            _ => {}
+            }
         }
     });
 
@@ -188,6 +194,6 @@ fn App() -> Element {
         document::Meta { name: "color-scheme", content: "light dark" }
         document::Meta { name: "content-language", content: locale }
 
-        Router::<Route> { }
+        Router::<Route> {}
     }
 }
