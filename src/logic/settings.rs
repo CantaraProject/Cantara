@@ -1522,8 +1522,57 @@ pub struct PresentationDesignTemplate {
     /// An optional background picture
     pub background_image: Option<ImageSourceFile>,
 
-    /// The distance between the main content and the spoiler content
+    /// The distance between the main content and the spoiler content.
+    ///
+    /// Also used between the title and its meta line, so a design only has to
+    /// state one "distance between the two blocks of a slide".
     pub main_content_spoiler_content_padding: CssSize,
+
+    /// How the notation block is drawn.
+    #[serde(default)]
+    pub notation: NotationSettings,
+
+    /// Whether the title on a title slide is set in bold.
+    ///
+    /// Kept apart from the headline block's weight so that turning it on does
+    /// not also thicken the body text — by default both are the same block.
+    #[serde(default)]
+    pub title_bold: bool,
+}
+
+/// How the notation block of a complex slide is drawn.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct NotationSettings {
+    /// The width of the staff as a percentage of the content width.
+    ///
+    /// At 100 the staff spans exactly the same box as the text blocks around
+    /// it, so the two line up on the left and right edges.
+    pub width_percent: f64,
+
+    /// Where a staff narrower than the content sits.
+    pub horizontal_alignment: HorizontalAlign,
+
+    /// The height of one staff line, as a multiple of the engraver's default.
+    ///
+    /// Reads like the `line_height` of a text block: 1.0 is normal spacing,
+    /// larger values open the systems up.
+    pub staff_line_height: f64,
+
+    /// The size of the words printed under the notes.
+    pub font_size: CssSize,
+}
+
+impl Default for NotationSettings {
+    fn default() -> Self {
+        NotationSettings {
+            width_percent: 100.0,
+            horizontal_alignment: HorizontalAlign::Centered,
+            staff_line_height: 1.0,
+            // Matches the default spoiler size, which is what the notation
+            // lyrics were drawn at before this became configurable.
+            font_size: CssSize::Pt(22.4),
+        }
+    }
 }
 
 impl PresentationDesignTemplate {
@@ -1621,6 +1670,41 @@ impl PresentationDesignTemplate {
         }
     }
 
+    /// The block configured for `language`, if a design defines one.
+    ///
+    /// A block claims a language by carrying its code; the comparison ignores
+    /// case and surrounding space so that `"DE"` and `"de "` still match a
+    /// song tagged `de`.
+    pub fn font_for_language(&self, language: &str) -> Option<FontRepresentation> {
+        let wanted = language.trim().to_lowercase();
+        if wanted.is_empty() {
+            return None;
+        }
+
+        self.fonts
+            .iter()
+            .find(|font| {
+                font.language
+                    .as_deref()
+                    .map(|code| code.trim().to_lowercase() == wanted)
+                    .unwrap_or(false)
+            })
+            .cloned()
+    }
+
+    /// The block a row of a complex slide is drawn with.
+    ///
+    /// A row is drawn with the block that claims its language; where no block
+    /// does, it falls back to the main block. That one rule covers both cases
+    /// the design has to handle: the first row of a slide is its main text and
+    /// normally lands on the main block, and a song in a language the design
+    /// was never set up for still gets drawn.
+    pub fn font_for_row(&self, language: Option<&str>) -> FontRepresentation {
+        language
+            .and_then(|code| self.font_for_language(code))
+            .unwrap_or_else(|| self.get_default_font())
+    }
+
     /// Gets the default font [FontRepresentation] for the meta part.
     /// If none is defined, the system default will be returned as a fallback.
     pub fn get_default_meta_font(&self) -> FontRepresentation {
@@ -1652,6 +1736,8 @@ impl Default for PresentationDesignTemplate {
             padding: default_padding(),
             background_image: None,
             main_content_spoiler_content_padding: CssSize::Px(20.0),
+            notation: NotationSettings::default(),
+            title_bold: false,
         }
     }
 }
@@ -1676,6 +1762,73 @@ pub struct FontRepresentation {
 
     /// The horizontal alignment of the block
     pub horizontal_alignment: HorizontalAlign,
+
+    /// How heavy the type is drawn, as a CSS font weight (100–900).
+    #[serde(default = "default_font_weight")]
+    pub weight: u16,
+
+    /// An outline drawn around the glyphs. Keeps light text readable on a busy
+    /// background image without darkening the whole slide.
+    #[serde(default)]
+    pub outline: Option<FontOutline>,
+
+    /// How the shadow is drawn when [`FontRepresentation::shadow`] is on.
+    #[serde(default)]
+    pub shadow_style: FontShadow,
+
+    /// The language this block is for, as a language code such as `"de"`.
+    ///
+    /// Only meaningful for a complex presentation, where one slide shows the
+    /// same passage in several languages: a row is drawn with the block
+    /// carrying its language, and falls back to the main block when no block
+    /// claims it. `None` means the block is not tied to a language.
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+/// An outline drawn around the glyphs of a [`FontRepresentation`].
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub struct FontOutline {
+    pub color: RGBA8,
+    /// The stroke width in pixels. Anything above roughly 3 starts to close up
+    /// the counters of the letters.
+    pub width: f64,
+}
+
+impl Default for FontOutline {
+    fn default() -> Self {
+        FontOutline {
+            color: Rgba::new(0, 0, 0, 255),
+            width: 1.0,
+        }
+    }
+}
+
+/// How a [`FontRepresentation`]'s shadow is drawn.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub struct FontShadow {
+    pub color: RGBA8,
+    pub offset_x: f64,
+    pub offset_y: f64,
+    pub blur: f64,
+}
+
+impl Default for FontShadow {
+    fn default() -> Self {
+        FontShadow {
+            // A soft, slightly offset black shadow: enough to lift text off a
+            // photograph without reading as an effect.
+            color: Rgba::new(0, 0, 0, 180),
+            offset_x: 2.0,
+            offset_y: 2.0,
+            blur: 6.0,
+        }
+    }
+}
+
+/// Regular weight — what type is drawn at unless the design says otherwise.
+fn default_font_weight() -> u16 {
+    400
 }
 
 impl FontRepresentation {
@@ -1712,6 +1865,10 @@ impl Default for FontRepresentation {
             line_height: 1.2,
             color: Rgba::new(255, 255, 255, 255),
             horizontal_alignment: HorizontalAlign::default(),
+            weight: default_font_weight(),
+            outline: None,
+            shadow_style: FontShadow::default(),
+            language: None,
         }
     }
 }
@@ -2325,5 +2482,108 @@ mod tests {
             }
             other => panic!("Expected RemoteZip repository type, got {:?}", other),
         }
+    }
+}
+
+#[cfg(test)]
+mod design_block_tests {
+    use super::*;
+
+    fn template_with_language(code: &str) -> PresentationDesignTemplate {
+        let mut template = PresentationDesignTemplate::default();
+        let mut block = FontRepresentation::default();
+        block.language = Some(code.to_string());
+        block.font_size = CssSize::Pt(11.0);
+        template.fonts.push(block);
+        template
+    }
+
+    /// A row is drawn with the block that claims its language.
+    #[test]
+    fn test_a_row_takes_the_block_for_its_language() {
+        let template = template_with_language("de");
+
+        let font = template.font_for_row(Some("de"));
+
+        assert_eq!(font.font_size, CssSize::Pt(11.0));
+    }
+
+    /// A song in a language the design was never set up for still has to be
+    /// drawn, so it falls back to the main block.
+    #[test]
+    fn test_an_unclaimed_language_falls_back_to_the_main_block() {
+        let template = template_with_language("de");
+
+        let font = template.font_for_row(Some("fi"));
+
+        assert_eq!(font.font_size, template.get_default_font().font_size);
+    }
+
+    /// The classic `.song` format carries no language at all.
+    #[test]
+    fn test_a_row_without_a_language_uses_the_main_block() {
+        let template = template_with_language("de");
+
+        assert_eq!(
+            template.font_for_row(None).font_size,
+            template.get_default_font().font_size
+        );
+    }
+
+    /// A language code is a label a user types, so matching must not hinge on
+    /// how they typed it.
+    #[test]
+    fn test_language_matching_ignores_case_and_space() {
+        let template = template_with_language(" DE ");
+
+        assert_eq!(template.font_for_row(Some("de")).font_size, CssSize::Pt(11.0));
+        assert_eq!(template.font_for_row(Some("De")).font_size, CssSize::Pt(11.0));
+    }
+
+    /// An empty code claims nothing — otherwise a half-filled block would
+    /// silently capture every row.
+    #[test]
+    fn test_an_empty_code_claims_nothing() {
+        let mut template = PresentationDesignTemplate::default();
+        let mut block = FontRepresentation::default();
+        block.language = Some("  ".to_string());
+        block.font_size = CssSize::Pt(11.0);
+        template.fonts.push(block);
+
+        assert_ne!(template.font_for_row(Some("de")).font_size, CssSize::Pt(11.0));
+    }
+
+    /// Settings written before these fields existed have to keep loading.
+    #[test]
+    fn test_an_old_font_block_still_loads() {
+        let json = r#"{
+            "font_family": null,
+            "font_size": {"Pt": 40.0},
+            "shadow": false,
+            "line_height": 1.2,
+            "color": {"r": 255, "g": 255, "b": 255, "a": 255},
+            "horizontal_alignment": "Centered"
+        }"#;
+
+        let font: FontRepresentation = serde_json::from_str(json).expect("old settings must load");
+
+        assert_eq!(font.weight, 400);
+        assert!(font.outline.is_none());
+        assert!(font.language.is_none());
+    }
+
+    /// The same for a design written before the notation had settings.
+    #[test]
+    fn test_an_old_template_gets_default_notation_settings() {
+        let template = PresentationDesignTemplate::default();
+        let mut value = serde_json::to_value(&template).unwrap();
+        value.as_object_mut().unwrap().remove("notation");
+        value.as_object_mut().unwrap().remove("title_bold");
+
+        let loaded: PresentationDesignTemplate =
+            serde_json::from_value(value).expect("old settings must load");
+
+        assert_eq!(loaded.notation.width_percent, 100.0);
+        assert!(!loaded.title_bold);
     }
 }

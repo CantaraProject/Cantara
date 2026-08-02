@@ -130,6 +130,10 @@ impl CssHandler {
         self.push("line-height".to_string(), CssValue::Float(line_height))
     }
 
+    pub fn margin_top(&mut self, size: CssSize) {
+        self.push("margin-top".to_string(), CssValue::CssSize(size))
+    }
+
     pub fn min_height(&mut self, min_height: CssSize) {
         self.push("min-height".to_string(), CssValue::CssSize(min_height))
     }
@@ -139,6 +143,54 @@ impl CssHandler {
             "hyphens".to_string(),
             CssValue::String(value.to_string()),
         )
+    }
+
+    /// How heavy the type is drawn, as a CSS font weight.
+    pub fn font_weight(&mut self, weight: u16) {
+        self.push(
+            "font-weight".to_string(),
+            CssValue::String(weight.to_string()),
+        )
+    }
+
+    /// An outline around the glyphs.
+    ///
+    /// `paint-order` goes with it: without it the stroke is drawn on top of the
+    /// fill and eats into the letterforms from the inside, which thins the text
+    /// instead of outlining it.
+    pub fn text_stroke(&mut self, width: f64, color: RGBA8) {
+        self.push(
+            "-webkit-text-stroke".to_string(),
+            CssValue::String(format!(
+                "{}px rgba({}, {}, {}, {})",
+                width,
+                color.r,
+                color.g,
+                color.b,
+                color.a as f32 / 255.0
+            )),
+        );
+        self.push(
+            "paint-order".to_string(),
+            CssValue::String("stroke fill".to_string()),
+        );
+    }
+
+    /// A drop shadow behind the text.
+    pub fn text_shadow(&mut self, offset_x: f64, offset_y: f64, blur: f64, color: RGBA8) {
+        self.push(
+            "text-shadow".to_string(),
+            CssValue::String(format!(
+                "{}px {}px {}px rgba({}, {}, {}, {})",
+                offset_x,
+                offset_y,
+                blur,
+                color.r,
+                color.g,
+                color.b,
+                color.a as f32 / 255.0
+            )),
+        );
     }
 }
 
@@ -217,8 +269,20 @@ impl From<FontRepresentation> for CssHandler {
         css_handler.line_height(font.line_height as f32);
         css_handler.color(font.color);
         css_handler.text_align(font.horizontal_alignment);
+        css_handler.font_weight(font.weight);
         if font.horizontal_alignment == HorizontalAlign::JustifyWithHyphenation {
             css_handler.hyphens("auto");
+        }
+
+        if let Some(outline) = font.outline {
+            css_handler.text_stroke(outline.width, outline.color);
+        }
+
+        // The flag used to be carried in the settings without ever reaching the
+        // stylesheet, so turning the shadow on did nothing.
+        if font.shadow {
+            let shadow = font.shadow_style;
+            css_handler.text_shadow(shadow.offset_x, shadow.offset_y, shadow.blur, shadow.color);
         }
 
         css_handler

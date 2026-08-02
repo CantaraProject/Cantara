@@ -277,10 +277,12 @@ html, body {
     text-align: center;
 }
 
-/* abcjs sizes the staff to the width of its container. */
+/* abcjs sizes the staff to the width of its container. The width and the
+   placement come from the design's notation settings, which the renderer sets
+   inline — a fixed width here used to indent the staff relative to the text
+   rows, so the two never lined up. */
 .complex-slide .notation-row {
-    width: 90%;
-    max-width: 90%;
+    max-width: 100%;
 }
 
 .abc-notation-container {
@@ -314,8 +316,9 @@ html, body {
 
 /* On the title slide it sits directly below the headline, in the normal flow,
    so it reads as part of the title. */
+/* The distance to the title comes from the design — the same one it uses
+   between main content and spoiler — and is set inline by the renderer. */
 .headline-meta-text {
-    margin-top: 0.6em;
     white-space: pre-line;
 }
 

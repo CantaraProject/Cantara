@@ -640,3 +640,30 @@ div.inline-div {
         display: none;
     }
 }
+
+/* --- Font blocks in the presentation design editor --- */
+
+.font-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+/* Drawn in the block's own colour and family by the editor, so the badge is
+   also a sample of what the block will look like on a slide. */
+.font-block-badge {
+    display: inline-block;
+    padding: 0.2rem 0.7rem;
+    border-radius: var(--pico-border-radius);
+    border: 1px solid var(--pico-muted-border-color);
+    font-size: 0.85em;
+    line-height: 1.6;
+}
+
+.font-block-remove {
+    width: auto;
+    margin: 0;
+    padding: 0.15rem 0.6rem;
+}

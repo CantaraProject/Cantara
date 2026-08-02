@@ -342,22 +342,22 @@ mod tests {
     }
 
     /// The songs Cantara ships as test data are lyrics-only classic files.
-    /// Exporting them to LilyPond has to say so rather than doing nothing.
+    /// Since song library 0.2.2 those export as a LilyPond text document rather
+    /// than failing, so the words are still typeset — just without staves.
     #[test]
-    fn test_lilypond_of_a_lyrics_only_song_reports_why() {
+    fn test_lilypond_of_a_lyrics_only_song_typesets_the_words() {
         let content = std::fs::read_to_string("testfiles/Amazing Grace.song").unwrap();
         let song = song_from_content("Amazing Grace.song", &content).unwrap();
 
-        match ExportFormat::LilyPond.render(&[song]) {
-            Err(ExportError::SongFailed { title, reason }) => {
-                assert_eq!(title, "Amazing Grace");
-                assert!(
-                    reason.contains("no voice content"),
-                    "unexpected reason: {reason}"
-                );
-            }
-            other => panic!("expected a clear failure, got {:?}", other.map(|f| f.len())),
-        }
+        let files = ExportFormat::LilyPond.render(&[song]).expect("render");
+
+        assert_eq!(files.len(), 1);
+        let document = &files[0].content;
+        assert!(document.contains("title = \"Amazing Grace\""));
+        assert!(
+            document.contains("Amazing grace"),
+            "the lyrics are missing from the score"
+        );
     }
 
     /// A song that does carry a melody exports fine.
@@ -436,12 +436,11 @@ mod tests {
     fn test_sheet_music_produces_one_file_per_song() {
         let songs = [song("First"), song("Second")];
 
-        // Neither song has a melody, so the export reports which one failed
-        // rather than writing an empty score.
-        match ExportFormat::LilyPond.render(&songs) {
-            Err(ExportError::SongFailed { title, .. }) => assert_eq!(title, "First"),
-            other => panic!("expected a per-song failure, got {:?}", other.err()),
-        }
+        let files = ExportFormat::LilyPond.render(&songs).expect("render");
+
+        assert_eq!(files.len(), 2, "the songs have to land in separate files");
+        assert_eq!(files[0].name, "First");
+        assert_eq!(files[1].name, "Second");
     }
 
     #[test]

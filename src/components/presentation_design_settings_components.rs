@@ -5,8 +5,8 @@ use crate::components::presentation_components::StaticSlideRendererComponent;
 use crate::components::shared_components::NumberedValidatedLengthInput;
 use cantara_songlib::slides::{Slide, SlideSettings};
 use crate::logic::settings::{
-    CssSize, PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate,
-    TopBottomLeftRight, VerticalAlign, use_settings,
+    CssSize, HorizontalAlign, PresentationDesign, PresentationDesignSettings,
+    PresentationDesignTemplate, TopBottomLeftRight, VerticalAlign, use_settings,
 };
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 use dioxus::core_macro::{component, rsx};
@@ -311,6 +311,97 @@ fn DesignTemplateSettings(
                 pdt.write().vertical_alignment = data;
                 onchange.call(pdt());
             },
+        }
+
+        // The title slide. The gap to its meta line is the distance the design
+        // already defines between main content and spoiler, so there is nothing
+        // to configure for it.
+        h4 { {t!("settings.title_slide.title").to_string()} }
+        form {
+            fieldset {
+                label {
+                    input {
+                        r#type: "checkbox",
+                        role: "switch",
+                        checked: pdt().title_bold,
+                        onchange: move |event| {
+                            pdt.write().title_bold = event.checked();
+                            onchange.call(pdt());
+                        },
+                    }
+                    {t!("settings.title_slide.bold").to_string()}
+                }
+            }
+        }
+
+        // The notation block of a complex slide.
+        h4 { {t!("settings.notation.title").to_string()} }
+        form {
+            fieldset {
+                label {
+                    {
+                        format!(
+                            "{}: {} %",
+                            t!("settings.notation.width"),
+                            pdt().notation.width_percent,
+                        )
+                    }
+                    input {
+                        r#type: "range",
+                        min: "10",
+                        max: "100",
+                        step: "5",
+                        value: "{pdt().notation.width_percent}",
+                        oninput: move |event| {
+                            let value = event.value().parse::<f64>().unwrap_or(100.0);
+                            pdt.write().notation.width_percent = value;
+                            onchange.call(pdt());
+                        },
+                    }
+                }
+
+                label {
+                    {
+                        format!(
+                            "{}: {}",
+                            t!("settings.notation.staff_line_height"),
+                            pdt().notation.staff_line_height,
+                        )
+                    }
+                    input {
+                        r#type: "range",
+                        min: "0.5",
+                        max: "3",
+                        step: "0.1",
+                        value: "{pdt().notation.staff_line_height}",
+                        oninput: move |event| {
+                            let value = event.value().parse::<f64>().unwrap_or(1.0);
+                            pdt.write().notation.staff_line_height = value;
+                            onchange.call(pdt());
+                        },
+                    }
+                }
+
+                label {
+                    {t!("settings.notation.font_size").to_string()}
+                    NumberedValidatedLengthInput {
+                        value: pdt().notation.font_size,
+                        placeholder: "",
+                        onchange: move |value: CssSize| {
+                            pdt.write().notation.font_size = value;
+                            onchange.call(pdt());
+                        },
+                    }
+                }
+
+                NotationAlignmentSelector {
+                    default: pdt().notation.horizontal_alignment,
+                    onchange: move |value: HorizontalAlign| {
+                        pdt.write().notation.horizontal_alignment = value;
+                        onchange.call(pdt());
+                    },
+                }
+            }
         }
 
         // Adjust individual font settings
@@ -767,5 +858,44 @@ mod tests {
         let slides = preview_slides(&settings);
         // Whatever comes out, asking for it must not panic and must be usable.
         assert!(slides.len() < 100);
+    }
+}
+
+/// Where a staff narrower than the content sits.
+///
+/// Only the three placements that mean something for a staff are offered: the
+/// justify modes of a text block have no equivalent in engraving.
+#[component]
+fn NotationAlignmentSelector(
+    default: HorizontalAlign,
+    onchange: EventHandler<HorizontalAlign>,
+) -> Element {
+    let options: [(&str, HorizontalAlign, &str); 3] = [
+        ("left", HorizontalAlign::Left, "settings.horizontal_alignment.left"),
+        ("centered", HorizontalAlign::Centered, "settings.horizontal_alignment.centered"),
+        ("right", HorizontalAlign::Right, "settings.horizontal_alignment.right"),
+    ];
+
+    rsx! {
+        label {
+            { t!("settings.horizontal_alignment.title").to_string() }
+            select {
+                onchange: move |event| {
+                    let value = match event.value().as_str() {
+                        "left" => HorizontalAlign::Left,
+                        "right" => HorizontalAlign::Right,
+                        _ => HorizontalAlign::Centered,
+                    };
+                    onchange.call(value);
+                },
+                for (value , variant , key) in options {
+                    option {
+                        value: "{value}",
+                        selected: default == variant,
+                        { t!(key).to_string() }
+                    }
+                }
+            }
+        }
     }
 }

@@ -471,6 +471,26 @@ settings:
     unavailable:
       en: The preview could not be built with the current slide settings.
       de: Die Vorschau konnte mit den aktuellen Folieneinstellungen nicht erzeugt werden.
+  title_slide:
+    title:
+      en: Title slide
+      de: Titelfolie
+    bold:
+      en: Set the title in bold
+      de: Titel fett setzen
+  notation:
+    title:
+      en: Notation
+      de: Notensatz
+    width:
+      en: Width of the staff
+      de: Breite des Notensatzes
+    staff_line_height:
+      en: Staff line height
+      de: Notenzeilenhöhe
+    font_size:
+      en: Size of the words under the notes
+      de: Schriftgröße unter den Noten
   vertical_alignment:
     title:
       en: Vertical Alignment
@@ -500,6 +520,51 @@ settings:
     family_default:
       en: "Default"
       de: "Standard"
+    add_block:
+      en: Add text block
+      de: Textblock hinzufügen
+    remove_block:
+      en: Remove this block
+      de: Diesen Block entfernen
+    language_font:
+      en: "Language: %{language}"
+      de: "Sprache: %{language}"
+    language:
+      en: Language code
+      de: Sprachcode
+    language_hint:
+      en: Rows in this language are drawn with this block; other rows fall back to the main block.
+      de: Zeilen in dieser Sprache werden mit diesem Block dargestellt; andere Zeilen fallen auf den Hauptblock zurück.
+    weight:
+      en: Weight
+      de: Schriftstärke
+    weight_light:
+      en: Light
+      de: Leicht
+    weight_regular:
+      en: Regular
+      de: Normal
+    weight_semibold:
+      en: Semibold
+      de: Halbfett
+    weight_bold:
+      en: Bold
+      de: Fett
+    outline:
+      en: Outline
+      de: Rand
+    outline_width:
+      en: Outline width
+      de: Randstärke
+    shadow:
+      en: Shadow
+      de: Schatten
+    shadow_blur:
+      en: Blur
+      de: Weichzeichnung
+    shadow_offset:
+      en: Offset
+      de: Versatz
     group_bundled:
       en: Shipped with Cantara
       de: Mit Cantara ausgeliefert

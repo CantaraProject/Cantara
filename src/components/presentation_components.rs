@@ -18,7 +18,7 @@ use crate::logic::sync::{
 use crate::{
     MAIN_CSS,
     logic::{
-        settings::{AfterLastSlide, FontRepresentation, PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate, SlideTransition},
+        settings::{AfterLastSlide, FontRepresentation, NotationSettings, PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate, SlideTransition},
         states::RunningPresentation,
     },
 };
@@ -27,6 +27,15 @@ const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
 /// Installs the observer behind [`SlideTransition::Morph`].
 const MORPH_JS: Asset = asset!("/assets/morph_transition.js");
+
+/// The `%%staffsep` value at which abcjs engraves exactly as it does without
+/// the directive at all.
+///
+/// Measured, not documented: rendering the same tune with and without the
+/// directive gives an identical height at 46, and 2 units either side shift it
+/// by about 3px. The design's staff line height is a multiple of this, so 1.0
+/// leaves the engraving untouched.
+const ABCJS_NEUTRAL_STAFF_SEPARATION: f64 = 46.0;
 const ABC_RENDER_JS: &str = include_str!("../../assets/abc_render_inline.js");
 /// abcjs is bundled from `node_modules` so that notation renders without a
 /// network connection — a presentation in a church hall often has none.
@@ -771,13 +780,23 @@ fn TitleSlideComponent(
     title_font_representation: FontRepresentation,
     /// Font for the meta information line below the headline.
     meta_font: FontRepresentation,
+    /// Whether the title is set in bold.
+    bold: bool,
+    /// The gap between the title and its meta line. The same distance the
+    /// design uses between main content and spoiler, so a slide has one
+    /// consistent rhythm and needs no setting of its own for this.
+    meta_distance: CssSize,
 ) -> Element {
     // Build the CSS
     let css_handler: Memo<CssHandler> = use_memo(move || {
         let mut css = CssHandler::new();
         css.opacity(1.0);
         css.z_index(2);
-        css.extend(&CssHandler::from(title_font_representation.clone()));
+        let mut font = title_font_representation.clone();
+        if bold {
+            font.weight = font.weight.max(700);
+        }
+        css.extend(&CssHandler::from(font));
         css
     });
     let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
@@ -787,6 +806,7 @@ fn TitleSlideComponent(
         css.set_important(true);
         css.opacity(1.0);
         css.extend(&CssHandler::from(meta_font));
+        css.margin_top(meta_distance);
         css.to_string()
     };
     let meta_text = title_slide
@@ -976,38 +996,21 @@ fn ComplexSlideRenderer(
     /// The slide as a [ComplexSlide]
     complex_slide: ComplexSlide,
 
-    /// The [FontRepresentation] for the main content font.
-    main_content_font: FontRepresentation,
-
-    /// The [FontRepresentation] for the spoiler content font.
-    spoiler_content_font: FontRepresentation,
-
-    /// The [FontRepresentation] for the notation font.
-    notation_font: FontRepresentation,
+    /// The design, which decides how each row is drawn: a lyrics row takes the
+    /// block claiming its language and falls back to the main block, and the
+    /// notation row takes the notation settings.
+    pds: PresentationDesignTemplate,
 ) -> Element {
-    let main_css: Memo<CssHandler> = use_memo(move || {
-        let mut css = CssHandler::new();
-        css.set_important(true);
-        css.opacity(1.0);
-        css.z_index(2);
-        css.extend(&CssHandler::from(main_content_font.clone()));
-        css
-    });
-
-    // Captured before the memo below moves the font, so the notation can be
-    // drawn with lyrics at least as large as the spoiler text.
-    let lyrics_font_size = spoiler_content_font.font_size.clone();
-
-    let spoiler_css: Memo<CssHandler> = use_memo(move || {
+    let spoiler_css = {
         let mut css = CssHandler::new();
         css.set_important(true);
         // The colour comes from the design's spoiler font. Pinning the opacity
         // here — as the other slide renderers do — keeps a stylesheet rule from
         // dimming it on top of that.
         css.opacity(1.0);
-        css.extend(&CssHandler::from(spoiler_content_font.clone()));
-        css
-    });
+        css.extend(&CssHandler::from(pds.get_default_spoiler_font()));
+        css.to_string()
+    };
 
     // The rows come in the order the user configured, and that order is kept:
     // asking for "english, notation, german" puts the staff between the two
@@ -1022,26 +1025,47 @@ fn ComplexSlideRenderer(
         .map(|row| row.content.clone())
         .collect();
 
+    let notation = pds.notation.clone();
+    let notation_font = pds.get_default_font();
+    let notation_style = notation_block_style(&notation);
+
     rsx! {
         div { class: "complex-slide",
             for row in visible_rows {
                 if row.is_notation() {
-                    div { class: "complex-slide-row notation-row",
+                    div {
+                        class: "complex-slide-row notation-row",
+                        style: "{notation_style}",
                         AbcNotationRenderer {
                             abc_notation: row.content.clone(),
                             notation_font: notation_font.clone(),
-                            lyrics_font_size: lyrics_font_size.clone(),
+                            lyrics_font_size: notation.font_size.clone(),
+                            staff_line_height: notation.staff_line_height,
                         }
                     }
                 } else {
-                    div {
-                        class: "complex-slide-row lyrics-row",
-                        style: main_css.read().to_string(),
-                        for (line_number , line) in row.content.lines().enumerate() {
-                            if line_number > 0 {
-                                br {}
+                    {
+                        // The block that claims this row's language, or the
+                        // main block when none does.
+                        let row_font = pds.font_for_row(row_language(&row).as_deref());
+                        let mut css = CssHandler::new();
+                        css.set_important(true);
+                        css.opacity(1.0);
+                        css.z_index(2);
+                        css.extend(&CssHandler::from(row_font));
+                        let row_style = css.to_string();
+
+                        rsx! {
+                            div {
+                                class: "complex-slide-row lyrics-row",
+                                style: "{row_style}",
+                                for (line_number , line) in row.content.lines().enumerate() {
+                                    if line_number > 0 {
+                                        br {}
+                                    }
+                                    {line}
+                                }
                             }
-                            {line}
                         }
                     }
                 }
@@ -1050,7 +1074,7 @@ fn ComplexSlideRenderer(
             if !spoiler_rows.is_empty() {
                 div { class: "complex-slide-spoiler",
                     for text in spoiler_rows {
-                        div { style: spoiler_css.read().to_string(),
+                        div { style: "{spoiler_css}",
                             for (line_number , line) in text.lines().enumerate() {
                                 if line_number > 0 {
                                     br {}
@@ -1063,6 +1087,46 @@ fn ComplexSlideRenderer(
             }
         }
     }
+}
+
+/// The language a lyrics row is in, if the song stated one.
+fn row_language(row: &SlideRow) -> Option<String> {
+    match &row.kind {
+        SlideRowKind::Lyrics { language } => language.clone(),
+        SlideRowKind::Notation { .. } => None,
+    }
+}
+
+/// Prefixes the tune with a `%%staffsep` directive for the wanted line height.
+///
+/// `staff_line_height` is a multiple of the engraver's own spacing, so 1.0
+/// changes nothing and the directive is left out entirely.
+fn with_staff_separation(abc: &str, staff_line_height: f64) -> String {
+    let factor = staff_line_height.clamp(0.2, 5.0);
+    if (factor - 1.0).abs() < f64::EPSILON {
+        return abc.to_string();
+    }
+
+    let separation = (ABCJS_NEUTRAL_STAFF_SEPARATION * factor).round();
+    format!("%%staffsep {separation}\n{abc}")
+}
+
+/// The box the staff is drawn in: how wide it is and where it sits.
+///
+/// At 100% it is exactly the box the text rows use, so the staff and the words
+/// line up on both edges — the notation block gets no padding of its own.
+fn notation_block_style(notation: &NotationSettings) -> String {
+    let width = notation.width_percent.clamp(10.0, 100.0);
+
+    let margin = match notation.horizontal_alignment {
+        HorizontalAlign::Left => "margin-left: 0; margin-right: auto;",
+        HorizontalAlign::Right => "margin-left: auto; margin-right: 0;",
+        // Justified text has no meaning for a staff; centring is the sane
+        // reading of "fill the line" here.
+        _ => "margin-left: auto; margin-right: auto;",
+    };
+
+    format!("width: {width}%; {margin}")
 }
 
 /// The `vocalfont` string abcjs expects for the words under the staff.
@@ -1108,13 +1172,15 @@ fn abcjs_vocal_font(font: &FontRepresentation, size: &CssSize) -> String {
 /// arrived by the time the first slide draws, which used to leave the first
 /// notation blank.
 #[component]
-fn AbcNotationRenderer(
+pub(crate) fn AbcNotationRenderer(
     /// The ABC notation string to render
     abc_notation: String,
     /// Font settings for styling the notation
     notation_font: FontRepresentation,
     /// How large the words under the notes should be drawn.
     lyrics_font_size: CssSize,
+    /// The height of one staff line, as a multiple of the engraver's default.
+    staff_line_height: f64,
 ) -> Element {
     let container_id = use_hook(|| format!("abc-{}", Uuid::new_v4().as_simple()));
 
@@ -1126,6 +1192,10 @@ fn AbcNotationRenderer(
     };
 
     let vocal_font = abcjs_vocal_font(&notation_font, &lyrics_font_size);
+    // The gap between systems only reacts to the `%%staffsep` directive in the
+    // ABC source; the same value passed as a render option is ignored, exactly
+    // as `vocalfont` is unless it sits inside `format`.
+    let abc_notation = with_staff_separation(&abc_notation, staff_line_height);
 
     #[cfg(not(target_arch = "wasm32"))]
     let abcjs_url = format!("{}", ABCJS_LIB);
@@ -1299,6 +1369,8 @@ fn slide_body(
                 title_slide: title_slide.clone(),
                 title_font_representation: pds.get_default_headline_font(),
                 meta_font: pds.get_default_meta_font(),
+                bold: pds.title_bold,
+                meta_distance: pds.main_content_spoiler_content_padding.clone(),
             }
         },
         SlideContent::SingleLanguageMainContent(main_slide) => {
@@ -1334,9 +1406,7 @@ fn slide_body(
         SlideContent::Complex(complex_slide) => rsx! {
             ComplexSlideRenderer {
                 complex_slide: complex_slide.clone(),
-                main_content_font: pds.get_default_font(),
-                spoiler_content_font: pds.get_default_spoiler_font(),
-                notation_font: pds.get_default_font(),
+                pds: pds.clone(),
             }
         },
         SlideContent::Empty(_) => rsx! {
@@ -1782,5 +1852,89 @@ pub fn StaticSlideRendererComponent(
                 SlideContentRenderer { slide_content, pds }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod notation_tests {
+    use super::*;
+
+    /// A neutral setting must leave the tune exactly as the song library wrote
+    /// it — an ABC file is data, not a place to leave stray directives.
+    #[test]
+    fn test_normal_line_height_leaves_the_tune_alone() {
+        let abc = "X:1\nK:D\nA2 B2 |\n";
+
+        assert_eq!(with_staff_separation(abc, 1.0), abc);
+    }
+
+    /// The directive has to come first: abcjs only honours it ahead of the
+    /// tune, and only from the source — the render option is ignored.
+    #[test]
+    fn test_the_directive_is_prefixed() {
+        let abc = "X:1\nK:D\nA2 B2 |\n";
+
+        let wide = with_staff_separation(abc, 2.0);
+
+        assert!(wide.starts_with("%%staffsep 92\n"), "got: {wide:?}");
+        assert!(wide.ends_with(abc));
+    }
+
+    /// Half the height means half the separation, measured against the value
+    /// at which abcjs engraves as it does untouched.
+    #[test]
+    fn test_the_factor_scales_the_separation() {
+        let abc = "X:1\n";
+
+        assert!(with_staff_separation(abc, 0.5).starts_with("%%staffsep 23\n"));
+        assert!(with_staff_separation(abc, 1.5).starts_with("%%staffsep 69\n"));
+    }
+
+    /// An absurd setting must not produce an unusable staff.
+    #[test]
+    fn test_extreme_values_are_clamped() {
+        let abc = "X:1\n";
+
+        assert!(with_staff_separation(abc, 100.0).starts_with("%%staffsep 230\n"));
+        assert!(with_staff_separation(abc, -5.0).starts_with("%%staffsep 9\n"));
+    }
+
+    /// At full width the staff gets the same box as the text rows, so the two
+    /// line up; anything narrower is placed by the alignment.
+    #[test]
+    fn test_notation_block_width_and_alignment() {
+        let full = NotationSettings::default();
+        assert!(notation_block_style(&full).contains("width: 100%"));
+
+        let left = NotationSettings {
+            width_percent: 60.0,
+            horizontal_alignment: HorizontalAlign::Left,
+            ..NotationSettings::default()
+        };
+        let style = notation_block_style(&left);
+        assert!(style.contains("width: 60%"));
+        assert!(style.contains("margin-left: 0"));
+
+        let right = NotationSettings {
+            horizontal_alignment: HorizontalAlign::Right,
+            ..NotationSettings::default()
+        };
+        assert!(notation_block_style(&right).contains("margin-left: auto"));
+    }
+
+    /// A width outside the usable range must not make the staff vanish.
+    #[test]
+    fn test_notation_width_is_clamped() {
+        let tiny = NotationSettings {
+            width_percent: 0.0,
+            ..NotationSettings::default()
+        };
+        assert!(notation_block_style(&tiny).contains("width: 10%"));
+
+        let huge = NotationSettings {
+            width_percent: 400.0,
+            ..NotationSettings::default()
+        };
+        assert!(notation_block_style(&huge).contains("width: 100%"));
     }
 }
