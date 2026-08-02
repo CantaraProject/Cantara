@@ -843,6 +843,30 @@ detail:
   no_write_on_web:
     en: The web version cannot write files.
     de: Die Webversion kann keine Dateien schreiben.
+  tag_author:
+    en: Author
+    de: Autor
+  tag_composer:
+    en: Composer
+    de: Komponist
+  tag_copyright:
+    en: Copyright
+    de: Copyright
+  tag_ccli:
+    en: CCLI number
+    de: CCLI-Nummer
+  tag_publisher:
+    en: Publisher
+    de: Verlag
+  tag_year:
+    en: Year
+    de: Jahr
+  tag_melody:
+    en: Melody
+    de: Melodie
+  tag_translation:
+    en: Translation
+    de: Übersetzung
   to_detail:
     en: Detail view
     de: Detailansicht

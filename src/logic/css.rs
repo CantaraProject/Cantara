@@ -260,6 +260,21 @@ impl Display for CssValue {
     }
 }
 
+impl CssHandler {
+    /// The declarations of a font, optionally without its colour.
+    ///
+    /// Leaving the colour out lets the text follow whatever surrounds it. That
+    /// matters outside a presentation: a slide font is normally white, which is
+    /// invisible on an ordinary page.
+    pub fn from_font(font: FontRepresentation, include_color: bool) -> CssHandler {
+        let mut css_handler = CssHandler::from(font.clone());
+        if !include_color {
+            css_handler.declarations.retain(|entry| entry.key != "color");
+        }
+        css_handler
+    }
+}
+
 impl From<FontRepresentation> for CssHandler {
     fn from(font: FontRepresentation) -> CssHandler {
         let mut css_handler = CssHandler::new();
@@ -416,5 +431,56 @@ mod tests {
     fn test_empty_handler_css() {
         let handler = CssHandler::new();
         assert_eq!(handler.to_string().as_str(), "");
+    }
+}
+
+#[cfg(test)]
+mod font_color_tests {
+    use super::*;
+    use crate::logic::settings::FontRepresentation;
+
+    /// A presentation font is white, because slides are dark. Drawn on an
+    /// ordinary page that is invisible, so the detail view asks for the colour
+    /// to be left out and lets `currentColor` decide.
+    #[test]
+    fn test_the_colour_can_be_left_out() {
+        let font = FontRepresentation::default();
+
+        let with_color = CssHandler::from_font(font.clone(), true).to_string();
+        let without_color = CssHandler::from_font(font, false).to_string();
+
+        assert!(with_color.contains("color:"), "got {with_color:?}");
+        assert!(
+            !without_color.contains("color:"),
+            "the colour still forces itself on the page: {without_color:?}"
+        );
+    }
+
+    /// Only the colour goes; everything else about the font has to survive.
+    #[test]
+    fn test_nothing_else_is_lost() {
+        let font = FontRepresentation {
+            font_size: CssSize::Pt(19.0),
+            weight: 700,
+            ..FontRepresentation::default()
+        };
+
+        let style = CssHandler::from_font(font, false).to_string();
+
+        assert!(style.contains("font-size"), "got {style:?}");
+        assert!(style.contains("font-weight"), "got {style:?}");
+        assert!(style.contains("line-height"), "got {style:?}");
+    }
+
+    /// Transparent would have been the obvious shortcut and the wrong one: the
+    /// staff is drawn in `currentColor`, so a transparent colour hides it.
+    #[test]
+    fn test_leaving_it_out_is_not_the_same_as_transparent() {
+        let font = FontRepresentation::default();
+
+        let omitted = CssHandler::from_font(font.clone(), false).to_string();
+
+        assert!(!omitted.contains("rgba"), "got {omitted:?}");
+        assert!(!omitted.contains("transparent"), "got {omitted:?}");
     }
 }

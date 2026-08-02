@@ -420,9 +420,27 @@ fn SongViewer(file: SourceFile, tab: DetailTab) -> Element {
 fn SongText(song: Song) -> Element {
     let default_language = song.default_language.clone();
 
+    let tags: Vec<(String, String)> = song
+        .tags()
+        .iter()
+        .filter(|(_, value)| !value.trim().is_empty())
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+
     rsx! {
         div { class: "detail-song-text",
             h4 { "{song.title}" }
+
+            // What the file records about the song — author, copyright, CCLI
+            // number and whatever else it carries. Shown once, above the words.
+            if !tags.is_empty() {
+                dl { class: "detail-song-tags",
+                    for (key , value) in tags {
+                        dt { {tag_label(&key)} }
+                        dd { "{value}" }
+                    }
+                }
+            }
 
             for (index , part) in song.ordered_parts().into_iter().enumerate() {
                 div { key: "{index}", class: "detail-song-part",
@@ -448,6 +466,30 @@ fn SongText(song: Song) -> Element {
                 }
             }
         }
+    }
+}
+
+/// How a tag is headed.
+///
+/// The common ones get a translated name; anything else keeps the key the file
+/// used, because a song may carry tags Cantara knows nothing about and dropping
+/// them would lose information the author put there on purpose.
+fn tag_label(key: &str) -> String {
+    let translated = match key.to_lowercase().as_str() {
+        "author" => Some("detail.tag_author"),
+        "composer" => Some("detail.tag_composer"),
+        "copyright" => Some("detail.tag_copyright"),
+        "ccli" | "ccli_number" | "ccli-number" => Some("detail.tag_ccli"),
+        "publisher" => Some("detail.tag_publisher"),
+        "year" => Some("detail.tag_year"),
+        "melody" => Some("detail.tag_melody"),
+        "translation" | "translator" => Some("detail.tag_translation"),
+        _ => None,
+    };
+
+    match translated {
+        Some(key) => t!(key).to_string(),
+        None => key.to_string(),
     }
 }
 
@@ -481,6 +523,10 @@ fn SongNotation(song: Song) -> Element {
                         notation_font: crate::logic::settings::FontRepresentation::default(),
                         lyrics_font_size: crate::logic::settings::CssSize::Pt(12.0),
                         staff_line_height: 1.0,
+                        // This is a page, not a slide: the staff takes the
+                        // page's text colour so it stays legible in both the
+                        // light and the dark theme.
+                        inherit_color: true,
                     }
                 }
             },
@@ -618,6 +664,18 @@ mod tests {
                 .is_ok(),
             "the real file name has to reach the importer"
         );
+    }
+
+    /// A song's metadata is worth reading, and a tag Cantara has no word for
+    /// must keep the key the file used rather than disappear.
+    #[test]
+    fn test_tag_labels() {
+        rust_i18n::set_locale("en");
+
+        assert_eq!(tag_label("author"), "Author");
+        assert_eq!(tag_label("CCLI"), "CCLI number");
+        // Unknown to Cantara, so the author's own wording stands.
+        assert_eq!(tag_label("arrangement_note"), "arrangement_note");
     }
 
     /// A part tagged with a language shows that code; one left at the song's

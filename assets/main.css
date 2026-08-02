@@ -757,3 +757,19 @@ div.inline-div {
 .detail-editor-actions button { width: auto; margin: 0; }
 
 .detail-editor-status { color: var(--pico-muted-color); font-size: 0.9em; }
+
+/* The song's own metadata, above the words. */
+.detail-song-tags {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.15rem 0.75rem;
+    margin: 0 0 1.25rem;
+    font-size: 0.9em;
+}
+
+.detail-song-tags dt {
+    color: var(--pico-muted-color);
+    font-weight: normal;
+}
+
+.detail-song-tags dd { margin: 0; }

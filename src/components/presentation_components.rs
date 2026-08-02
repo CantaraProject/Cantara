@@ -1181,13 +1181,23 @@ pub(crate) fn AbcNotationRenderer(
     lyrics_font_size: CssSize,
     /// The height of one staff line, as a multiple of the engraver's default.
     staff_line_height: f64,
+
+    /// Take the surrounding text colour instead of the font's own.
+    ///
+    /// A presentation font is chosen for a slide — white, as a rule, because
+    /// slides are dark. Drawn on an ordinary page that is invisible, so
+    /// anything outside a presentation asks to inherit instead.
+    #[props(default)]
+    inherit_color: bool,
 ) -> Element {
     let container_id = use_hook(|| format!("abc-{}", Uuid::new_v4().as_simple()));
 
     let notation_style = {
         let mut css = CssHandler::new();
         css.set_important(true);
-        css.extend(&CssHandler::from(notation_font.clone()));
+        // The staff is drawn in `currentColor`, so leaving the colour out makes
+        // it follow whatever the page uses — in either theme.
+        css.extend(&CssHandler::from_font(notation_font.clone(), !inherit_color));
         css.to_string()
     };
 
