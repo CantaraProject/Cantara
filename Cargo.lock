@@ -860,9 +860,9 @@ dependencies = [
 
 [[package]]
 name = "cantara-songlib"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d68bb820b19fb32d3b3f9e8fb01425ba3578950c9c3171b459387ca1cc848865"
+checksum = "bf0fc097dd9a34bf88b62dc307adc2c5b91c5121c52688624560fa5585c10ab1"
 dependencies = [
  "cbindgen",
  "clap",
@@ -3692,9 +3692,9 @@ dependencies = [
 
 [[package]]
 name = "ipnet"
-version = "2.12.0"
+version = "2.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
+checksum = "6a756c3fac73139e83f14c2d742155dd2b78d3ee56597b419a0579b7bdd6dd78"
 
 [[package]]
 name = "is_terminal_polyfill"
