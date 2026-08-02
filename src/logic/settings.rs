@@ -80,6 +80,18 @@ pub struct Settings {
     /// When `None` or empty, the default order (Songs → Pictures → PDFs) is used.
     #[serde(default)]
     pub sidebar_order: Vec<SelectionSidebarType>,
+
+    /// Whether the live preview is docked into the presentation design editor
+    /// on narrow screens. Wide screens always show it beside the settings, so
+    /// this only records the choice made where space is tight.
+    #[serde(default = "default_show_design_preview")]
+    pub show_design_preview: bool,
+}
+
+/// The design preview starts docked: seeing the effect of a setting is the
+/// point of the editor, and it can be folded away when space is tight.
+fn default_show_design_preview() -> bool {
+    true
 }
 
 /// The view mode for the presenter console left panel.
@@ -172,6 +184,7 @@ impl Default for Settings {
             presenter_console_view: PresenterConsoleView::default(),
             presenter_console_grid_size: default_presenter_console_grid_size(),
             sidebar_order: default_sidebar_order(),
+            show_design_preview: default_show_design_preview(),
         }
     }
 }

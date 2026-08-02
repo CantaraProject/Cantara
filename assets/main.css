@@ -518,3 +518,125 @@ div.inline-div {
     color: var(--pico-del-color, #b3261e);
     font-size: 0.9em;
 }
+
+/* --- Presentation design editor: settings beside a live preview --- */
+
+/* One column by default. The preview follows the settings, and on a narrow
+   screen it is only there when the user docked it. */
+.design-editor-settings {
+    min-width: 0;
+}
+
+.design-preview-pane {
+    display: none;
+    min-width: 0;
+    /* Should a stage ever be wider than its column, it scrolls inside itself
+       rather than pushing the whole page sideways. */
+    overflow-x: auto;
+}
+
+.design-editor.preview-open .design-preview-pane {
+    display: block;
+}
+
+/* The stage shrink-wraps the scaled canvas, so it needs no size of its own:
+   `zoom` changes the canvas's layout size, unlike `transform: scale`. */
+.design-preview-stage {
+    display: inline-block;
+    overflow: hidden;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    /* A design may be light or dark, so the stage stays out of the way. */
+    background: transparent;
+}
+
+/* The slide renders as `.presentation`, which is absolutely positioned with
+   `inset: 0`. It needs a positioned ancestor at presentation size — without
+   one it resolves against the page and covers the whole window.
+   Scaling with `zoom` rather than `transform` keeps the layout size in step,
+   so the stage around it needs no dimensions of its own. */
+.design-preview-canvas {
+    position: relative;
+    width: 1920px;
+    height: 1080px;
+    zoom: 0.25;
+}
+
+.design-preview-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+.design-preview-controls button {
+    width: auto;
+    padding: 0.25rem 0.9rem;
+    margin: 0;
+}
+
+.design-preview-position {
+    font-variant-numeric: tabular-nums;
+    color: var(--pico-muted-color);
+}
+
+.design-preview-empty {
+    color: var(--pico-muted-color);
+}
+
+/* Narrow screens: the preview docks to the bottom edge and follows the scroll,
+   instead of sitting below the form where it is only visible after scrolling
+   past everything. It stays the last element in the flow, so at the end of the
+   scroll it settles into its natural place and covers nothing. */
+@media (max-width: 61.999rem) {
+    .design-editor.preview-open .design-preview-pane {
+        position: sticky;
+        bottom: 0;
+        z-index: 5;
+        /* Opaque, otherwise the form scrolls through underneath it. */
+        background-color: var(--pico-background-color);
+        border-top: 1px solid var(--pico-border-color);
+        /* Bleed past the container padding so the dock spans the full width. */
+        margin-left: calc(-1 * var(--pico-spacing));
+        margin-right: calc(-1 * var(--pico-spacing));
+        padding: 0.5rem var(--pico-spacing);
+        text-align: center;
+    }
+
+    /* Once it is a docked bar the heading only costs height. */
+    .design-editor.preview-open .design-preview-pane h4 {
+        display: none;
+    }
+
+    .design-editor.preview-open .design-preview-controls {
+        margin-top: 0.5rem;
+    }
+
+    /* A docked bar is for glancing at, not for studying: 1920 x 0.15 = 288,
+       which fits the narrowest phone and leaves the form most of the screen. */
+    .design-editor.preview-open .design-preview-canvas {
+        zoom: 0.15;
+    }
+}
+
+/* Wide screens: two columns, preview always present, so the toggle has
+   nothing left to do. */
+@media (min-width: 62rem) {
+    .design-editor {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 2rem;
+        align-items: start;
+    }
+
+    .design-editor .design-preview-pane {
+        display: block;
+        position: sticky;
+        top: 1rem;
+    }
+
+    .design-preview-toggle {
+        display: none;
+    }
+}

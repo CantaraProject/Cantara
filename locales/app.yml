@@ -449,6 +449,25 @@ settings:
     justify_with_hyphenation:
       en: Justify (with hyphenation)
       de: Blocksatz (mit Silbentrennung)
+  design_preview:
+    title:
+      en: Live preview
+      de: Live-Vorschau
+    previous:
+      en: Previous slide
+      de: Vorherige Folie
+    next:
+      en: Next slide
+      de: Nächste Folie
+    show:
+      en: Show preview
+      de: Vorschau einblenden
+    hide:
+      en: Hide preview
+      de: Vorschau ausblenden
+    unavailable:
+      en: The preview could not be built with the current slide settings.
+      de: Die Vorschau konnte mit den aktuellen Folieneinstellungen nicht erzeugt werden.
   vertical_alignment:
     title:
       en: Vertical Alignment

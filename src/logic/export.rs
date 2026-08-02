@@ -16,7 +16,6 @@
 //!   definitions overriding the first and both scores would print the same
 //!   music. These formats write into a directory instead.
 
-use std::path::Path;
 
 use cantara_songlib::exporter::abc::{AbcSettings, abc_from_song};
 use cantara_songlib::exporter::lilypond::{LilypondSettings, lilypond_from_song};

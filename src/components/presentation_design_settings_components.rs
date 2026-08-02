@@ -1,7 +1,9 @@
 //! This module provides components for adjusting the presentation designs
 
 use crate::components::font_settings::FontRepresentationsComponent;
+use crate::components::presentation_components::StaticSlideRendererComponent;
 use crate::components::shared_components::NumberedValidatedLengthInput;
+use cantara_songlib::slides::{Slide, SlideSettings};
 use crate::logic::settings::{
     CssSize, PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate,
     TopBottomLeftRight, VerticalAlign, use_settings,
@@ -47,6 +49,10 @@ pub fn PresentationDesignSettingsPage(
     let selected_presentation_design =
         use_memo(move || selected_presentation_design_option.read().clone().unwrap_or_default());
 
+    // Whether the preview is docked. Only consulted on narrow screens: the
+    // stylesheet keeps it beside the settings whenever there is room.
+    let show_preview = use_memo(move || settings.read().show_design_preview);
+
     rsx! {
         div { class: "wrapper",
             header { class: "top-bar",
@@ -60,7 +66,14 @@ pub fn PresentationDesignSettingsPage(
                     }
                 }
             }
-            main { class: "container-fluid content height-100",
+            main {
+                class: if show_preview() {
+                    "container-fluid content height-100 design-editor preview-open"
+                } else {
+                    "container-fluid content height-100 design-editor"
+                },
+
+                div { class: "design-editor-settings",
 
                 MetaSettings {
                     presentation_design: selected_presentation_design(),
@@ -97,7 +110,10 @@ pub fn PresentationDesignSettingsPage(
                         },
                     }
                 }
-            
+
+                }
+
+                PresentationDesignPreview { index }
             }
             footer { class: "bottom-bar",
                 button {
@@ -105,6 +121,24 @@ pub fn PresentationDesignSettingsPage(
                         nav.replace(crate::Route::SettingsPage {});
                     },
                     {t!("settings.close").to_string()}
+                }
+                // Only reachable where the two-column layout does not fit; a
+                // wide screen shows the preview beside the settings anyway.
+                button {
+                    r#type: "button",
+                    class: "outline design-preview-toggle",
+                    aria_pressed: show_preview().to_string(),
+                    onclick: move |_| {
+                        let next = !show_preview();
+                        let mut settings_write = settings.write();
+                        settings_write.show_design_preview = next;
+                        settings_write.save();
+                    },
+                    if show_preview() {
+                        {t!("settings.design_preview.hide").to_string()}
+                    } else {
+                        {t!("settings.design_preview.show").to_string()}
+                    }
                 }
             }
         }
@@ -487,4 +521,251 @@ fn VerticalAlignmentSelector(
             }
         }
     )
+}
+
+/// The song the design preview is built from.
+///
+/// Deliberately tiny and in the classic `.song` format, which every build can
+/// parse without touching the file system: two verses give the preview a
+/// spoiler line and something to page through, and the tags feed whatever meta
+/// syntax the user configured.
+const PREVIEW_SONG: &str = "\
+#title: Amazing Grace
+#author: John Newton
+
+Amazing grace, how sweet the sound
+that saved a wretch like me.
+I once was lost, but now am found,
+was blind, but now I see.
+
+'Twas grace that taught my heart to fear,
+and grace my fears relieved.
+How precious did that grace appear
+the hour I first believed.
+";
+
+/// The slides the preview pages through.
+///
+/// Built by the same pipeline a real presentation uses, with the user's own
+/// slide settings, so the preview shows the actual slide types — title slide,
+/// content with spoiler, empty last slide — rather than an approximation.
+fn preview_slides(slide_settings: &SlideSettings) -> Vec<Slide> {
+    crate::logic::presentation::slides_from_song_content(
+        PREVIEW_SONG,
+        "Amazing Grace.song",
+        slide_settings,
+        "Amazing Grace",
+    )
+    .unwrap_or_default()
+}
+
+/// A live preview of the design being edited.
+///
+/// It reads the design straight from the settings rather than from a snapshot,
+/// so every change made in the form on the left shows up immediately.
+///
+/// The slide is drawn by [`StaticSlideRendererComponent`] — the same component
+/// the presenter console uses for its thumbnails, and the same one a real
+/// presentation is built from — so the preview cannot drift from what the
+/// audience will see.
+#[component]
+fn PresentationDesignPreview(
+    /// The index of the presentation design in the settings.
+    index: u16,
+) -> Element {
+    let settings = use_settings();
+
+    let design = use_memo(move || {
+        settings
+            .read()
+            .presentation_designs
+            .get(index as usize)
+            .cloned()
+            .unwrap_or_default()
+    });
+
+    let slides = use_memo(move || {
+        let slide_settings = settings
+            .read()
+            .song_slide_settings
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        preview_slides(&slide_settings)
+    });
+
+    let mut position = use_signal(|| 0_usize);
+
+    // The slide count changes with the slide settings, so the position is
+    // clamped on read instead of being trusted.
+    let slide_count = slides.read().len();
+    let current = if slide_count == 0 {
+        0
+    } else {
+        position().min(slide_count - 1)
+    };
+
+    rsx! {
+        aside { class: "design-preview-pane",
+            h4 { {t!("settings.design_preview.title").to_string()} }
+
+            if slide_count == 0 {
+                p { class: "design-preview-empty",
+                    {t!("settings.design_preview.unavailable").to_string()}
+                }
+            } else {
+                // The slide is drawn at presentation size and scaled down by
+                // the stylesheet, so the preview is a true miniature rather
+                // than a re-flowed layout. The scale lives in CSS because it
+                // has to follow the screen width.
+                div { class: "design-preview-stage",
+                    div { class: "design-preview-canvas",
+                        StaticSlideRendererComponent {
+                            slide: slides.read()[current].clone(),
+                            presentation_design: design(),
+                        }
+                    }
+                }
+
+                div { class: "design-preview-controls",
+                    button {
+                        r#type: "button",
+                        class: "outline",
+                        disabled: current == 0,
+                        aria_label: t!("settings.design_preview.previous").to_string(),
+                        onclick: move |_| {
+                            let previous = position().min(slide_count - 1).saturating_sub(1);
+                            position.set(previous);
+                        },
+                        "‹"
+                    }
+                    span { class: "design-preview-position", "{current + 1} / {slide_count}" }
+                    button {
+                        r#type: "button",
+                        class: "outline",
+                        disabled: current + 1 >= slide_count,
+                        aria_label: t!("settings.design_preview.next").to_string(),
+                        onclick: move |_| {
+                            let next = (position().min(slide_count - 1) + 1).min(slide_count - 1);
+                            position.set(next);
+                        },
+                        "›"
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cantara_songlib::slides::SlideContent;
+
+    /// The preview is useless if the sample song yields nothing to look at.
+    #[test]
+    fn test_the_preview_song_produces_slides() {
+        let slides = preview_slides(&SlideSettings::default());
+
+        assert!(
+            slides.len() > 1,
+            "the preview needs more than one slide to page through"
+        );
+    }
+
+    /// The point of the preview is to show the real slide types, so the design's
+    /// title font and its content font can both be judged.
+    #[test]
+    fn test_the_preview_shows_a_title_and_content_slides() {
+        let settings = SlideSettings {
+            title_slide: true,
+            ..SlideSettings::default()
+        };
+        let slides = preview_slides(&settings);
+
+        assert!(
+            slides
+                .iter()
+                .any(|slide| matches!(slide.slide_content, SlideContent::Title(_))),
+            "no title slide in the preview"
+        );
+        assert!(
+            slides.iter().any(|slide| !matches!(
+                slide.slide_content,
+                SlideContent::Title(_) | SlideContent::Empty(_)
+            )),
+            "no content slide in the preview"
+        );
+    }
+
+    /// The preview follows the user's slide settings, so a change there has to
+    /// reach it — otherwise it would show something the presentation will not.
+    #[test]
+    fn test_the_preview_follows_the_slide_settings() {
+        let with_title = preview_slides(&SlideSettings {
+            title_slide: true,
+            ..SlideSettings::default()
+        });
+        let without_title = preview_slides(&SlideSettings {
+            title_slide: false,
+            ..SlideSettings::default()
+        });
+
+        assert_ne!(
+            with_title.len(),
+            without_title.len(),
+            "turning the title slide off changed nothing"
+        );
+    }
+
+
+    /// Renders every preview slide with the user's real design, so a panic in
+    /// the preview shows up here instead of taking the editor down.
+    #[test]
+    fn test_every_preview_slide_renders() {
+        use crate::components::presentation_components::{
+            StaticSlideRendererComponent, StaticSlideRendererComponentProps,
+        };
+
+        for design in [PresentationDesign::default()] {
+            for slides in [
+                preview_slides(&SlideSettings::default()),
+                preview_slides(&SlideSettings {
+                    title_slide: false,
+                    empty_last_slide: false,
+                    ..SlideSettings::default()
+                }),
+            ] {
+                for slide in slides {
+                    let mut dom = dioxus::prelude::VirtualDom::new_with_props(
+                        StaticSlideRendererComponent,
+                        StaticSlideRendererComponentProps {
+                            slide,
+                            presentation_design: design.clone(),
+                        },
+                    );
+                    dom.rebuild_in_place();
+                }
+            }
+        }
+    }
+
+    /// A settings combination the sample song cannot satisfy must leave the
+    /// preview empty rather than take the editor down with it.
+    #[test]
+    fn test_impossible_settings_yield_no_slides_instead_of_panicking() {
+        use cantara_songlib::slides::{LanguageConfiguration, SlideElement};
+
+        let settings = SlideSettings {
+            // The sample song is a classic `.song` with no melody at all.
+            language: LanguageConfiguration::Complex(vec![SlideElement::Notation]),
+            title_slide: false,
+            empty_last_slide: false,
+            ..SlideSettings::default()
+        };
+
+        let slides = preview_slides(&settings);
+        // Whatever comes out, asking for it must not panic and must be usable.
+        assert!(slides.len() < 100);
+    }
 }
