@@ -25,6 +25,8 @@ use crate::{
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
+/// Installs the observer behind [`SlideTransition::Morph`].
+const MORPH_JS: Asset = asset!("/assets/morph_transition.js");
 const ABC_RENDER_JS: &str = include_str!("../../assets/abc_render_inline.js");
 /// abcjs is bundled from `node_modules` so that notation renders without a
 /// network connection — a presentation in a church hall often has none.
@@ -537,6 +539,9 @@ pub fn PresentationRendererComponent(
             SlideTransition::SlideFromRight => "presentation-slide-from-right",
             SlideTransition::SlideFromLeft => "presentation-slide-from-left",
             SlideTransition::ZoomIn => "presentation-zoom-in",
+            // The morph is driven by `morph_transition.js`, which watches for
+            // the class rather than being told about the change.
+            SlideTransition::Morph => "presentation-morph",
         }
     });
 
@@ -705,6 +710,7 @@ pub fn PresentationRendererComponent(
     rsx! {
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Script { src: PRESENTATION_JS }
+        document::Script { src: MORPH_JS }
         div {
             class: "presentation",
             style: css_handler.read().to_string(),
@@ -1575,15 +1581,36 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
     }
 }
 
-/// Renders a single PDF page onto a <canvas> via PDF.js.
-/// Reads the PDF data on the Rust side (from filesystem on desktop, from VFS on web)
-/// and sends base64‑encoded data to JavaScript so that file-access restrictions are avoided.
+/// Reads a PDF and returns it base64-encoded, ready to hand to PDF.js.
 ///
-/// On desktop, PDF.js is loaded from bundled node_modules assets.
-/// On web (WASM), PDF.js is loaded from a CDN.
+/// Only called on a cache miss: the bytes are the expensive part of showing a
+/// PDF slide, and they only have to cross into the page once per document.
+fn read_pdf_as_base64(pdf_path: &str) -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::fs::read(pdf_path)
+            .map(|bytes| BASE64.encode(&bytes))
+            .unwrap_or_default()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::logic::settings::RepositoryType::web_read_file(pdf_path)
+            .map(|bytes| BASE64.encode(&bytes))
+            .unwrap_or_default()
+    }
+}
+
+/// Renders a single PDF page onto a `<canvas>` via PDF.js.
 ///
-/// All JavaScript code is inlined in the `document::eval()` call so that rendering
-/// is self-contained and does not depend on external script loading order.
+/// The document is parsed once per window and kept in `window.__pdfDocCache`;
+/// each slide then only sends the short script in `pdf_render_inline.js`. The
+/// file is read and base64-encoded **only when that cache misses**, because
+/// doing it per slide meant a multi-megabyte string crossed the IPC on every
+/// slide change — the reason long PDFs used to stall the presentation.
+///
+/// The data is read on the Rust side (file system on desktop, VFS on web) so
+/// that the page's file-access restrictions do not apply. On desktop PDF.js
+/// comes from the bundled `node_modules` assets, on the web from a CDN.
 #[component]
 fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
     // Use a unique ID per mount cycle to prevent conflicts when the component
@@ -1596,25 +1623,6 @@ fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
         page_num,
         mount_id.as_simple()
     );
-
-    // Read the PDF file and encode it as base64 so we can hand it to JS
-    let base64_data = use_memo({
-        let pdf_path = pdf_path.clone();
-        move || {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                std::fs::read(&*pdf_path)
-                    .map(|bytes| BASE64.encode(&bytes))
-                    .unwrap_or_default()
-            }
-            #[cfg(target_arch = "wasm32")]
-            {
-                crate::logic::settings::RepositoryType::web_read_file(&pdf_path)
-                    .map(|bytes| BASE64.encode(&bytes))
-                    .unwrap_or_default()
-            }
-        }
-    });
 
     // Get URLs for PDF.js library and worker
     #[cfg(not(target_arch = "wasm32"))]
@@ -1633,33 +1641,67 @@ fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
             onmounted: move |_| {
                 let canvas_id = canvas_id.clone();
                 let pdf_path = pdf_path.clone();
-                let b64 = base64_data.read().clone();
                 let pdfjs_url = pdfjs_url.clone();
                 let worker_url = worker_url.clone();
-                // Skip rendering if the PDF data is empty (file not in VFS)
-                if b64.is_empty() {
-                    log::warn!("PDF data empty for {}, skipping render", pdf_path);
-                    return;
-                }
+
                 spawn(async move {
-                    // Use serde_json to safely escape all string values for JavaScript
-                    let js_pdfjs_url = serde_json::to_string(&pdfjs_url).unwrap_or_default();
-                    let js_worker_url = serde_json::to_string(&worker_url).unwrap_or_default();
-                    let js_b64 = serde_json::to_string(&b64).unwrap_or_default();
                     let js_cache_key = serde_json::to_string(&pdf_path).unwrap_or_default();
                     let js_canvas_id = serde_json::to_string(&canvas_id).unwrap_or_default();
 
-                    // Self-contained JS: loads PDF.js if needed, decodes PDF, renders page.
-                    // Uses string replacement instead of format!() to avoid double-brace noise.
-                    let js = include_str!("../../assets/pdf_render_inline.js")
-                        .replace("__PDFJS_URL__", &js_pdfjs_url)
-                        .replace("__WORKER_URL__", &js_worker_url)
-                        .replace("__BASE64__", &js_b64)
+                    let render_js = include_str!("../../assets/pdf_render_inline.js")
                         .replace("__CACHE_KEY__", &js_cache_key)
                         .replace("__PAGE_NUM__", &page_num.to_string())
                         .replace("__CANVAS_ID__", &js_canvas_id);
 
-                    let _ = document::eval(&js).await;
+                    // 1. Try the document already in the page. This is the
+                    //    common case — every slide after the first.
+                    let missing = match document::eval(&render_js).await {
+                        Ok(value) => {
+                            value.get("missing").and_then(|m| m.as_bool()) == Some(true)
+                        }
+                        Err(error) => {
+                            log::error!("could not render the PDF page: {error:?}");
+                            return;
+                        }
+                    };
+
+                    if !missing {
+                        return;
+                    }
+
+                    // 2. First page of this document in this window: pay for
+                    //    reading and encoding it, then hand it over once.
+                    let base64_data = read_pdf_as_base64(&pdf_path);
+                    if base64_data.is_empty() {
+                        log::warn!("PDF data empty for {pdf_path}, skipping render");
+                        return;
+                    }
+
+                    let load_js = include_str!("../../assets/pdf_load_inline.js")
+                        .replace("__PDFJS_URL__", &serde_json::to_string(&pdfjs_url).unwrap_or_default())
+                        .replace("__WORKER_URL__", &serde_json::to_string(&worker_url).unwrap_or_default())
+                        .replace("__CACHE_KEY__", &js_cache_key)
+                        .replace("__BASE64__", &serde_json::to_string(&base64_data).unwrap_or_default());
+
+                    match document::eval(&load_js).await {
+                        Ok(value) if value.get("ok").and_then(|ok| ok.as_bool()) == Some(true) => {}
+                        Ok(value) => {
+                            log::error!(
+                                "could not load the PDF {pdf_path}: {}",
+                                value.get("error").and_then(|e| e.as_str()).unwrap_or("unknown")
+                            );
+                            return;
+                        }
+                        Err(error) => {
+                            log::error!("could not load the PDF {pdf_path}: {error:?}");
+                            return;
+                        }
+                    }
+
+                    // 3. Now the cache holds it, so the page can be drawn.
+                    if let Err(error) = document::eval(&render_js).await {
+                        log::error!("could not render the PDF page: {error:?}");
+                    }
                 });
             },
         }

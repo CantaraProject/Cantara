@@ -116,13 +116,26 @@ pub fn Selection() -> Element {
             .clone()
     });
 
+    // Scanning a repository is expensive: every file is read to fingerprint it,
+    // and every PDF is parsed to fill the search cache. So the scan has to
+    // depend on the repositories alone — reading the whole settings here made
+    // it run again on every unrelated change, which is why editing a design or
+    // a font stalled on libraries holding long PDFs.
+    let repositories = use_memo(move || settings.read().repositories.clone());
+    let wizard_completed = use_memo(move || settings.read().wizard_completed);
+
     use_effect(move || {
-        if !settings.read().wizard_completed {
+        if !wizard_completed() {
             nav.replace(Route::Wizard {});
         }
+    });
+
+    use_effect(move || {
+        // Subscribes this effect to the repositories, and to nothing else.
+        let repositories = repositories();
 
         spawn(async move {
-            let files = settings.read().get_sourcefiles_async().await;
+            let files = Settings::sourcefiles_of_async(&repositories).await;
             source_files.set(files.clone());
 
             #[cfg(not(target_arch = "wasm32"))]

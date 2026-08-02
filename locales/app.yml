@@ -74,6 +74,9 @@ selection:
       zoom_in:
         en: Zoom in
         de: Einzoomen
+      morph:
+        en: Morph (transform between slides)
+        de: Morphen (Übergang durch Verwandlung)
   presentation_running:
     en: A presentation is currently running.
     de: Eine Präsentation läuft gerade.

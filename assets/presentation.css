@@ -333,3 +333,16 @@ html, body {
     white-space: pre-line;
     pointer-events: none;
 }
+
+/* The morph transition is driven entirely by `morph_transition.js`, which
+   matches the text of the outgoing and incoming slide and animates the parts
+   that occur on both. The class is only a marker for that script, and the copy
+   of the outgoing slide it lays over the stage is positioned inline — both are
+   listed here so the mechanism is findable from the stylesheet. */
+.presentation-morph {
+    /* No entry animation: the script animates the individual lines instead. */
+}
+
+.presentation-morph-ghost {
+    pointer-events: none;
+}

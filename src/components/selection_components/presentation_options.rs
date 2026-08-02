@@ -159,6 +159,7 @@ pub(crate) fn PresentationOptions(
                                         "slide_from_right" => SlideTransition::SlideFromRight,
                                         "slide_from_left" => SlideTransition::SlideFromLeft,
                                         "zoom_in" => SlideTransition::ZoomIn,
+                                        "morph" => SlideTransition::Morph,
                                         _ => SlideTransition::Fade,
                                     };
                                     selected_items.write()[item_index].transition_effect = transition;
@@ -187,6 +188,11 @@ pub(crate) fn PresentationOptions(
                                     value: "zoom_in",
                                     selected: current_transition == SlideTransition::ZoomIn,
                                     {t!("selection.presentation_options.transition.zoom_in").to_string()}
+                                }
+                                option {
+                                    value: "morph",
+                                    selected: current_transition == SlideTransition::Morph,
+                                    {t!("selection.presentation_options.transition.morph").to_string()}
                                 }
                             }
                         }

@@ -167,6 +167,9 @@ pub enum SlideTransition {
     SlideFromLeft,
     /// Zoom in from the center.
     ZoomIn,
+    /// Transform one slide into the next: text that appears on both slides
+    /// travels to its new place instead of being faded out and back in.
+    Morph,
 }
 
 impl Default for Settings {
@@ -438,10 +441,19 @@ impl Settings {
     /// Get all elements of all repositories as a vector of [SourceFile] asynchronously.
     /// This is the async version of `get_sourcefiles`.
     pub async fn get_sourcefiles_async(&self) -> Vec<SourceFile> {
+        Settings::sourcefiles_of_async(&self.repositories).await
+    }
+
+    /// The files of the given repositories.
+    ///
+    /// Taking the repositories rather than the whole settings lets a caller
+    /// depend on just those: the scan reads every file to fingerprint it and
+    /// parses every PDF for the search cache, so it must not be triggered by an
+    /// unrelated setting.
+    pub async fn sourcefiles_of_async(repositories: &[Repository]) -> Vec<SourceFile> {
         let mut source_files: Vec<SourceFile> = vec![];
 
-        // Process each repository asynchronously
-        for repo in &self.repositories {
+        for repo in repositories {
             let files = repo.repository_type.get_files_async().await;
             source_files.extend(files);
         }
