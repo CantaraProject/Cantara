@@ -8,10 +8,10 @@
 //! - `presentation_options`: per-item presentation option editing
 
 mod presentation_options;
-mod search_ui;
+pub(crate) mod search_ui;
 mod selected_list;
-mod sidebar;
-mod source_items;
+pub(crate) mod sidebar;
+pub(crate) mod source_items;
 
 use self::presentation_options::PresentationOptions;
 use self::search_ui::{SearchInput, SearchResults};
@@ -87,6 +87,21 @@ pub fn Selection() -> Element {
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
 
     let mut show_export_menu: Signal<bool> = use_signal(|| false);
+
+    // Where a build starts. The desktop is built around assembling a
+    // presentation, so it stays on the selection; the web version is mostly
+    // used to look songs up, so it opens the detail view instead. This runs
+    // once, so pressing the footer button to come back here sticks.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut redirected = use_signal(|| false);
+        use_effect(move || {
+            if !redirected() {
+                redirected.set(true);
+                nav.replace(crate::Route::Detail {});
+            }
+        });
+    }
 
     use_effect(move || {
         let query = filter_string.read().clone();
@@ -386,6 +401,7 @@ pub fn Selection() -> Element {
                         }
                         span { class: "desktop-only", {t!("settings.settings_button").to_string()} }
                     }
+                    crate::components::detail_components::ViewModeToggle {}
                     button { class: "outline secondary smaller-buttons",
                         span { class: "mobile-only",
                             Icon { icon: FaFileImport }

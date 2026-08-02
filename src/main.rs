@@ -21,6 +21,7 @@ use crate::components::presentation_design_settings_components::PresentationDesi
 use crate::components::presenter_console_components::PresenterConsolePage;
 use crate::components::selection_components::Selection;
 use crate::components::settings_components::SettingsPage;
+use crate::components::detail_components::Detail;
 use crate::components::presentation_components::BundledFontFaces;
 use crate::components::song_slide_settings_components::SongSlideSettingsPage;
 use crate::components::wizard_components::Wizard;
@@ -56,6 +57,11 @@ pub enum Route {
     /// The selection route allows the user to select songs or other elements for the presentation
     #[route("/")]
     Selection {},
+
+
+    /// The detail view shows and edits one element at a time
+    #[route("/detail")]
+    Detail {},
 
     /// The wizard is shown when the program is run for the first time (no configuration file exists)
     #[route("/wizard")]

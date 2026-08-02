@@ -11,20 +11,34 @@
 
 use crate::components::presentation_components::AbcNotationRenderer;
 use crate::components::selection_components::sidebar::SelectionFilterSideBar;
+use crate::components::selection_components::search_ui::{SearchInput, SearchResults};
 use crate::components::selection_components::source_items::{
-    ImageSourceItems, MarkdownSourceItems, PdfSourceItems, SongSourceItems,
+    ImageSourceItems, ItemClickAction, MarkdownSourceItems, PdfSourceItems, SongSourceItems,
 };
 use crate::logic::detail::{DetailMode, DetailSubject, DetailTab};
 use crate::logic::presentation::get_markdown_html;
-use crate::logic::settings::{SelectionSidebarType, use_settings};
+use crate::logic::settings::SelectionSidebarType;
 use crate::logic::sourcefiles::SourceFile;
 use crate::logic::states::SelectedItemRepresentation;
 use cantara_songlib::exporter::abc::{AbcSettings, abc_from_song};
-use cantara_songlib::song::{Song, SongPartContentType};
+use cantara_songlib::song::Song;
 use dioxus::prelude::*;
 use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
+
+/// The file name on disk, which is what decides a song's format.
+///
+/// [`SourceFile::name`] is the *display* name — the suffix has been stripped
+/// for the list — so passing it to the importer makes every song look like an
+/// unknown format.
+fn file_name_of(file: &SourceFile) -> String {
+    file.path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&file.name)
+        .to_string()
+}
 
 /// Reads an element's text, wherever it lives.
 ///
@@ -70,6 +84,26 @@ pub fn Detail() -> Element {
     let active_selection_filter: Signal<SelectionSidebarType> =
         use_signal(|| SelectionSidebarType::Songs);
 
+    // The search is the selection view's, so a library is searched the same way
+    // whichever view the user is in.
+    let filter_string: Signal<String> = use_signal(String::new);
+    let mut search_results: Signal<Vec<crate::logic::search::SearchResult>> = use_signal(Vec::new);
+    let mut search_visible: Signal<bool> = use_signal(|| false);
+    let input_element_signal: Signal<Option<std::rc::Rc<MountedData>>> = use_signal(|| None);
+
+    use_effect(move || {
+        let query = filter_string.read().clone();
+        if query.is_empty() {
+            search_results.set(Vec::new());
+            search_visible.set(false);
+        } else {
+            let results = crate::logic::search::search_source_files(&source_files.read(), &query);
+            let has_results = !results.is_empty();
+            search_results.set(results);
+            search_visible.set(has_results);
+        }
+    });
+
     // The element currently open, derived from the list selection so that the
     // two can never disagree.
     let subject = use_memo(move || {
@@ -80,29 +114,82 @@ pub fn Detail() -> Element {
 
     rsx! {
         div { class: "wrapper",
-            main { class: "container-fluid content height-100 detail-layout",
-                div { class: "detail-source-list",
-                    SelectionFilterSideBar { active_selection: active_selection_filter }
-                    if active_selection_filter() == SelectionSidebarType::Songs {
-                        SongSourceItems { source_files, active_detailed_item_id, selected_items }
-                    }
-                    if active_selection_filter() == SelectionSidebarType::Pictures {
-                        ImageSourceItems { source_files, active_detailed_item_id, selected_items }
-                    }
-                    if active_selection_filter() == SelectionSidebarType::Pdfs {
-                        PdfSourceItems { source_files, active_detailed_item_id, selected_items }
-                    }
-                    if active_selection_filter() == SelectionSidebarType::Markdown {
-                        MarkdownSourceItems { source_files, active_detailed_item_id, selected_items }
-                    }
+            header { class: "top-bar no-padding",
+                SearchInput {
+                    input_signal: filter_string,
+                    element_signal: input_element_signal,
                 }
+            }
 
-                div { class: "detail-pane scrollable-container",
-                    match subject() {
-                        Some(subject) => rsx! { DetailPane { subject } },
-                        None => rsx! {
-                            p { class: "detail-empty", {t!("detail.nothing_open").to_string()} }
-                        },
+            if search_visible() {
+                SearchResults {
+                    search_results,
+                    query: filter_string,
+                    selected_items,
+                    search_visible,
+                }
+            }
+
+            // The same shell the selection view uses: the floating icon bar and
+            // the list rely on its layout, and building a grid of my own here
+            // pushed them apart.
+            main {
+                id: "selection-content",
+                class: "content content-background height-100",
+                onmounted: move |_| async move {
+                    let _ = document::eval("initSelectionLayout();").await;
+                },
+                div { class: "grid swipe-container height-100",
+                    div { class: "height-100 swipe-panel",
+                        SelectionFilterSideBar { active_selection: active_selection_filter }
+                        if active_selection_filter() == SelectionSidebarType::Songs {
+                            SongSourceItems {
+                                source_files,
+                                active_detailed_item_id,
+                                selected_items,
+                                click_action: ItemClickAction::OpenDetail,
+                            }
+                        }
+                        if active_selection_filter() == SelectionSidebarType::Pictures {
+                            ImageSourceItems {
+                                source_files,
+                                active_detailed_item_id,
+                                selected_items,
+                                click_action: ItemClickAction::OpenDetail,
+                            }
+                        }
+                        if active_selection_filter() == SelectionSidebarType::Pdfs {
+                            PdfSourceItems {
+                                source_files,
+                                active_detailed_item_id,
+                                selected_items,
+                                click_action: ItemClickAction::OpenDetail,
+                            }
+                        }
+                        if active_selection_filter() == SelectionSidebarType::Markdown {
+                            MarkdownSourceItems {
+                                source_files,
+                                active_detailed_item_id,
+                                selected_items,
+                                click_action: ItemClickAction::OpenDetail,
+                            }
+                        }
+                    }
+
+                    // The panel and the scrolling area have to be two elements.
+                    // `adjustDivHeight` sizes every `.scrollable-container` and
+                    // then clears the height of every `.swipe-panel`; on one
+                    // element carrying both classes the second step wipes the
+                    // first, leaving the pane unsized.
+                    div { class: "swipe-panel",
+                        div { class: "detail-pane scrollable-container",
+                            match subject() {
+                                Some(subject) => rsx! { DetailPane { subject } },
+                                None => rsx! {
+                                    p { class: "detail-empty", {t!("detail.nothing_open").to_string()} }
+                                },
+                            }
+                        }
                     }
                 }
             }
@@ -309,10 +396,10 @@ fn MarkdownViewer(file: SourceFile) -> Element {
 /// A song, read either as words or as music.
 #[component]
 fn SongViewer(file: SourceFile, tab: DetailTab) -> Element {
-    let parsed = use_memo(use_reactive!(|file| {
+    let parsed: Memo<Result<Song, String>> = use_memo(use_reactive!(|file| {
         read_text(&file).and_then(|content| {
-            crate::logic::export::song_from_content(&file.name, &content)
-                .map_err(|error| error.to_string())
+            crate::logic::export::song_from_content(&file_name_of(&file), &content)
+                .map_err(|error| format!("{error:?}"))
         })
     }));
 
@@ -339,7 +426,9 @@ fn SongText(song: Song) -> Element {
 
             for (index , part) in song.ordered_parts().into_iter().enumerate() {
                 div { key: "{index}", class: "detail-song-part",
-                    div { class: "detail-song-part-label", {part.display_label()} }
+                    div { class: "detail-song-part-label",
+                        {crate::logic::detail::part_label(&song, part)}
+                    }
 
                     div { class: "detail-song-languages",
                         for (language , content) in part.all_lyrics() {
@@ -468,7 +557,7 @@ fn TextEditor(file: SourceFile, kind: EditorKind) -> Element {
                         }
                     }
                     EditorKind::Song => rsx! {
-                        SongDraftPreview { file_name: file.name.clone(), source: draft() }
+                        SongDraftPreview { file_name: file_name_of(&file), source: draft() }
                     },
                 }
             }
@@ -479,8 +568,9 @@ fn TextEditor(file: SourceFile, kind: EditorKind) -> Element {
 /// What the song source currently says — or what is wrong with it.
 #[component]
 fn SongDraftPreview(file_name: String, source: String) -> Element {
-    let parsed = use_memo(use_reactive!(|(file_name, source)| {
-        crate::logic::export::song_from_content(&file_name, &source).map_err(|e| e.to_string())
+    let parsed: Memo<Result<Song, String>> = use_memo(use_reactive!(|(file_name, source)| {
+        crate::logic::export::song_from_content(&file_name, &source)
+            .map_err(|error| format!("{error:?}"))
     }));
 
     rsx! {
@@ -502,7 +592,33 @@ fn SongDraftPreview(file_name: String, source: String) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cantara_songlib::song::LyricLanguage;
+    use cantara_songlib::song::{LyricLanguage, SongPartContentType};
+
+    /// The list shows a stripped display name, but the importer needs the
+    /// suffix to tell a `.song` from a `.song.yml`. Passing the display name
+    /// made every song report an unsupported format.
+    #[test]
+    fn test_the_importer_gets_the_real_file_name() {
+        let file = SourceFile {
+            name: "Alle Jahre wieder".to_string(),
+            path: std::path::PathBuf::from("/lieder/Alle Jahre wieder.song"),
+            file_type: crate::logic::sourcefiles::SourceFileType::Song,
+            md5_hash: None,
+        };
+
+        assert_eq!(file_name_of(&file), "Alle Jahre wieder.song");
+
+        // And the display name really would not do.
+        assert!(
+            crate::logic::export::song_from_content(&file.name, "#title: X\n\nHallo").is_err(),
+            "the display name has no suffix, so it cannot select an importer"
+        );
+        assert!(
+            crate::logic::export::song_from_content(&file_name_of(&file), "#title: X\n\nHallo")
+                .is_ok(),
+            "the real file name has to reach the importer"
+        );
+    }
 
     /// A part tagged with a language shows that code; one left at the song's
     /// default shows the song's own language rather than a blank chip.
@@ -542,10 +658,10 @@ mod tests {
         let parts = song.ordered_parts();
         assert!(parts.len() > 1, "the sung order should repeat parts");
 
-        let has_voice = song.parts.iter().any(|part| {
+        let has_voice = song.parts().iter().any(|part| {
             part.contents
                 .iter()
-                .any(|c| matches!(c.content_type, SongPartContentType::Voice { .. }))
+                .any(|content| content.content_type == SongPartContentType::LeadVoice)
         });
         assert!(has_voice, "the reference song carries a melody");
 

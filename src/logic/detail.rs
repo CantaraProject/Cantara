@@ -15,6 +15,8 @@
 //! console and showed "…" instead of the lyrics.
 
 use crate::logic::sourcefiles::{SourceFile, SourceFileType};
+use cantara_songlib::song::{Song, SongPart, SongPartType};
+use rust_i18n::t;
 
 /// One element opened in the detail view.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -123,6 +125,57 @@ impl DetailSubject {
     }
 }
 
+/// The translation key for a kind of song part.
+fn part_type_key(part_type: SongPartType) -> &'static str {
+    match part_type {
+        SongPartType::Verse => "song_part.verse",
+        SongPartType::Chorus => "song_part.chorus",
+        SongPartType::Bridge => "song_part.bridge",
+        SongPartType::Intro => "song_part.intro",
+        SongPartType::Outro => "song_part.outro",
+        SongPartType::Interlude => "song_part.interlude",
+        SongPartType::Instrumental => "song_part.instrumental",
+        SongPartType::Solo => "song_part.solo",
+        SongPartType::PreChorus => "song_part.prechorus",
+        SongPartType::PostChorus => "song_part.postchorus",
+        SongPartType::Refrain => "song_part.refrain",
+        SongPartType::Other => "song_part.other",
+    }
+}
+
+/// How a part is headed on screen: `"Strophe 1"` rather than `"verse.1"`.
+///
+/// The number is only shown when the song has more than one part of that kind —
+/// a song with a single chorus reads better as "Refrain" than "Refrain 1".
+///
+/// A part Cantara has no word for keeps the heading its file gave it. That is
+/// what the song library preserves the original wording for: songs downloaded
+/// in a language the importer has no vocabulary for would otherwise lose their
+/// structure entirely.
+pub fn part_label(song: &Song, part: &SongPart) -> String {
+    if part.part_type == SongPartType::Other {
+        return part
+            .label
+            .clone()
+            .filter(|label| !label.trim().is_empty())
+            .unwrap_or_else(|| part.id().to_string());
+    }
+
+    let name = t!(part_type_key(part.part_type)).to_string();
+
+    let siblings = song
+        .parts()
+        .iter()
+        .filter(|other| other.part_type == part.part_type)
+        .count();
+
+    if siblings > 1 {
+        format!("{name} {}", part.number)
+    } else {
+        name
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,5 +257,121 @@ mod tests {
         sorted.dedup();
 
         assert_eq!(sorted.len(), ids.len());
+    }
+}
+
+#[cfg(test)]
+mod part_label_tests {
+    use super::*;
+    use crate::logic::export::song_from_content;
+
+    fn reference_song() -> Song {
+        let content =
+            std::fs::read_to_string("testfiles/Sei nicht stolz auf das, was du bist.song.yml")
+                .unwrap();
+        song_from_content("Sei nicht stolz auf das, was du bist.song.yml", &content).unwrap()
+    }
+
+    /// The point of the exercise: a part must never be headed with its
+    /// identifier. "verse.1" is a key, not something to show a musician.
+    #[test]
+    fn test_no_identifier_reaches_the_screen() {
+        let song = reference_song();
+
+        for part in song.parts() {
+            let label = part_label(&song, part);
+            assert!(
+                !label.contains('.'),
+                "the identifier leaked through as {label:?}"
+            );
+            assert!(!label.is_empty());
+        }
+    }
+
+    /// A song with one chorus reads better as "Refrain" than "Refrain 1"; a
+    /// song with several stanzas needs the number to tell them apart.
+    ///
+    /// Deliberately says nothing about the wording: `set_locale` is global and
+    /// the test threads share it, so an assertion on German text here could be
+    /// broken by whichever test flips the locale next.
+    #[test]
+    fn test_the_number_appears_only_when_it_distinguishes() {
+        let content = "\
+version: 0.1
+title: Test
+parts:
+  - type: stanza
+    contents:
+      - type: lyrics
+        number: 1
+        content: eins
+  - type: stanza
+    contents:
+      - type: lyrics
+        number: 1
+        content: zwei
+  - type: refrain
+    contents:
+      - type: lyrics
+        number: 1
+        content: kehrvers
+";
+        let song = song_from_content("Test.song.yml", content).unwrap();
+
+        let label_of = |part_type, number| {
+            let part = song
+                .parts()
+                .iter()
+                .find(|part| part.part_type == part_type && part.number == number)
+                .expect("part");
+            part_label(&song, part)
+        };
+
+        let first = label_of(SongPartType::Verse, 1);
+        let second = label_of(SongPartType::Verse, 2);
+        let chorus = label_of(SongPartType::Refrain, 1);
+
+        assert_ne!(first, second, "two stanzas must be told apart");
+        assert!(first.ends_with('1'), "got {first:?}");
+        assert!(second.ends_with('2'), "got {second:?}");
+        assert!(
+            !chorus.ends_with(char::is_numeric),
+            "the only chorus should carry no number: {chorus:?}"
+        );
+    }
+
+    /// The label follows the interface language.
+    #[test]
+    fn test_the_label_is_localised() {
+        let song = reference_song();
+        let part = song
+            .parts()
+            .iter()
+            .find(|part| part.part_type == SongPartType::Verse)
+            .expect("the reference song has stanzas");
+
+        rust_i18n::set_locale("de");
+        let german = part_label(&song, part);
+        rust_i18n::set_locale("en");
+        let english = part_label(&song, part);
+
+        assert!(german.starts_with("Strophe"), "got {german:?}");
+        assert!(english.starts_with("Verse"), "got {english:?}");
+    }
+
+    /// A part Cantara has no word for keeps the heading its file gave it —
+    /// otherwise a song in an unfamiliar language loses its structure.
+    #[test]
+    fn test_an_unknown_part_keeps_its_own_heading() {
+        let mut song = Song::new("Test");
+        let mut part = SongPart::new(cantara_songlib::song::SongPartId::new(
+            SongPartType::Other,
+            1,
+        ));
+        part.label = Some("주 후렴".to_string());
+        song.add_part(part).expect("the part must be accepted");
+
+        let part = &song.parts()[0];
+        assert_eq!(part_label(&song, part), "주 후렴");
     }
 }

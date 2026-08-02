@@ -4,11 +4,29 @@ use dioxus::html::HasFileData;
 use dioxus::prelude::*;
 use rust_i18n::t;
 
+/// What a click on an element in the list means.
+///
+/// The same list serves two views with opposite intents: the selection view
+/// collects elements for a presentation, the detail view opens one to look at.
+/// Making that explicit keeps the lists shared instead of duplicated — and the
+/// detail view used to do nothing on a click because the behaviour was wired
+/// straight into the item.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum ItemClickAction {
+    /// Add the element to the presentation selection.
+    #[default]
+    AddToSelection,
+    /// Open the element in the detail view.
+    OpenDetail,
+}
+
 #[component]
 pub(crate) fn SongSourceItems(
     source_files: Signal<Vec<SourceFile>>,
     active_detailed_item_id: Signal<Option<usize>>,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    #[props(default)]
+    click_action: ItemClickAction,
 ) -> Element {
     rsx! {
         div {
@@ -27,6 +45,7 @@ pub(crate) fn SongSourceItems(
                     source_files,
                     active_detailed_item_id,
                     selected_items,
+                click_action,
                 }
             }
         }
@@ -39,6 +58,8 @@ fn SongSourceItem(
     id: usize,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     active_detailed_item_id: Signal<Option<usize>>,
+    #[props(default)]
+    click_action: ItemClickAction,
 ) -> Element {
     let source_file = source_files.read().get(id).cloned();
     let Some(source_file) = source_file else {
@@ -51,9 +72,16 @@ fn SongSourceItem(
             class: "outline secondary selection_item",
             tabindex: 0,
             onclick: move |_| {
-                selected_items
-                    .write()
-                    .push(SelectedItemRepresentation::new_with_sourcefile(source_file.clone()));
+                match click_action {
+                    ItemClickAction::AddToSelection => {
+                        selected_items
+                            .write()
+                            .push(SelectedItemRepresentation::new_with_sourcefile(
+                                source_file.clone(),
+                            ));
+                    }
+                    ItemClickAction::OpenDetail => active_detailed_item_id.set(Some(id)),
+                }
             },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
@@ -68,6 +96,8 @@ pub(crate) fn ImageSourceItems(
     source_files: Signal<Vec<SourceFile>>,
     active_detailed_item_id: Signal<Option<usize>>,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    #[props(default)]
+    click_action: ItemClickAction,
 ) -> Element {
     rsx! {
         div {
@@ -86,6 +116,7 @@ pub(crate) fn ImageSourceItems(
                     source_files,
                     active_detailed_item_id,
                     selected_items,
+                click_action,
                 }
             }
         }
@@ -98,6 +129,8 @@ fn ImageSourceItem(
     id: usize,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     active_detailed_item_id: Signal<Option<usize>>,
+    #[props(default)]
+    click_action: ItemClickAction,
 ) -> Element {
     let source_file = source_files.read().get(id).cloned();
     let Some(source_file) = source_file else {
@@ -111,9 +144,16 @@ fn ImageSourceItem(
             class: "outline secondary selection_item",
             tabindex: 0,
             onclick: move |_| {
-                selected_items
-                    .write()
-                    .push(SelectedItemRepresentation::new_with_sourcefile(source_file.clone()));
+                match click_action {
+                    ItemClickAction::AddToSelection => {
+                        selected_items
+                            .write()
+                            .push(SelectedItemRepresentation::new_with_sourcefile(
+                                source_file.clone(),
+                            ));
+                    }
+                    ItemClickAction::OpenDetail => active_detailed_item_id.set(Some(id)),
+                }
             },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
@@ -130,6 +170,8 @@ pub(crate) fn PdfSourceItems(
     source_files: Signal<Vec<SourceFile>>,
     active_detailed_item_id: Signal<Option<usize>>,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    #[props(default)]
+    click_action: ItemClickAction,
 ) -> Element {
     rsx! {
         div {
@@ -148,6 +190,7 @@ pub(crate) fn PdfSourceItems(
                     source_files,
                     active_detailed_item_id,
                     selected_items,
+                click_action,
                 }
             }
         }
@@ -160,6 +203,8 @@ fn PdfSourceItem(
     id: usize,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     active_detailed_item_id: Signal<Option<usize>>,
+    #[props(default)]
+    click_action: ItemClickAction,
 ) -> Element {
     let source_file = source_files.read().get(id).cloned();
     let Some(source_file) = source_file else {
@@ -172,9 +217,16 @@ fn PdfSourceItem(
             class: "outline secondary selection_item",
             tabindex: 0,
             onclick: move |_| {
-                selected_items
-                    .write()
-                    .push(SelectedItemRepresentation::new_with_sourcefile(source_file.clone()));
+                match click_action {
+                    ItemClickAction::AddToSelection => {
+                        selected_items
+                            .write()
+                            .push(SelectedItemRepresentation::new_with_sourcefile(
+                                source_file.clone(),
+                            ));
+                    }
+                    ItemClickAction::OpenDetail => active_detailed_item_id.set(Some(id)),
+                }
             },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
@@ -189,6 +241,8 @@ pub(crate) fn MarkdownSourceItems(
     source_files: Signal<Vec<SourceFile>>,
     active_detailed_item_id: Signal<Option<usize>>,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    #[props(default)]
+    click_action: ItemClickAction,
 ) -> Element {
     let mut spontaneous_text: Signal<String> = use_signal(|| String::new());
 
@@ -209,6 +263,7 @@ pub(crate) fn MarkdownSourceItems(
                     source_files,
                     active_detailed_item_id,
                     selected_items,
+                click_action,
                 }
             }
             details {
@@ -252,6 +307,8 @@ fn MarkdownSourceItem(
     id: usize,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     active_detailed_item_id: Signal<Option<usize>>,
+    #[props(default)]
+    click_action: ItemClickAction,
 ) -> Element {
     let source_file = source_files.read().get(id).cloned();
     let Some(source_file) = source_file else {
@@ -264,9 +321,16 @@ fn MarkdownSourceItem(
             class: "outline secondary selection_item",
             tabindex: 0,
             onclick: move |_| {
-                selected_items
-                    .write()
-                    .push(SelectedItemRepresentation::new_with_sourcefile(source_file.clone()));
+                match click_action {
+                    ItemClickAction::AddToSelection => {
+                        selected_items
+                            .write()
+                            .push(SelectedItemRepresentation::new_with_sourcefile(
+                                source_file.clone(),
+                            ));
+                    }
+                    ItemClickAction::OpenDetail => active_detailed_item_id.set(Some(id)),
+                }
             },
             oncontextmenu: move |_| {
                 active_detailed_item_id.set(Some(id));
@@ -396,5 +460,25 @@ pub(crate) async fn process_dropped_files(
                 .push(SelectedItemRepresentation::new_with_sourcefile(sf.clone()));
             source_files.write().push(sf);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The selection view does not pass the action, so the default decides what
+    /// a click there does. It has to stay "collect for the presentation" —
+    /// anything else would silently repurpose the main view.
+    #[test]
+    fn test_a_click_collects_by_default() {
+        assert_eq!(ItemClickAction::default(), ItemClickAction::AddToSelection);
+    }
+
+    /// The two intents must stay distinguishable; the detail view showed
+    /// nothing at all while both lived in one hard-wired handler.
+    #[test]
+    fn test_the_two_intents_are_distinct() {
+        assert_ne!(ItemClickAction::AddToSelection, ItemClickAction::OpenDetail);
     }
 }

@@ -667,3 +667,93 @@ div.inline-div {
     margin: 0;
     padding: 0.15rem 0.6rem;
 }
+
+/* --- Detail view: the element list beside one opened element ---
+   The shell is the selection view's, so the icon bar and the list keep their
+   layout; only what follows is this view's own. */
+
+.detail-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.detail-header h3 { margin: 0; }
+.detail-header-actions button { width: auto; margin: 0; }
+
+.detail-tabs { margin: 0.75rem 0 1rem; }
+.detail-tabs button { width: auto; margin: 0; }
+
+.detail-empty,
+.detail-song-empty { color: var(--pico-muted-color); }
+
+.detail-error {
+    color: var(--pico-del-color, #b3261e);
+}
+
+.detail-image img { max-width: 100%; height: auto; }
+
+.detail-pdf-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+.detail-pdf-controls button { width: auto; margin: 0; }
+
+.detail-song-part { margin-bottom: 1.5rem; }
+
+.detail-song-part-label {
+    font-weight: 600;
+    color: var(--pico-primary);
+    margin-bottom: 0.35rem;
+}
+
+/* One column per language, so a translation reads beside its original. */
+.detail-song-languages {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 1rem;
+}
+
+.detail-song-language-code {
+    font-size: 0.8em;
+    color: var(--pico-muted-color);
+}
+
+.detail-song-language pre {
+    margin: 0.2rem 0 0;
+    white-space: pre-wrap;
+    background: none;
+    padding: 0;
+}
+
+/* Source on the left, what it means on the right. */
+.detail-editor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.5rem;
+    height: 100%;
+}
+
+@media (max-width: 62rem) {
+    .detail-editor { grid-template-columns: minmax(0, 1fr); }
+}
+
+.detail-editor-textarea {
+    width: 100%;
+    min-height: 28rem;
+    font-family: var(--pico-font-family-monospace, monospace);
+    font-size: 0.9em;
+}
+
+.detail-editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+.detail-editor-actions button { width: auto; margin: 0; }
+
+.detail-editor-status { color: var(--pico-muted-color); font-size: 0.9em; }

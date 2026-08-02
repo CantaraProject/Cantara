@@ -1682,7 +1682,7 @@ fn read_pdf_as_base64(pdf_path: &str) -> String {
 /// that the page's file-access restrictions do not apply. On desktop PDF.js
 /// comes from the bundled `node_modules` assets, on the web from a CDN.
 #[component]
-fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
+pub(crate) fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
     // Use a unique ID per mount cycle to prevent conflicts when the component
     // unmounts and remounts during live updates. Old async render tasks will
     // target a canvas ID that no longer exists in the DOM and exit gracefully.

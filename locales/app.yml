@@ -802,3 +802,88 @@ display:
   max_lines_placeholder:
     en: Unlimited
     de: Unbegrenzt
+
+detail:
+  nothing_open:
+    en: Pick an element on the left to look at it.
+    de: Wähle links ein Element aus, um es anzusehen.
+  tab_text:
+    en: Text
+    de: Text
+  tab_notation:
+    en: Notation
+    de: Noten
+  tab_preview:
+    en: Preview
+    de: Vorschau
+  edit:
+    en: Edit
+    de: Bearbeiten
+  stop_editing:
+    en: Done
+    de: Fertig
+  save:
+    en: Save
+    de: Speichern
+  saved:
+    en: Saved.
+    de: Gespeichert.
+  parse_failed:
+    en: This song cannot be read yet
+    de: Dieses Lied kann noch nicht gelesen werden
+  no_lyrics:
+    en: This part has no lyrics of its own.
+    de: Dieser Teil hat keinen eigenen Text.
+  no_notation:
+    en: "No notation: %{reason}"
+    de: "Keine Noten: %{reason}"
+  default_language:
+    en: default
+    de: Standard
+  no_write_on_web:
+    en: The web version cannot write files.
+    de: Die Webversion kann keine Dateien schreiben.
+  to_detail:
+    en: Detail view
+    de: Detailansicht
+  to_selection:
+    en: Selection
+    de: Auswahl
+
+song_part:
+  verse:
+    en: Verse
+    de: Strophe
+  chorus:
+    en: Chorus
+    de: Refrain
+  refrain:
+    en: Refrain
+    de: Kehrvers
+  bridge:
+    en: Bridge
+    de: Bridge
+  intro:
+    en: Intro
+    de: Intro
+  outro:
+    en: Outro
+    de: Outro
+  interlude:
+    en: Interlude
+    de: Zwischenspiel
+  instrumental:
+    en: Instrumental
+    de: Instrumental
+  solo:
+    en: Solo
+    de: Solo
+  prechorus:
+    en: Pre-chorus
+    de: Vor-Refrain
+  postchorus:
+    en: Post-chorus
+    de: Nach-Refrain
+  other:
+    en: Part
+    de: Teil
