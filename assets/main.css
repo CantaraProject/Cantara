@@ -773,3 +773,9 @@ div.inline-div {
 }
 
 .detail-song-tags dd { margin: 0; }
+
+/* The element the detail view is showing. */
+.selection_item-active {
+    border-color: var(--pico-primary) !important;
+    background-color: color-mix(in srgb, var(--pico-primary) 10%, transparent) !important;
+}

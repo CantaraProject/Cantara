@@ -1,4 +1,6 @@
+use crate::components::selection_components::source_items::ItemClickAction;
 use crate::logic::search::SearchResult;
+use crate::logic::sourcefiles::SourceFile;
 use crate::logic::states::SelectedItemRepresentation;
 use dioxus::prelude::*;
 use rust_i18n::t;
@@ -11,6 +13,18 @@ pub(crate) fn SearchResults(
     query: Signal<String>,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     search_visible: Signal<bool>,
+
+    /// The library the results point into, so a hit can be opened by index.
+    source_files: Signal<Vec<SourceFile>>,
+
+    /// What picking a result means. The detail view opens it; the selection
+    /// view collects it. Without this a search in the detail view quietly added
+    /// the song to the presentation instead of showing it.
+    #[props(default)]
+    click_action: ItemClickAction,
+
+    /// Where the detail view records what is open.
+    active_detailed_item_id: Signal<Option<usize>>,
 ) -> Element {
     let results = search_results.read().clone();
     if results.is_empty() {
@@ -60,11 +74,28 @@ pub(crate) fn SearchResults(
                             div {
                                 class: "search-result-title",
                                 style: "font-weight: bold; cursor: pointer;",
-                                onclick: move |_| {
-                                    selected_items.write().push(
-                                        SelectedItemRepresentation::new_with_sourcefile(source_file.clone())
-                                    );
-                                    search_visible.set(false);
+                                onclick: {
+                                    let source_file = source_file.clone();
+                                    move |_| {
+                                        match click_action {
+                                            ItemClickAction::AddToSelection => {
+                                                selected_items.write().push(
+                                                    SelectedItemRepresentation::new_with_sourcefile(
+                                                        source_file.clone(),
+                                                    ),
+                                                );
+                                            }
+                                            ItemClickAction::OpenDetail => {
+                                                let mut active = active_detailed_item_id;
+                                                if let Some(index) =
+                                                    index_of(&source_files.read(), &source_file)
+                                                {
+                                                    active.set(Some(index));
+                                                }
+                                            }
+                                        }
+                                        search_visible.set(false);
+                                    }
                                 },
                                 if is_title_match {
                                     {
@@ -177,5 +208,50 @@ pub(crate) fn SearchInput(
                 },
             }
         }
+    }
+}
+
+/// Where a search hit sits in the library.
+///
+/// Matched by path: a result carries a copy of the source file, and two songs
+/// can share a name but never a path.
+fn index_of(source_files: &[SourceFile], wanted: &SourceFile) -> Option<usize> {
+    source_files
+        .iter()
+        .position(|candidate| candidate.path == wanted.path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logic::sourcefiles::SourceFileType;
+    use std::path::PathBuf;
+
+    fn file(name: &str, path: &str) -> SourceFile {
+        SourceFile {
+            name: name.to_string(),
+            path: PathBuf::from(path),
+            file_type: SourceFileType::Song,
+            md5_hash: None,
+        }
+    }
+
+    /// Two songs may well share a title — the library in the screenshots has
+    /// several — so the hit has to be found by path.
+    #[test]
+    fn test_a_hit_is_found_by_path_not_by_name() {
+        let files = vec![
+            file("Seht unsern Gott", "/a/Seht unsern Gott.song"),
+            file("Seht unsern Gott", "/b/Seht unsern Gott.song"),
+        ];
+
+        assert_eq!(index_of(&files, &files[1]), Some(1));
+    }
+
+    #[test]
+    fn test_a_hit_outside_the_library_is_not_invented() {
+        let files = vec![file("A", "/a.song")];
+
+        assert_eq!(index_of(&files, &file("B", "/b.song")), None);
     }
 }

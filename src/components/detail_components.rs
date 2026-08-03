@@ -104,6 +104,22 @@ pub fn Detail() -> Element {
         }
     });
 
+    // Bring the open element into view. Opening a song from the search would
+    // otherwise leave the list wherever it happened to be scrolled to. Done
+    // from here rather than in the item, because an item only learns about a
+    // change if it happens to re-mount — the presenter console scrolls its
+    // active slide the same way.
+    use_effect(move || {
+        if active_detailed_item_id().is_some() {
+            let _ = document::eval(
+                "requestAnimationFrame(function () {
+                     var el = document.querySelector('.selection_item-active');
+                     if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+                 });",
+            );
+        }
+    });
+
     // The element currently open, derived from the list selection so that the
     // two can never disagree.
     let subject = use_memo(move || {
@@ -127,6 +143,9 @@ pub fn Detail() -> Element {
                     query: filter_string,
                     selected_items,
                     search_visible,
+                    source_files,
+                    active_detailed_item_id,
+                    click_action: ItemClickAction::OpenDetail,
                 }
             }
 

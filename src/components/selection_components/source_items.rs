@@ -69,7 +69,11 @@ fn SongSourceItem(
     rsx! {
         div {
             role: "button",
-            class: "outline secondary selection_item",
+            class: if active_detailed_item_id() == Some(id) {
+                "outline secondary selection_item selection_item-active"
+            } else {
+                "outline secondary selection_item"
+            },
             tabindex: 0,
             onclick: move |_| {
                 match click_action {
@@ -141,7 +145,11 @@ fn ImageSourceItem(
     rsx! {
         div {
             role: "button",
-            class: "outline secondary selection_item",
+            class: if active_detailed_item_id() == Some(id) {
+                "outline secondary selection_item selection_item-active"
+            } else {
+                "outline secondary selection_item"
+            },
             tabindex: 0,
             onclick: move |_| {
                 match click_action {
@@ -214,7 +222,11 @@ fn PdfSourceItem(
     rsx! {
         div {
             role: "button",
-            class: "outline secondary selection_item",
+            class: if active_detailed_item_id() == Some(id) {
+                "outline secondary selection_item selection_item-active"
+            } else {
+                "outline secondary selection_item"
+            },
             tabindex: 0,
             onclick: move |_| {
                 match click_action {
@@ -318,7 +330,11 @@ fn MarkdownSourceItem(
     rsx! {
         div {
             role: "button",
-            class: "outline secondary selection_item",
+            class: if active_detailed_item_id() == Some(id) {
+                "outline secondary selection_item selection_item-active"
+            } else {
+                "outline secondary selection_item"
+            },
             tabindex: 0,
             onclick: move |_| {
                 match click_action {

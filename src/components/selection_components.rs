@@ -260,6 +260,8 @@ pub fn Selection() -> Element {
                     query: filter_string,
                     selected_items,
                     search_visible,
+                    source_files,
+                    active_detailed_item_id,
                 }
             }
             main {
