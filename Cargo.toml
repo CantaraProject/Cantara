@@ -26,7 +26,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 sys-locale = "=0.3.2"
 
 # Cantara libraries
-cantara-songlib = "0.2.3"
+cantara-songlib = "0.2.4"
 markdown = "1.0.0"
 rgb = { version = "0.8.52", features = ["serde"] }
 image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
