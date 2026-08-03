@@ -1169,8 +1169,10 @@ impl RepositoryType {
     ) -> Result<TempDir, String> {
         let temp_dir = create_temp_dir()?;
         let zip_path = temp_dir.path().join("download.zip");
-        let builder = Client::builder()
-            .http1_only();
+        // Only the mobile targets replace the TLS setup, so on every other
+        // platform the binding is never written to again.
+        #[allow(unused_mut)]
+        let mut builder = Client::builder().http1_only();
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             builder = builder.use_preconfigured_tls(mobile_tls_config());
@@ -1238,8 +1240,8 @@ impl RepositoryType {
     ) -> Result<TempDir, String> {
         let temp_dir = create_temp_dir()?;
         let zip_path = temp_dir.path().join("download.zip");
-        let builder = AsyncClient::builder()
-            .http1_only();
+        #[allow(unused_mut)]
+        let mut builder = AsyncClient::builder().http1_only();
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             builder = builder.use_preconfigured_tls(mobile_tls_config());
@@ -1382,72 +1384,60 @@ fn mobile_tls_config() -> rustls::ClientConfig {
 /// app-private directory path.
 #[cfg(target_os = "android")]
 fn get_android_files_dir() -> Option<PathBuf> {
-    use jni::objects::JObject;
-    use jni::JavaVM;
+    // `::` because `dioxus::prelude::*` also brings a `jni` into scope; without
+    // it the name is ambiguous and the Android build stops here.
+    use ::jni::JavaVM;
+    use ::jni::errors::Error as JniError;
+    use ::jni::objects::{JObject, JString};
+    // jni 0.22 wants method names and signatures pre-encoded rather than as
+    // `&str`; both macros do that at compile time.
+    use ::jni::{jni_sig, jni_str};
     use log::{error, info};
 
     let ctx = ndk_context::android_context();
 
-    // Safety: The VM pointer provided by ndk-context is valid for the lifetime of the app.
-    let vm = match unsafe { JavaVM::from_raw(ctx.vm().cast()) } {
-        Ok(vm) => vm,
-        Err(e) => {
-            error!("Failed to get JavaVM from ndk-context: {e}");
-            return None;
-        }
-    };
-    let mut env = match vm.attach_current_thread() {
-        Ok(env) => env,
-        Err(e) => {
-            error!("Failed to attach current thread to JVM: {e}");
-            return None;
-        }
-    };
+    // Safety: the VM pointer from ndk-context is valid for the app's lifetime.
+    let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) };
 
-    // Safety: The context pointer is a valid Activity jobject managed by android-activity.
-    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+    // jni 0.22 hands out the environment through a callback rather than a
+    // guard, so the whole conversation with Java happens in here and the
+    // local references are released when it returns.
+    let result: Result<PathBuf, JniError> = vm.attach_current_thread(|env| {
+        // Safety: the context pointer is a valid Activity jobject managed by
+        // android-activity.
+        let activity = unsafe { JObject::from_raw(env, ctx.context().cast()) };
 
-    // Call Context.getFilesDir() -> java.io.File
-    let files_dir = match env.call_method(&activity, "getFilesDir", "()Ljava/io/File;", &[]) {
-        Ok(val) => val,
-        Err(e) => {
-            error!("JNI call to getFilesDir() failed: {e}");
-            return None;
-        }
-    };
-    let files_dir_obj = match files_dir.l() {
-        Ok(obj) => obj,
-        Err(e) => {
-            error!("Failed to extract File object from getFilesDir() result: {e}");
-            return None;
-        }
-    };
+        // Context.getFilesDir() -> java.io.File
+        let files_dir = env
+            .call_method(&activity, jni_str!("getFilesDir"), jni_sig!("()Ljava/io/File;"), &[])?
+            .l()?;
 
-    // Call File.getAbsolutePath() -> String
-    let path_jvalue = match env.call_method(
-        &files_dir_obj,
-        "getAbsolutePath",
-        "()Ljava/lang/String;",
-        &[],
-    ) {
-        Ok(val) => val,
-        Err(e) => {
-            error!("JNI call to getAbsolutePath() failed: {e}");
-            return None;
-        }
-    };
-    let path_jobj = match path_jvalue.l() {
-        Ok(obj) => obj,
-        Err(e) => {
-            error!("Failed to extract String object from getAbsolutePath() result: {e}");
-            return None;
-        }
-    };
-    let path_jstr = jni::objects::JString::from(path_jobj);
-    let path_str: String = env.get_string(&path_jstr).ok()?.into();
+        // File.getAbsolutePath() -> java.lang.String
+        let path = env
+            .call_method(
+                &files_dir,
+                jni_str!("getAbsolutePath"),
+                jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?
+            .l()?;
 
-    info!("Android files directory: {path_str}");
-    Some(PathBuf::from(path_str))
+        let path = env.cast_local::<JString>(path)?;
+        let text = path.try_to_string(env)?;
+
+        Ok(PathBuf::from(text))
+    });
+
+    match result {
+        Ok(path) => {
+            info!("Android files directory: {}", path.display());
+            Some(path)
+        }
+        Err(error) => {
+            error!("Could not ask Android for the app's files directory: {error}");
+            None
+        }
+    }
 }
 
 /// A configured Presentation Design which is used both for creating the presentation slides as well as for rendering them.

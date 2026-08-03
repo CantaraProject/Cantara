@@ -117,6 +117,9 @@ fn RepositorySettings() -> Element {
         });
     });
 
+    // Only the desktop branch writes through this closure; on mobile and the
+    // web the body is compiled out.
+    #[allow(unused_mut)]
     let mut select_directory = move || {
         #[cfg(feature = "desktop")]
         if let Some(path) = FileDialog::new().pick_folder() {

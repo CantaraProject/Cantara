@@ -801,7 +801,13 @@ enum SaveOutcome {
 ///
 /// A format that produces one file per song asks for a directory; a single
 /// document asks for a file name.
-#[cfg(not(target_arch = "wasm32"))]
+///
+/// Only the desktop has a native file dialog — `rfd` is a desktop-only
+/// dependency. Mobile and the web hand the file to the WebView instead, which
+/// is why the split is by feature rather than by `wasm32`: Android is neither
+/// wasm nor a desktop, and gating on the target arch alone compiled `rfd` into
+/// a build that does not have it.
+#[cfg(feature = "desktop")]
 fn save_exported_files(
     files: &[ExportedFile],
     format: ExportFormat,
@@ -845,8 +851,9 @@ fn save_exported_files(
     Ok(SaveOutcome::Written(1))
 }
 
-/// On the web there is no file system, so each file is offered as a download.
-#[cfg(target_arch = "wasm32")]
+/// Without a file dialog — the web and mobile — each file is offered to the
+/// WebView as a download, which is where the platform then puts it.
+#[cfg(not(feature = "desktop"))]
 fn save_exported_files(
     files: &[ExportedFile],
     format: ExportFormat,
@@ -899,7 +906,7 @@ fn export_pptx(
     // On the desktop the user picks the destination first: it is the one step
     // that can be cancelled, and doing it before the work avoids building a
     // deck nobody asked to keep.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "desktop")]
     let target_path = {
         let Some(path) = rfd::FileDialog::new()
             .set_file_name(file_name)
@@ -921,10 +928,12 @@ fn export_pptx(
         return;
     };
 
-    let mode = if cfg!(target_arch = "wasm32") {
-        "\"download\""
-    } else {
+    // Only the desktop takes the bytes back into Rust to write them itself;
+    // everywhere else the WebView receives the file directly.
+    let mode = if cfg!(feature = "desktop") {
         "\"base64\""
+    } else {
+        "\"download\""
     };
 
     let script = PPTX_EXPORT_JS
@@ -956,7 +965,7 @@ fn export_pptx(
             Err(error) => Err(format!("{error:?}")),
         };
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(feature = "desktop")]
         let outcome = outcome.and_then(|data| write_pptx_file(&data, &target_path));
 
         match outcome {
@@ -972,7 +981,7 @@ fn export_pptx(
 }
 
 /// Decodes the deck PptxGenJS produced and writes it to `path`.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "desktop")]
 fn write_pptx_file(base64_data: &str, path: &std::path::Path) -> Result<String, String> {
     use base64::Engine;
 
