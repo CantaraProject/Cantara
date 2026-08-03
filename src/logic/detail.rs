@@ -119,10 +119,6 @@ impl DetailSubject {
         }
     }
 
-    /// The name shown above the element.
-    pub fn title(&self) -> String {
-        self.source_file().name.clone()
-    }
 }
 
 /// The translation key for a kind of song part.
@@ -243,7 +239,7 @@ mod tests {
         let subject = DetailSubject::of(&original).unwrap();
 
         assert_eq!(subject.source_file(), &original);
-        assert_eq!(subject.title(), "Amazing Grace.song");
+        assert_eq!(subject.source_file().name, "Amazing Grace.song");
     }
 
     /// Tab identifiers end up in the DOM and in comparisons, so they must be
@@ -373,5 +369,365 @@ parts:
 
         let part = &song.parts()[0];
         assert_eq!(part_label(&song, part), "주 후렴");
+    }
+}
+
+/// How an order is named on screen.
+///
+/// The song's own order has no name of its own, so it is called what it is.
+pub fn order_label(order: &cantara_songlib::song::PartOrder) -> String {
+    match &order.name {
+        cantara_songlib::song::PartOrderName::Default => t!("detail.order_default").to_string(),
+        cantara_songlib::song::PartOrderName::Custom(name) => name.clone(),
+    }
+}
+
+/// Structural changes to a song: removing, moving, adding a language, and the
+/// alternative orders.
+///
+/// These live here rather than in the view because they are where a song can
+/// quietly lose something. Removing a part, in particular, has to take that
+/// part out of every order that names it — an order pointing at a part that no
+/// longer exists would drop silently out of the sung sequence.
+pub mod editing {
+    use cantara_songlib::song::{
+        LyricLanguage, PartOrder, PartOrderName, PartOrderRule, Song, SongPartContent, SongPartId,
+    };
+
+    /// Removes a part and every reference to it.
+    ///
+    /// The song library has no `remove_part`, so the song is rebuilt from the
+    /// parts that stay. Everything else about it is carried over.
+    pub fn remove_part(song: &Song, id: &SongPartId) -> Song {
+        let mut rebuilt = Song::new(&song.title);
+        rebuilt.default_language = song.default_language.clone();
+        rebuilt.score = song.score.clone();
+
+        for (key, value) in song.tags() {
+            rebuilt.set_tag(key, value);
+        }
+
+        for part in song.parts() {
+            if &part.id() != id {
+                let _ = rebuilt.add_part(part.clone());
+            }
+        }
+
+        // An explicit order naming the removed part would otherwise point into
+        // nothing.
+        rebuilt.part_orders = song
+            .part_orders
+            .iter()
+            .map(|order| match order.rule() {
+                PartOrderRule::Custom(ids) => PartOrder::new(
+                    order.name.clone(),
+                    PartOrderRule::Custom(
+                        ids.iter().filter(|other| *other != id).cloned().collect(),
+                    ),
+                ),
+                other => PartOrder::new(order.name.clone(), other.clone()),
+            })
+            .collect();
+
+        rebuilt
+    }
+
+    /// Moves a part one place towards the front or the back.
+    ///
+    /// Reorders the *stored* parts. A rule-based order derives the sung
+    /// sequence from them, so this changes what is sung; an explicit order
+    /// names its parts and is left alone.
+    pub fn move_part(song: &Song, id: &SongPartId, towards_end: bool) -> Song {
+        let mut moved = song.clone();
+        let parts = moved.parts_mut();
+
+        let Some(index) = parts.iter().position(|part| &part.id() == id) else {
+            return moved;
+        };
+
+        let target = if towards_end {
+            index + 1
+        } else {
+            match index.checked_sub(1) {
+                Some(target) => target,
+                None => return moved,
+            }
+        };
+
+        if target >= parts.len() {
+            return moved;
+        }
+
+        parts.swap(index, target);
+        moved
+    }
+
+    /// Adds an empty lyrics block in `language` to a part.
+    ///
+    /// Does nothing when the part already has that language: a second block
+    /// for the same language would make it ambiguous which one is sung.
+    pub fn add_language(song: &Song, id: &SongPartId, language: &str) -> Song {
+        let code = language.trim().to_string();
+        if code.is_empty() {
+            return song.clone();
+        }
+
+        let mut updated = song.clone();
+        let wanted = LyricLanguage::Specific(code);
+
+        if let Some(part) = updated.part_mut(id) {
+            let exists = part
+                .all_lyrics()
+                .any(|(existing, _)| existing == &wanted);
+            if !exists {
+                part.add_content(SongPartContent::lyrics(wanted, ""));
+            }
+        }
+
+        updated
+    }
+
+    /// Adds an alternative order under `name`.
+    ///
+    /// A name is what tells two orders apart, so an empty one, or one already
+    /// taken, is refused rather than silently shadowing the existing order.
+    pub fn add_order(song: &Song, name: &str, rule: PartOrderRule) -> Result<Song, String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err("an order needs a name".to_string());
+        }
+
+        let taken = song.part_orders.iter().any(|order| {
+            matches!(&order.name, PartOrderName::Custom(existing) if existing == trimmed)
+        });
+        if taken {
+            return Err(format!("there is already an order called {trimmed:?}"));
+        }
+
+        let mut updated = song.clone();
+        updated.part_orders.push(PartOrder::new(
+            PartOrderName::Custom(trimmed.to_string()),
+            rule,
+        ));
+        Ok(updated)
+    }
+
+    /// Removes an alternative order.
+    ///
+    /// The first order is the song's default and stays: a song without any
+    /// order has no sung sequence at all.
+    pub fn remove_order(song: &Song, index: usize) -> Song {
+        let mut updated = song.clone();
+        if index > 0 && index < updated.part_orders.len() {
+            updated.part_orders.remove(index);
+        }
+        updated
+    }
+}
+
+#[cfg(test)]
+mod editing_tests {
+    use super::editing::*;
+    use crate::logic::export::song_from_content;
+    use cantara_songlib::song::{PartOrderRule, Song, SongPartType};
+
+    fn song_with_three_parts() -> Song {
+        let content = "\
+version: 0.1
+title: Test
+parts:
+  - type: stanza
+    contents:
+      - type: lyrics
+        number: 1
+        content: eins
+  - type: refrain
+    contents:
+      - type: lyrics
+        number: 1
+        content: kehrvers
+  - type: stanza
+    contents:
+      - type: lyrics
+        number: 2
+        content: zwei
+";
+        song_from_content("Test.song.yml", content).unwrap()
+    }
+
+    #[test]
+    fn test_removing_a_part_takes_it_out() {
+        let song = song_with_three_parts();
+        let victim = song.parts()[1].id();
+
+        let reduced = remove_part(&song, &victim);
+
+        assert_eq!(reduced.parts().len(), 2);
+        assert!(reduced.parts().iter().all(|part| part.id() != victim));
+    }
+
+    /// Everything the song is apart from that part has to survive.
+    #[test]
+    fn test_removing_a_part_keeps_the_rest_of_the_song() {
+        let mut song = song_with_three_parts();
+        song.set_tag("author", "Jemand");
+        song.default_language = Some("de".to_string());
+        let victim = song.parts()[1].id();
+
+        let reduced = remove_part(&song, &victim);
+
+        assert_eq!(reduced.title, song.title);
+        assert_eq!(reduced.default_language, song.default_language);
+        assert_eq!(
+            reduced.tags().get("author").map(String::as_str),
+            Some("Jemand")
+        );
+    }
+
+    /// An explicit order naming the removed part would point into nothing, and
+    /// the song library would drop it from the sequence without a word.
+    #[test]
+    fn test_removing_a_part_prunes_it_from_the_orders() {
+        use cantara_songlib::song::{PartOrder, PartOrderName};
+
+        let mut song = song_with_three_parts();
+        let ids: Vec<_> = song.parts().iter().map(|part| part.id()).collect();
+        song.part_orders.push(PartOrder::new(
+            PartOrderName::Custom("kurz".to_string()),
+            PartOrderRule::Custom(ids.clone()),
+        ));
+
+        let reduced = remove_part(&song, &ids[1]);
+
+        for order in &reduced.part_orders {
+            if let PartOrderRule::Custom(remaining) = order.rule() {
+                assert!(
+                    !remaining.contains(&ids[1]),
+                    "the order still names the removed part"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_moving_a_part_swaps_it_with_its_neighbour() {
+        let song = song_with_three_parts();
+        let first = song.parts()[0].id();
+        let second = song.parts()[1].id();
+
+        let moved = move_part(&song, &first, true);
+
+        assert_eq!(moved.parts()[0].id(), second);
+        assert_eq!(moved.parts()[1].id(), first);
+    }
+
+    /// Moving past either end must leave the song exactly as it was.
+    #[test]
+    fn test_moving_past_the_ends_changes_nothing() {
+        let song = song_with_three_parts();
+        let first = song.parts()[0].id();
+        let last = song.parts()[song.parts().len() - 1].id();
+
+        let up = move_part(&song, &first, false);
+        let down = move_part(&song, &last, true);
+
+        let ids = |s: &Song| s.parts().iter().map(|p| p.id()).collect::<Vec<_>>();
+        assert_eq!(ids(&up), ids(&song));
+        assert_eq!(ids(&down), ids(&song));
+    }
+
+    #[test]
+    fn test_adding_a_language_gives_the_part_an_empty_block() {
+        let song = song_with_three_parts();
+        let id = song.parts()[0].id();
+
+        let extended = add_language(&song, &id, "en");
+
+        let part = extended.part(&id).unwrap();
+        assert!(part.lyrics_for(Some("en"), None).is_some());
+    }
+
+    /// Two blocks for one language would make it ambiguous which is sung.
+    #[test]
+    fn test_a_language_is_not_added_twice() {
+        let song = song_with_three_parts();
+        let id = song.parts()[0].id();
+
+        let once = add_language(&song, &id, "en");
+        let twice = add_language(&once, &id, "en");
+
+        let count = |s: &Song| s.part(&id).unwrap().all_lyrics().count();
+        assert_eq!(count(&once), count(&twice));
+    }
+
+    #[test]
+    fn test_an_empty_language_code_is_ignored() {
+        let song = song_with_three_parts();
+        let id = song.parts()[0].id();
+
+        let unchanged = add_language(&song, &id, "   ");
+
+        assert_eq!(
+            unchanged.part(&id).unwrap().all_lyrics().count(),
+            song.part(&id).unwrap().all_lyrics().count()
+        );
+    }
+
+    #[test]
+    fn test_adding_an_alternative_order() {
+        let song = song_with_three_parts();
+        let before = song.part_orders.len();
+
+        let extended = add_order(&song, "kurz", PartOrderRule::VerseRefrainBridgeRefrain).unwrap();
+
+        assert_eq!(extended.part_orders.len(), before + 1);
+    }
+
+    /// A name is what tells two orders apart.
+    #[test]
+    fn test_an_order_name_must_be_free_and_not_empty() {
+        let song = song_with_three_parts();
+        let once = add_order(&song, "kurz", PartOrderRule::VerseRefrainBridgeRefrain).unwrap();
+
+        assert!(add_order(&once, "kurz", PartOrderRule::VerseRefrainBridgeRefrain).is_err());
+        assert!(add_order(&once, "  ", PartOrderRule::VerseRefrainBridgeRefrain).is_err());
+    }
+
+    /// The first order is the song's default; without it there is no sung
+    /// sequence at all.
+    #[test]
+    fn test_the_default_order_cannot_be_removed() {
+        let song = song_with_three_parts();
+        let with_alternative =
+            add_order(&song, "kurz", PartOrderRule::VerseRefrainBridgeRefrain).unwrap();
+        let before = with_alternative.part_orders.len();
+
+        assert_eq!(remove_order(&with_alternative, 0).part_orders.len(), before);
+        assert_eq!(
+            remove_order(&with_alternative, before - 1).part_orders.len(),
+            before - 1
+        );
+    }
+
+    /// Whatever is changed, the song still has to be writable — that is what
+    /// saving does immediately afterwards.
+    #[test]
+    fn test_the_result_still_exports() {
+        use cantara_songlib::exporter::song_yml::song_yml_from_song;
+
+        let song = song_with_three_parts();
+        let id = song.parts()[1].id();
+
+        for candidate in [
+            remove_part(&song, &id),
+            move_part(&song, &id, true),
+            add_language(&song, &id, "en"),
+            add_order(&song, "kurz", PartOrderRule::RefrainVerseBridgeRefrain).unwrap(),
+        ] {
+            let yml = song_yml_from_song(&candidate).expect("export");
+            let reloaded = song_from_content("x.song.yml", &yml).expect("reimport");
+            assert_eq!(reloaded.title, candidate.title);
+            let _ = SongPartType::Verse;
+        }
     }
 }

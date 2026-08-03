@@ -779,3 +779,126 @@ div.inline-div {
     border-color: var(--pico-primary) !important;
     background-color: color-mix(in srgb, var(--pico-primary) 10%, transparent) !important;
 }
+
+/* A field that can be changed where it is read. */
+.inline-editable {
+    position: relative;
+    display: block;
+}
+
+.inline-editable pre {
+    margin: 0.2rem 0 0;
+    white-space: pre-wrap;
+    background: none;
+    padding: 0;
+}
+
+.inline-editable-input {
+    width: 100%;
+    margin: 0;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+/* The pencil stays out of the way until the field is hovered. */
+.inline-editable-pencil {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: auto;
+    margin: 0;
+    padding: 0.1rem 0.35rem;
+    border: none;
+    background: none;
+    color: var(--pico-muted-color);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.inline-editable:hover .inline-editable-pencil,
+.inline-editable-pencil:focus {
+    opacity: 1;
+}
+
+.inline-editable-pencil svg { width: 0.8em; height: 0.8em; }
+
+.detail-add-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.75rem 0 1.5rem;
+}
+
+.detail-add-row input { margin: 0; width: auto; }
+.detail-add-row button { width: auto; margin: 0; padding: 0.25rem 0.7rem; }
+.detail-add-row button svg { width: 0.7em; height: 0.7em; margin-right: 0.3rem; }
+
+.detail-hint {
+    color: var(--pico-muted-color);
+    font-size: 0.9em;
+}
+
+/* Part header: the label, and what can be done with the part. */
+.detail-song-part-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.detail-part-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+/* Kept out of the way while reading, and reachable by keyboard. */
+.detail-song-part:hover .detail-part-controls,
+.detail-part-controls:focus-within {
+    opacity: 1;
+}
+
+.detail-part-controls button {
+    width: auto;
+    margin: 0;
+    padding: 0.1rem 0.45rem;
+}
+
+.detail-part-controls svg { width: 0.7em; height: 0.7em; }
+
+.detail-language-input {
+    width: 4rem;
+    margin: 0;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.85em;
+}
+
+.detail-remove {
+    color: var(--pico-del-color, #b3261e);
+}
+
+.detail-orders { margin-top: 2rem; }
+.detail-orders h5 { margin-bottom: 0.5rem; }
+
+.detail-orders ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.detail-orders li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+}
+
+.detail-orders li button {
+    width: auto;
+    margin: 0;
+    padding: 0.05rem 0.4rem;
+}

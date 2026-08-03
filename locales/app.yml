@@ -867,6 +867,63 @@ detail:
   tag_translation:
     en: Translation
     de: Übersetzung
+  edit_field:
+    en: Edit (double-click)
+    de: Bearbeiten (Doppelklick)
+  only_yml_editable:
+    en: This song is not in the song.yml format, so it is shown but not edited here.
+    de: Dieses Lied liegt nicht im song.yml-Format vor und wird hier daher nur angezeigt.
+  add_tag:
+    en: Add
+    de: Hinzufügen
+  new_tag_placeholder:
+    en: New tag, e.g. composer
+    de: Neues Tag, z. B. composer
+  add_part:
+    en: "Add part:"
+    de: "Teil hinzufügen:"
+  empty_name:
+    en: A name cannot be empty.
+    de: Ein Name darf nicht leer sein.
+  name_has_separator:
+    en: A name cannot contain a path separator.
+    de: Ein Name darf kein Pfadtrennzeichen enthalten.
+  name_taken:
+    en: There is already a file with that name.
+    de: Es gibt bereits eine Datei mit diesem Namen.
+  move_up:
+    en: Move up
+    de: Nach oben
+  move_down:
+    en: Move down
+    de: Nach unten
+  remove_part:
+    en: Remove part
+    de: Teil entfernen
+  add_language:
+    en: Add language
+    de: Sprache hinzufügen
+  language_placeholder:
+    en: en
+    de: en
+  orders:
+    en: Orders
+    de: Reihenfolgen
+  order_default:
+    en: Default order
+    de: Standardreihenfolge
+  order_name_placeholder:
+    en: Name of the alternative
+    de: Name der Alternative
+  order_verse_first:
+    en: Verse first
+    de: Strophe zuerst
+  order_refrain_first:
+    en: Refrain first
+    de: Refrain zuerst
+  remove_order:
+    en: Remove order
+    de: Reihenfolge entfernen
   to_detail:
     en: Detail view
     de: Detailansicht

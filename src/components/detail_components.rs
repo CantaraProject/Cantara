@@ -21,8 +21,11 @@ use crate::logic::settings::SelectionSidebarType;
 use crate::logic::sourcefiles::SourceFile;
 use crate::logic::states::SelectedItemRepresentation;
 use cantara_songlib::exporter::abc::{AbcSettings, abc_from_song};
+use cantara_songlib::exporter::song_yml::song_yml_from_song;
 use cantara_songlib::song::Song;
 use dioxus::prelude::*;
+use dioxus_free_icons::Icon;
+use dioxus_free_icons::icons::fa_solid_icons::{FaPencil, FaPlus};
 use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -71,6 +74,186 @@ fn write_text(file: &SourceFile, content: &str) -> Result<(), String> {
     {
         let _ = (file, content);
         Err(t!("detail.no_write_on_web").to_string())
+    }
+}
+
+/// Renames an element's file, keeping its suffix.
+///
+/// The list shows the display name, so that is what the user edits; the suffix
+/// decides the format and must survive untouched.
+#[cfg(not(target_arch = "wasm32"))]
+fn rename_element(file: &SourceFile, new_display_name: &str) -> Result<(), String> {
+    let trimmed = new_display_name.trim();
+    if trimmed.is_empty() {
+        return Err(t!("detail.empty_name").to_string());
+    }
+    // A name is a file name, not a path: a slash would move the file somewhere
+    // else entirely.
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Err(t!("detail.name_has_separator").to_string());
+    }
+
+    let current = file_name_of(file);
+    let suffix = current
+        .strip_prefix(&file.name)
+        .unwrap_or("")
+        .to_string();
+
+    let target = file.path.with_file_name(format!("{trimmed}{suffix}"));
+    if target == file.path {
+        return Ok(());
+    }
+    if target.exists() {
+        return Err(t!("detail.name_taken").to_string());
+    }
+
+    std::fs::rename(&file.path, &target).map_err(|error| error.to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn rename_element(_file: &SourceFile, _new_display_name: &str) -> Result<(), String> {
+    Err(t!("detail.no_write_on_web").to_string())
+}
+
+/// Whether a song can be written back after an inline change.
+///
+/// The song library exports YAML, so a song already kept that way is saved in
+/// place. A classic `.song` or a CCLI download is *not* silently rewritten into
+/// a different format behind the user's back — that would change what the file
+/// is, and Cantara has no importer-preserving writer for those.
+fn is_editable_in_place(file: &SourceFile) -> bool {
+    let name = file_name_of(file).to_lowercase();
+    name.ends_with(".song.yml") || name.ends_with(".song.yaml")
+}
+
+/// Writes a song back to its file as YAML.
+fn save_song(file: &SourceFile, song: &Song) -> Result<(), String> {
+    let yml = song_yml_from_song(song)?;
+    write_text(file, &yml)
+}
+
+/// One field that can be changed in place.
+///
+/// Reading and editing are the same view: the pencil sits in the corner and a
+/// double-click on it turns the text into an input. Escape abandons the change,
+/// so a mis-click costs nothing.
+#[component]
+fn InlineEditable(
+    /// What the field currently holds.
+    value: String,
+    /// Whether the text runs over several lines, like a stanza.
+    #[props(default)]
+    multiline: bool,
+    /// Whether the field may be changed at all.
+    #[props(default = true)]
+    editable: bool,
+    /// Called with the new text once the user is done.
+    on_commit: EventHandler<String>,
+) -> Element {
+    let mut editing = use_signal(|| false);
+    let mut draft = use_signal(|| value.clone());
+
+    // A different element may be opened while this field exists.
+    use_effect(use_reactive!(|value| {
+        draft.set(value.clone());
+        editing.set(false);
+    }));
+
+    if !editable {
+        return rsx! {
+            div { class: "inline-editable",
+                if multiline {
+                    pre { "{value}" }
+                } else {
+                    span { "{value}" }
+                }
+            }
+        };
+    }
+
+    rsx! {
+        div { class: "inline-editable",
+            if editing() {
+                if multiline {
+                    textarea {
+                        class: "inline-editable-input",
+                        rows: "{draft.read().lines().count().max(3)}",
+                        spellcheck: false,
+                        value: "{draft}",
+                        onmounted: move |element| async move {
+                            let _ = element.set_focus(true).await;
+                        },
+                        oninput: move |event| draft.set(event.value()),
+                        onblur: {
+                            let value = value.clone();
+                            move |_| {
+                                editing.set(false);
+                                let text = draft();
+                                if text != value {
+                                    on_commit.call(text);
+                                }
+                            }
+                        },
+                        onkeydown: move |event: Event<KeyboardData>| {
+                            if event.key() == Key::Escape {
+                                editing.set(false);
+                            }
+                        },
+                    }
+                } else {
+                    input {
+                        class: "inline-editable-input",
+                        r#type: "text",
+                        value: "{draft}",
+                        onmounted: move |element| async move {
+                            let _ = element.set_focus(true).await;
+                        },
+                        oninput: move |event| draft.set(event.value()),
+                        onblur: {
+                            let value = value.clone();
+                            move |_| {
+                                editing.set(false);
+                                let text = draft();
+                                if text != value {
+                                    on_commit.call(text);
+                                }
+                            }
+                        },
+                        onkeydown: {
+                            let value = value.clone();
+                            move |event: Event<KeyboardData>| {
+                                match event.key() {
+                                    Key::Escape => editing.set(false),
+                                    Key::Enter => {
+                                        editing.set(false);
+                                        let text = draft();
+                                        if text != value {
+                                            on_commit.call(text);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        },
+                    }
+                }
+            } else {
+                if multiline {
+                    pre { ondoubleclick: move |_| editing.set(true), "{value}" }
+                } else {
+                    span { ondoubleclick: move |_| editing.set(true), "{value}" }
+                }
+
+                button {
+                    r#type: "button",
+                    class: "inline-editable-pencil",
+                    title: t!("detail.edit_field").to_string(),
+                    aria_label: t!("detail.edit_field").to_string(),
+                    ondoubleclick: move |_| editing.set(true),
+                    Icon { icon: FaPencil }
+                }
+            }
+        }
     }
 }
 
@@ -284,9 +467,26 @@ fn DetailPane(subject: DetailSubject) -> Element {
         tabs[0]
     };
 
+    let file = subject.source_file().clone();
+
     rsx! {
         div { class: "detail-header",
-            h3 { {subject.title()} }
+            h3 {
+                InlineEditable {
+                    value: file.name.clone(),
+                    // Renaming means moving the file, which the web build
+                    // cannot do.
+                    editable: cfg!(not(target_arch = "wasm32")),
+                    on_commit: {
+                        let file = file.clone();
+                        move |new_name: String| {
+                            if let Err(error) = rename_element(&file, &new_name) {
+                                log::error!("could not rename {}: {error}", file.name);
+                            }
+                        }
+                    },
+                }
+            }
 
             div { class: "detail-header-actions",
                 if subject.is_editable() {
@@ -415,19 +615,55 @@ fn MarkdownViewer(file: SourceFile) -> Element {
 /// A song, read either as words or as music.
 #[component]
 fn SongViewer(file: SourceFile, tab: DetailTab) -> Element {
-    let parsed: Memo<Result<Song, String>> = use_memo(use_reactive!(|file| {
-        read_text(&file).and_then(|content| {
+    let mut song: Signal<Result<Song, String>> = use_signal(|| Err(String::new()));
+    let mut status: Signal<Option<String>> = use_signal(|| None);
+
+    // Re-read whenever a different song is opened.
+    use_effect(use_reactive!(|file| {
+        let parsed = read_text(&file).and_then(|content| {
             crate::logic::export::song_from_content(&file_name_of(&file), &content)
                 .map_err(|error| format!("{error:?}"))
-        })
+        });
+        song.set(parsed);
+        status.set(None);
     }));
 
+    let editable = is_editable_in_place(&file);
+
+    // One place decides what a change means: apply it, write the file, and say
+    // so if the write fails. Every editable field routes through here rather
+    // than saving on its own.
+    let on_changed = {
+        let file = file.clone();
+        move |updated: Song| {
+            match save_song(&file, &updated) {
+                Ok(()) => status.set(None),
+                Err(error) => status.set(Some(error)),
+            }
+            song.set(Ok(updated));
+        }
+    };
+
     rsx! {
-        match &*parsed.read() {
+        if !editable {
+            p { class: "detail-hint", {t!("detail.only_yml_editable").to_string()} }
+        }
+        if let Some(message) = status() {
+            p { class: "detail-error", role: "alert", "{message}" }
+        }
+
+        match &*song.read() {
+            Err(error) if error.is_empty() => rsx! {},
             Err(error) => rsx! { p { class: "detail-error", "{error}" } },
-            Ok(song) => match tab {
-                DetailTab::Notation => rsx! { SongNotation { song: song.clone() } },
-                DetailTab::Text | DetailTab::Preview => rsx! { SongText { song: song.clone() } },
+            Ok(current) => match tab {
+                DetailTab::Notation => rsx! { SongNotation { song: current.clone() } },
+                DetailTab::Text | DetailTab::Preview => rsx! {
+                    SongText {
+                        song: current.clone(),
+                        editable,
+                        on_changed,
+                    }
+                },
             },
         }
     }
@@ -436,35 +672,81 @@ fn SongViewer(file: SourceFile, tab: DetailTab) -> Element {
 /// The lyrics, with the parts in the order they are sung and every language of
 /// a part side by side.
 #[component]
-fn SongText(song: Song) -> Element {
+fn SongText(
+    song: Song,
+    /// Whether the song's file can be written back.
+    editable: bool,
+    /// Called with the changed song; the caller saves it.
+    on_changed: EventHandler<Song>,
+) -> Element {
     let default_language = song.default_language.clone();
 
     let tags: Vec<(String, String)> = song
         .tags()
         .iter()
-        .filter(|(_, value)| !value.trim().is_empty())
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
 
     rsx! {
         div { class: "detail-song-text",
-            h4 { "{song.title}" }
+            h4 {
+                InlineEditable {
+                    value: song.title.clone(),
+                    editable,
+                    on_commit: {
+                        let song = song.clone();
+                        move |title: String| {
+                            let mut updated = song.clone();
+                            updated.title = title;
+                            on_changed.call(updated);
+                        }
+                    },
+                }
+            }
 
             // What the file records about the song — author, copyright, CCLI
-            // number and whatever else it carries. Shown once, above the words.
-            if !tags.is_empty() {
-                dl { class: "detail-song-tags",
-                    for (key , value) in tags {
-                        dt { {tag_label(&key)} }
-                        dd { "{value}" }
+            // number and whatever else it carries.
+            dl { class: "detail-song-tags",
+                for (key , value) in tags {
+                    dt { {tag_label(&key)} }
+                    dd {
+                        InlineEditable {
+                            key: "{key}",
+                            value: value.clone(),
+                            editable,
+                            on_commit: {
+                                let song = song.clone();
+                                let key = key.clone();
+                                move |new_value: String| {
+                                    let mut updated = song.clone();
+                                    updated.set_tag(&key, &new_value);
+                                    on_changed.call(updated);
+                                }
+                            },
+                        }
                     }
+                }
+            }
+
+            if editable {
+                AddTagButton {
+                    song: song.clone(),
+                    on_changed,
                 }
             }
 
             for (index , part) in song.ordered_parts().into_iter().enumerate() {
                 div { key: "{index}", class: "detail-song-part",
-                    div { class: "detail-song-part-label",
-                        {crate::logic::detail::part_label(&song, part)}
+                    div { class: "detail-song-part-header",
+                        div { class: "detail-song-part-label", {crate::logic::detail::part_label(&song, part)} }
+
+                        if editable {
+                            PartControls {
+                                song: song.clone(),
+                                part_id: part.id(),
+                                on_changed,
+                            }
+                        }
                     }
 
                     div { class: "detail-song-languages",
@@ -473,7 +755,36 @@ fn SongText(song: Song) -> Element {
                                 span { class: "detail-song-language-code",
                                     {language_label(language, default_language.as_deref())}
                                 }
-                                pre { "{content.content}" }
+                                InlineEditable {
+                                    value: content.content.clone(),
+                                    multiline: true,
+                                    editable,
+                                    on_commit: {
+                                        let song = song.clone();
+                                        let part_id = part.id();
+                                        let language = language.clone();
+                                        move |text: String| {
+                                            let mut updated = song.clone();
+                                            // Addressed by part id, not by
+                                            // position: a refrain appears
+                                            // several times in the sung order
+                                            // but is stored once, so editing
+                                            // any occurrence changes that one.
+                                            if let Some(part) = updated.part_mut(&part_id) {
+                                                let wanted =
+                                                    cantara_songlib::song::SongPartContentType::Lyrics {
+                                                        language: language.clone(),
+                                                    };
+                                                for content in part.contents.iter_mut() {
+                                                    if content.content_type == wanted {
+                                                        content.content = text.clone();
+                                                    }
+                                                }
+                                            }
+                                            on_changed.call(updated);
+                                        }
+                                    },
+                                }
                             }
                         }
                     }
@@ -484,11 +795,267 @@ fn SongText(song: Song) -> Element {
                     }
                 }
             }
+
+            if editable {
+                AddPartButton {
+                    song: song.clone(),
+                    on_changed,
+                }
+
+                OrderList {
+                    song: song.clone(),
+                    on_changed,
+                }
+            }
         }
     }
 }
 
-/// How a tag is headed.
+/// Moving, removing and translating one part.
+#[component]
+fn PartControls(
+    song: Song,
+    part_id: cantara_songlib::song::SongPartId,
+    on_changed: EventHandler<Song>,
+) -> Element {
+    use crate::logic::detail::editing;
+
+    let mut language = use_signal(String::new);
+    let index = song.parts().iter().position(|part| part.id() == part_id);
+    let last = song.parts().len().saturating_sub(1);
+
+    rsx! {
+        div { class: "detail-part-controls",
+            button {
+                r#type: "button",
+                class: "outline secondary",
+                disabled: index == Some(0),
+                title: t!("detail.move_up").to_string(),
+                aria_label: t!("detail.move_up").to_string(),
+                onclick: {
+                    let song = song.clone();
+                    move |_| on_changed.call(editing::move_part(&song, &part_id, false))
+                },
+                "↑"
+            }
+            button {
+                r#type: "button",
+                class: "outline secondary",
+                disabled: index == Some(last),
+                title: t!("detail.move_down").to_string(),
+                aria_label: t!("detail.move_down").to_string(),
+                onclick: {
+                    let song = song.clone();
+                    move |_| on_changed.call(editing::move_part(&song, &part_id, true))
+                },
+                "↓"
+            }
+
+            input {
+                r#type: "text",
+                class: "detail-language-input",
+                placeholder: t!("detail.language_placeholder").to_string(),
+                value: "{language}",
+                oninput: move |event| language.set(event.value()),
+            }
+            button {
+                r#type: "button",
+                class: "outline",
+                disabled: language.read().trim().is_empty(),
+                title: t!("detail.add_language").to_string(),
+                onclick: {
+                    let song = song.clone();
+                    move |_| {
+                        let code = language.read().trim().to_string();
+                        language.set(String::new());
+                        on_changed.call(editing::add_language(&song, &part_id, &code));
+                    }
+                },
+                Icon { icon: FaPlus }
+            }
+
+            button {
+                r#type: "button",
+                class: "outline secondary detail-remove",
+                title: t!("detail.remove_part").to_string(),
+                aria_label: t!("detail.remove_part").to_string(),
+                onclick: {
+                    let song = song.clone();
+                    move |_| on_changed.call(editing::remove_part(&song, &part_id))
+                },
+                "✕"
+            }
+        }
+    }
+}
+
+/// The ways this song can be sung.
+///
+/// The first entry is the song's default and stays; the others are the
+/// alternatives — a short version for a service, say.
+#[component]
+fn OrderList(song: Song, on_changed: EventHandler<Song>) -> Element {
+    use crate::logic::detail::{editing, order_label};
+    use cantara_songlib::song::PartOrderRule;
+
+    let mut name = use_signal(String::new);
+    let mut error: Signal<Option<String>> = use_signal(|| None);
+
+    let rules: [(&str, PartOrderRule); 2] = [
+        (
+            "detail.order_verse_first",
+            PartOrderRule::VerseRefrainBridgeRefrain,
+        ),
+        (
+            "detail.order_refrain_first",
+            PartOrderRule::RefrainVerseBridgeRefrain,
+        ),
+    ];
+
+    rsx! {
+        div { class: "detail-orders",
+            h5 { {t!("detail.orders").to_string()} }
+
+            ul {
+                for (index , order) in song.part_orders.iter().enumerate() {
+                    li { key: "{index}",
+                        span { {order_label(order)} }
+                        if index > 0 {
+                            button {
+                                r#type: "button",
+                                class: "outline secondary detail-remove",
+                                title: t!("detail.remove_order").to_string(),
+                                aria_label: t!("detail.remove_order").to_string(),
+                                onclick: {
+                                    let song = song.clone();
+                                    move |_| on_changed.call(editing::remove_order(&song, index))
+                                },
+                                "✕"
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Some(message) = error() {
+                p { class: "detail-error", "{message}" }
+            }
+
+            div { class: "detail-add-row",
+                input {
+                    r#type: "text",
+                    placeholder: t!("detail.order_name_placeholder").to_string(),
+                    value: "{name}",
+                    oninput: move |event| name.set(event.value()),
+                }
+                for (key , rule) in rules {
+                    button {
+                        key: "{key}",
+                        r#type: "button",
+                        class: "outline",
+                        disabled: name.read().trim().is_empty(),
+                        onclick: {
+                            let song = song.clone();
+                            let rule = rule.clone();
+                            move |_| {
+                                let wanted = name.read().clone();
+                                match editing::add_order(&song, &wanted, rule.clone()) {
+                                    Ok(updated) => {
+                                        name.set(String::new());
+                                        error.set(None);
+                                        on_changed.call(updated);
+                                    }
+                                    Err(message) => error.set(Some(message)),
+                                }
+                            }
+                        },
+                        Icon { icon: FaPlus }
+                        { t!(key).to_string() }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Adds a tag to the song.
+#[component]
+fn AddTagButton(song: Song, on_changed: EventHandler<Song>) -> Element {
+    let mut key = use_signal(String::new);
+
+    rsx! {
+        div { class: "detail-add-row",
+            input {
+                r#type: "text",
+                placeholder: t!("detail.new_tag_placeholder").to_string(),
+                value: "{key}",
+                oninput: move |event| key.set(event.value()),
+            }
+            button {
+                r#type: "button",
+                class: "outline",
+                disabled: key.read().trim().is_empty(),
+                onclick: {
+                    let song = song.clone();
+                    move |_| {
+                        let name = key.read().trim().to_string();
+                        if name.is_empty() {
+                            return;
+                        }
+                        let mut updated = song.clone();
+                        updated.set_tag(&name, "");
+                        key.set(String::new());
+                        on_changed.call(updated);
+                    }
+                },
+                Icon { icon: FaPlus }
+                { t!("detail.add_tag").to_string() }
+            }
+        }
+    }
+}
+
+/// Adds a part to the song.
+///
+/// Adds it to the *stored* parts. The sung order is derived from those, so a
+/// refrain that recurs after every stanza still appears once here — adding a
+/// stanza does not mean inserting it into the sequence by hand.
+#[component]
+fn AddPartButton(song: Song, on_changed: EventHandler<Song>) -> Element {
+    use cantara_songlib::song::SongPartType;
+
+    let choices: [(&str, SongPartType); 4] = [
+        ("song_part.verse", SongPartType::Verse),
+        ("song_part.chorus", SongPartType::Chorus),
+        ("song_part.bridge", SongPartType::Bridge),
+        ("song_part.prechorus", SongPartType::PreChorus),
+    ];
+
+    rsx! {
+        div { class: "detail-add-row",
+            span { { t!("detail.add_part").to_string() } }
+            for (key , part_type) in choices {
+                button {
+                    key: "{key}",
+                    r#type: "button",
+                    class: "outline",
+                    onclick: {
+                        let song = song.clone();
+                        move |_| {
+                            let mut updated = song.clone();
+                            updated.add_part_of_type(part_type, None);
+                            on_changed.call(updated);
+                        }
+                    },
+                    Icon { icon: FaPlus }
+                    { t!(key).to_string() }
+                }
+            }
+        }
+    }
+}
+
+/// How a tag is headed./// How a tag is headed.
 ///
 /// The common ones get a translated name; anything else keeps the key the file
 /// used, because a song may carry tags Cantara knows nothing about and dropping
@@ -648,7 +1215,13 @@ fn SongDraftPreview(file_name: String, source: String) -> Element {
             },
             Ok(song) => rsx! {
                 SongNotation { song: song.clone() }
-                SongText { song: song.clone() }
+                // A preview of what is being typed on the left, so nothing here
+                // is editable — the source is.
+                SongText {
+                    song: song.clone(),
+                    editable: false,
+                    on_changed: move |_| {},
+                }
             },
         }
     }
@@ -682,6 +1255,98 @@ mod tests {
             crate::logic::export::song_from_content(&file_name_of(&file), "#title: X\n\nHallo")
                 .is_ok(),
             "the real file name has to reach the importer"
+        );
+    }
+
+    /// Cantara can only write the YAML format, so a classic `.song` or a CCLI
+    /// download must not be silently rewritten into something else.
+    #[test]
+    fn test_only_yml_songs_are_edited_in_place() {
+        let of = |path: &str| SourceFile {
+            name: "X".to_string(),
+            path: std::path::PathBuf::from(path),
+            file_type: crate::logic::sourcefiles::SourceFileType::Song,
+            md5_hash: None,
+        };
+
+        assert!(is_editable_in_place(&of("/l/X.song.yml")));
+        assert!(is_editable_in_place(&of("/l/X.SONG.YAML")));
+        assert!(!is_editable_in_place(&of("/l/X.song")));
+        assert!(!is_editable_in_place(&of("/l/X.ccli")));
+    }
+
+    /// A change has to survive the round trip through the exporter, otherwise
+    /// saving would quietly drop what the user just typed.
+    #[test]
+    fn test_an_edit_survives_the_round_trip() {
+        let content =
+            std::fs::read_to_string("testfiles/Sei nicht stolz auf das, was du bist.song.yml")
+                .unwrap();
+        let mut song = crate::logic::export::song_from_content(
+            "Sei nicht stolz auf das, was du bist.song.yml",
+            &content,
+        )
+        .unwrap();
+
+        song.title = "Ein anderer Titel".to_string();
+        song.set_tag("composer", "J. S. Bach");
+
+        let yml = song_yml_from_song(&song).expect("export");
+        let reloaded = crate::logic::export::song_from_content("x.song.yml", &yml).unwrap();
+
+        assert_eq!(reloaded.title, "Ein anderer Titel");
+        assert_eq!(
+            reloaded.tags().get("composer").map(String::as_str),
+            Some("J. S. Bach")
+        );
+        // And nothing else was lost on the way.
+        assert_eq!(reloaded.parts().len(), song.parts().len());
+        assert!(
+            abc_from_song(&reloaded, &AbcSettings::default()).is_ok(),
+            "the melody has to survive a save"
+        );
+    }
+
+    /// A refrain is stored once but sung several times. Editing it has to
+    /// change that one stored part, whichever occurrence was clicked.
+    #[test]
+    fn test_editing_a_refrain_changes_the_single_stored_part() {
+        let content =
+            std::fs::read_to_string("testfiles/Sei nicht stolz auf das, was du bist.song.yml")
+                .unwrap();
+        let mut song = crate::logic::export::song_from_content(
+            "Sei nicht stolz auf das, was du bist.song.yml",
+            &content,
+        )
+        .unwrap();
+
+        let refrain_id = song
+            .parts()
+            .iter()
+            .find(|part| part.part_type == cantara_songlib::song::SongPartType::Refrain)
+            .map(|part| part.id())
+            .expect("the reference song has a refrain");
+
+        let occurrences = song
+            .ordered_parts()
+            .iter()
+            .filter(|part| part.id() == refrain_id)
+            .count();
+        assert!(occurrences > 1, "the refrain should recur");
+
+        let part = song.part_mut(&refrain_id).unwrap();
+        for content in part.contents.iter_mut() {
+            content.content = "geändert".to_string();
+        }
+
+        let changed = song
+            .ordered_parts()
+            .iter()
+            .filter(|part| part.id() == refrain_id)
+            .count();
+        assert_eq!(
+            changed, occurrences,
+            "every occurrence shows the one stored part"
         );
     }
 
@@ -746,5 +1411,73 @@ mod tests {
             abc_from_song(&song, &AbcSettings::default()).is_ok(),
             "the melody has to engrave"
         );
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod rename_tests {
+    use super::*;
+    use crate::logic::sourcefiles::SourceFileType;
+
+    fn temp_song(dir: &std::path::Path, display_name: &str) -> SourceFile {
+        let path = dir.join(format!("{display_name}.song.yml"));
+        std::fs::write(&path, "version: 0.1\ntitle: X\nparts: []\n").unwrap();
+        SourceFile {
+            name: display_name.to_string(),
+            path,
+            file_type: SourceFileType::Song,
+            md5_hash: None,
+        }
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("cantara-rename-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The user edits the display name, so the suffix has to be put back —
+    /// losing it would make the file unreadable to every importer.
+    #[test]
+    fn test_renaming_keeps_the_suffix() {
+        let dir = scratch("suffix");
+        let file = temp_song(&dir, "Alt");
+
+        rename_element(&file, "Neu").expect("rename");
+
+        assert!(dir.join("Neu.song.yml").exists());
+        assert!(!dir.join("Alt.song.yml").exists());
+    }
+
+    /// A name is a file name. A slash would move the file out of the library.
+    #[test]
+    fn test_a_path_separator_is_refused() {
+        let dir = scratch("separator");
+        let file = temp_song(&dir, "Alt");
+
+        assert!(rename_element(&file, "../woanders").is_err());
+        assert!(dir.join("Alt.song.yml").exists(), "the file must stay put");
+    }
+
+    /// Renaming onto an existing file would destroy it.
+    #[test]
+    fn test_an_existing_name_is_refused() {
+        let dir = scratch("taken");
+        let file = temp_song(&dir, "Alt");
+        let other = temp_song(&dir, "Belegt");
+        std::fs::write(&other.path, "belegt").unwrap();
+
+        assert!(rename_element(&file, "Belegt").is_err());
+        assert_eq!(std::fs::read_to_string(&other.path).unwrap(), "belegt");
+    }
+
+    #[test]
+    fn test_an_empty_name_is_refused() {
+        let dir = scratch("empty");
+        let file = temp_song(&dir, "Alt");
+
+        assert!(rename_element(&file, "   ").is_err());
+        assert!(dir.join("Alt.song.yml").exists());
     }
 }
