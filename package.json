@@ -1,6 +1,8 @@
 {
   "dependencies": {
     "@picocss/pico": "^2.1.1",
-    "pdfjs-dist": "^5.5.207"
+    "abcjs": "^6.4.3",
+    "pdfjs-dist": "^5.5.207",
+    "pptxgenjs": "^4.0.1"
   }
 }

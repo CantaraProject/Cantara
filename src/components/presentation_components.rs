@@ -2,10 +2,8 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cantara_songlib::slides::*;
-use dioxus::html::completions::CompleteWithBraces::strong;
 use dioxus::prelude::*;
 use regex::Regex;
-use rgb::RGBA8;
 use rust_i18n::t;
 use uuid::Uuid;
 
@@ -20,13 +18,38 @@ use crate::logic::sync::{
 use crate::{
     MAIN_CSS,
     logic::{
-        settings::{AfterLastSlide, FontRepresentation, PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate, SlideTransition},
+        settings::{AfterLastSlide, FontRepresentation, NotationSettings, PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate, SlideTransition},
         states::RunningPresentation,
     },
 };
 
 const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
 const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
+/// Installs the observer behind [`SlideTransition::Morph`].
+const MORPH_JS: Asset = asset!("/assets/morph_transition.js");
+
+/// The `%%staffsep` value at which abcjs engraves exactly as it does without
+/// the directive at all.
+///
+/// Measured, not documented: rendering the same tune with and without the
+/// directive gives an identical height at 46, and 2 units either side shift it
+/// by about 3px. The design's staff line height is a multiple of this, so 1.0
+/// leaves the engraving untouched.
+const ABCJS_NEUTRAL_STAFF_SEPARATION: f64 = 46.0;
+const ABC_RENDER_JS: &str = include_str!("../../assets/abc_render_inline.js");
+/// abcjs is bundled from `node_modules` so that notation renders without a
+/// network connection — a presentation in a church hall often has none.
+#[cfg(not(target_arch = "wasm32"))]
+/// Already minified, and minifying it again risks breaking the UMD wrapper that
+/// publishes `window.ABCJS` — the way it broke PptxGenJS.
+const ABCJS_LIB: Asset = asset!(
+    "/node_modules/abcjs/dist/abcjs-basic-min.js",
+    AssetOptions::js().with_minify(false)
+);
+/// On the web target `node_modules` is not available, so the library comes
+/// from a CDN, as it does for PDF.js.
+#[cfg(target_arch = "wasm32")]
+const ABCJS_CDN_LIB: &str = "https://cdn.jsdelivr.net/npm/abcjs@6.6.4/dist/abcjs-basic-min.js";
 #[cfg(not(target_arch = "wasm32"))]
 const PDFJS_LIB: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.min.mjs");
 #[cfg(not(target_arch = "wasm32"))]
@@ -107,7 +130,7 @@ pub fn PresentationPage() -> Element {
         .and_then(|s| s.get_item(SYNC_KEY_ACTIVE).ok().flatten())
         .map(|v| v == "true")
         .unwrap_or(false);
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "desktop")))]
     let is_synced_tab = false;
 
     // If there's still no presentation data (and no synced data from localStorage),
@@ -118,15 +141,25 @@ pub fn PresentationPage() -> Element {
 
         return rsx! {
             document::Link { rel: "stylesheet", href: MAIN_CSS }
-            div {
-                style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
+            BundledFontFaces {}
+            div { style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
                 p { "No presentation data found." }
             }
         };
     }
 
-    let initial_rp = synced_rp
-        .unwrap_or_else(|| running_presentations.peek().first().unwrap().clone());
+    let Some(initial_rp) = synced_rp.or_else(|| running_presentations.peek().first().cloned()) else {
+        #[cfg(feature = "desktop")]
+        dioxus::desktop::window().close();
+
+        return rsx! {
+            document::Link { rel: "stylesheet", href: MAIN_CSS }
+            BundledFontFaces {}
+            div { style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
+                p { "No presentation data found." }
+            }
+        };
+    };
     let mut running_presentation: Signal<RunningPresentation> =
         use_signal(move || initial_rp);
 
@@ -401,8 +434,9 @@ pub fn PresentationPage() -> Element {
 
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        BundledFontFaces {}
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
-        document::Title { { t!("presentation.title").to_string() } }
+        document::Title { {t!("presentation.title").to_string()} }
         // This div is needed for fullscreen mode
         div {
             tabindex: 0,
@@ -437,13 +471,16 @@ pub fn PresentationPage() -> Element {
                         #[cfg(not(feature = "desktop"))]
                         {
                             use_future(move || async move {
-                                let _ = document::eval("
-                                    if (document.fullscreenElement) {
-                                        document.exitFullscreen();
-                                    } else {
-                                        document.documentElement.requestFullscreen();
-                                    }
-                                ").await;
+                                let _ = document::eval(
+                                        "
+                                                                            if (document.fullscreenElement) {
+                                                                                document.exitFullscreen();
+                                                                            } else {
+                                                                                document.documentElement.requestFullscreen();
+                                                                            }
+                                                                        ",
+                                    )
+                                    .await;
                             });
                         }
                     }
@@ -456,9 +493,7 @@ pub fn PresentationPage() -> Element {
                     _ => {}
                 }
             },
-            PresentationRendererComponent {
-                running_presentation: running_presentation
-            }
+            PresentationRendererComponent { running_presentation }
 
             // Context menu overlay
             if *show_context_menu.read() {
@@ -471,7 +506,7 @@ pub fn PresentationPage() -> Element {
                             show_context_menu.set(false);
                             quit_presentation();
                         },
-                        { t!("presenter.quit").to_string() }
+                        {t!("presenter.quit").to_string()}
                     }
                 }
             }
@@ -513,6 +548,9 @@ pub fn PresentationRendererComponent(
             SlideTransition::SlideFromRight => "presentation-slide-from-right",
             SlideTransition::SlideFromLeft => "presentation-slide-from-left",
             SlideTransition::ZoomIn => "presentation-zoom-in",
+            // The morph is driven by `morph_transition.js`, which watches for
+            // the class rather than being told about the change.
+            SlideTransition::Morph => "presentation-morph",
         }
     });
 
@@ -593,17 +631,14 @@ pub fn PresentationRendererComponent(
     // Stop rendering if no slide can be rendered.
     if current_slide.read().clone().is_none() {
         return rsx! {
-            div {
-                style: "
+            div { style: "
                     all: initial;
                     margin:0;
                     width:100%;
                     height:100%;
                     background-color: black;
                 ",
-                p {
-                    { "No presentation data found." },
-                }
+                p { {"No presentation data found."} }
             }
         };
     }
@@ -623,30 +658,12 @@ pub fn PresentationRendererComponent(
             },
         );
 
-    let css_presentation_background_color = use_memo(move || current_pds().background_color);
-
-    let css_main_content_font_size = use_memo(move || {
-        current_pds
-            .read()
-            .fonts
-            .first()
-            .unwrap_or(&FontRepresentation::default())
-            .font_size
-            .clone()
-    });
-
-    let css_main_text_color: Memo<RGBA8> =
-        use_memo(move || current_pds.read().clone().fonts.first().unwrap().color);
-    let css_padding_left: Memo<CssSize> = use_memo(move || current_pds().padding.left);
-    let css_padding_right: Memo<CssSize> = use_memo(move || current_pds().padding.right);
-    let css_padding_top: Memo<CssSize> = use_memo(move || current_pds().padding.top);
-    let css_padding_bottom: Memo<CssSize> = use_memo(move || current_pds().padding.bottom);
     let css_text_align: Memo<HorizontalAlign> = use_memo(move || {
         current_pds
             .read()
             .fonts
             .first()
-            .unwrap()
+            .unwrap_or(&FontRepresentation::default())
             .horizontal_alignment
     });
     let css_place_items: Memo<PlaceItems> =
@@ -702,6 +719,7 @@ pub fn PresentationRendererComponent(
     rsx! {
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Script { src: PRESENTATION_JS }
+        document::Script { src: MORPH_JS }
         div {
             class: "presentation",
             style: css_handler.read().to_string(),
@@ -727,14 +745,9 @@ pub fn PresentationRendererComponent(
             },
             // Black screen overlay
             if is_black_screen() {
-                div {
-                    style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: black; z-index: 1000;",
-                }
+                div { style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: black; z-index: 1000;" }
             }
-            div {
-                class: "background",
-                style: background_css()
-            }
+            div { class: "background", style: background_css() }
             if presentation_is_visible() {
                 if let Some(slide) = current_slide.read().clone() {
                     {
@@ -748,7 +761,7 @@ pub fn PresentationRendererComponent(
                                 style: "{container_style}",
                                 key: "{current_slide_number}",
                                 SlideContentRenderer {
-                                    slide_content: slide_content,
+                                    slide_content,
                                     pds: current_pds(),
                                     running_presentation: Some(running_presentation),
                                 }
@@ -765,24 +778,49 @@ pub fn PresentationRendererComponent(
 fn TitleSlideComponent(
     title_slide: TitleSlide,
     title_font_representation: FontRepresentation,
+    /// Font for the meta information line below the headline.
+    meta_font: FontRepresentation,
+    /// Whether the title is set in bold.
+    bold: bool,
+    /// The gap between the title and its meta line. The same distance the
+    /// design uses between main content and spoiler, so a slide has one
+    /// consistent rhythm and needs no setting of its own for this.
+    meta_distance: CssSize,
 ) -> Element {
     // Build the CSS
     let css_handler: Memo<CssHandler> = use_memo(move || {
         let mut css = CssHandler::new();
         css.opacity(1.0);
         css.z_index(2);
-        css.extend(&CssHandler::from(title_font_representation.clone()));
+        let mut font = title_font_representation.clone();
+        if bold {
+            font.weight = font.weight.max(700);
+        }
+        css.extend(&CssHandler::from(font));
         css
     });
     let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
 
+    let meta_style = {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        css.opacity(1.0);
+        css.extend(&CssHandler::from(meta_font));
+        css.margin_top(meta_distance);
+        css.to_string()
+    };
+    let meta_text = title_slide
+        .meta_text
+        .clone()
+        .filter(|text| !text.trim().is_empty());
+
     rsx! {
-        div {
-            class: "headline",
-            style: css_handler_string(),
-            p {
-                style: css_handler_string(),
-                { title_slide.title_text }
+        div { class: "headline", style: css_handler_string(),
+            p { style: css_handler_string(), {title_slide.title_text} }
+            // On the title slide the meta information belongs under the
+            // headline, in the normal flow, so it reads as part of the title.
+            if let Some(text) = meta_text {
+                p { class: "headline-meta-text", style: "{meta_style}", "{text}" }
             }
         }
     }
@@ -840,33 +878,26 @@ fn SingleLanguageMainContentSlideRenderer(
 
     rsx! {
         div {
-            div {
-                class: "main-content",
-                style: main_css.read().to_string(),
-                p {
-                    style: main_css.read().to_string(),
-                    for (num, line) in main_slide.clone().main_text().split("\n").enumerate() {
-                        { line }
-                        if num < number_of_main_content_lines -1 {
-                            br { }
+            div { class: "main-content", style: main_css.read().to_string(),
+                p { style: main_css.read().to_string(),
+                    for (num , line) in main_slide.clone().main_text().split("\n").enumerate() {
+                        {line}
+                        if num < number_of_main_content_lines - 1 {
+                            br {}
                         }
                     }
                 }
             }
             if let Some(spoiler_content) = main_slide.spoiler_text() {
-                div {
-                    class: "distance",
-                    style: distance_css.read().to_string(),
-                }
+                div { class: "distance", style: distance_css.read().to_string() }
                 div {
                     class: "spoiler-content",
                     style: spoiler_css.read().to_string(),
-                    p {
-                        style: spoiler_css.read().to_string(),
-                        for (num, line) in spoiler_content.split("\n").enumerate() {
-                            { line }
+                    p { style: spoiler_css.read().to_string(),
+                        for (num , line) in spoiler_content.split("\n").enumerate() {
+                            {line}
                             if num < spoiler_content.split("\n").count() - 1 {
-                                br { }
+                                br {}
                             }
                         }
                     }
@@ -876,12 +907,350 @@ fn SingleLanguageMainContentSlideRenderer(
     }
 }
 
+/// Renders a multi-language slide with the main content in multiple languages stacked vertically.
+#[component]
+fn MultiLanguageMainContentSlideRenderer(
+    /// The slide as a [MultiLanguageMainContentSlide]
+    multi_slide: MultiLanguageMainContentSlide,
+
+    /// The [FontRepresentation] for the main content font.
+    main_content_font: FontRepresentation,
+
+    /// The [FontRepresentation] for the spoiler content font.
+    spoiler_content_font: FontRepresentation,
+
+    /// The distance between sections, default is `4 em`.
+    distance: Option<CssSize>,
+) -> Element {
+    let main_css: Memo<CssHandler> = use_memo(move || {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        css.opacity(1.0);
+        css.z_index(2);
+        css.extend(&CssHandler::from(main_content_font.clone()));
+        css
+    });
+
+    let distance_css: Memo<CssHandler> = use_memo(move || {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        css.min_height(distance.clone().unwrap_or(CssSize::Em(4.0)));
+        css
+    });
+
+    rsx! {
+        div {
+            for (lang_idx , text) in multi_slide.main_text_list.iter().enumerate() {
+                div { class: "language-section",
+                    p {
+                        class: "language-label",
+                        style: "font-weight: bold; margin-top: 0.5em;",
+                        {format!("Language {}", lang_idx + 1)}
+                    }
+                    p { style: main_css.read().to_string(),
+                        for (num , line) in text.split("\n").enumerate() {
+                            {line}
+                            if num < text.split("\n").count() - 1 {
+                                br {}
+                            }
+                        }
+                    }
+                }
+                if lang_idx < multi_slide.main_text_list.len() - 1 {
+                    div {
+                        class: "distance",
+                        style: distance_css.read().to_string(),
+                    }
+                }
+            }
+            if !multi_slide.spoiler_text_vector.is_empty() {
+                div { class: "distance", style: distance_css.read().to_string() }
+                div { class: "spoiler-content",
+                    p {
+                        style: {
+                            let mut css = CssHandler::new();
+                            css.set_important(true);
+                            css.opacity(1.0);
+                            css.extend(&CssHandler::from(spoiler_content_font.clone()));
+                            css.to_string()
+                        },
+                        for text in &multi_slide.spoiler_text_vector {
+                            for (num , line) in text.split("\n").enumerate() {
+                                {line}
+                                if num < text.split("\n").count() - 1 {
+                                    br {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Renders a complex slide with notation (ABCjs) and lyrics in multiple languages.
+/// The notation is rendered using ABCjs library for musical notation display.
+#[component]
+fn ComplexSlideRenderer(
+    /// The slide as a [ComplexSlide]
+    complex_slide: ComplexSlide,
+
+    /// The design, which decides how each row is drawn: a lyrics row takes the
+    /// block claiming its language and falls back to the main block, and the
+    /// notation row takes the notation settings.
+    pds: PresentationDesignTemplate,
+) -> Element {
+    let spoiler_css = {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        // The colour comes from the design's spoiler font. Pinning the opacity
+        // here — as the other slide renderers do — keeps a stylesheet rule from
+        // dimming it on top of that.
+        css.opacity(1.0);
+        css.extend(&CssHandler::from(pds.get_default_spoiler_font()));
+        css.to_string()
+    };
+
+    // The rows come in the order the user configured, and that order is kept:
+    // asking for "english, notation, german" puts the staff between the two
+    // languages. Rows whose text the notation already prints underneath its
+    // notes are dropped, so nothing is shown twice.
+    let visible_rows: Vec<SlideRow> = complex_slide.rows_without_repetition().cloned().collect();
+
+    let spoiler_rows: Vec<String> = complex_slide
+        .spoiler
+        .iter()
+        .filter(|row| !row.is_notation())
+        .map(|row| row.content.clone())
+        .collect();
+
+    let notation = pds.notation.clone();
+    let notation_font = pds.get_default_font();
+    let notation_style = notation_block_style(&notation);
+
+    rsx! {
+        div { class: "complex-slide",
+            for row in visible_rows {
+                if row.is_notation() {
+                    div {
+                        class: "complex-slide-row notation-row",
+                        style: "{notation_style}",
+                        AbcNotationRenderer {
+                            abc_notation: row.content.clone(),
+                            notation_font: notation_font.clone(),
+                            lyrics_font_size: notation.font_size.clone(),
+                            staff_line_height: notation.staff_line_height,
+                        }
+                    }
+                } else {
+                    {
+                        // The block that claims this row's language, or the
+                        // main block when none does.
+                        let row_font = pds.font_for_row(row_language(&row).as_deref());
+                        let mut css = CssHandler::new();
+                        css.set_important(true);
+                        css.opacity(1.0);
+                        css.z_index(2);
+                        css.extend(&CssHandler::from(row_font));
+                        let row_style = css.to_string();
+
+                        rsx! {
+                            div {
+                                class: "complex-slide-row lyrics-row",
+                                style: "{row_style}",
+                                for (line_number , line) in row.content.lines().enumerate() {
+                                    if line_number > 0 {
+                                        br {}
+                                    }
+                                    {line}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !spoiler_rows.is_empty() {
+                div { class: "complex-slide-spoiler",
+                    for text in spoiler_rows {
+                        div { style: "{spoiler_css}",
+                            for (line_number , line) in text.lines().enumerate() {
+                                if line_number > 0 {
+                                    br {}
+                                }
+                                {line}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The language a lyrics row is in, if the song stated one.
+fn row_language(row: &SlideRow) -> Option<String> {
+    match &row.kind {
+        SlideRowKind::Lyrics { language } => language.clone(),
+        SlideRowKind::Notation { .. } => None,
+    }
+}
+
+/// Prefixes the tune with a `%%staffsep` directive for the wanted line height.
+///
+/// `staff_line_height` is a multiple of the engraver's own spacing, so 1.0
+/// changes nothing and the directive is left out entirely.
+fn with_staff_separation(abc: &str, staff_line_height: f64) -> String {
+    let factor = staff_line_height.clamp(0.2, 5.0);
+    if (factor - 1.0).abs() < f64::EPSILON {
+        return abc.to_string();
+    }
+
+    let separation = (ABCJS_NEUTRAL_STAFF_SEPARATION * factor).round();
+    format!("%%staffsep {separation}\n{abc}")
+}
+
+/// The box the staff is drawn in: how wide it is and where it sits.
+///
+/// At 100% it is exactly the box the text rows use, so the staff and the words
+/// line up on both edges — the notation block gets no padding of its own.
+fn notation_block_style(notation: &NotationSettings) -> String {
+    let width = notation.width_percent.clamp(10.0, 100.0);
+
+    let margin = match notation.horizontal_alignment {
+        HorizontalAlign::Left => "margin-left: 0; margin-right: auto;",
+        HorizontalAlign::Right => "margin-left: auto; margin-right: 0;",
+        // Justified text has no meaning for a staff; centring is the sane
+        // reading of "fill the line" here.
+        _ => "margin-left: auto; margin-right: auto;",
+    };
+
+    format!("width: {width}%; {margin}")
+}
+
+/// The `vocalfont` string abcjs expects for the words under the staff.
+///
+/// abcjs only accepts this as a `"family size"` **string**; an object is
+/// silently ignored and the words stay at the library's small default, which is
+/// unreadable from the back of a hall. The size is a point value that abcjs
+/// scales by about 4/3 when drawing.
+///
+/// The size follows the configured spoiler text, so the words under the notes
+/// are never smaller than the preview line on the same slide.
+fn abcjs_vocal_font(font: &FontRepresentation, size: &CssSize) -> String {
+    let points = match size {
+        CssSize::Px(value) => value * 0.75,
+        CssSize::Pt(value) => *value,
+        CssSize::Em(value) => value * 12.0,
+        CssSize::Percentage(value) => value / 100.0 * 12.0,
+        CssSize::Null => 0.0,
+    }
+    // Never below abcjs's own default.
+    .max(14.0);
+
+    let family = font
+        .font_family
+        .as_ref()
+        .and_then(|family| family.family.clone())
+        .filter(|family| !family.trim().is_empty())
+        .unwrap_or_else(|| "sans-serif".to_string());
+
+    // abcjs reads the last whitespace-separated token as the size, so a family
+    // name of several words still works.
+    format!("{} {}", family.replace(['"', '\''], ""), points.round())
+}
+
+/// Renders one ABC notation snippet with [abcjs](https://abcjs.net).
+///
+/// Each notation row handed over by the song library is a complete ABC tune —
+/// its own header plus one `w:` lyrics line per system — so it can be drawn
+/// as-is.
+///
+/// The library is loaded by the render script itself rather than by a
+/// `document::Script` tag: a tag gives no guarantee that the library has
+/// arrived by the time the first slide draws, which used to leave the first
+/// notation blank.
+#[component]
+pub(crate) fn AbcNotationRenderer(
+    /// The ABC notation string to render
+    abc_notation: String,
+    /// Font settings for styling the notation
+    notation_font: FontRepresentation,
+    /// How large the words under the notes should be drawn.
+    lyrics_font_size: CssSize,
+    /// The height of one staff line, as a multiple of the engraver's default.
+    staff_line_height: f64,
+
+    /// Take the surrounding text colour instead of the font's own.
+    ///
+    /// A presentation font is chosen for a slide — white, as a rule, because
+    /// slides are dark. Drawn on an ordinary page that is invisible, so
+    /// anything outside a presentation asks to inherit instead.
+    #[props(default)]
+    inherit_color: bool,
+) -> Element {
+    let container_id = use_hook(|| format!("abc-{}", Uuid::new_v4().as_simple()));
+
+    let notation_style = {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        // The staff is drawn in `currentColor`, so leaving the colour out makes
+        // it follow whatever the page uses — in either theme.
+        css.extend(&CssHandler::from_font(notation_font.clone(), !inherit_color));
+        css.to_string()
+    };
+
+    let vocal_font = abcjs_vocal_font(&notation_font, &lyrics_font_size);
+    // The gap between systems only reacts to the `%%staffsep` directive in the
+    // ABC source; the same value passed as a render option is ignored, exactly
+    // as `vocalfont` is unless it sits inside `format`.
+    let abc_notation = with_staff_separation(&abc_notation, staff_line_height);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let abcjs_url = format!("{}", ABCJS_LIB);
+    #[cfg(target_arch = "wasm32")]
+    let abcjs_url = ABCJS_CDN_LIB.to_string();
+
+    rsx! {
+        div {
+            id: "{container_id}",
+            class: "abc-notation-container",
+            style: "{notation_style}",
+            onmounted: move |_| {
+                // Every value is passed through serde so that quotes and
+                // newlines in the notation cannot break out of the script.
+                let script = ABC_RENDER_JS
+                    .replace(
+                        "__CONTAINER_ID__",
+                        &serde_json::to_string(&container_id).unwrap_or_default(),
+                    )
+                    .replace(
+                        "__ABCJS_URL__",
+                        &serde_json::to_string(&abcjs_url).unwrap_or_default(),
+                    )
+                    .replace(
+                        "__ABC_NOTATION__",
+                        &serde_json::to_string(&abc_notation).unwrap_or_default(),
+                    )
+                    .replace(
+                        "__VOCAL_FONT__",
+                        &serde_json::to_string(&vocal_font).unwrap_or_default(),
+                    );
+                spawn(async move {
+                    if let Err(error) = document::eval(&script).await {
+                        log::error!("could not render ABC notation: {error:?}");
+                    }
+                });
+            },
+        }
+    }
+}
+
 #[component]
 fn EmptySlideComponent() -> Element {
     rsx! {
-        div {
-            class: "empty-content",
-        }
+        div { class: "empty-content" }
     }
 }
 
@@ -905,8 +1274,101 @@ fn slide_container_style(slide_content: &SlideContent) -> &'static str {
 /// Renders the content of a single slide based on its [SlideContent] type.
 /// Shared between [PresentationRendererComponent] and [StaticSlideRendererComponent]
 /// to avoid duplicating the slide content matching logic.
+/// The meta information line a slide carries, if any.
+///
+/// Which slides get one is decided by the song library from
+/// `ShowMetaInformation`; the renderer only has to put it on screen.
+/// `SingleLanguageMainContentSlide::meta_text` is private in the song library
+/// and has no accessor, so it is read through serde — the same workaround this
+/// module already uses for `SimplePictureSlide::picture_path`.
+fn meta_text_of(slide_content: &SlideContent) -> Option<String> {
+    let text = match slide_content {
+        SlideContent::Title(title) => title.meta_text.clone(),
+        SlideContent::MultiLanguageMainContent(multi) => multi.meta_text.clone(),
+        SlideContent::Complex(complex) => complex.meta_text.clone(),
+        SlideContent::SingleLanguageMainContent(_) => {
+            serde_json::to_value(slide_content)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .as_object()
+                        .and_then(|map| map.values().next())
+                        .and_then(|inner| inner.get("meta_text"))
+                        .and_then(|meta| meta.as_str())
+                        .map(String::from)
+                })
+        }
+        SlideContent::Empty(_) | SlideContent::SimplePicture(_) | SlideContent::PdfPage(_) => None,
+    };
+    text.filter(|text| !text.trim().is_empty())
+}
+
+/// Declares the `@font-face` rules for the fonts bundled in `assets/fonts/`.
+///
+/// Needed in every window that draws text with a bundled family — the app shell
+/// and each presentation window are separate documents, so the rules cannot be
+/// inherited.
+#[component]
+pub fn BundledFontFaces() -> Element {
+    let css = use_hook(crate::logic::fonts::bundled_font_face_css);
+
+    if css.is_empty() {
+        return rsx! {};
+    }
+
+    rsx! {
+        document::Style { {css} }
+    }
+}
+
+/// The meta information line in the corner of a content slide.
+///
+/// Rendered as an overlay rather than inside the slide, because the slide
+/// container is sized to its content — anything positioned inside it would
+/// land on top of the last line of lyrics instead of at the bottom of the
+/// screen.
+#[component]
+fn MetaTextCorner(text: String, meta_font: FontRepresentation) -> Element {
+    let style = {
+        let mut css = CssHandler::new();
+        css.set_important(true);
+        // The design's meta font already carries the intended colour.
+        css.opacity(1.0);
+        css.extend(&CssHandler::from(meta_font));
+        css.to_string()
+    };
+
+    rsx! {
+        div { class: "slide-meta-corner", style: "{style}", "{text}" }
+    }
+}
+
 #[component]
 fn SlideContentRenderer(
+    slide_content: SlideContent,
+    pds: PresentationDesignTemplate,
+    running_presentation: Option<Signal<RunningPresentation>>,
+) -> Element {
+    let meta_text = meta_text_of(&slide_content);
+    let meta_font = pds.get_default_meta_font();
+
+    // The title slide shows the meta information right below the headline, so
+    // it reads as part of the title. Every other slide keeps it out of the way
+    // in the bottom corner.
+    let is_title_slide = matches!(slide_content, SlideContent::Title(_));
+
+    rsx! {
+        {slide_body(slide_content, pds, running_presentation)}
+        if let Some(text) = meta_text {
+            if !is_title_slide {
+                MetaTextCorner { text, meta_font }
+            }
+        }
+    }
+}
+
+/// The slide itself, without the meta information line.
+fn slide_body(
     slide_content: SlideContent,
     pds: PresentationDesignTemplate,
     running_presentation: Option<Signal<RunningPresentation>>,
@@ -915,7 +1377,10 @@ fn SlideContentRenderer(
         SlideContent::Title(title_slide) => rsx! {
             TitleSlideComponent {
                 title_slide: title_slide.clone(),
-                title_font_representation: pds.get_default_headline_font()
+                title_font_representation: pds.get_default_headline_font(),
+                meta_font: pds.get_default_meta_font(),
+                bold: pds.title_bold,
+                meta_distance: pds.main_content_spoiler_content_padding.clone(),
             }
         },
         SlideContent::SingleLanguageMainContent(main_slide) => {
@@ -925,7 +1390,7 @@ fn SlideContentRenderer(
                 rsx! {
                     MarkdownSlideComponent {
                         html_content: html_owned,
-                        running_presentation: running_presentation,
+                        running_presentation,
                         main_content_font: pds.get_default_font(),
                     }
                 }
@@ -940,15 +1405,32 @@ fn SlideContentRenderer(
                 }
             }
         },
+        SlideContent::MultiLanguageMainContent(multi_slide) => rsx! {
+            MultiLanguageMainContentSlideRenderer {
+                multi_slide: multi_slide.clone(),
+                main_content_font: pds.get_default_font(),
+                spoiler_content_font: pds.get_default_spoiler_font(),
+                distance: pds.main_content_spoiler_content_padding.clone(),
+            }
+        },
+        SlideContent::Complex(complex_slide) => rsx! {
+            ComplexSlideRenderer {
+                complex_slide: complex_slide.clone(),
+                pds: pds.clone(),
+            }
+        },
         SlideContent::Empty(_) => rsx! {
             EmptySlideComponent {}
         },
         SlideContent::SimplePicture(picture_slide) => rsx! {
-            SimplePictureSlideComponent {
-                picture_slide: picture_slide.clone()
+            SimplePictureSlideComponent { picture_slide: picture_slide.clone() }
+        },
+        SlideContent::PdfPage(pdf_slide) => rsx! {
+            PdfPageCanvas {
+                pdf_path: pdf_slide.pdf_path.clone(),
+                page_num: pdf_slide.page_number,
             }
         },
-        _ => rsx! { p { "No content provided" } }
     }
 }
 
@@ -969,7 +1451,10 @@ fn inject_css_into_html_elements(html: &str, css_style: &CssHandler) -> String {
     // (?![^>]*style=) -> A negative lookahead to ensure we don't double-up if a style already exists
     // [^>]* -> Matches any other attributes until the closing '>'
     // >             -> Matches the closing bracket
-    let re = Regex::new(r"(?i)<([a-z1-6]+)([^>]*)>").unwrap();
+    let re = match Regex::new(r"(?i)<([a-z1-6]+)([^>]*)>") {
+        Ok(re) => re,
+        Err(_) => return html.to_string(),
+    };
 
     // We use a replacement closure to handle the logic
     re.replace_all(html, |caps: &regex::Captures| {
@@ -1134,8 +1619,12 @@ fn MarkdownSlideComponent(
     rsx! {
         div {
             class: "markdown-slide",
-            style: format!("overflow-y: auto; max-height: 100%; padding: 1em 2em; box-sizing: border-box; {}", font_css).to_string(),
-            dangerous_inner_html: html_content
+            style: format!(
+                "overflow-y: auto; max-height: 100%; padding: 1em 2em; box-sizing: border-box; {}",
+                font_css,
+            )
+                .to_string(),
+            dangerous_inner_html: html_content,
         }
     }
 }
@@ -1156,19 +1645,14 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
             .unwrap_or(1);
 
         return rsx! {
-            div {
-                style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
-                PdfPageCanvas {
-                    pdf_path: base_path,
-                    page_num: page_num,
-                }
+            div { style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
+                PdfPageCanvas { pdf_path: base_path, page_num }
             }
         };
     }
 
     rsx! {
-        div {
-            style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
+        div { style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
             img {
                 src: "{path}",
                 style: "max-width: 100%; max-height: 100%; object-fit: contain;",
@@ -1177,17 +1661,38 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
     }
 }
 
-/// Renders a single PDF page onto a <canvas> via PDF.js.
-/// Reads the PDF data on the Rust side (from filesystem on desktop, from VFS on web)
-/// and sends base64‑encoded data to JavaScript so that file-access restrictions are avoided.
+/// Reads a PDF and returns it base64-encoded, ready to hand to PDF.js.
 ///
-/// On desktop, PDF.js is loaded from bundled node_modules assets.
-/// On web (WASM), PDF.js is loaded from a CDN.
+/// Only called on a cache miss: the bytes are the expensive part of showing a
+/// PDF slide, and they only have to cross into the page once per document.
+fn read_pdf_as_base64(pdf_path: &str) -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::fs::read(pdf_path)
+            .map(|bytes| BASE64.encode(&bytes))
+            .unwrap_or_default()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::logic::settings::RepositoryType::web_read_file(pdf_path)
+            .map(|bytes| BASE64.encode(&bytes))
+            .unwrap_or_default()
+    }
+}
+
+/// Renders a single PDF page onto a `<canvas>` via PDF.js.
 ///
-/// All JavaScript code is inlined in the `document::eval()` call so that rendering
-/// is self-contained and does not depend on external script loading order.
+/// The document is parsed once per window and kept in `window.__pdfDocCache`;
+/// each slide then only sends the short script in `pdf_render_inline.js`. The
+/// file is read and base64-encoded **only when that cache misses**, because
+/// doing it per slide meant a multi-megabyte string crossed the IPC on every
+/// slide change — the reason long PDFs used to stall the presentation.
+///
+/// The data is read on the Rust side (file system on desktop, VFS on web) so
+/// that the page's file-access restrictions do not apply. On desktop PDF.js
+/// comes from the bundled `node_modules` assets, on the web from a CDN.
 #[component]
-fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
+pub(crate) fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
     // Use a unique ID per mount cycle to prevent conflicts when the component
     // unmounts and remounts during live updates. Old async render tasks will
     // target a canvas ID that no longer exists in the DOM and exit gracefully.
@@ -1198,25 +1703,6 @@ fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
         page_num,
         mount_id.as_simple()
     );
-
-    // Read the PDF file and encode it as base64 so we can hand it to JS
-    let base64_data = use_memo({
-        let pdf_path = pdf_path.clone();
-        move || {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                std::fs::read(&*pdf_path)
-                    .map(|bytes| BASE64.encode(&bytes))
-                    .unwrap_or_default()
-            }
-            #[cfg(target_arch = "wasm32")]
-            {
-                crate::logic::settings::RepositoryType::web_read_file(&pdf_path)
-                    .map(|bytes| BASE64.encode(&bytes))
-                    .unwrap_or_default()
-            }
-        }
-    });
 
     // Get URLs for PDF.js library and worker
     #[cfg(not(target_arch = "wasm32"))]
@@ -1235,33 +1721,67 @@ fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
             onmounted: move |_| {
                 let canvas_id = canvas_id.clone();
                 let pdf_path = pdf_path.clone();
-                let b64 = base64_data.read().clone();
                 let pdfjs_url = pdfjs_url.clone();
                 let worker_url = worker_url.clone();
-                // Skip rendering if the PDF data is empty (file not in VFS)
-                if b64.is_empty() {
-                    log::warn!("PDF data empty for {}, skipping render", pdf_path);
-                    return;
-                }
+
                 spawn(async move {
-                    // Use serde_json to safely escape all string values for JavaScript
-                    let js_pdfjs_url = serde_json::to_string(&pdfjs_url).unwrap_or_default();
-                    let js_worker_url = serde_json::to_string(&worker_url).unwrap_or_default();
-                    let js_b64 = serde_json::to_string(&b64).unwrap_or_default();
                     let js_cache_key = serde_json::to_string(&pdf_path).unwrap_or_default();
                     let js_canvas_id = serde_json::to_string(&canvas_id).unwrap_or_default();
 
-                    // Self-contained JS: loads PDF.js if needed, decodes PDF, renders page.
-                    // Uses string replacement instead of format!() to avoid double-brace noise.
-                    let js = include_str!("../../assets/pdf_render_inline.js")
-                        .replace("__PDFJS_URL__", &js_pdfjs_url)
-                        .replace("__WORKER_URL__", &js_worker_url)
-                        .replace("__BASE64__", &js_b64)
+                    let render_js = include_str!("../../assets/pdf_render_inline.js")
                         .replace("__CACHE_KEY__", &js_cache_key)
                         .replace("__PAGE_NUM__", &page_num.to_string())
                         .replace("__CANVAS_ID__", &js_canvas_id);
 
-                    let _ = document::eval(&js).await;
+                    // 1. Try the document already in the page. This is the
+                    //    common case — every slide after the first.
+                    let missing = match document::eval(&render_js).await {
+                        Ok(value) => {
+                            value.get("missing").and_then(|m| m.as_bool()) == Some(true)
+                        }
+                        Err(error) => {
+                            log::error!("could not render the PDF page: {error:?}");
+                            return;
+                        }
+                    };
+
+                    if !missing {
+                        return;
+                    }
+
+                    // 2. First page of this document in this window: pay for
+                    //    reading and encoding it, then hand it over once.
+                    let base64_data = read_pdf_as_base64(&pdf_path);
+                    if base64_data.is_empty() {
+                        log::warn!("PDF data empty for {pdf_path}, skipping render");
+                        return;
+                    }
+
+                    let load_js = include_str!("../../assets/pdf_load_inline.js")
+                        .replace("__PDFJS_URL__", &serde_json::to_string(&pdfjs_url).unwrap_or_default())
+                        .replace("__WORKER_URL__", &serde_json::to_string(&worker_url).unwrap_or_default())
+                        .replace("__CACHE_KEY__", &js_cache_key)
+                        .replace("__BASE64__", &serde_json::to_string(&base64_data).unwrap_or_default());
+
+                    match document::eval(&load_js).await {
+                        Ok(value) if value.get("ok").and_then(|ok| ok.as_bool()) == Some(true) => {}
+                        Ok(value) => {
+                            log::error!(
+                                "could not load the PDF {pdf_path}: {}",
+                                value.get("error").and_then(|e| e.as_str()).unwrap_or("unknown")
+                            );
+                            return;
+                        }
+                        Err(error) => {
+                            log::error!("could not load the PDF {pdf_path}: {error:?}");
+                            return;
+                        }
+                    }
+
+                    // 3. Now the cache holds it, so the page can be drawn.
+                    if let Err(error) = document::eval(&render_js).await {
+                        log::error!("could not render the PDF page: {error:?}");
+                    }
                 });
             },
         }
@@ -1336,21 +1856,95 @@ pub fn StaticSlideRendererComponent(
     rsx! {
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Script { src: PRESENTATION_JS }
-        div {
-            class: "presentation",
-            style: css_handler.to_string(),
-            div {
-                class: "background",
-                style: "{background_css}"
-            }
-            div {
-                class: "slide-container",
-                style: "{container_style}",
-                SlideContentRenderer {
-                    slide_content: slide_content,
-                    pds: pds,
-                }
+        div { class: "presentation", style: css_handler.to_string(),
+            div { class: "background", style: "{background_css}" }
+            div { class: "slide-container", style: "{container_style}",
+                SlideContentRenderer { slide_content, pds }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod notation_tests {
+    use super::*;
+
+    /// A neutral setting must leave the tune exactly as the song library wrote
+    /// it — an ABC file is data, not a place to leave stray directives.
+    #[test]
+    fn test_normal_line_height_leaves_the_tune_alone() {
+        let abc = "X:1\nK:D\nA2 B2 |\n";
+
+        assert_eq!(with_staff_separation(abc, 1.0), abc);
+    }
+
+    /// The directive has to come first: abcjs only honours it ahead of the
+    /// tune, and only from the source — the render option is ignored.
+    #[test]
+    fn test_the_directive_is_prefixed() {
+        let abc = "X:1\nK:D\nA2 B2 |\n";
+
+        let wide = with_staff_separation(abc, 2.0);
+
+        assert!(wide.starts_with("%%staffsep 92\n"), "got: {wide:?}");
+        assert!(wide.ends_with(abc));
+    }
+
+    /// Half the height means half the separation, measured against the value
+    /// at which abcjs engraves as it does untouched.
+    #[test]
+    fn test_the_factor_scales_the_separation() {
+        let abc = "X:1\n";
+
+        assert!(with_staff_separation(abc, 0.5).starts_with("%%staffsep 23\n"));
+        assert!(with_staff_separation(abc, 1.5).starts_with("%%staffsep 69\n"));
+    }
+
+    /// An absurd setting must not produce an unusable staff.
+    #[test]
+    fn test_extreme_values_are_clamped() {
+        let abc = "X:1\n";
+
+        assert!(with_staff_separation(abc, 100.0).starts_with("%%staffsep 230\n"));
+        assert!(with_staff_separation(abc, -5.0).starts_with("%%staffsep 9\n"));
+    }
+
+    /// At full width the staff gets the same box as the text rows, so the two
+    /// line up; anything narrower is placed by the alignment.
+    #[test]
+    fn test_notation_block_width_and_alignment() {
+        let full = NotationSettings::default();
+        assert!(notation_block_style(&full).contains("width: 100%"));
+
+        let left = NotationSettings {
+            width_percent: 60.0,
+            horizontal_alignment: HorizontalAlign::Left,
+            ..NotationSettings::default()
+        };
+        let style = notation_block_style(&left);
+        assert!(style.contains("width: 60%"));
+        assert!(style.contains("margin-left: 0"));
+
+        let right = NotationSettings {
+            horizontal_alignment: HorizontalAlign::Right,
+            ..NotationSettings::default()
+        };
+        assert!(notation_block_style(&right).contains("margin-left: auto"));
+    }
+
+    /// A width outside the usable range must not make the staff vanish.
+    #[test]
+    fn test_notation_width_is_clamped() {
+        let tiny = NotationSettings {
+            width_percent: 0.0,
+            ..NotationSettings::default()
+        };
+        assert!(notation_block_style(&tiny).contains("width: 10%"));
+
+        let huge = NotationSettings {
+            width_percent: 400.0,
+            ..NotationSettings::default()
+        };
+        assert!(notation_block_style(&huge).contains("width: 100%"));
     }
 }

@@ -41,23 +41,27 @@ pub(crate) fn SelectedItems(
                 dragging_from.set(None);
                 hover_over.set(None);
             },
-            for (number, _) in selected_items.read().iter().enumerate() {
+            for (number , _) in selected_items.read().iter().enumerate() {
                 SelectedItem {
-                    selected_items: selected_items,
+                    selected_items,
                     id: number,
-                    active_selected_item_id: active_selected_item_id,
-                    dragging_from: dragging_from,
-                    hover_over: hover_over,
-                    anim_target: anim_target,
-                    anim_flip: anim_flip,
+                    active_selected_item_id,
+                    dragging_from,
+                    hover_over,
+                    anim_target,
+                    anim_flip,
                 }
             }
             if dragging_from().is_some() {
                 div {
                     style: {
                         let active = hover_over() == Some(selected_items.read().len());
-                        let mut s = String::from("height: 12px; margin-top: 6px; border-top: 2px dashed #bbb;");
-                        if active { s.push_str(" border-color: #666;"); }
+                        let mut s = String::from(
+                            "height: 12px; margin-top: 6px; border-top: 2px dashed #bbb;",
+                        );
+                        if active {
+                            s.push_str(" border-color: #666;");
+                        }
                         s
                     },
                     onmouseenter: move |_| {
@@ -79,12 +83,19 @@ fn SelectedItem(
     anim_target: Signal<Option<usize>>,
     anim_flip: Signal<bool>,
 ) -> Element {
+    let current_item = selected_items.read().get(id).cloned();
+    let Some(current_item) = current_item else {
+        return rsx! {};
+    };
+
     rsx! {
         div {
             role: "button",
             class: "outline secondary selection_item",
             style: {
-                let mut s = String::from("display: flex; align-items: left; cursor: grab; transition: background-color 300ms ease-out;");
+                let mut s = String::from(
+                    "display: flex; align-items: left; cursor: grab; transition: background-color 300ms ease-out;",
+                );
                 if dragging_from().is_some() && hover_over() == Some(id) {
                     s.push_str(" outline: 2px dashed #888; background-color: rgba(0,0,0,0.03);");
                 }
@@ -99,9 +110,7 @@ fn SelectedItem(
                     hover_over.set(Some(id));
                 }
             },
-            onmouseup: move |_| {
-                // If mouse is released over the same item, the container onmouseup will also handle it
-            },
+            onmouseup: move |_| {}, // If mouse is released over the same item, the container onmouseup will also handle it,
             span {
                 style: "flex-grow: 1; display: flex; align-items: center; gap: 0.5em;",
                 onmousedown: move |_| {
@@ -109,35 +118,40 @@ fn SelectedItem(
                     dragging_from.set(Some(id));
                     hover_over.set(Some(id));
                 },
-                onclick: move |_| {
-                    active_selected_item_id.set(Some(id))
-                },
-                match selected_items.read().get(id).unwrap().source_file.file_type {
-                    SourceFileType::Song => rsx! { MusicIcon {} },
-                    SourceFileType::Image => rsx! { ImageIcon {} },
-                    SourceFileType::Pdf => rsx! { PdfIcon {} },
-                    SourceFileType::Markdown => rsx! { MarkdownIcon {} },
+                onclick: move |_| { active_selected_item_id.set(Some(id)) },
+                match current_item.source_file.file_type {
+                    SourceFileType::Song => rsx! {
+                        MusicIcon {}
+                    },
+                    SourceFileType::Image => rsx! {
+                        ImageIcon {}
+                    },
+                    SourceFileType::Pdf => rsx! {
+                        PdfIcon {}
+                    },
+                    SourceFileType::Markdown => rsx! {
+                        MarkdownIcon {}
+                    },
                     _ => rsx! {},
-                },
-                { selected_items.read().get(id).unwrap().source_file.name.clone() },
+                }
+                {current_item.source_file.name.clone()}
             }
 
-            span {
-                class: "right-justified",
+            span { class: "right-justified",
                 if id > 0 {
                     span {
-                        onclick: move |_| { selected_items.write().swap(id, id-1); },
-                        Icon {
-                            icon: FaArrowUp,
-                        }
+                        onclick: move |_| {
+                            selected_items.write().swap(id, id - 1);
+                        },
+                        Icon { icon: FaArrowUp }
                     }
                 }
-                if id < selected_items.len() - 1 {
+                if id + 1 < selected_items.read().len() {
                     span {
-                        onclick: move |_| { selected_items.write().swap(id, id+1); },
-                        Icon {
-                            icon: FaArrowDown,
-                        }
+                        onclick: move |_| {
+                            selected_items.write().swap(id, id + 1);
+                        },
+                        Icon { icon: FaArrowDown }
                     }
                 }
                 span {
@@ -147,9 +161,7 @@ fn SelectedItem(
                         }
                         selected_items.write().remove(id);
                     },
-                    Icon {
-                        icon: FaTrashCan,
-                    }
+                    Icon { icon: FaTrashCan }
                 }
             }
         }

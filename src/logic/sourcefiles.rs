@@ -1,6 +1,6 @@
 //! This module provides functionality for handling available source files (for creating output) in Cantara.
 
-use std::ffi::OsStr;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -82,9 +82,28 @@ fn find_files_with_ending(dir: &Path, endings: Vec<&'static str>) -> Vec<PathBuf
     find_files_recursive(dir, &endings, 0)
 }
 
+/// Every file below `dir` that Cantara can read, each listed once.
+///
+/// Matching goes through [`SourceFileType::of`], so this cannot fall behind the
+/// list of supported formats.
+fn find_supported_files(dir: &Path) -> Vec<PathBuf> {
+    let suffixes: Vec<&'static str> = SourceFileType::SUFFIXES
+        .iter()
+        .map(|(suffix, _)| *suffix)
+        .collect();
+
+    let mut files = find_files_with_ending(dir, suffixes);
+    // A file whose name ends with two of the suffixes — `.song.yml` ends with
+    // both `.song.yml` and `.yml` were that ever added — would otherwise be
+    // listed twice and appear twice in the song list.
+    files.sort();
+    files.dedup();
+    files
+}
+
 /// This enum declares the generic types which a source file can by.
 /// One type can be represented by several different file formats.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SourceFileType {
     /// A song to sing
     Song,
@@ -103,6 +122,63 @@ pub enum SourceFileType {
 
     /// A Markdown document which Cantara can render and display
     Markdown,
+}
+
+impl SourceFileType {
+    /// Every file name suffix Cantara reads, together with the kind of content
+    /// it holds.
+    ///
+    /// This is the single place that decides what a file is; the directory
+    /// scan, drag & drop and the web VFS all go through it, so they cannot
+    /// drift apart. Longer suffixes come first, so `.song.yml` is recognised
+    /// as a YAML song rather than as a classic `.song` file.
+    const SUFFIXES: &'static [(&'static str, SourceFileType)] = &[
+        (".song.yml", SourceFileType::Song),
+        (".song.yaml", SourceFileType::Song),
+        (".song", SourceFileType::Song),
+        (".ccli", SourceFileType::Song),
+        (".png", SourceFileType::Image),
+        (".jpg", SourceFileType::Image),
+        (".jpeg", SourceFileType::Image),
+        (".pdf", SourceFileType::Pdf),
+        (".md", SourceFileType::Markdown),
+    ];
+
+    /// What kind of content a file name promises, or `None` when Cantara does
+    /// not read that format.
+    ///
+    /// Matching ignores case, so `LIED.CCLI` is found just like `lied.ccli`.
+    ///
+    /// ```
+    /// # use cantara::logic::sourcefiles::SourceFileType;
+    /// assert_eq!(SourceFileType::of("Amazing Grace.song"), Some(SourceFileType::Song));
+    /// assert_eq!(SourceFileType::of("Amazing Grace.song.yml"), Some(SourceFileType::Song));
+    /// assert_eq!(SourceFileType::of("Lied.CCLI"), Some(SourceFileType::Song));
+    /// assert_eq!(SourceFileType::of("config.yml"), None);
+    /// ```
+    pub fn of(file_name: &str) -> Option<SourceFileType> {
+        let lower = file_name.to_lowercase();
+        SourceFileType::SUFFIXES
+            .iter()
+            .find(|(suffix, _)| lower.ends_with(suffix))
+            .map(|(_, file_type)| *file_type)
+    }
+
+    /// The name to show for a file: its name without the suffix Cantara
+    /// matched.
+    ///
+    /// `Path::file_stem` would leave `Amazing Grace.song` for a
+    /// `Amazing Grace.song.yml` file, which is not what a user expects to read
+    /// in the song list.
+    pub fn display_name(file_name: &str) -> String {
+        let lower = file_name.to_lowercase();
+        for (suffix, _) in SourceFileType::SUFFIXES {
+            if lower.ends_with(suffix) {
+                return file_name[..file_name.len() - suffix.len()].to_string();
+            }
+        }
+        file_name.to_string()
+    }
 }
 
 /// A source file which contains content which Cantara can use to generate content from
@@ -131,56 +207,35 @@ pub struct SourceFile {
 ///
 /// # Parameters
 /// - `start_dir`: The borrowed [Path] reference where the recursive search for source files starts
+///
 /// # Returns
-/// - A vector of [SourceFile]s which contains all results.
+/// A vector of [SourceFile]s which contains all results, each file listed once.
 /// If no file was found, an empty vector is returned.
 ///
 /// # Hint
 /// To prevent infinitive recursion (e.g. if there are symbolic links causing a loop) the maximum depth for recursive search is determined by [MAX_DEPTH].
 pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
-    let mut source_files: Vec<SourceFile> = vec![];
+    find_supported_files(start_dir)
+        .into_iter()
+        .filter_map(|file| {
+            let file_name = file.file_name()?.to_str()?;
+            let file_type = SourceFileType::of(file_name)?;
 
-    find_files_with_ending(start_dir, vec!["song", "jpg", "jpeg", "png", "pdf", "md"])
-        .iter()
-        .for_each(|file| {
-            let file_extension: &str = file
-                .extension()
-                .unwrap_or(OsStr::new(""))
-                .to_str()
-                .unwrap_or("");
-            let file_type_option: Option<SourceFileType> =
-                match file_extension.to_lowercase().as_str() {
-                    "song" => Some(SourceFileType::Song),
-                    "png" => Some(SourceFileType::Image),
-                    "jpg" => Some(SourceFileType::Image),
-                    "jpeg" => Some(SourceFileType::Image),
-                    "pdf" => Some(SourceFileType::Pdf),
-                    "md" => Some(SourceFileType::Markdown),
-                    _ => None,
-                };
-            if let Some(source_file_type) = file_type_option {
-                // Read the file content once to compute the MD5 hash.
-                // The file path is stored in `SourceFile.path`, so the content is not
-                // retained after this function returns; subsequent reads happen on demand.
-                let md5_hash = fs::read(file)
-                    .ok()
-                    .map(|content| format!("{:x}", md5::compute(&content)));
-                source_files.push(SourceFile {
-                    name: file
-                        .clone()
-                        .file_stem()
-                        .unwrap_or(OsStr::new(""))
-                        .to_str()
-                        .unwrap_or("")
-                        .to_string(),
-                    path: file.clone(),
-                    file_type: source_file_type,
-                    md5_hash,
-                })
-            }
-        });
+            // Read the file content once to compute the MD5 hash.
+            // The file path is stored in `SourceFile.path`, so the content is not
+            // retained after this function returns; subsequent reads happen on demand.
+            let md5_hash = fs::read(&file)
+                .ok()
+                .map(|content| format!("{:x}", md5::compute(&content)));
 
-    source_files
+            Some(SourceFile {
+                name: SourceFileType::display_name(file_name),
+                path: file.clone(),
+                file_type,
+                md5_hash,
+            })
+        })
+        .collect()
 }
 
 /// This is a wrapper around [SourceFile] which ensures that the [SourceFile] is an image
@@ -239,21 +294,11 @@ impl SourceFile {
     #[cfg(target_arch = "wasm32")]
     pub fn from_web_path(vfs_path: &str) -> Option<Self> {
         // The file name is the last component of the path
-        let file_name = vfs_path.split('/').last()?;
-        let extension = file_name.rsplit('.').next()?.to_lowercase();
-        let file_type = match extension.as_str() {
-            "song" => SourceFileType::Song,
-            "png" | "jpg" | "jpeg" => SourceFileType::Image,
-            "pdf" => SourceFileType::Pdf,
-            "md" => SourceFileType::Markdown,
-            _ => return None,
-        };
-        let stem = file_name
-            .rsplit_once('.')
-            .map(|(s, _)| s)
-            .unwrap_or(file_name);
+        let file_name = vfs_path.split('/').next_back()?;
+        let file_type = SourceFileType::of(file_name)?;
+
         Some(SourceFile {
-            name: stem.to_string(),
+            name: SourceFileType::display_name(file_name),
             path: PathBuf::from(vfs_path),
             file_type,
             md5_hash: None,
@@ -265,6 +310,80 @@ impl SourceFile {
 pub mod tests {
     use super::*;
     use std::path::Path;
+
+    /// Every format Cantara advertises has to be recognised, and nothing else.
+    #[test]
+    fn test_file_type_of_name() {
+        let cases = [
+            ("Amazing Grace.song", Some(SourceFileType::Song)),
+            ("Amazing Grace.song.yml", Some(SourceFileType::Song)),
+            ("Amazing Grace.song.yaml", Some(SourceFileType::Song)),
+            ("Weiß ich den Weg auch nicht.ccli", Some(SourceFileType::Song)),
+            ("cover.png", Some(SourceFileType::Image)),
+            ("cover.JPG", Some(SourceFileType::Image)),
+            ("handout.pdf", Some(SourceFileType::Pdf)),
+            ("notes.md", Some(SourceFileType::Markdown)),
+            // Case is ignored, so a file from a Windows share is still found.
+            ("LIED.CCLI", Some(SourceFileType::Song)),
+            ("Amazing Grace.SONG", Some(SourceFileType::Song)),
+            // A plain YAML file is configuration, not a song.
+            ("config.yml", None),
+            ("song.yml", None),
+            ("readme.txt", None),
+            ("no-extension", None),
+        ];
+
+        for (name, expected) in cases {
+            assert_eq!(SourceFileType::of(name), expected, "for {name}");
+        }
+    }
+
+    /// The name in the song list must not keep half of a double extension.
+    #[test]
+    fn test_display_name_strips_the_whole_suffix() {
+        assert_eq!(
+            SourceFileType::display_name("Amazing Grace.song.yml"),
+            "Amazing Grace"
+        );
+        assert_eq!(
+            SourceFileType::display_name("Amazing Grace.song"),
+            "Amazing Grace"
+        );
+        assert_eq!(SourceFileType::display_name("Lied.CCLI"), "Lied");
+        assert_eq!(SourceFileType::display_name("no-extension"), "no-extension");
+    }
+
+    /// A repository holding every format must list each file exactly once.
+    #[test]
+    fn test_scan_finds_every_format_once() {
+        let files = get_source_files(Path::new("testfiles"));
+
+        let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
+        for expected in [
+            "Amazing Grace",
+            "Weiß ich den Weg auch nicht",
+            "Sei nicht stolz auf das, was du bist",
+        ] {
+            assert!(
+                names.contains(&expected),
+                "'{expected}' missing from {names:?}"
+            );
+        }
+
+        // "Amazing Grace" exists as .song and as .song.yml — two files, two
+        // entries, but neither of them listed twice.
+        let paths: Vec<&std::path::Path> = files.iter().map(|file| file.path.as_path()).collect();
+        let mut unique = paths.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(paths.len(), unique.len(), "a file was listed twice");
+
+        let songs = files
+            .iter()
+            .filter(|file| file.file_type == SourceFileType::Song)
+            .count();
+        assert!(songs >= 4, "expected the song files, found {songs}");
+    }
 
     #[test]
     fn traverse_test_dir() {

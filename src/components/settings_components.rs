@@ -64,6 +64,20 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
     let song_slide_settings: Signal<Vec<SlideSettings>> =
         use_signal(|| settings.read().song_slide_settings.clone());
 
+    // `SongSlideSettings` edits a copy. Without mirroring it back, adding or
+    // removing a slide setting was lost the moment the page was left, and
+    // nothing was ever written to disk.
+    //
+    // `peek()` reads the settings without subscribing to them, so writing them
+    // here cannot re-trigger this effect.
+    use_effect(move || {
+        let edited = song_slide_settings.read().clone();
+        if settings.peek().song_slide_settings != edited {
+            settings.write().song_slide_settings = edited;
+            settings.peek().save();
+        }
+    });
+
     rsx! {
         RepositorySettings {}
         hr {}
@@ -103,6 +117,9 @@ fn RepositorySettings() -> Element {
         });
     });
 
+    // Only the desktop branch writes through this closure; on mobile and the
+    // web the body is compiled out.
+    #[allow(unused_mut)]
     let mut select_directory = move || {
         #[cfg(feature = "desktop")]
         if let Some(path) = FileDialog::new().pick_folder() {

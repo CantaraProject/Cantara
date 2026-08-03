@@ -80,6 +80,18 @@ pub struct Settings {
     /// When `None` or empty, the default order (Songs → Pictures → PDFs) is used.
     #[serde(default)]
     pub sidebar_order: Vec<SelectionSidebarType>,
+
+    /// Whether the live preview is docked into the presentation design editor
+    /// on narrow screens. Wide screens always show it beside the settings, so
+    /// this only records the choice made where space is tight.
+    #[serde(default = "default_show_design_preview")]
+    pub show_design_preview: bool,
+}
+
+/// The design preview starts docked: seeing the effect of a setting is the
+/// point of the editor, and it can be folded away when space is tight.
+fn default_show_design_preview() -> bool {
+    true
 }
 
 /// The view mode for the presenter console left panel.
@@ -155,6 +167,9 @@ pub enum SlideTransition {
     SlideFromLeft,
     /// Zoom in from the center.
     ZoomIn,
+    /// Transform one slide into the next: text that appears on both slides
+    /// travels to its new place instead of being faded out and back in.
+    Morph,
 }
 
 impl Default for Settings {
@@ -172,6 +187,7 @@ impl Default for Settings {
             presenter_console_view: PresenterConsoleView::default(),
             presenter_console_grid_size: default_presenter_console_grid_size(),
             sidebar_order: default_sidebar_order(),
+            show_design_preview: default_show_design_preview(),
         }
     }
 }
@@ -205,6 +221,58 @@ fn default_presenter_console_in_main_window() -> bool {
     true
 }
 
+/// Bring a stored settings document up to the current shape.
+///
+/// Cantara 0.3 and earlier wrote `show_meta_information` as one of the strings
+/// `"None"`, `"FirstSlide"`, `"LastSlide"` or `"FirstSlideAndLastSlide"`,
+/// because the song library modelled it as an enum. Version 0.2 of the library
+/// replaced that with a struct of three independent flags so that the title
+/// slide became selectable on its own.
+///
+/// Without this step the whole settings file would fail to parse and
+/// [`Settings::load`] would fall back to the defaults, silently discarding
+/// every repository, presentation design and font the user had set up.
+fn migrate_settings_json(json: &str) -> String {
+    let Ok(mut document) = serde_json::from_str::<serde_json::Value>(json) else {
+        // Not valid JSON at all; leave it to the caller's error handling.
+        return json.to_string();
+    };
+
+    fn upgrade(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                if let Some(meta) = map.get("show_meta_information") {
+                    if let Some(name) = meta.as_str() {
+                        let (title_slide, first_slide, last_slide) = match name {
+                            "FirstSlide" => (false, true, false),
+                            "LastSlide" => (false, false, true),
+                            "FirstSlideAndLastSlide" => (false, true, true),
+                            // "None" and anything unrecognised mean "nowhere".
+                            _ => (false, false, false),
+                        };
+                        map.insert(
+                            "show_meta_information".to_string(),
+                            serde_json::json!({
+                                "title_slide": title_slide,
+                                "first_slide": first_slide,
+                                "last_slide": last_slide,
+                            }),
+                        );
+                    }
+                }
+                for nested in map.values_mut() {
+                    upgrade(nested);
+                }
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(upgrade),
+            _ => {}
+        }
+    }
+
+    upgrade(&mut document);
+    serde_json::to_string(&document).unwrap_or_else(|_| json.to_string())
+}
+
 impl Settings {
     /// Cleans up all temporary resources associated with all repositories
     pub fn cleanup_all_repositories(&self) {
@@ -227,7 +295,7 @@ impl Settings {
                 .and_then(|w| w.local_storage().ok().flatten())
                 .and_then(|s| s.get_item("cantara-settings").ok().flatten());
             let mut settings = match json {
-                Some(j) => serde_json::from_str(&j).unwrap_or_default(),
+                Some(j) => serde_json::from_str(&migrate_settings_json(&j)).unwrap_or_default(),
                 None => Self::default(),
             };
             settings.ensure_default_presentation_design();
@@ -241,7 +309,7 @@ impl Settings {
         {
             let mut settings = match get_settings_file() {
                 Some(file) => match std::fs::read_to_string(file) {
-                    Ok(content) => match serde_json::from_str(&content) {
+                    Ok(content) => match serde_json::from_str(&migrate_settings_json(&content)) {
                         Ok(settings) => settings,
                         Err(_) => Self::default(),
                     },
@@ -373,10 +441,19 @@ impl Settings {
     /// Get all elements of all repositories as a vector of [SourceFile] asynchronously.
     /// This is the async version of `get_sourcefiles`.
     pub async fn get_sourcefiles_async(&self) -> Vec<SourceFile> {
+        Settings::sourcefiles_of_async(&self.repositories).await
+    }
+
+    /// The files of the given repositories.
+    ///
+    /// Taking the repositories rather than the whole settings lets a caller
+    /// depend on just those: the scan reads every file to fingerprint it and
+    /// parses every PDF for the search cache, so it must not be triggered by an
+    /// unrelated setting.
+    pub async fn sourcefiles_of_async(repositories: &[Repository]) -> Vec<SourceFile> {
         let mut source_files: Vec<SourceFile> = vec![];
 
-        // Process each repository asynchronously
-        for repo in &self.repositories {
+        for repo in repositories {
             let files = repo.repository_type.get_files_async().await;
             source_files.extend(files);
         }
@@ -1092,8 +1169,10 @@ impl RepositoryType {
     ) -> Result<TempDir, String> {
         let temp_dir = create_temp_dir()?;
         let zip_path = temp_dir.path().join("download.zip");
-        let mut builder = Client::builder()
-            .http1_only();
+        // Only the mobile targets replace the TLS setup, so on every other
+        // platform the binding is never written to again.
+        #[allow(unused_mut)]
+        let mut builder = Client::builder().http1_only();
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             builder = builder.use_preconfigured_tls(mobile_tls_config());
@@ -1161,8 +1240,8 @@ impl RepositoryType {
     ) -> Result<TempDir, String> {
         let temp_dir = create_temp_dir()?;
         let zip_path = temp_dir.path().join("download.zip");
-        let mut builder = AsyncClient::builder()
-            .http1_only();
+        #[allow(unused_mut)]
+        let mut builder = AsyncClient::builder().http1_only();
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             builder = builder.use_preconfigured_tls(mobile_tls_config());
@@ -1305,72 +1384,60 @@ fn mobile_tls_config() -> rustls::ClientConfig {
 /// app-private directory path.
 #[cfg(target_os = "android")]
 fn get_android_files_dir() -> Option<PathBuf> {
-    use jni::objects::JObject;
-    use jni::JavaVM;
+    // `::` because `dioxus::prelude::*` also brings a `jni` into scope; without
+    // it the name is ambiguous and the Android build stops here.
+    use ::jni::JavaVM;
+    use ::jni::errors::Error as JniError;
+    use ::jni::objects::{JObject, JString};
+    // jni 0.22 wants method names and signatures pre-encoded rather than as
+    // `&str`; both macros do that at compile time.
+    use ::jni::{jni_sig, jni_str};
     use log::{error, info};
 
     let ctx = ndk_context::android_context();
 
-    // Safety: The VM pointer provided by ndk-context is valid for the lifetime of the app.
-    let vm = match unsafe { JavaVM::from_raw(ctx.vm().cast()) } {
-        Ok(vm) => vm,
-        Err(e) => {
-            error!("Failed to get JavaVM from ndk-context: {e}");
-            return None;
-        }
-    };
-    let mut env = match vm.attach_current_thread() {
-        Ok(env) => env,
-        Err(e) => {
-            error!("Failed to attach current thread to JVM: {e}");
-            return None;
-        }
-    };
+    // Safety: the VM pointer from ndk-context is valid for the app's lifetime.
+    let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) };
 
-    // Safety: The context pointer is a valid Activity jobject managed by android-activity.
-    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+    // jni 0.22 hands out the environment through a callback rather than a
+    // guard, so the whole conversation with Java happens in here and the
+    // local references are released when it returns.
+    let result: Result<PathBuf, JniError> = vm.attach_current_thread(|env| {
+        // Safety: the context pointer is a valid Activity jobject managed by
+        // android-activity.
+        let activity = unsafe { JObject::from_raw(env, ctx.context().cast()) };
 
-    // Call Context.getFilesDir() -> java.io.File
-    let files_dir = match env.call_method(&activity, "getFilesDir", "()Ljava/io/File;", &[]) {
-        Ok(val) => val,
-        Err(e) => {
-            error!("JNI call to getFilesDir() failed: {e}");
-            return None;
-        }
-    };
-    let files_dir_obj = match files_dir.l() {
-        Ok(obj) => obj,
-        Err(e) => {
-            error!("Failed to extract File object from getFilesDir() result: {e}");
-            return None;
-        }
-    };
+        // Context.getFilesDir() -> java.io.File
+        let files_dir = env
+            .call_method(&activity, jni_str!("getFilesDir"), jni_sig!("()Ljava/io/File;"), &[])?
+            .l()?;
 
-    // Call File.getAbsolutePath() -> String
-    let path_jvalue = match env.call_method(
-        &files_dir_obj,
-        "getAbsolutePath",
-        "()Ljava/lang/String;",
-        &[],
-    ) {
-        Ok(val) => val,
-        Err(e) => {
-            error!("JNI call to getAbsolutePath() failed: {e}");
-            return None;
-        }
-    };
-    let path_jobj = match path_jvalue.l() {
-        Ok(obj) => obj,
-        Err(e) => {
-            error!("Failed to extract String object from getAbsolutePath() result: {e}");
-            return None;
-        }
-    };
-    let path_jstr = jni::objects::JString::from(path_jobj);
-    let path_str: String = env.get_string(&path_jstr).ok()?.into();
+        // File.getAbsolutePath() -> java.lang.String
+        let path = env
+            .call_method(
+                &files_dir,
+                jni_str!("getAbsolutePath"),
+                jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?
+            .l()?;
 
-    info!("Android files directory: {path_str}");
-    Some(PathBuf::from(path_str))
+        let path = env.cast_local::<JString>(path)?;
+        let text = path.try_to_string(env)?;
+
+        Ok(PathBuf::from(text))
+    });
+
+    match result {
+        Ok(path) => {
+            info!("Android files directory: {}", path.display());
+            Some(path)
+        }
+        Err(error) => {
+            error!("Could not ask Android for the app's files directory: {error}");
+            None
+        }
+    }
 }
 
 /// A configured Presentation Design which is used both for creating the presentation slides as well as for rendering them.
@@ -1445,8 +1512,57 @@ pub struct PresentationDesignTemplate {
     /// An optional background picture
     pub background_image: Option<ImageSourceFile>,
 
-    /// The distance between the main content and the spoiler content
+    /// The distance between the main content and the spoiler content.
+    ///
+    /// Also used between the title and its meta line, so a design only has to
+    /// state one "distance between the two blocks of a slide".
     pub main_content_spoiler_content_padding: CssSize,
+
+    /// How the notation block is drawn.
+    #[serde(default)]
+    pub notation: NotationSettings,
+
+    /// Whether the title on a title slide is set in bold.
+    ///
+    /// Kept apart from the headline block's weight so that turning it on does
+    /// not also thicken the body text — by default both are the same block.
+    #[serde(default)]
+    pub title_bold: bool,
+}
+
+/// How the notation block of a complex slide is drawn.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct NotationSettings {
+    /// The width of the staff as a percentage of the content width.
+    ///
+    /// At 100 the staff spans exactly the same box as the text blocks around
+    /// it, so the two line up on the left and right edges.
+    pub width_percent: f64,
+
+    /// Where a staff narrower than the content sits.
+    pub horizontal_alignment: HorizontalAlign,
+
+    /// The height of one staff line, as a multiple of the engraver's default.
+    ///
+    /// Reads like the `line_height` of a text block: 1.0 is normal spacing,
+    /// larger values open the systems up.
+    pub staff_line_height: f64,
+
+    /// The size of the words printed under the notes.
+    pub font_size: CssSize,
+}
+
+impl Default for NotationSettings {
+    fn default() -> Self {
+        NotationSettings {
+            width_percent: 100.0,
+            horizontal_alignment: HorizontalAlign::Centered,
+            staff_line_height: 1.0,
+            // Matches the default spoiler size, which is what the notation
+            // lyrics were drawn at before this became configurable.
+            font_size: CssSize::Pt(22.4),
+        }
+    }
 }
 
 impl PresentationDesignTemplate {
@@ -1544,6 +1660,41 @@ impl PresentationDesignTemplate {
         }
     }
 
+    /// The block configured for `language`, if a design defines one.
+    ///
+    /// A block claims a language by carrying its code; the comparison ignores
+    /// case and surrounding space so that `"DE"` and `"de "` still match a
+    /// song tagged `de`.
+    pub fn font_for_language(&self, language: &str) -> Option<FontRepresentation> {
+        let wanted = language.trim().to_lowercase();
+        if wanted.is_empty() {
+            return None;
+        }
+
+        self.fonts
+            .iter()
+            .find(|font| {
+                font.language
+                    .as_deref()
+                    .map(|code| code.trim().to_lowercase() == wanted)
+                    .unwrap_or(false)
+            })
+            .cloned()
+    }
+
+    /// The block a row of a complex slide is drawn with.
+    ///
+    /// A row is drawn with the block that claims its language; where no block
+    /// does, it falls back to the main block. That one rule covers both cases
+    /// the design has to handle: the first row of a slide is its main text and
+    /// normally lands on the main block, and a song in a language the design
+    /// was never set up for still gets drawn.
+    pub fn font_for_row(&self, language: Option<&str>) -> FontRepresentation {
+        language
+            .and_then(|code| self.font_for_language(code))
+            .unwrap_or_else(|| self.get_default_font())
+    }
+
     /// Gets the default font [FontRepresentation] for the meta part.
     /// If none is defined, the system default will be returned as a fallback.
     pub fn get_default_meta_font(&self) -> FontRepresentation {
@@ -1575,6 +1726,8 @@ impl Default for PresentationDesignTemplate {
             padding: default_padding(),
             background_image: None,
             main_content_spoiler_content_padding: CssSize::Px(20.0),
+            notation: NotationSettings::default(),
+            title_bold: false,
         }
     }
 }
@@ -1599,6 +1752,73 @@ pub struct FontRepresentation {
 
     /// The horizontal alignment of the block
     pub horizontal_alignment: HorizontalAlign,
+
+    /// How heavy the type is drawn, as a CSS font weight (100–900).
+    #[serde(default = "default_font_weight")]
+    pub weight: u16,
+
+    /// An outline drawn around the glyphs. Keeps light text readable on a busy
+    /// background image without darkening the whole slide.
+    #[serde(default)]
+    pub outline: Option<FontOutline>,
+
+    /// How the shadow is drawn when [`FontRepresentation::shadow`] is on.
+    #[serde(default)]
+    pub shadow_style: FontShadow,
+
+    /// The language this block is for, as a language code such as `"de"`.
+    ///
+    /// Only meaningful for a complex presentation, where one slide shows the
+    /// same passage in several languages: a row is drawn with the block
+    /// carrying its language, and falls back to the main block when no block
+    /// claims it. `None` means the block is not tied to a language.
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+/// An outline drawn around the glyphs of a [`FontRepresentation`].
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub struct FontOutline {
+    pub color: RGBA8,
+    /// The stroke width in pixels. Anything above roughly 3 starts to close up
+    /// the counters of the letters.
+    pub width: f64,
+}
+
+impl Default for FontOutline {
+    fn default() -> Self {
+        FontOutline {
+            color: Rgba::new(0, 0, 0, 255),
+            width: 1.0,
+        }
+    }
+}
+
+/// How a [`FontRepresentation`]'s shadow is drawn.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub struct FontShadow {
+    pub color: RGBA8,
+    pub offset_x: f64,
+    pub offset_y: f64,
+    pub blur: f64,
+}
+
+impl Default for FontShadow {
+    fn default() -> Self {
+        FontShadow {
+            // A soft, slightly offset black shadow: enough to lift text off a
+            // photograph without reading as an effect.
+            color: Rgba::new(0, 0, 0, 180),
+            offset_x: 2.0,
+            offset_y: 2.0,
+            blur: 6.0,
+        }
+    }
+}
+
+/// Regular weight — what type is drawn at unless the design says otherwise.
+fn default_font_weight() -> u16 {
+    400
 }
 
 impl FontRepresentation {
@@ -1635,6 +1855,10 @@ impl Default for FontRepresentation {
             line_height: 1.2,
             color: Rgba::new(255, 255, 255, 255),
             horizontal_alignment: HorizontalAlign::default(),
+            weight: default_font_weight(),
+            outline: None,
+            shadow_style: FontShadow::default(),
+            language: None,
         }
     }
 }
@@ -1808,6 +2032,97 @@ fn hex_string_to_rgb(hex_string: &str) -> Option<RGB8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build a settings document in the shape Cantara 0.3 wrote: everything as
+    /// it is today, but `show_meta_information` back as a plain string.
+    fn settings_json_with_old_meta(name: &str) -> String {
+        let mut document = serde_json::to_value(Settings::default()).unwrap();
+
+        let slide_settings = document
+            .get_mut("song_slide_settings")
+            .and_then(|value| value.as_array_mut())
+            .expect("the default settings carry slide settings");
+        assert!(
+            !slide_settings.is_empty(),
+            "the fixture needs at least one slide setting"
+        );
+
+        for entry in slide_settings.iter_mut() {
+            entry
+                .as_object_mut()
+                .unwrap()
+                .insert("show_meta_information".to_string(), serde_json::json!(name));
+            entry
+                .as_object_mut()
+                .unwrap()
+                .insert("meta_syntax".to_string(), serde_json::json!("{{title}}"));
+        }
+
+        serde_json::to_string(&document).unwrap()
+    }
+
+    /// Settings written by Cantara 0.3 and earlier stored
+    /// `show_meta_information` as a plain string, because the song library's
+    /// `ShowMetaInformation` was an enum. It is a struct of three flags now.
+    ///
+    /// Deserialising the whole settings file fails on the old shape, and
+    /// `Settings::load` then falls back to the defaults — which would throw
+    /// away every repository, design and font the user had configured, not
+    /// just this one field.
+    #[test]
+    fn test_settings_from_an_older_version_still_load() {
+        let old = settings_json_with_old_meta("FirstSlideAndLastSlide");
+
+        // Without the migration the whole document is rejected …
+        assert!(
+            serde_json::from_str::<Settings>(&old).is_err(),
+            "the fixture no longer reproduces the old shape"
+        );
+
+        // … and with it, everything survives.
+        let settings: Settings =
+            serde_json::from_str(&migrate_settings_json(&old)).expect("old settings should load");
+
+        let slide_settings = settings
+            .song_slide_settings
+            .first()
+            .expect("the slide settings survived");
+
+        assert!(slide_settings.show_meta_information.first_slide);
+        assert!(slide_settings.show_meta_information.last_slide);
+        assert!(!slide_settings.show_meta_information.title_slide);
+        assert_eq!(slide_settings.meta_syntax, "{{title}}");
+    }
+
+    #[test]
+    fn test_every_old_meta_name_is_understood() {
+        let cases = [
+            ("None", (false, false, false)),
+            ("FirstSlide", (false, true, false)),
+            ("LastSlide", (false, false, true)),
+            ("FirstSlideAndLastSlide", (false, true, true)),
+        ];
+
+        for (name, expected) in cases {
+            let json = migrate_settings_json(&settings_json_with_old_meta(name));
+            let settings: Settings =
+                serde_json::from_str(&json).unwrap_or_else(|error| panic!("{name}: {error}"));
+
+            let show = settings.song_slide_settings[0].show_meta_information;
+            assert_eq!(
+                (show.title_slide, show.first_slide, show.last_slide),
+                expected,
+                "for {name}"
+            );
+        }
+    }
+
+    /// Settings already in the new shape must pass through untouched.
+    #[test]
+    fn test_current_settings_are_left_alone() {
+        let current = serde_json::to_string(&Settings::default()).unwrap();
+        assert_eq!(migrate_settings_json(&current), current);
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
@@ -2157,5 +2472,108 @@ mod tests {
             }
             other => panic!("Expected RemoteZip repository type, got {:?}", other),
         }
+    }
+}
+
+#[cfg(test)]
+mod design_block_tests {
+    use super::*;
+
+    fn template_with_language(code: &str) -> PresentationDesignTemplate {
+        let mut template = PresentationDesignTemplate::default();
+        let mut block = FontRepresentation::default();
+        block.language = Some(code.to_string());
+        block.font_size = CssSize::Pt(11.0);
+        template.fonts.push(block);
+        template
+    }
+
+    /// A row is drawn with the block that claims its language.
+    #[test]
+    fn test_a_row_takes_the_block_for_its_language() {
+        let template = template_with_language("de");
+
+        let font = template.font_for_row(Some("de"));
+
+        assert_eq!(font.font_size, CssSize::Pt(11.0));
+    }
+
+    /// A song in a language the design was never set up for still has to be
+    /// drawn, so it falls back to the main block.
+    #[test]
+    fn test_an_unclaimed_language_falls_back_to_the_main_block() {
+        let template = template_with_language("de");
+
+        let font = template.font_for_row(Some("fi"));
+
+        assert_eq!(font.font_size, template.get_default_font().font_size);
+    }
+
+    /// The classic `.song` format carries no language at all.
+    #[test]
+    fn test_a_row_without_a_language_uses_the_main_block() {
+        let template = template_with_language("de");
+
+        assert_eq!(
+            template.font_for_row(None).font_size,
+            template.get_default_font().font_size
+        );
+    }
+
+    /// A language code is a label a user types, so matching must not hinge on
+    /// how they typed it.
+    #[test]
+    fn test_language_matching_ignores_case_and_space() {
+        let template = template_with_language(" DE ");
+
+        assert_eq!(template.font_for_row(Some("de")).font_size, CssSize::Pt(11.0));
+        assert_eq!(template.font_for_row(Some("De")).font_size, CssSize::Pt(11.0));
+    }
+
+    /// An empty code claims nothing — otherwise a half-filled block would
+    /// silently capture every row.
+    #[test]
+    fn test_an_empty_code_claims_nothing() {
+        let mut template = PresentationDesignTemplate::default();
+        let mut block = FontRepresentation::default();
+        block.language = Some("  ".to_string());
+        block.font_size = CssSize::Pt(11.0);
+        template.fonts.push(block);
+
+        assert_ne!(template.font_for_row(Some("de")).font_size, CssSize::Pt(11.0));
+    }
+
+    /// Settings written before these fields existed have to keep loading.
+    #[test]
+    fn test_an_old_font_block_still_loads() {
+        let json = r#"{
+            "font_family": null,
+            "font_size": {"Pt": 40.0},
+            "shadow": false,
+            "line_height": 1.2,
+            "color": {"r": 255, "g": 255, "b": 255, "a": 255},
+            "horizontal_alignment": "Centered"
+        }"#;
+
+        let font: FontRepresentation = serde_json::from_str(json).expect("old settings must load");
+
+        assert_eq!(font.weight, 400);
+        assert!(font.outline.is_none());
+        assert!(font.language.is_none());
+    }
+
+    /// The same for a design written before the notation had settings.
+    #[test]
+    fn test_an_old_template_gets_default_notation_settings() {
+        let template = PresentationDesignTemplate::default();
+        let mut value = serde_json::to_value(&template).unwrap();
+        value.as_object_mut().unwrap().remove("notation");
+        value.as_object_mut().unwrap().remove("title_bold");
+
+        let loaded: PresentationDesignTemplate =
+            serde_json::from_value(value).expect("old settings must load");
+
+        assert_eq!(loaded.notation.width_percent, 100.0);
+        assert!(!loaded.title_bold);
     }
 }

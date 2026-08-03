@@ -130,6 +130,10 @@ impl CssHandler {
         self.push("line-height".to_string(), CssValue::Float(line_height))
     }
 
+    pub fn margin_top(&mut self, size: CssSize) {
+        self.push("margin-top".to_string(), CssValue::CssSize(size))
+    }
+
     pub fn min_height(&mut self, min_height: CssSize) {
         self.push("min-height".to_string(), CssValue::CssSize(min_height))
     }
@@ -139,6 +143,54 @@ impl CssHandler {
             "hyphens".to_string(),
             CssValue::String(value.to_string()),
         )
+    }
+
+    /// How heavy the type is drawn, as a CSS font weight.
+    pub fn font_weight(&mut self, weight: u16) {
+        self.push(
+            "font-weight".to_string(),
+            CssValue::String(weight.to_string()),
+        )
+    }
+
+    /// An outline around the glyphs.
+    ///
+    /// `paint-order` goes with it: without it the stroke is drawn on top of the
+    /// fill and eats into the letterforms from the inside, which thins the text
+    /// instead of outlining it.
+    pub fn text_stroke(&mut self, width: f64, color: RGBA8) {
+        self.push(
+            "-webkit-text-stroke".to_string(),
+            CssValue::String(format!(
+                "{}px rgba({}, {}, {}, {})",
+                width,
+                color.r,
+                color.g,
+                color.b,
+                color.a as f32 / 255.0
+            )),
+        );
+        self.push(
+            "paint-order".to_string(),
+            CssValue::String("stroke fill".to_string()),
+        );
+    }
+
+    /// A drop shadow behind the text.
+    pub fn text_shadow(&mut self, offset_x: f64, offset_y: f64, blur: f64, color: RGBA8) {
+        self.push(
+            "text-shadow".to_string(),
+            CssValue::String(format!(
+                "{}px {}px {}px rgba({}, {}, {}, {})",
+                offset_x,
+                offset_y,
+                blur,
+                color.r,
+                color.g,
+                color.b,
+                color.a as f32 / 255.0
+            )),
+        );
     }
 }
 
@@ -208,6 +260,21 @@ impl Display for CssValue {
     }
 }
 
+impl CssHandler {
+    /// The declarations of a font, optionally without its colour.
+    ///
+    /// Leaving the colour out lets the text follow whatever surrounds it. That
+    /// matters outside a presentation: a slide font is normally white, which is
+    /// invisible on an ordinary page.
+    pub fn from_font(font: FontRepresentation, include_color: bool) -> CssHandler {
+        let mut css_handler = CssHandler::from(font.clone());
+        if !include_color {
+            css_handler.declarations.retain(|entry| entry.key != "color");
+        }
+        css_handler
+    }
+}
+
 impl From<FontRepresentation> for CssHandler {
     fn from(font: FontRepresentation) -> CssHandler {
         let mut css_handler = CssHandler::new();
@@ -217,8 +284,20 @@ impl From<FontRepresentation> for CssHandler {
         css_handler.line_height(font.line_height as f32);
         css_handler.color(font.color);
         css_handler.text_align(font.horizontal_alignment);
+        css_handler.font_weight(font.weight);
         if font.horizontal_alignment == HorizontalAlign::JustifyWithHyphenation {
             css_handler.hyphens("auto");
+        }
+
+        if let Some(outline) = font.outline {
+            css_handler.text_stroke(outline.width, outline.color);
+        }
+
+        // The flag used to be carried in the settings without ever reaching the
+        // stylesheet, so turning the shadow on did nothing.
+        if font.shadow {
+            let shadow = font.shadow_style;
+            css_handler.text_shadow(shadow.offset_x, shadow.offset_y, shadow.blur, shadow.color);
         }
 
         css_handler
@@ -352,5 +431,56 @@ mod tests {
     fn test_empty_handler_css() {
         let handler = CssHandler::new();
         assert_eq!(handler.to_string().as_str(), "");
+    }
+}
+
+#[cfg(test)]
+mod font_color_tests {
+    use super::*;
+    use crate::logic::settings::FontRepresentation;
+
+    /// A presentation font is white, because slides are dark. Drawn on an
+    /// ordinary page that is invisible, so the detail view asks for the colour
+    /// to be left out and lets `currentColor` decide.
+    #[test]
+    fn test_the_colour_can_be_left_out() {
+        let font = FontRepresentation::default();
+
+        let with_color = CssHandler::from_font(font.clone(), true).to_string();
+        let without_color = CssHandler::from_font(font, false).to_string();
+
+        assert!(with_color.contains("color:"), "got {with_color:?}");
+        assert!(
+            !without_color.contains("color:"),
+            "the colour still forces itself on the page: {without_color:?}"
+        );
+    }
+
+    /// Only the colour goes; everything else about the font has to survive.
+    #[test]
+    fn test_nothing_else_is_lost() {
+        let font = FontRepresentation {
+            font_size: CssSize::Pt(19.0),
+            weight: 700,
+            ..FontRepresentation::default()
+        };
+
+        let style = CssHandler::from_font(font, false).to_string();
+
+        assert!(style.contains("font-size"), "got {style:?}");
+        assert!(style.contains("font-weight"), "got {style:?}");
+        assert!(style.contains("line-height"), "got {style:?}");
+    }
+
+    /// Transparent would have been the obvious shortcut and the wrong one: the
+    /// staff is drawn in `currentColor`, so a transparent colour hides it.
+    #[test]
+    fn test_leaving_it_out_is_not_the_same_as_transparent() {
+        let font = FontRepresentation::default();
+
+        let omitted = CssHandler::from_font(font.clone(), false).to_string();
+
+        assert!(!omitted.contains("rgba"), "got {omitted:?}");
+        assert!(!omitted.contains("transparent"), "got {omitted:?}");
     }
 }

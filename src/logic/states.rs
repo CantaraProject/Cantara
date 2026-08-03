@@ -285,8 +285,12 @@ impl RunningPresentationPosition {
     }
 
     /// Creates a new position if there is at least one slide available
-    pub fn new(presentation: &Vec<SlideChapter>) -> Option<Self> {
-        if !presentation.is_empty() && !presentation.first().unwrap().slides.is_empty() {
+    pub fn new(presentation: &[SlideChapter]) -> Option<Self> {
+        let has_first_slide = presentation
+            .first()
+            .is_some_and(|chapter| !chapter.slides.is_empty());
+
+        if has_first_slide {
             Some(RunningPresentationPosition {
                 chapter: 0,
                 chapter_slide: 0,
@@ -299,7 +303,7 @@ impl RunningPresentationPosition {
 
     /// Tries to go to the next position if it exists (and returns okay),
     /// if the next position does not exist, an error will be returned.
-    pub fn try_next(&mut self, presentation: &Vec<SlideChapter>) -> Result<(), ()> {
+    pub fn try_next(&mut self, presentation: &[SlideChapter]) -> Result<(), ()> {
         let chapter_len = self.cur_chapter_slide_length(presentation);
         if chapter_len > 0 && self.chapter_slide < chapter_len - 1 {
             self.chapter_slide += 1;
@@ -317,7 +321,7 @@ impl RunningPresentationPosition {
 
     /// Tries to go to the next position if it exists (and returns okay),
     /// if the next position does not exist, an error will be returned.
-    pub fn try_back(&mut self, presentation: &Vec<SlideChapter>) -> Result<(), ()> {
+    pub fn try_back(&mut self, presentation: &[SlideChapter]) -> Result<(), ()> {
         if self.chapter_slide > 0 {
             self.chapter_slide -= 1;
             self.slide_total -= 1;
@@ -333,7 +337,7 @@ impl RunningPresentationPosition {
     }
 
     /// Helper function for getting the current slide length
-    fn cur_chapter_slide_length(&self, presentation: &Vec<SlideChapter>) -> usize {
+    fn cur_chapter_slide_length(&self, presentation: &[SlideChapter]) -> usize {
         presentation
             .get(self.chapter)
             .map(|ch| ch.slides.len())

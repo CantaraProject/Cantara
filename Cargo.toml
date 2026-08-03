@@ -11,7 +11,7 @@ repository = "https://github.com/CantaraProject/Cantara"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = { version = "0.7.3", features = ["router"] }
+dioxus = { version = "0.7.9", features = ["router"] }
 dirs = "6.0.0"
 
 dioxus-free-icons = { version = "0.10.0", features = [
@@ -19,14 +19,14 @@ dioxus-free-icons = { version = "0.10.0", features = [
     "font-awesome-solid",
 ] }
 
-rust-i18n = "3.1.5"
+rust-i18n = "4.2.1"
 serde = "1.0.228"
 serde_json = "1.0.145"
 uuid = { version = "1", features = ["v4", "serde"] }
 sys-locale = "=0.3.2"
 
 # Cantara libraries
-cantara-songlib = "0.1.5"
+cantara-songlib = "0.2.4"
 markdown = "1.0.0"
 rgb = { version = "0.8.52", features = ["serde"] }
 image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
@@ -40,20 +40,23 @@ md5 = "0.8.0"
 
 # Non-Linux desktop dependencies (macOS, Windows, etc. – excluded from Android, iOS, and web/WASM)
 [target.'cfg(not(any(target_os = "linux", target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
-rfd = { version = "0.15.4", default-features = false, features = ["tokio"] }
-dark-light = "1.1"
-lopdf = "0.39.0"
+rfd = { version = "0.17.2", default-features = false }
+dark-light = "2.0"
+lopdf = "0.44.0"
 base64 = "0.22.1"
 
 # Linux desktop dependencies (same libraries, with xdg-portal support for rfd)
 [target.'cfg(all(target_os = "linux", not(target_arch = "wasm32")))'.dependencies]
-rfd = { version = "0.15.4", default-features = false, features = ["tokio", "xdg-portal"] }
-dark-light = "1.1"
-lopdf = "0.39.0"
-base64 = "0.22.1"
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+dark-light = "2.0"
+lopdf = "0.44.0"
+base64 = "0.23.0"
 
 # Non-WASM dependencies (blocking HTTP client, TLS, and filesystem helpers not available on WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Enumerates the installed system fonts so they can be offered in the settings.
+# `fs` is enough — the font data itself is never needed, only the family names.
+fontdb = { version = "0.24", default-features = false, features = ["fs"] }
 reqwest = { version = "0.13.2", features = ["blocking", "default-tls"] }
 tempfile = "3.23"
 
@@ -75,14 +78,14 @@ webpki-root-certs = "1.0"
 # Android-specific dependencies: JNI for accessing the app's internal data directory
 # (needed because the `dirs` crate cannot resolve paths without HOME/XDG env vars on Android)
 [target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
+jni = "0.22"
 ndk-context = "0.1"
 
 # Web (WASM) specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["Window", "Storage", "Location"] }
 lopdf = { version = "0.39.0", default-features = false }
-base64 = "0.22.1"
+base64 = "0.23.0"
 # getrandom needs wasm_js feature to use browser's crypto API on WASM
 # Both v0.3 and v0.4 are needed because transitive deps use different major versions:
 # lopdf -> rand -> rand_core -> getrandom 0.3, zip -> getrandom 0.4

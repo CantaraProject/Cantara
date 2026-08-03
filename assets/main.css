@@ -341,3 +341,564 @@ div.inline-div {
 .directory-entry:hover {
     background-color: var(--pico-table-row-stripped-background-color);
 }
+/* --------------------------------------------------------------------------
+   Editor for the rows of a complex song layout (notation + languages).
+   -------------------------------------------------------------------------- */
+
+.display-rows {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0;
+}
+
+.display-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    margin-bottom: 0.3rem;
+    border: 1px solid var(--pico-muted-border-color, #ccc);
+    border-radius: var(--pico-border-radius, 0.25rem);
+}
+
+.display-row-label {
+    font-weight: 600;
+}
+
+.display-row-buttons {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.display-row-buttons button {
+    padding: 0.1rem 0.5rem;
+    margin: 0;
+    width: auto;
+}
+
+.display-row-add {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.display-row-add input {
+    margin: 0;
+    flex: 1 1 8rem;
+    min-width: 8rem;
+}
+
+.display-row-add button {
+    margin: 0;
+    width: auto;
+    white-space: nowrap;
+}
+
+.display-rows-empty {
+    font-style: italic;
+    opacity: 0.7;
+}
+
+/* --------------------------------------------------------------------------
+   Export menu. Colours come from the Pico variables so the dialog follows the
+   light/dark theme instead of being hardcoded white.
+   -------------------------------------------------------------------------- */
+
+.modal-overlay.export-menu-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.export-menu-modal {
+    background: var(--pico-card-background-color, var(--pico-background-color, #fff));
+    color: var(--pico-color, inherit);
+    border: 1px solid var(--pico-card-border-color, transparent);
+    border-radius: var(--pico-border-radius, 0.5rem);
+    box-shadow: var(--pico-card-box-shadow, 0 4px 16px rgba(0, 0, 0, 0.25));
+    padding: 1.5rem;
+    max-width: 60rem;
+    width: 100%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.export-menu-modal h3 {
+    margin-top: 0;
+    flex: 0 0 auto;
+}
+
+/* Narrow screens stack the options above the preview; from 48rem up the
+   preview moves to the right of them, which is where there is room for it. */
+.export-menu-body {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+@media (min-width: 48rem) {
+    .export-menu-body {
+        grid-template-columns: minmax(14rem, 20rem) 1fr;
+        overflow-y: visible;
+    }
+}
+
+.export-menu-options {
+    min-width: 0;
+}
+
+.export-menu-options small {
+    display: block;
+    margin-top: 0.5rem;
+    opacity: 0.8;
+}
+
+.export-menu-preview {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.export-preview-text {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 16rem;
+    max-height: 55vh;
+    resize: vertical;
+    font-family: var(--pico-font-family-monospace, ui-monospace, monospace);
+    font-size: 0.85rem;
+    line-height: 1.4;
+    white-space: pre;
+    overflow: auto;
+    margin-bottom: 0.5rem;
+}
+
+/* A format that cannot be produced shows the reason here instead of the
+   document, so pressing the button is never a silent no-op. */
+.export-preview-text.has-error {
+    color: var(--pico-del-color, #b3261e);
+    white-space: pre-wrap;
+}
+
+.export-menu-preview button {
+    width: auto;
+    align-self: flex-start;
+    margin: 0;
+}
+
+.export-menu-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    margin-top: 1rem;
+    flex: 0 0 auto;
+}
+
+.export-menu-actions button {
+    width: auto;
+    margin: 0;
+}
+
+/* A failed export says why, right where the button is. */
+.export-save-error {
+    margin: 0.5rem 0 0;
+    color: var(--pico-del-color, #b3261e);
+    font-size: 0.9em;
+}
+
+/* --- Presentation design editor: settings beside a live preview --- */
+
+/* One column by default. The preview follows the settings, and on a narrow
+   screen it is only there when the user docked it. */
+.design-editor-settings {
+    min-width: 0;
+}
+
+.design-preview-pane {
+    display: none;
+    min-width: 0;
+    /* Should a stage ever be wider than its column, it scrolls inside itself
+       rather than pushing the whole page sideways. */
+    overflow-x: auto;
+}
+
+.design-editor.preview-open .design-preview-pane {
+    display: block;
+}
+
+/* The stage shrink-wraps the scaled canvas, so it needs no size of its own:
+   `zoom` changes the canvas's layout size, unlike `transform: scale`. */
+.design-preview-stage {
+    display: inline-block;
+    overflow: hidden;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    /* A design may be light or dark, so the stage stays out of the way. */
+    background: transparent;
+}
+
+/* The slide renders as `.presentation`, which is absolutely positioned with
+   `inset: 0`. It needs a positioned ancestor at presentation size — without
+   one it resolves against the page and covers the whole window.
+   Scaling with `zoom` rather than `transform` keeps the layout size in step,
+   so the stage around it needs no dimensions of its own. */
+.design-preview-canvas {
+    position: relative;
+    width: 1920px;
+    height: 1080px;
+    zoom: 0.25;
+}
+
+.design-preview-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+.design-preview-controls button {
+    width: auto;
+    padding: 0.25rem 0.9rem;
+    margin: 0;
+}
+
+.design-preview-position {
+    font-variant-numeric: tabular-nums;
+    color: var(--pico-muted-color);
+}
+
+.design-preview-empty {
+    color: var(--pico-muted-color);
+}
+
+/* Narrow screens: the preview docks to the bottom edge and follows the scroll,
+   instead of sitting below the form where it is only visible after scrolling
+   past everything. It stays the last element in the flow, so at the end of the
+   scroll it settles into its natural place and covers nothing. */
+@media (max-width: 61.999rem) {
+    .design-editor.preview-open .design-preview-pane {
+        position: sticky;
+        bottom: 0;
+        z-index: 5;
+        /* Opaque, otherwise the form scrolls through underneath it. */
+        background-color: var(--pico-background-color);
+        border-top: 1px solid var(--pico-border-color);
+        /* Bleed past the container padding so the dock spans the full width. */
+        margin-left: calc(-1 * var(--pico-spacing));
+        margin-right: calc(-1 * var(--pico-spacing));
+        padding: 0.5rem var(--pico-spacing);
+        text-align: center;
+    }
+
+    /* Once it is a docked bar the heading only costs height. */
+    .design-editor.preview-open .design-preview-pane h4 {
+        display: none;
+    }
+
+    .design-editor.preview-open .design-preview-controls {
+        margin-top: 0.5rem;
+    }
+
+    /* A docked bar is for glancing at, not for studying: 1920 x 0.15 = 288,
+       which fits the narrowest phone and leaves the form most of the screen. */
+    .design-editor.preview-open .design-preview-canvas {
+        zoom: 0.15;
+    }
+}
+
+/* Wide screens: two columns, preview always present, so the toggle has
+   nothing left to do. */
+@media (min-width: 62rem) {
+    .design-editor {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 2rem;
+        align-items: start;
+    }
+
+    .design-editor .design-preview-pane {
+        display: block;
+        position: sticky;
+        top: 1rem;
+    }
+
+    .design-preview-toggle {
+        display: none;
+    }
+}
+
+/* --- Font blocks in the presentation design editor --- */
+
+.font-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+/* Drawn in the block's own colour and family by the editor, so the badge is
+   also a sample of what the block will look like on a slide. */
+.font-block-badge {
+    display: inline-block;
+    padding: 0.2rem 0.7rem;
+    border-radius: var(--pico-border-radius);
+    border: 1px solid var(--pico-muted-border-color);
+    font-size: 0.85em;
+    line-height: 1.6;
+}
+
+.font-block-remove {
+    width: auto;
+    margin: 0;
+    padding: 0.15rem 0.6rem;
+}
+
+/* --- Detail view: the element list beside one opened element ---
+   The shell is the selection view's, so the icon bar and the list keep their
+   layout; only what follows is this view's own. */
+
+.detail-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.detail-header h3 { margin: 0; }
+.detail-header-actions button { width: auto; margin: 0; }
+
+.detail-tabs { margin: 0.75rem 0 1rem; }
+.detail-tabs button { width: auto; margin: 0; }
+
+.detail-empty,
+.detail-song-empty { color: var(--pico-muted-color); }
+
+.detail-error {
+    color: var(--pico-del-color, #b3261e);
+}
+
+.detail-image img { max-width: 100%; height: auto; }
+
+.detail-pdf-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+.detail-pdf-controls button { width: auto; margin: 0; }
+
+.detail-song-part { margin-bottom: 1.5rem; }
+
+.detail-song-part-label {
+    font-weight: 600;
+    color: var(--pico-primary);
+    margin-bottom: 0.35rem;
+}
+
+/* One column per language, so a translation reads beside its original. */
+.detail-song-languages {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 1rem;
+}
+
+.detail-song-language-code {
+    font-size: 0.8em;
+    color: var(--pico-muted-color);
+}
+
+.detail-song-language pre {
+    margin: 0.2rem 0 0;
+    white-space: pre-wrap;
+    background: none;
+    padding: 0;
+}
+
+/* Source on the left, what it means on the right. */
+.detail-editor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.5rem;
+    height: 100%;
+}
+
+@media (max-width: 62rem) {
+    .detail-editor { grid-template-columns: minmax(0, 1fr); }
+}
+
+.detail-editor-textarea {
+    width: 100%;
+    min-height: 28rem;
+    font-family: var(--pico-font-family-monospace, monospace);
+    font-size: 0.9em;
+}
+
+.detail-editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+.detail-editor-actions button { width: auto; margin: 0; }
+
+.detail-editor-status { color: var(--pico-muted-color); font-size: 0.9em; }
+
+/* The song's own metadata, above the words. */
+.detail-song-tags {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.15rem 0.75rem;
+    margin: 0 0 1.25rem;
+    font-size: 0.9em;
+}
+
+.detail-song-tags dt {
+    color: var(--pico-muted-color);
+    font-weight: normal;
+}
+
+.detail-song-tags dd { margin: 0; }
+
+/* The element the detail view is showing. */
+.selection_item-active {
+    border-color: var(--pico-primary) !important;
+    background-color: color-mix(in srgb, var(--pico-primary) 10%, transparent) !important;
+}
+
+/* A field that can be changed where it is read. */
+.inline-editable {
+    position: relative;
+    display: block;
+}
+
+.inline-editable pre {
+    margin: 0.2rem 0 0;
+    white-space: pre-wrap;
+    background: none;
+    padding: 0;
+}
+
+.inline-editable-input {
+    width: 100%;
+    margin: 0;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+/* The pencil stays out of the way until the field is hovered. */
+.inline-editable-pencil {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: auto;
+    margin: 0;
+    padding: 0.1rem 0.35rem;
+    border: none;
+    background: none;
+    color: var(--pico-muted-color);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.inline-editable:hover .inline-editable-pencil,
+.inline-editable-pencil:focus {
+    opacity: 1;
+}
+
+.inline-editable-pencil svg { width: 0.8em; height: 0.8em; }
+
+.detail-add-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.75rem 0 1.5rem;
+}
+
+.detail-add-row input { margin: 0; width: auto; }
+.detail-add-row button { width: auto; margin: 0; padding: 0.25rem 0.7rem; }
+.detail-add-row button svg { width: 0.7em; height: 0.7em; margin-right: 0.3rem; }
+
+.detail-hint {
+    color: var(--pico-muted-color);
+    font-size: 0.9em;
+}
+
+/* Part header: the label, and what can be done with the part. */
+.detail-song-part-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.detail-part-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+/* Kept out of the way while reading, and reachable by keyboard. */
+.detail-song-part:hover .detail-part-controls,
+.detail-part-controls:focus-within {
+    opacity: 1;
+}
+
+.detail-part-controls button {
+    width: auto;
+    margin: 0;
+    padding: 0.1rem 0.45rem;
+}
+
+.detail-part-controls svg { width: 0.7em; height: 0.7em; }
+
+.detail-language-input {
+    width: 4rem;
+    margin: 0;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.85em;
+}
+
+.detail-remove {
+    color: var(--pico-del-color, #b3261e);
+}
+
+.detail-orders { margin-top: 2rem; }
+.detail-orders h5 { margin-bottom: 0.5rem; }
+
+.detail-orders ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.detail-orders li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+}
+
+.detail-orders li button {
+    width: auto;
+    margin: 0;
+    padding: 0.05rem 0.4rem;
+}

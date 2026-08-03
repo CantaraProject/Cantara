@@ -254,3 +254,98 @@ html, body {
     max-width: 100%;
     height: auto;
 }
+/* --------------------------------------------------------------------------
+   Complex slides: notation stacked with the lyrics of one or more languages.
+   The rows appear in the order the user configured them.
+   -------------------------------------------------------------------------- */
+
+.complex-slide {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6em;
+    width: 100%;
+    height: 100%;
+    /* The notation inherits this so it is drawn in the slide's text colour
+       rather than abcjs's default black. */
+    color: inherit;
+}
+
+.complex-slide-row {
+    width: 100%;
+    text-align: center;
+}
+
+/* abcjs sizes the staff to the width of its container. The width and the
+   placement come from the design's notation settings, which the renderer sets
+   inline — a fixed width here used to indent the staff relative to the text
+   rows, so the two never lined up. */
+.complex-slide .notation-row {
+    max-width: 100%;
+}
+
+.abc-notation-container {
+    width: 100%;
+    color: inherit;
+}
+
+.abc-notation-container svg {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+}
+
+/* The staff is drawn with `currentColor`, so it follows the slide's colours. */
+.abc-notation-container svg path,
+.abc-notation-container svg text,
+.abc-notation-container svg tspan {
+    fill: currentColor;
+}
+
+.complex-slide-spoiler {
+    margin-top: 1.5em;
+    width: 100%;
+    text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   The meta information line (title, author, copyright, CCLI number). Which
+   slides carry one is decided by the slide settings; this only places it.
+   -------------------------------------------------------------------------- */
+
+/* On the title slide it sits directly below the headline, in the normal flow,
+   so it reads as part of the title. */
+/* The distance to the title comes from the design — the same one it uses
+   between main content and spoiler — and is set inline by the renderer. */
+.headline-meta-text {
+    white-space: pre-line;
+}
+
+/* Every other slide keeps it in the bottom right corner. It is an overlay on
+   the whole presentation area rather than part of the slide, because the slide
+   container is only as tall as its content — anything inside it would land on
+   top of the last line of lyrics. */
+.slide-meta-corner {
+    position: absolute;
+    right: 1.5em;
+    bottom: 1em;
+    z-index: 3;
+    max-width: 45%;
+    text-align: right;
+    white-space: pre-line;
+    pointer-events: none;
+}
+
+/* The morph transition is driven entirely by `morph_transition.js`, which
+   matches the text of the outgoing and incoming slide and animates the parts
+   that occur on both. The class is only a marker for that script, and the copy
+   of the outgoing slide it lays over the stage is positioned inline — both are
+   listed here so the mechanism is findable from the stylesheet. */
+.presentation-morph {
+    /* No entry animation: the script animates the individual lines instead. */
+}
+
+.presentation-morph-ghost {
+    pointer-events: none;
+}

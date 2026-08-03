@@ -6,6 +6,7 @@ use super::{
     states::{RunningPresentation, RunningPresentationPosition, SelectedItemRepresentation, SlideChapter},
 };
 
+use cantara_songlib::exporter::slides::slides_from_song;
 use cantara_songlib::importer::classic_song::slides_from_classic_song;
 use cantara_songlib::slides::{Slide, SlideContent, SimplePictureSlide, SingleLanguageMainContentSlide, SlideSettings};
 use dioxus::prelude::*;
@@ -174,6 +175,39 @@ pub fn html_to_plain_text(html: &str) -> String {
 }
 
 /// Creates a presentation from a selected_item_representation and a presentation_design
+/// Turn the contents of a song file into slides, choosing the importer from the
+/// file name.
+///
+/// The desktop build hands the path to the song library, which does this for
+/// itself. On the web there is no path on disk — repositories live in an
+/// in-memory VFS — so the dispatch happens here instead.
+///
+/// The format dispatch itself lives in [`crate::logic::export::song_from_content`]
+/// so that the presentation and the export can never disagree about what a
+/// `.ccli` file is.
+///
+/// Classic `.song` files keep their dedicated converter: that format encodes
+/// the presentation order in the file itself, including the `---` spoiler
+/// blocks, which cannot be recovered from a parsed `Song`.
+pub fn slides_from_song_content(
+    content: &str,
+    file_name: &str,
+    slide_settings: &SlideSettings,
+    backup_title: &str,
+) -> Result<Vec<Slide>, Box<dyn Error>> {
+    if file_name.to_lowercase().ends_with(".song") {
+        return Ok(slides_from_classic_song(
+            content,
+            slide_settings,
+            backup_title.to_string(),
+        ));
+    }
+
+    let song = crate::logic::export::song_from_content(file_name, content)
+        .map_err(|error| format!("{error:?}"))?;
+    Ok(slides_from_song(&song, slide_settings))
+}
+
 fn create_presentation_slides(
     selected_item: &SelectedItemRepresentation,
     default_song_slide_settings: &SlideSettings,
@@ -188,15 +222,18 @@ fn create_presentation_slides(
     if selected_item.source_file.file_type == SourceFileType::Song {
         #[cfg(target_arch = "wasm32")]
         {
-            // On web, read song content from the in-memory VFS
+            // On web the song is read from the in-memory VFS, so the importer
+            // has to be picked from the file name here — there is no path on
+            // disk for the library to look at.
             let path_str = selected_item.source_file.path.to_str().unwrap_or("");
             if let Some(content_bytes) = crate::logic::settings::RepositoryType::web_read_file(path_str) {
                 let content = String::from_utf8_lossy(&content_bytes);
-                let slides = slides_from_classic_song(
+                let slides = slides_from_song_content(
                     &content,
+                    path_str,
                     &slide_settings,
-                    selected_item.source_file.name.clone(),
-                );
+                    &selected_item.source_file.name,
+                )?;
                 presentation.extend(slides);
             }
             return Ok(presentation);
@@ -668,6 +705,138 @@ mod tests {
     };
 
     use super::*;
+    use cantara_songlib::slides::LanguageConfiguration;
+
+    /// Prints one complex slide, so the exact ABC handed to abcjs can be seen
+    /// with `cargo test dump_complex_slide -- --nocapture --ignored`.
+    #[test]
+    #[ignore = "diagnostic output, not an assertion"]
+    fn dump_complex_slide() {
+        use cantara_songlib::slides::{
+            LanguageConfiguration, ShowMetaInformation, SlideElement, SlideRowKind,
+        };
+
+        let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
+        let settings = SlideSettings {
+            title_slide: false,
+            empty_last_slide: false,
+            show_spoiler: true,
+            max_lines: Some(2),
+            meta_syntax: String::new(),
+            show_meta_information: ShowMetaInformation::none(),
+            language: LanguageConfiguration::Complex(vec![
+                SlideElement::Notation,
+                SlideElement::Lyrics("en".to_string()),
+            ]),
+        };
+
+        let slides =
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x").unwrap();
+
+        for (index, slide) in slides.iter().enumerate() {
+            if let SlideContent::Complex(complex) = &slide.slide_content {
+                println!("--- slide {index} ({} lines)", complex.line_count);
+                for row in &complex.rows {
+                    match &row.kind {
+                        SlideRowKind::Notation { syllables } => {
+                            println!("  [notation, {syllables} syllables]");
+                            for line in row.content.lines() {
+                                println!("    {line}");
+                            }
+                        }
+                        SlideRowKind::Lyrics { language } => println!(
+                            "  [{}{}] {}",
+                            language.clone().unwrap_or("-".into()),
+                            if row.redundant { ", repeat" } else { "" },
+                            row.content.replace('\n', " / ")
+                        ),
+                    }
+                }
+            }
+        }
+    }
+
+    /// The meta information template configured in the slide settings has to
+    /// reach the finished slides — it was never rendered before, and the
+    /// settings were never persisted either.
+    #[test]
+    fn test_meta_information_reaches_the_slides() {
+        use cantara_songlib::slides::ShowMetaInformation;
+
+        let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
+        let settings = SlideSettings {
+            title_slide: true,
+            empty_last_slide: false,
+            show_spoiler: false,
+            max_lines: None,
+            meta_syntax: "{{title}} ({{author}})".to_string(),
+            show_meta_information: ShowMetaInformation::all(),
+            language: LanguageConfiguration::SingleLanguage(None),
+        };
+
+        let slides =
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x").unwrap();
+
+        let carrying = slides.iter().filter(|slide| slide.has_meta_text()).count();
+        assert!(carrying > 0, "no slide carries the meta information");
+
+        let rendered = serde_json::to_string(&slides).unwrap();
+        assert!(
+            rendered.contains("Amazing Grace (John Newton)"),
+            "the template was not rendered into the slides"
+        );
+
+        // And with the metadata switched off, no slide carries one.
+        let settings = SlideSettings {
+            show_meta_information: ShowMetaInformation::none(),
+            ..settings
+        };
+        let slides =
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x").unwrap();
+        assert_eq!(slides.iter().filter(|slide| slide.has_meta_text()).count(), 0);
+    }
+
+    /// Switching the layout in the settings has to change the kind of slide
+    /// that comes out.
+    #[test]
+    fn test_the_layout_setting_changes_the_slides() {
+        use cantara_songlib::slides::{ShowMetaInformation, SlideElement};
+
+        let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
+        let base = SlideSettings {
+            title_slide: false,
+            empty_last_slide: false,
+            show_spoiler: false,
+            max_lines: None,
+            meta_syntax: String::new(),
+            show_meta_information: ShowMetaInformation::none(),
+            language: LanguageConfiguration::SingleLanguage(None),
+        };
+
+        let simple =
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &base, "x").unwrap();
+        assert!(simple.iter().all(|slide| !matches!(
+            slide.slide_content,
+            SlideContent::Complex(_)
+        )));
+
+        let complex_settings = SlideSettings {
+            language: LanguageConfiguration::Complex(vec![
+                SlideElement::Notation,
+                SlideElement::Lyrics("en".to_string()),
+            ]),
+            ..base
+        };
+        let complex =
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &complex_settings, "x")
+                .unwrap();
+        assert!(
+            complex
+                .iter()
+                .any(|slide| matches!(slide.slide_content, SlideContent::Complex(_))),
+            "the complex layout produced no complex slides"
+        );
+    }
 
     #[test]
     fn test_presentation_creation_from_amazing_grace() {

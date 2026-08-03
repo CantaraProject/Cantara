@@ -21,6 +21,8 @@ use crate::components::presentation_design_settings_components::PresentationDesi
 use crate::components::presenter_console_components::PresenterConsolePage;
 use crate::components::selection_components::Selection;
 use crate::components::settings_components::SettingsPage;
+use crate::components::detail_components::Detail;
+use crate::components::presentation_components::BundledFontFaces;
 use crate::components::song_slide_settings_components::SongSlideSettingsPage;
 use crate::components::wizard_components::Wizard;
 use dioxus::prelude::*;
@@ -55,6 +57,11 @@ pub enum Route {
     /// The selection route allows the user to select songs or other elements for the presentation
     #[route("/")]
     Selection {},
+
+
+    /// The detail view shows and edits one element at a time
+    #[route("/detail")]
+    Detail {},
 
     /// The wizard is shown when the program is run for the first time (no configuration file exists)
     #[route("/wizard")]
@@ -148,13 +155,19 @@ fn App() -> Element {
     #[cfg(all(feature = "desktop", target_os = "linux"))]
     use_effect(move || {
         match dark_light::detect() {
-            dark_light::Mode::Dark => {
-                let _ = document::eval("document.documentElement.setAttribute('data-theme', 'dark')");
+            Ok(mode) => match mode {
+                dark_light::Mode::Dark => {
+                    let _ = document::eval("document.documentElement.setAttribute('data-theme', 'dark')");
+                },
+                dark_light::Mode::Light => {
+                    let _ = document::eval("document.documentElement.setAttribute('data-theme', 'light')");
+                },
+                _ => {}
             },
-            dark_light::Mode::Light => {
+            Err(e) => {
+                log::error!("Failed to detect system theme: {}", e);
                 let _ = document::eval("document.documentElement.setAttribute('data-theme', 'light')");
-            },
-            _ => {}
+            }
         }
     });
 
@@ -177,6 +190,8 @@ fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        // Makes the fonts shipped in `assets/fonts/` usable by name.
+        BundledFontFaces {}
         document::Link { rel: "icon", href: FAVICON }
         document::Script { src: POSITIONING_JS }
         document::Title { "Cantara" }
@@ -185,6 +200,6 @@ fn App() -> Element {
         document::Meta { name: "color-scheme", content: "light dark" }
         document::Meta { name: "content-language", content: locale }
 
-        Router::<Route> { }
+        Router::<Route> {}
     }
 }

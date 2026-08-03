@@ -97,6 +97,20 @@ fn extract_pdf_text(path: &std::path::Path) -> Option<String> {
 /// Only returns content from `PDF_PAGE_CACHE`; never parses PDFs synchronously.
 /// The cache is populated by `refresh_search_cache` in a background thread.
 #[cfg(not(target_arch = "wasm32"))]
+/// How many pages a PDF has, for the detail view's paging.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn pdf_page_count(path: &std::path::Path) -> Option<u32> {
+    lopdf::Document::load(path)
+        .ok()
+        .map(|doc| doc.get_pages().len() as u32)
+}
+
+/// The web build has no file system to read the document from.
+#[cfg(target_arch = "wasm32")]
+pub fn pdf_page_count(_path: &std::path::Path) -> Option<u32> {
+    None
+}
+
 pub fn extract_pdf_page_text(path: &std::path::Path, page_number: u32) -> Option<String> {
     let cache_key = format!("{}#page={}", path.display(), page_number);
     if let Ok(map) = pdf_page_cache().lock() {
@@ -255,7 +269,9 @@ pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<Sear
                 let content_lower = content.to_lowercase();
                 if content_lower.contains(&query) {
                     // Find the context around the match
-                    let match_index = content_lower.find(&query).unwrap();
+                    let Some(match_index) = content_lower.find(&query) else {
+                        continue;
+                    };
 
                     // Convert byte indices to char indices for safe slicing
                     let content_chars: Vec<char> = content.chars().collect();
