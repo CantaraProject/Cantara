@@ -334,6 +334,7 @@ mod tests {
             path: PathBuf::from("testfiles/example.md"),
             file_type: SourceFileType::Markdown,
             md5_hash: None,
+            relative_path: None,
         };
         let results = search_source_files(&[sf], "slide");
         assert!(!results.is_empty(), "Should find markdown file by content");
@@ -347,6 +348,7 @@ mod tests {
             path: PathBuf::from("testfiles/Example.pdf"),
             file_type: SourceFileType::Pdf,
             md5_hash: None,
+            relative_path: None,
         };
         let results = search_source_files(&[sf], "test");
         assert!(
@@ -365,6 +367,7 @@ mod tests {
             path: PathBuf::from("testfiles/MultiPage.pdf"),
             file_type: SourceFileType::Pdf,
             md5_hash: None,
+            relative_path: None,
         };
         // PDF content search requires the cache to be populated first
         // (read_source_file_content never parses PDFs synchronously).
@@ -382,6 +385,7 @@ mod tests {
             path: PathBuf::from("testfiles/example.md"),
             file_type: SourceFileType::Markdown,
             md5_hash: None,
+            relative_path: None,
         };
         let results = search_source_files(&[sf], "example");
         assert!(!results.is_empty(), "Should find markdown file by title");
@@ -395,6 +399,7 @@ mod tests {
             path: PathBuf::from("testfiles/example.md"),
             file_type: SourceFileType::Markdown,
             md5_hash: None,
+            relative_path: None,
         };
         invalidate_search_cache();
         refresh_search_cache(&[sf.clone()]);
@@ -414,6 +419,7 @@ mod tests {
             path: PathBuf::from("testfiles/MultiPage.pdf"),
             file_type: SourceFileType::Pdf,
             md5_hash: None,
+            relative_path: None,
         };
         invalidate_search_cache();
         refresh_search_cache(&[sf.clone()]);

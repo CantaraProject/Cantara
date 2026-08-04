@@ -201,6 +201,22 @@ pub struct SourceFile {
     /// Used for file identity checks. `None` if the hash has not been computed yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub md5_hash: Option<String>,
+
+    /// Where the file sits *inside* its repository, with `/` as separator and
+    /// without a leading one — `Lieder/Amazing Grace.song`.
+    ///
+    /// [`path`](Self::path) cannot answer this: a downloaded repository is
+    /// unpacked into a new temporary directory on every start, and the web
+    /// build addresses its files through a VFS scheme instead of a file system
+    /// at all. The position within the repository is the one part that stays
+    /// the same, which is why the identifier the detail view puts into the URL
+    /// is derived from it — see [`crate::logic::element_id`].
+    ///
+    /// `None` for files that were not read from a repository (a picture the
+    /// user picked by hand, or an older settings file that predates this
+    /// field); those fall back to the full path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relative_path: Option<String>,
 }
 
 /// This function will get all source files in a given directory which can be imported and used by Cantara
@@ -233,9 +249,21 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
                 path: file.clone(),
                 file_type,
                 md5_hash,
+                relative_path: relative_path(start_dir, &file),
             })
         })
         .collect()
+}
+
+/// The position of `file` below `root`, in the form the URL identifier is built
+/// from: `/` as separator, whatever the platform's own separator is.
+fn relative_path(root: &Path, file: &Path) -> Option<String> {
+    let relative = file.strip_prefix(root).ok()?;
+    let segments: Vec<String> = relative
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    Some(segments.join("/"))
 }
 
 /// This is a wrapper around [SourceFile] which ensures that the [SourceFile] is an image
@@ -291,8 +319,14 @@ impl PdfSourceFile {
 impl SourceFile {
     /// Creates a [SourceFile] from a web VFS path (e.g., `web-zip://url/path/to/file.song`).
     /// Only available on WASM targets.
+    ///
+    /// `repository_prefix` is the part of the path that addresses the
+    /// repository itself (`web-github://owner/repo`); what follows it is the
+    /// file's [`relative_path`](Self::relative_path). The prefix has to be
+    /// passed in because it cannot be recovered from the path alone — a
+    /// `web-zip://` prefix ends with a URL, which contains slashes of its own.
     #[cfg(target_arch = "wasm32")]
-    pub fn from_web_path(vfs_path: &str) -> Option<Self> {
+    pub fn from_web_path(vfs_path: &str, repository_prefix: &str) -> Option<Self> {
         // The file name is the last component of the path
         let file_name = vfs_path.split('/').next_back()?;
         let file_type = SourceFileType::of(file_name)?;
@@ -302,7 +336,31 @@ impl SourceFile {
             path: PathBuf::from(vfs_path),
             file_type,
             md5_hash: None,
+            relative_path: vfs_path
+                .strip_prefix(repository_prefix)
+                .map(|relative| relative.trim_start_matches('/').to_string()),
         })
+    }
+}
+
+/// Reads a source file as text, wherever the build keeps it.
+///
+/// The desktop reads from the file system; the web build has none and reads
+/// from the in-memory VFS its repositories were unpacked into.
+pub fn read_source_file(file: &SourceFile) -> Result<String, String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use crate::logic::settings::RepositoryType;
+
+        let path = file.path.to_string_lossy().to_string();
+        let bytes = RepositoryType::web_read_file(&path)
+            .ok_or_else(|| "not found in the web storage".to_string())?;
+        String::from_utf8(bytes).map_err(|error| error.to_string())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        fs::read_to_string(&file.path).map_err(|error| error.to_string())
     }
 }
 
@@ -395,6 +453,24 @@ pub mod tests {
         );
     }
 
+    /// The scan has to record where a file sits inside its repository, since
+    /// that is what the URL identifier of the detail view is derived from.
+    #[test]
+    fn get_source_files_records_the_position_in_the_repository() {
+        let files = get_source_files(Path::new("testfiles"));
+
+        let song = files
+            .iter()
+            .find(|file| file.name == "Amazing Grace")
+            .expect("the test library holds Amazing Grace");
+
+        assert_eq!(
+            song.relative_path.as_deref(),
+            Some("Amazing Grace.song"),
+            "the position is relative to the scanned directory, not the whole path"
+        );
+    }
+
     #[test]
     fn traverse_test_dir_pdf() {
         let dir = Path::new("testfiles");
@@ -419,6 +495,7 @@ pub mod tests {
             path: PathBuf::from("test.pdf"),
             file_type: SourceFileType::Pdf,
             md5_hash: None,
+            relative_path: None,
         };
         assert!(PdfSourceFile::new(pdf_sf).is_some());
 
@@ -427,6 +504,7 @@ pub mod tests {
             path: PathBuf::from("test.song"),
             file_type: SourceFileType::Song,
             md5_hash: None,
+            relative_path: None,
         };
         assert!(PdfSourceFile::new(song_sf).is_none());
     }

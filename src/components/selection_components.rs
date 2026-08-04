@@ -144,7 +144,7 @@ pub fn Selection() -> Element {
         use_effect(move || {
             if wizard_completed() && !redirected() {
                 redirected.set(true);
-                nav.replace(Route::Detail {});
+                nav.replace(Route::Detail { element: vec![] });
             }
         });
     }
@@ -730,25 +730,12 @@ fn songs_of_selection(
 }
 
 fn read_source_file_content(source_file: &SourceFile) -> Result<String, ExportError> {
-    let unreadable = |reason: String| ExportError::Unreadable {
-        name: source_file.name.clone(),
-        reason,
-    };
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        use crate::logic::settings::RepositoryType;
-
-        let path_str = source_file.path.to_string_lossy().to_string();
-        let bytes = RepositoryType::web_read_file(&path_str)
-            .ok_or_else(|| unreadable("not found in the web storage".to_string()))?;
-        String::from_utf8(bytes).map_err(|error| unreadable(error.to_string()))
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        std::fs::read_to_string(&source_file.path).map_err(|error| unreadable(error.to_string()))
-    }
+    crate::logic::sourcefiles::read_source_file(source_file).map_err(|reason| {
+        ExportError::Unreadable {
+            name: source_file.name.clone(),
+            reason,
+        }
+    })
 }
 
 /// Turn an [`ExportError`] into a message in the user's language.

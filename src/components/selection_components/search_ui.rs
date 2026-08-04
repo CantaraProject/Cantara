@@ -233,6 +233,7 @@ mod tests {
             path: PathBuf::from(path),
             file_type: SourceFileType::Song,
             md5_hash: None,
+            relative_path: None,
         }
     }
 

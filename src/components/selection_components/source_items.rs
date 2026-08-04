@@ -299,6 +299,7 @@ pub(crate) fn MarkdownSourceItems(
                                 path: std::path::PathBuf::new(),
                                 file_type: SourceFileType::Markdown,
                                 md5_hash: None,
+                                relative_path: None,
                             };
                             let mut item = SelectedItemRepresentation::new_with_sourcefile(source_file);
                             item.inline_markdown = Some(text.clone());
@@ -456,6 +457,7 @@ pub(crate) async fn process_dropped_files(
                 path: std::path::PathBuf::from(&vfs_path),
                 file_type,
                 md5_hash,
+                relative_path: None,
             };
             selected_items
                 .write()
@@ -470,6 +472,7 @@ pub(crate) async fn process_dropped_files(
                 path: file_path,
                 file_type,
                 md5_hash,
+                relative_path: None,
             };
             selected_items
                 .write()

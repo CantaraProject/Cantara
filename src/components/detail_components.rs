@@ -18,7 +18,7 @@ use crate::components::selection_components::source_items::{
 use crate::logic::detail::{DetailMode, DetailSubject, DetailTab};
 use crate::logic::presentation::get_markdown_html;
 use crate::logic::settings::SelectionSidebarType;
-use crate::logic::sourcefiles::SourceFile;
+use crate::logic::sourcefiles::{read_source_file, SourceFile};
 use crate::logic::states::SelectedItemRepresentation;
 use cantara_songlib::exporter::abc::{AbcSettings, abc_from_song};
 use cantara_songlib::exporter::song_yml::song_yml_from_song;
@@ -41,25 +41,6 @@ fn file_name_of(file: &SourceFile) -> String {
         .and_then(|name| name.to_str())
         .unwrap_or(&file.name)
         .to_string()
-}
-
-/// Reads an element's text, wherever it lives.
-///
-/// The desktop reads the file system; the web build has a virtual file system
-/// filled from the bundled repositories.
-fn read_text(file: &SourceFile) -> Result<String, String> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        std::fs::read_to_string(&file.path).map_err(|error| error.to_string())
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        crate::logic::settings::RepositoryType::web_read_file(
-            file.path.to_str().unwrap_or_default(),
-        )
-        .ok_or_else(|| "file not available".to_string())
-        .and_then(|bytes| String::from_utf8(bytes).map_err(|error| error.to_string()))
-    }
 }
 
 /// Writes an element's text back.
@@ -259,13 +240,75 @@ fn InlineEditable(
 
 /// The detail view: the same element list as the selection view, with one
 /// element opened beside it.
+///
+/// `element` is what the URL carries after `/detail`: the identifier of the
+/// element to open, or nothing. The view and the address bar are kept in step
+/// in both directions — a link opens an element, and opening an element makes
+/// the link, so it can be copied out of the address bar. See
+/// [`crate::logic::element_id`] for what the identifier is.
 #[component]
-pub fn Detail() -> Element {
+pub fn Detail(element: Vec<String>) -> Element {
     let source_files: Signal<Vec<SourceFile>> = use_context();
     let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
-    let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
+    let mut active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_selection_filter: Signal<SelectionSidebarType> =
         use_signal(|| SelectionSidebarType::Songs);
+
+    // What the URL asks for. Only the first segment means anything, so
+    // `/detail/a3f9c2b1/whatever` opens the same element rather than nothing.
+    // Held in a signal because the two effects below have to react to it, and a
+    // value captured from the props would stay at whatever it was on the first
+    // render.
+    let mut requested_id: Signal<Option<String>> = use_signal(|| element.first().cloned());
+    use_effect(use_reactive!(|element| {
+        let from_url = element.first().cloned();
+        if *requested_id.peek() != from_url {
+            requested_id.set(from_url);
+        }
+    }));
+
+    // The URL decides which element is open — on arrival, and whenever it
+    // changes from outside (the back button, an edited address).
+    //
+    // The library is read here, so this runs again once the scan has finished:
+    // a link that is opened cold arrives long before there is anything to
+    // resolve it against. An identifier that names nothing is left alone; the
+    // view then shows no element, which is what a link to a song that has since
+    // been removed should do.
+    use_effect(move || {
+        let library = source_files.read();
+        let resolved = requested_id()
+            .and_then(|id| crate::logic::element_id::resolve(&library, &id));
+
+        if resolved.is_some() && resolved != *active_detailed_item_id.peek() {
+            active_detailed_item_id.set(resolved);
+        }
+    });
+
+    // ... and the other way round: opening an element writes the URL, so the
+    // address bar always shows a link to what is on screen. `replace` rather
+    // than `push`, so the back button leaves the detail view instead of
+    // stepping back through everything that was looked at in it.
+    //
+    // Reading the identifier from the URL with `peek` keeps this effect out of
+    // the other direction: it reacts to the element that is open, not to the
+    // address that itself writes.
+    let nav = navigator();
+    use_effect(move || {
+        let library = source_files.read();
+        let open_id = active_detailed_item_id()
+            .and_then(|index| library.get(index))
+            .map(|file| crate::logic::element_id::of(file, &library));
+
+        // While the library is still being scanned there is nothing to derive
+        // an identifier from; replacing the URL then would throw away the one
+        // the user arrived with before it could be resolved.
+        if let Some(id) = open_id
+            && Some(&id) != requested_id.peek().as_ref()
+        {
+            nav.replace(crate::Route::Detail { element: vec![id] });
+        }
+    });
 
     // The search is the selection view's, so a library is searched the same way
     // whichever view the user is in.
@@ -432,7 +475,7 @@ fn DetailFooter() -> Element {
 pub fn ViewModeToggle() -> Element {
     let nav = navigator();
     let route: crate::Route = use_route();
-    let in_detail = matches!(route, crate::Route::Detail {});
+    let in_detail = matches!(route, crate::Route::Detail { .. });
 
     rsx! {
         button {
@@ -441,7 +484,7 @@ pub fn ViewModeToggle() -> Element {
                 if in_detail {
                     nav.push(crate::Route::Selection {});
                 } else {
-                    nav.push(crate::Route::Detail {});
+                    nav.push(crate::Route::Detail { element: vec![] });
                 }
             },
             if in_detail {
@@ -596,7 +639,7 @@ fn PdfViewer(file: SourceFile) -> Element {
 
 #[component]
 fn MarkdownViewer(file: SourceFile) -> Element {
-    let content = use_memo(use_reactive!(|file| read_text(&file)));
+    let content = use_memo(use_reactive!(|file| read_source_file(&file)));
 
     rsx! {
         match &*content.read() {
@@ -620,7 +663,7 @@ fn SongViewer(file: SourceFile, tab: DetailTab) -> Element {
 
     // Re-read whenever a different song is opened.
     use_effect(use_reactive!(|file| {
-        let parsed = read_text(&file).and_then(|content| {
+        let parsed = read_source_file(&file).and_then(|content| {
             crate::logic::export::song_from_content(&file_name_of(&file), &content)
                 .map_err(|error| format!("{error:?}"))
         });
@@ -1139,12 +1182,12 @@ enum EditorKind {
 /// something to maintain by hand; it is what the words and voices *mean*.
 #[component]
 fn TextEditor(file: SourceFile, kind: EditorKind) -> Element {
-    let mut draft = use_signal(|| read_text(&file).unwrap_or_default());
+    let mut draft = use_signal(|| read_source_file(&file).unwrap_or_default());
     let mut status: Signal<Option<String>> = use_signal(|| None);
 
     // Re-read when the user opens a different element.
     use_effect(use_reactive!(|file| {
-        draft.set(read_text(&file).unwrap_or_default());
+        draft.set(read_source_file(&file).unwrap_or_default());
         status.set(None);
     }));
 
@@ -1242,6 +1285,7 @@ mod tests {
             path: std::path::PathBuf::from("/lieder/Alle Jahre wieder.song"),
             file_type: crate::logic::sourcefiles::SourceFileType::Song,
             md5_hash: None,
+            relative_path: None,
         };
 
         assert_eq!(file_name_of(&file), "Alle Jahre wieder.song");
@@ -1267,6 +1311,7 @@ mod tests {
             path: std::path::PathBuf::from(path),
             file_type: crate::logic::sourcefiles::SourceFileType::Song,
             md5_hash: None,
+            relative_path: None,
         };
 
         assert!(is_editable_in_place(&of("/l/X.song.yml")));
@@ -1427,6 +1472,7 @@ mod rename_tests {
             path,
             file_type: SourceFileType::Song,
             md5_hash: None,
+            relative_path: None,
         }
     }
 

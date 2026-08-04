@@ -70,10 +70,17 @@ pub enum Route {
     Selection {},
 
 
-    /// The detail view shows and edits one element at a time
-    #[route("/detail")]
+    /// The detail view shows and edits one element at a time.
+    ///
+    /// The trailing segment names the element that is open, so a link leads
+    /// straight to it: `/detail/a3f9c2b1`. It is a catch-all rather than a
+    /// second route, so that opening an element only changes this field
+    /// instead of swapping the route — the view keeps its state, and the fade
+    /// stays where it belongs, between the views.
+    /// Everything about that identifier is in [`logic::element_id`].
+    #[route("/detail/:..element")]
     #[transition(Fade)]
-    Detail {},
+    Detail { element: Vec<String> },
 
     /// The wizard is shown when the program is run for the first time (no configuration file exists)
     #[route("/wizard")]
