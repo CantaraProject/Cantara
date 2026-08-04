@@ -14,6 +14,11 @@ repository = "https://github.com/CantaraProject/Cantara"
 dioxus = { version = "0.7.9", features = ["router"] }
 dirs = "6.0.0"
 
+# Animated route transitions. The platform backend (`web` vs. `desktop`) is
+# selected through Cantara's own platform features below, since the crate's
+# default (`web`) would pull in wasm-bindgen on native builds.
+dioxus-motion = { version = "0.3.5", default-features = false, features = ["transitions"] }
+
 dioxus-free-icons = { version = "0.10.0", features = [
     "font-awesome-regular",
     "font-awesome-solid",
@@ -95,12 +100,15 @@ uuid = { version = "1", features = ["js"] }
 
 [features]
 default = ["desktop"]
-web = ["dioxus/web"]
+web = ["dioxus/web", "dioxus-motion/web"]
 desktop = [
     "dioxus/desktop",
     "dep:image",
+    "dioxus-motion/desktop",
 ]
-mobile = ["dioxus/mobile"]
+# dioxus-motion has no dedicated mobile backend; its `desktop` feature is the
+# native (non-WASM) timing backend and is what mobile builds need as well.
+mobile = ["dioxus/mobile", "dioxus-motion/desktop"]
 
 [profile]
 

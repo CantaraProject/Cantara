@@ -13,6 +13,7 @@
 //! - [`settings_components`]: Components for application settings
 //! - [`shared_components`]: Reusable components shared across different parts of the application
 //! - [`wizard_components`]: Components for the first-time setup wizard
+//! - [`route_transitions`]: The animated layout that transitions between the routes
 //! - [`font_settings`]: Components for font configuration (private module)
 //!
 //! ## Important Usage Notes
@@ -68,5 +69,7 @@ pub mod song_slide_settings_components;
 pub mod presenter_console_components;
 
 pub mod directory_browser;
+
+pub mod route_transitions;
 
 mod font_settings;

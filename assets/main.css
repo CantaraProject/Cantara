@@ -89,6 +89,36 @@ body {
     }
 }
 
+/* Route transitions
+ *
+ * While a navigation is running, dioxus-motion renders the page being left and
+ * the page being entered next to each other inside `.route-container` and
+ * cross-fades their opacity. Without positioning the two would be stacked
+ * vertically and the outgoing page would push the incoming one down, so both
+ * are taken out of the flow and laid on top of each other. As soon as the fade
+ * has finished the container disappears again and the current page is rendered
+ * directly.
+ */
+.route-container {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+}
+
+.route-content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* The outgoing page is only a visual leftover — clicks belong to the page that
+   is arriving. */
+.route-content.from {
+    pointer-events: none;
+}
+
 /* A logo with a rounded corner */
 .logo {
     border-radius: 50%;
