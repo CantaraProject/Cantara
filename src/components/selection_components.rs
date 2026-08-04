@@ -34,7 +34,6 @@ use crate::logic::sync::{
     SYNC_KEY_ACTIVE, SYNC_KEY_FILES, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE,
     SYNC_KEY_PRESENTATION, SYNC_KEY_QUIT,
 };
-use crate::Route;
 use crate::logic::export::{ExportError, ExportFormat, ExportedFile, song_from_content};
 use crate::logic::pptx::{PptxConversion, PptxDeck, deck_from_slides};
 
@@ -90,14 +89,12 @@ pub fn Selection() -> Element {
 
     // Where a build starts. The desktop is built around assembling a
     // presentation, so it stays on the selection; the web version is mostly
-    // used to look songs up, so it opens the detail view instead. This runs
-    // once, so pressing the footer button to come back here sticks.
+    // used to look songs up, so it opens the detail view instead. The redirect
+    // is skipped when the user explicitly navigated here via the ViewModeToggle.
     #[cfg(target_arch = "wasm32")]
     {
-        let mut redirected = use_signal(|| false);
         use_effect(move || {
-            if !redirected() {
-                redirected.set(true);
+            if !crate::USER_WANTS_SELECTION() {
                 nav.replace(crate::Route::Detail {});
             }
         });
@@ -129,37 +126,6 @@ pub fn Selection() -> Element {
             .first()
             .unwrap_or(&SlideSettings::default())
             .clone()
-    });
-
-    // Scanning a repository is expensive: every file is read to fingerprint it,
-    // and every PDF is parsed to fill the search cache. So the scan has to
-    // depend on the repositories alone — reading the whole settings here made
-    // it run again on every unrelated change, which is why editing a design or
-    // a font stalled on libraries holding long PDFs.
-    let repositories = use_memo(move || settings.read().repositories.clone());
-    let wizard_completed = use_memo(move || settings.read().wizard_completed);
-
-    use_effect(move || {
-        if !wizard_completed() {
-            nav.replace(Route::Wizard {});
-        }
-    });
-
-    use_effect(move || {
-        // Subscribes this effect to the repositories, and to nothing else.
-        let repositories = repositories();
-
-        spawn(async move {
-            let files = Settings::sourcefiles_of_async(&repositories).await;
-            source_files.set(files.clone());
-
-            #[cfg(not(target_arch = "wasm32"))]
-            std::thread::spawn(move || {
-                crate::logic::search::refresh_search_cache(&files);
-            });
-            #[cfg(target_arch = "wasm32")]
-            crate::logic::search::refresh_search_cache(&files);
-        });
     });
 
     #[cfg(feature = "desktop")]

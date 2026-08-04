@@ -31,6 +31,12 @@ use logic::sourcefiles::SourceFile;
 use logic::states::{self, RunningPresentation, SelectedItemRepresentation};
 use sys_locale::get_locale;
 
+/// On web the default route is the detail view, not the selection view.
+/// This global flag records that the user has explicitly navigated to the
+/// selection view so the automatic redirect in `Selection` can be suppressed.
+#[cfg(target_arch = "wasm32")]
+pub static USER_WANTS_SELECTION: GlobalSignal<bool> = Global::new(|| false);
+
 rust_i18n::i18n!("locales", fallback = "en");
 
 /// The CSS file provided by PicoCSS
@@ -181,11 +187,43 @@ fn App() -> Element {
     use_context_provider(|| settings);
 
     // The source files and selected items should live here because they should stay persistent in the different routes.
-    let _: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));
+    let mut source_files: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));
     let _: Signal<Vec<SelectedItemRepresentation>> = use_context_provider(|| Signal::new(vec![]));
 
     // The running presentations given as a global signal
     let _: Signal<Vec<RunningPresentation>> = use_context_provider(|| Signal::new(vec![]));
+
+    // Redirect to the wizard if it has not been completed yet.  This check
+    // used to live in Selection, but on the web build Detail is the default
+    // route, so the wizard would never be shown.
+    let wizard_completed = use_memo(move || settings.read().wizard_completed);
+    let nav = navigator();
+    use_effect(move || {
+        if !wizard_completed() {
+            nav.replace(crate::Route::Wizard {});
+        }
+    });
+
+    // Load source files whenever the configured repositories change.
+    // This lives in App rather than in Selection or Detail so that the files
+    // are available regardless of which route is entered first — on the web
+    // build the detail view is the default starting point, and it also needs
+    // the files to populate the left-hand list.
+    let repositories = use_memo(move || settings.read().repositories.clone());
+    use_effect(move || {
+        let repositories = repositories();
+        spawn(async move {
+            let files = Settings::sourcefiles_of_async(&repositories).await;
+            source_files.set(files.clone());
+
+            #[cfg(not(target_arch = "wasm32"))]
+            std::thread::spawn(move || {
+                crate::logic::search::refresh_search_cache(&files);
+            });
+            #[cfg(target_arch = "wasm32")]
+            crate::logic::search::refresh_search_cache(&files);
+        });
+    });
 
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }

@@ -439,8 +439,20 @@ pub fn ViewModeToggle() -> Element {
             class: "outline secondary smaller-buttons",
             onclick: move |_| {
                 if in_detail {
+                    // On web, record that the user explicitly wants the selection
+                    // view so the automatic redirect in Selection is suppressed.
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        *crate::USER_WANTS_SELECTION.write() = true;
+                    }
                     nav.push(crate::Route::Selection {});
                 } else {
+                    // When leaving Selection on web, reset the flag so that a
+                    // fresh page load still opens Detail by default.
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        *crate::USER_WANTS_SELECTION.write() = false;
+                    }
                     nav.push(crate::Route::Detail {});
                 }
             },
