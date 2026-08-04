@@ -4,6 +4,8 @@
 //! navigation behavior. Persistent application configuration is implemented in
 //! [`crate::logic::settings`].
 
+#[cfg(target_arch = "wasm32")]
+use dioxus::prelude::Signal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -16,6 +18,20 @@ use cantara_songlib::slides::{Slide, SlideSettings};
 #[derive(Clone)]
 pub struct RuntimeInformation {
     pub language: String,
+}
+
+/// Whether the web build's one-time redirect to the detail view has already
+/// happened.
+///
+/// This has to live in a context provided by `App`, which stays mounted for
+/// the program's lifetime. A `Signal` owned by the selection view itself would
+/// be recreated (and reset to `false`) every time that view mounts, which is
+/// exactly what happens when the footer button navigates back to it — the
+/// redirect would fire again immediately and undo the navigation.
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Copy)]
+pub struct InitialRouteState {
+    pub redirected_to_detail: Signal<bool>,
 }
 
 /// This struct represents a selected item
