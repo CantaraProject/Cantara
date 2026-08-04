@@ -145,12 +145,18 @@ jobs:
           rustup target add x86_64-linux-android
       - name: Build Android release
         run: dx build --platform android --release
+      - name: Assemble APK via Gradle
+        working-directory: target/dx/cantara/release/android/app
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
       - name: Upload Android artifact
         if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: release-android
-          path: target/dx/cantara/release/android/
+          path: target/dx/cantara/release/android/app/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
 
   build-web:
     name: Build and deploy web (GitHub Pages)
