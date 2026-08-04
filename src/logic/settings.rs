@@ -884,14 +884,14 @@ impl RepositoryType {
                         let mut temp_dirs = temp_dirs.borrow_mut();
                         if let Some(temp_dir) = temp_dirs.get(url) {
                             log::info!("Using existing temporary directory for URL: {}", url);
-                            files = get_source_files(temp_dir.path());
+                            files = get_source_files(&archive_content_root(temp_dir.path()));
                         } else {
                             log::info!("Downloading and extracting ZIP file from URL: {}", url);
                             match self.download_and_extract_zip(url, None) {
                                 Ok(temp_dir) => {
                                     let path = temp_dir.path().to_path_buf();
                                     log::info!("Extracted ZIP file to temporary directory: {:?}", path);
-                                    files = get_source_files(&path);
+                                    files = get_source_files(&archive_content_root(&path));
                                     temp_dirs.insert(url.clone(), temp_dir);
                                 }
                                 Err(e) => {
@@ -910,14 +910,14 @@ impl RepositoryType {
                         let mut temp_dirs = temp_dirs.borrow_mut();
                         if let Some(temp_dir) = temp_dirs.get(&cache_key) {
                             log::info!("Using existing temporary directory for GitHub repo: {}/{}", owner, repo);
-                            files = get_source_files(temp_dir.path());
+                            files = get_source_files(&archive_content_root(temp_dir.path()));
                         } else {
                             log::info!("Downloading GitHub repository: {}/{}", owner, repo);
                             match self.download_and_extract_zip(&url, token.as_deref()) {
                                 Ok(temp_dir) => {
                                     let path = temp_dir.path().to_path_buf();
                                     log::info!("Extracted GitHub repo to temporary directory: {:?}", path);
-                                    files = get_source_files(&path);
+                                    files = get_source_files(&archive_content_root(&path));
                                     temp_dirs.insert(cache_key, temp_dir);
                                 }
                                 Err(e) => {
@@ -945,7 +945,7 @@ impl RepositoryType {
                     .borrow()
                     .keys()
                     .filter(|k| k.starts_with(&prefix))
-                    .filter_map(|path| Self::source_file_from_web_path_with_md5(path))
+                    .filter_map(|path| Self::source_file_from_web_path_with_md5(path, &prefix))
                     .collect()
             })
         }
@@ -965,7 +965,7 @@ impl RepositoryType {
                         let temp_dirs = temp_dirs.borrow_mut();
                         if let Some(temp_dir) = temp_dirs.get(url) {
                             log::info!("Using existing temporary directory for URL: {}", url);
-                            files = get_source_files(temp_dir.path());
+                            files = get_source_files(&archive_content_root(temp_dir.path()));
                         }
                     });
                     if files.is_empty() {
@@ -974,7 +974,7 @@ impl RepositoryType {
                             Ok(temp_dir) => {
                                 let path = temp_dir.path().to_path_buf();
                                 log::info!("Extracted ZIP file to temporary directory: {:?}", path);
-                                files = get_source_files(&path);
+                                files = get_source_files(&archive_content_root(&path));
                                 TEMP_DIRS.with(|temp_dirs| {
                                     let mut temp_dirs = temp_dirs.borrow_mut();
                                     temp_dirs.insert(url.clone(), temp_dir);
@@ -995,7 +995,7 @@ impl RepositoryType {
                         let temp_dirs = temp_dirs.borrow_mut();
                         if let Some(temp_dir) = temp_dirs.get(&cache_key) {
                             log::info!("Using existing temporary directory for GitHub repo: {}/{}", owner, repo);
-                            files = get_source_files(temp_dir.path());
+                            files = get_source_files(&archive_content_root(temp_dir.path()));
                         }
                     });
                     if files.is_empty() {
@@ -1004,7 +1004,7 @@ impl RepositoryType {
                             Ok(temp_dir) => {
                                 let path = temp_dir.path().to_path_buf();
                                 log::info!("Extracted GitHub repo to temporary directory: {:?}", path);
-                                files = get_source_files(&path);
+                                files = get_source_files(&archive_content_root(&path));
                                 TEMP_DIRS.with(|temp_dirs| {
                                     let mut temp_dirs = temp_dirs.borrow_mut();
                                     temp_dirs.insert(cache_key, temp_dir);
@@ -1032,7 +1032,7 @@ impl RepositoryType {
                             .borrow()
                             .keys()
                             .filter(|k| k.starts_with(&prefix))
-                            .filter_map(|path| Self::source_file_from_web_path_with_md5(path))
+                            .filter_map(|path| Self::source_file_from_web_path_with_md5(path, &prefix))
                             .collect()
                     });
                     if !cached.is_empty() {
@@ -1051,7 +1051,7 @@ impl RepositoryType {
                             .borrow()
                             .keys()
                             .filter(|k| k.starts_with(&prefix))
-                            .filter_map(|path| Self::source_file_from_web_path_with_md5(path))
+                            .filter_map(|path| Self::source_file_from_web_path_with_md5(path, &prefix))
                             .collect()
                     });
                     if !cached.is_empty() {
@@ -1099,12 +1099,22 @@ impl RepositoryType {
                     let cursor = std::io::Cursor::new(bytes);
                     match ZipArchive::new(cursor) {
                         Ok(mut archive) => {
+                            // The same wrapper directory the desktop strips
+                            // after extracting — see `archive_content_root`.
+                            let wrapper = archive_wrapper_directory(&archive);
                             for i in 0..archive.len() {
                                 if let Ok(mut entry) = archive.by_index(i) {
                                     if entry.name().ends_with('/') {
                                         continue;
                                     }
                                     let name = entry.name().to_string();
+                                    let name = match &wrapper {
+                                        Some(wrapper) => name
+                                            .strip_prefix(wrapper.as_str())
+                                            .unwrap_or(&name)
+                                            .to_string(),
+                                        None => name,
+                                    };
                                     let path = format!("{}/{}", prefix, name);
                                     let mut content = Vec::new();
                                     let _ = std::io::Read::read_to_end(&mut entry, &mut content);
@@ -1126,7 +1136,7 @@ impl RepositoryType {
                 .borrow()
                 .keys()
                 .filter(|k| k.starts_with(prefix))
-                .filter_map(|path| Self::source_file_from_web_path_with_md5(path))
+                .filter_map(|path| Self::source_file_from_web_path_with_md5(path, prefix))
                 .collect()
         })
     }
@@ -1148,8 +1158,8 @@ impl RepositoryType {
     /// Creates a [SourceFile] from a web VFS path and computes its MD5 hash from the stored content.
     /// This is the preferred way to create SourceFiles on WASM because it includes the MD5 hash.
     #[cfg(target_arch = "wasm32")]
-    fn source_file_from_web_path_with_md5(path: &str) -> Option<SourceFile> {
-        let mut sf = SourceFile::from_web_path(path)?;
+    fn source_file_from_web_path_with_md5(path: &str, repository_prefix: &str) -> Option<SourceFile> {
+        let mut sf = SourceFile::from_web_path(path, repository_prefix)?;
         sf.md5_hash = WEB_FILES.with(|files| {
             files
                 .borrow()
@@ -1316,6 +1326,50 @@ fn get_settings_file() -> Option<PathBuf> {
 ///
 /// On other platforms, this delegates to `TempDir::new()` which uses the system's
 /// standard temp directory.
+/// The single directory every entry of the archive lies in, `"name/"`, if there
+/// is one.
+///
+/// The web build never writes the archive to a file system, so it has to spot
+/// the wrapper directory in the entry names rather than after unpacking; the
+/// reason for stripping it is the same as in [`archive_content_root`].
+#[cfg(target_arch = "wasm32")]
+fn archive_wrapper_directory<R: std::io::Read + std::io::Seek>(
+    archive: &ZipArchive<R>,
+) -> Option<String> {
+    let mut names = archive.file_names().filter(|name| !name.is_empty());
+    let first = names.next()?;
+    let wrapper = format!("{}/", first.split('/').next()?);
+
+    names
+        .all(|name| name.starts_with(&wrapper))
+        .then_some(wrapper)
+}
+
+/// Where the content of an extracted archive actually begins.
+///
+/// A zipball from GitHub wraps the whole repository in a single directory whose
+/// name carries the commit it was built from — `cantara-songrepo-4f2ab9c`. That
+/// name changes with every update of the repository, so it must not end up in a
+/// file's [`relative_path`](SourceFile::relative_path): the identifiers the
+/// detail view puts into its URLs are derived from that, and they are supposed
+/// to outlive both the download and the update. Stripping it also makes them
+/// agree with the web build, which unpacks the same repository without the
+/// wrapper.
+///
+/// Anything that is not wrapped in exactly one directory is returned unchanged.
+#[cfg(not(target_arch = "wasm32"))]
+fn archive_content_root(dir: &Path) -> PathBuf {
+    let mut entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries.flatten(),
+        Err(_) => return dir.to_path_buf(),
+    };
+
+    match (entries.next(), entries.next()) {
+        (Some(only), None) if only.path().is_dir() => only.path(),
+        _ => dir.to_path_buf(),
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn create_temp_dir() -> Result<TempDir, String> {
     // On Android, use the app's private files directory as the temp base

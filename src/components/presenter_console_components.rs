@@ -16,7 +16,12 @@ use rust_i18n::t;
 
 use super::presentation_components::{PresentationRendererComponent, StaticSlideRendererComponent};
 
-const PRESENTER_CONSOLE_CSS: Asset = asset!("/assets/presenter_console.css");
+/// The stylesheet of the presenter console.
+///
+/// Public for the same reason as [`PRESENTATION_CSS`](super::presentation_components::PRESENTATION_CSS):
+/// [`App`](crate::App) registers it, and the registration below is what the
+/// separate console window on the desktop needs.
+pub const PRESENTER_CONSOLE_CSS: Asset = asset!("/assets/presenter_console.css");
 
 rust_i18n::i18n!("locales", fallback = "en");
 

@@ -183,6 +183,7 @@ mod tests {
             path: PathBuf::from(format!("/tmp/{name}")),
             file_type,
             md5_hash: None,
+            relative_path: None,
         }
     }
 

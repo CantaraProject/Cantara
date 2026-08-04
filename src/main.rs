@@ -22,10 +22,15 @@ use crate::components::presenter_console_components::PresenterConsolePage;
 use crate::components::selection_components::Selection;
 use crate::components::settings_components::SettingsPage;
 use crate::components::detail_components::Detail;
-use crate::components::presentation_components::BundledFontFaces;
+use crate::components::presentation_components::{
+    BundledFontFaces, MORPH_JS, PRESENTATION_CSS, PRESENTATION_JS,
+};
+use crate::components::presenter_console_components::PRESENTER_CONSOLE_CSS;
+use crate::components::route_transitions::AnimatedLayout;
 use crate::components::song_slide_settings_components::SongSlideSettingsPage;
 use crate::components::wizard_components::Wizard;
 use dioxus::prelude::*;
+use dioxus_motion::prelude::*;
 use logic::settings::*;
 use logic::sourcefiles::SourceFile;
 use logic::states::{self, RunningPresentation, SelectedItemRepresentation};
@@ -51,41 +56,64 @@ const FAVICON: Asset = asset!("/assets/favicon.png");
 /// The test state for debugging purposes (will be removed in the final version)
 static TEST_STATE: GlobalSignal<String> = Global::new(|| "test".to_string());
 
-#[derive(Routable, PartialEq, Clone)]
+/// The routes of the application.
+///
+/// All of them live inside [`AnimatedLayout`], which renders an animated outlet
+/// instead of a plain one, so that a page change is a short cross-fade instead
+/// of a jump. Every route uses the same `Fade` — see
+/// [`route_transitions`](components::route_transitions) for why there is no
+/// route-specific effect.
+#[derive(Routable, PartialEq, Clone, MotionTransitions)]
 #[rustfmt::skip]
 pub enum Route {
+    #[layout(AnimatedLayout)]
     /// The selection route allows the user to select songs or other elements for the presentation
     #[route("/")]
+    #[transition(Fade)]
     Selection {},
 
 
-    /// The detail view shows and edits one element at a time
-    #[route("/detail")]
-    Detail {},
+    /// The detail view shows and edits one element at a time.
+    ///
+    /// The trailing segment names the element that is open, so a link leads
+    /// straight to it: `/detail/a3f9c2b1`. It is a catch-all rather than a
+    /// second route, so that opening an element only changes this field
+    /// instead of swapping the route — the view keeps its state, and the fade
+    /// stays where it belongs, between the views.
+    /// Everything about that identifier is in [`logic::element_id`].
+    #[route("/detail/:..element")]
+    #[transition(Fade)]
+    Detail { element: Vec<String> },
 
     /// The wizard is shown when the program is run for the first time (no configuration file exists)
     #[route("/wizard")]
+    #[transition(Fade)]
     Wizard {},
 
     /// The settings page is shown when explicitly called
     #[route("/settings")]
+    #[transition(Fade)]
     SettingsPage {},
 
     /// The presentation design settings page with a dynamic index
     #[route("/settings/design/:index")]
+    #[transition(Fade)]
     PresentationDesignSettingsPage { index: u16 },
 
     /// The song slide settings page with a dynamic index
     #[route("/settings/slide/:index")]
+    #[transition(Fade)]
     SongSlideSettingsPage { index: u16 },
 
     /// The presenter console shown in the main window during a presentation
     #[route("/presenter")]
+    #[transition(Fade)]
     PresenterConsolePage {},
 
     /// The presentation view shown in the same tab (when presenter console is disabled)
     /// or opened in a new tab (when presenter console is enabled, on web).
     #[route("/presentation")]
+    #[transition(Fade)]
     PresentationPage {},
 }
 
@@ -247,6 +275,27 @@ fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        // Every stylesheet and script the routes need is registered *here*,
+        // although only some of the views use them.
+        //
+        // A `document::Link` puts its tag into the head from an effect that is
+        // queued when the component mounts, and Dioxus discards the queued
+        // effects of a scope that is dropped before they run. It also remembers
+        // every href it has already seen and never inserts it twice, so a lost
+        // insertion cannot be made up for later. A route is exactly such a
+        // scope: the animated outlet (see
+        // [`route_transitions`](components::route_transitions)) mounts the page
+        // that is being navigated to once inside the running transition and
+        // again after it has settled, and the first of those two is dropped —
+        // taking the stylesheet with it. That is what left the presenter
+        // console and the slide preview unstyled.
+        //
+        // `App` is the root component and is never unmounted, so its
+        // registrations always arrive.
+        document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
+        document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }
+        document::Script { src: PRESENTATION_JS }
+        document::Script { src: MORPH_JS }
         // Makes the fonts shipped in `assets/fonts/` usable by name.
         BundledFontFaces {}
         document::Link { rel: "icon", href: FAVICON }

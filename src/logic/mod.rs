@@ -61,6 +61,7 @@ pub mod sourcefiles;
 pub mod bundled_repos;
 
 pub mod detail;
+pub mod element_id;
 pub mod export;
 pub mod fonts;
 pub mod pptx;

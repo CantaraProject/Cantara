@@ -197,6 +197,13 @@ jobs:
         run: cargo binstall -y dioxus-cli
       - name: Build web release
         run: dx build --platform web --release
+      # GitHub Pages serves files, and Cantara's routes (/detail/<element-id>,
+      # /settings, …) are not files — a visitor who opens such a link directly,
+      # or reloads the page, would get the 404 page instead of the app. Pages
+      # answers a missing path with 404.html, so serving the app from there as
+      # well hands the URL to the router, which then opens the right view.
+      - name: Serve the app for unknown paths as well
+        run: cp target/dx/cantara/release/web/public/index.html target/dx/cantara/release/web/public/404.html
       - name: Setup GitHub Pages
         if: github.event_name == 'push'
         uses: actions/configure-pages@v4

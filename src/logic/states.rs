@@ -441,6 +441,7 @@ mod tests {
             path: PathBuf::from("test/path.song"),
             file_type: SourceFileType::Song,
             md5_hash: None,
+            relative_path: None,
         };
 
         let slide = Slide {
