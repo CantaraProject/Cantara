@@ -74,7 +74,7 @@ pub fn Selection() -> Element {
     let mut search_results: Signal<Vec<SearchResult>> = use_signal(Vec::new);
     let mut search_visible: Signal<bool> = use_signal(|| false);
 
-    let mut source_files: Signal<Vec<SourceFile>> = use_context();
+    let source_files: Signal<Vec<SourceFile>> = use_context();
     let mut selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
@@ -140,9 +140,10 @@ pub fn Selection() -> Element {
     #[cfg(target_arch = "wasm32")]
     {
         let initial_route: crate::logic::states::InitialRouteState = use_context();
+        let mut redirected = initial_route.redirected_to_detail;
         use_effect(move || {
-            if wizard_completed() && !initial_route.redirected_to_detail() {
-                initial_route.redirected_to_detail.set(true);
+            if wizard_completed() && !redirected() {
+                redirected.set(true);
                 nav.replace(Route::Detail {});
             }
         });
