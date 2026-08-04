@@ -146,16 +146,17 @@ jobs:
       - name: Build Android release
         run: dx build --platform android --release
       - name: Assemble APK via Gradle
+        working-directory: target/dx/cantara/release/android/app
         run: |
-          cd target/dx/cantara/release/android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease --no-daemon
       - name: Upload Android artifact
         if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: release-android
-          path: target/dx/cantara/release/android/app/build/outputs/apk/release/*.apk
+          path: target/dx/cantara/release/android/app/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
 
   build-web:
     name: Build and deploy web (GitHub Pages)
