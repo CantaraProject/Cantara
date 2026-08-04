@@ -22,7 +22,10 @@ use crate::components::presenter_console_components::PresenterConsolePage;
 use crate::components::selection_components::Selection;
 use crate::components::settings_components::SettingsPage;
 use crate::components::detail_components::Detail;
-use crate::components::presentation_components::BundledFontFaces;
+use crate::components::presentation_components::{
+    BundledFontFaces, MORPH_JS, PRESENTATION_CSS, PRESENTATION_JS,
+};
+use crate::components::presenter_console_components::PRESENTER_CONSOLE_CSS;
 use crate::components::route_transitions::AnimatedLayout;
 use crate::components::song_slide_settings_components::SongSlideSettingsPage;
 use crate::components::wizard_components::Wizard;
@@ -272,6 +275,27 @@ fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        // Every stylesheet and script the routes need is registered *here*,
+        // although only some of the views use them.
+        //
+        // A `document::Link` puts its tag into the head from an effect that is
+        // queued when the component mounts, and Dioxus discards the queued
+        // effects of a scope that is dropped before they run. It also remembers
+        // every href it has already seen and never inserts it twice, so a lost
+        // insertion cannot be made up for later. A route is exactly such a
+        // scope: the animated outlet (see
+        // [`route_transitions`](components::route_transitions)) mounts the page
+        // that is being navigated to once inside the running transition and
+        // again after it has settled, and the first of those two is dropped —
+        // taking the stylesheet with it. That is what left the presenter
+        // console and the slide preview unstyled.
+        //
+        // `App` is the root component and is never unmounted, so its
+        // registrations always arrive.
+        document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
+        document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }
+        document::Script { src: PRESENTATION_JS }
+        document::Script { src: MORPH_JS }
         // Makes the fonts shipped in `assets/fonts/` usable by name.
         BundledFontFaces {}
         document::Link { rel: "icon", href: FAVICON }

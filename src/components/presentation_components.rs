@@ -23,10 +23,16 @@ use crate::{
     },
 };
 
-const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
-const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
+/// The stylesheet and the scripts of the presentation.
+///
+/// Public because [`App`](crate::App) registers them itself — see the comment
+/// there for why a route may not be the one to do that. The components below
+/// still register them as well, for the separate windows the desktop opens:
+/// each of those runs its own `VirtualDom`, in which `App` does not exist.
+pub const PRESENTATION_CSS: Asset = asset!("/assets/presentation.css");
+pub const PRESENTATION_JS: Asset = asset!("/assets/presentation_positioning.js");
 /// Installs the observer behind [`SlideTransition::Morph`].
-const MORPH_JS: Asset = asset!("/assets/morph_transition.js");
+pub const MORPH_JS: Asset = asset!("/assets/morph_transition.js");
 
 /// The `%%staffsep` value at which abcjs engraves exactly as it does without
 /// the directive at all.
