@@ -211,12 +211,20 @@ fn App() -> Element {
     // is parsed for the search index, so this depends on the repositories alone
     // and not on the rest of the settings.
     let repositories = use_memo(move || settings.read().repositories.clone());
+    let scan_generation: Signal<u64> = use_signal(|| 0);
 
     use_effect(move || {
         let repositories = repositories();
 
+        // Ensure only the latest scan applies its results.
+        scan_generation.set(scan_generation.peek() + 1);
+        let generation = scan_generation.peek();
+
         spawn(async move {
             let files = Settings::sourcefiles_of_async(&repositories).await;
+            if scan_generation.peek() != generation {
+                return;
+            }
             source_files.set(files.clone());
 
             #[cfg(not(target_arch = "wasm32"))]
