@@ -74,7 +74,7 @@ pub fn Selection() -> Element {
     let mut search_results: Signal<Vec<SearchResult>> = use_signal(Vec::new);
     let mut search_visible: Signal<bool> = use_signal(|| false);
 
-    let mut source_files: Signal<Vec<SourceFile>> = use_context();
+    let source_files: Signal<Vec<SourceFile>> = use_context();
     let mut selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
@@ -87,21 +87,6 @@ pub fn Selection() -> Element {
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
 
     let mut show_export_menu: Signal<bool> = use_signal(|| false);
-
-    // Where a build starts. The desktop is built around assembling a
-    // presentation, so it stays on the selection; the web version is mostly
-    // used to look songs up, so it opens the detail view instead. This runs
-    // once, so pressing the footer button to come back here sticks.
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut redirected = use_signal(|| false);
-        use_effect(move || {
-            if !redirected() {
-                redirected.set(true);
-                nav.replace(crate::Route::Detail {});
-            }
-        });
-    }
 
     use_effect(move || {
         let query = filter_string.read().clone();
@@ -131,12 +116,6 @@ pub fn Selection() -> Element {
             .clone()
     });
 
-    // Scanning a repository is expensive: every file is read to fingerprint it,
-    // and every PDF is parsed to fill the search cache. So the scan has to
-    // depend on the repositories alone — reading the whole settings here made
-    // it run again on every unrelated change, which is why editing a design or
-    // a font stalled on libraries holding long PDFs.
-    let repositories = use_memo(move || settings.read().repositories.clone());
     let wizard_completed = use_memo(move || settings.read().wizard_completed);
 
     use_effect(move || {
@@ -145,22 +124,30 @@ pub fn Selection() -> Element {
         }
     });
 
-    use_effect(move || {
-        // Subscribes this effect to the repositories, and to nothing else.
-        let repositories = repositories();
-
-        spawn(async move {
-            let files = Settings::sourcefiles_of_async(&repositories).await;
-            source_files.set(files.clone());
-
-            #[cfg(not(target_arch = "wasm32"))]
-            std::thread::spawn(move || {
-                crate::logic::search::refresh_search_cache(&files);
-            });
-            #[cfg(target_arch = "wasm32")]
-            crate::logic::search::refresh_search_cache(&files);
+    // Where a build starts. The desktop is built around assembling a
+    // presentation, so it opens the selection; the web version is mostly used
+    // to look songs up, so it opens the detail view instead — but only once
+    // the wizard is out of the way, otherwise this would race the effect
+    // above and the flag below would be spent on a redirect that immediately
+    // got overridden.
+    //
+    // The "have we done this already" flag lives in `App`, so it survives
+    // this component unmounting and remounting — a signal owned by
+    // `Selection` itself would reset every time the view mounts, bouncing the
+    // user straight back here whenever the footer button navigated to the
+    // selection. The navigation call itself has to happen here rather than in
+    // `App`, since only a descendant of `Router` can call `navigator()`.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let initial_route: crate::logic::states::InitialRouteState = use_context();
+        let mut redirected = initial_route.redirected_to_detail;
+        use_effect(move || {
+            if wizard_completed() && !redirected() {
+                redirected.set(true);
+                nav.replace(Route::Detail {});
+            }
         });
-    });
+    }
 
     #[cfg(feature = "desktop")]
     use_effect(|| {

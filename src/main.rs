@@ -181,11 +181,68 @@ fn App() -> Element {
     use_context_provider(|| settings);
 
     // The source files and selected items should live here because they should stay persistent in the different routes.
-    let _: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));
+    let mut source_files: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));
     let _: Signal<Vec<SelectedItemRepresentation>> = use_context_provider(|| Signal::new(vec![]));
 
     // The running presentations given as a global signal
     let _: Signal<Vec<RunningPresentation>> = use_context_provider(|| Signal::new(vec![]));
+
+    // Where a build starts. The desktop is built around assembling a
+    // presentation, so it opens the selection; the web version is mostly used
+    // to look songs up, so it opens the detail view.
+    //
+    // The actual navigation has to happen in the `Selection` component, since
+    // only a descendant of `Router` (rendered below) can call `navigator()` —
+    // calling it here, in `App` itself, panics because the router context
+    // doesn't exist yet at this point in the render. What belongs here is only
+    // the "have we already done this" flag, so it survives `Selection`
+    // unmounting and remounting as the user navigates.
+    #[cfg(target_arch = "wasm32")]
+    use_context_provider(|| states::InitialRouteState {
+        redirected_to_detail: Signal::new(false),
+    });
+
+    // Read the library here rather than in a view. It used to be loaded by the
+    // selection view, which meant the list stayed empty for anyone who never
+    // opened it — the web build starts in the detail view, so its songs never
+    // appeared at all.
+    //
+    // Scanning is expensive: every file is read to fingerprint it and every PDF
+    // is parsed for the search index, so this depends on the repositories alone
+    // and not on the rest of the settings.
+    let repositories = use_memo(move || settings.read().repositories.clone());
+    let mut scan_generation: Signal<u64> = use_signal(|| 0);
+
+    use_effect(move || {
+        let repositories = repositories();
+
+        // A scan takes seconds on a large library, so a second one can start
+        // while the first is still running. Each claims a generation and only
+        // publishes its result while that generation is still the current one
+        // — otherwise a slow scan of the old repositories would land on top of
+        // a finished scan of the new ones.
+        //
+        // `peek` rather than a read: this effect must not subscribe to the
+        // counter it writes itself. The value has to be copied out of the
+        // guard as well, since a borrow cannot be held across the `await`.
+        let generation = *scan_generation.peek() + 1;
+        scan_generation.set(generation);
+
+        spawn(async move {
+            let files = Settings::sourcefiles_of_async(&repositories).await;
+            if *scan_generation.peek() != generation {
+                return;
+            }
+            source_files.set(files.clone());
+
+            #[cfg(not(target_arch = "wasm32"))]
+            std::thread::spawn(move || {
+                crate::logic::search::refresh_search_cache(&files);
+            });
+            #[cfg(target_arch = "wasm32")]
+            crate::logic::search::refresh_search_cache(&files);
+        });
+    });
 
     rsx! {
         document::Link { rel: "stylesheet", href: PICO_CSS }
