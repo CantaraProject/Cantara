@@ -139,9 +139,9 @@ pub fn Selection() -> Element {
     // `App`, since only a descendant of `Router` can call `navigator()`.
     #[cfg(target_arch = "wasm32")]
     {
-        let mut initial_route: crate::logic::states::InitialRouteState = use_context();
+        let initial_route: crate::logic::states::InitialRouteState = use_context();
         use_effect(move || {
-            if wizard_completed() && !(initial_route.redirected_to_detail)() {
+            if wizard_completed() && !initial_route.redirected_to_detail() {
                 initial_route.redirected_to_detail.set(true);
                 nav.replace(Route::Detail {});
             }
