@@ -839,6 +839,67 @@ div.inline-div {
 
 .detail-song-tags dd { margin: 0; }
 
+/* A row in the list of what has been picked for the presentation.
+ *
+ * The name takes the space that is left and the buttons keep theirs: a
+ * `float: right` inside a flex row is ignored, so the buttons used to be laid
+ * out as an ordinary flex item and a name long enough to wrap pushed the
+ * wastebasket onto a line of its own. */
+.selected-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    transition: background-color 300ms ease-out;
+}
+
+.selected-item-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+}
+
+/* The name may wrap; what must not is the column of buttons beside it. */
+.selected-item-name {
+    overflow-wrap: anywhere;
+}
+
+.selected-item-actions {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    align-self: start;
+    gap: 0.25em;
+}
+
+/* Every button gets the same box, so the icons of one row sit above the icons
+ * of the next even where a row has nothing to move up or down. */
+.selected-item-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75em;
+    height: 1.75em;
+    cursor: pointer;
+    border-radius: var(--pico-border-radius);
+}
+
+.selected-item-action:hover {
+    background-color: color-mix(in srgb, var(--pico-primary) 15%, transparent);
+}
+
+/* The slot a row cannot use — it holds the column open. */
+.selected-item-action-empty {
+    cursor: default;
+    pointer-events: none;
+}
+
+.selected-item-action-empty:hover {
+    background-color: transparent;
+}
+
 /* The element the detail view is showing. */
 .selection_item-active {
     border-color: var(--pico-primary) !important;

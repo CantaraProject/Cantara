@@ -212,6 +212,17 @@ fn App() -> Element {
     let mut source_files: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));
     let _: Signal<Vec<SelectedItemRepresentation>> = use_context_provider(|| Signal::new(vec![]));
 
+    // Which kind of element the library list is showing. Kept here so that it
+    // survives switching between the selection and the detail view, and so
+    // that the detail view — which re-mounts every time an element is opened,
+    // since that writes the address — does not throw it away. It starts on
+    // whatever the user has dragged to the top of the sidebar.
+    use_context_provider(|| states::LibraryFilterState {
+        active: Signal::new(states::first_sidebar_type(
+            &settings.peek().sidebar_order,
+        )),
+    });
+
     // The running presentations given as a global signal
     let _: Signal<Vec<RunningPresentation>> = use_context_provider(|| Signal::new(vec![]));
 

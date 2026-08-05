@@ -238,8 +238,12 @@ pub fn Detail(element: Vec<String>) -> Element {
     let source_files: Signal<Vec<SourceFile>> = use_context();
     let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let mut active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
+    // Not a signal of this view's own: opening an element replaces the address,
+    // which re-mounts this component, and a fresh signal would send the list
+    // back to the songs every time a picture or a PDF was opened. See
+    // [`crate::logic::states::LibraryFilterState`].
     let active_selection_filter: Signal<SelectionSidebarType> =
-        use_signal(|| SelectionSidebarType::Songs);
+        use_context::<crate::logic::states::LibraryFilterState>().active;
 
     // What the URL asks for. Only the first segment means anything, so
     // `/detail/a3f9c2b1/whatever` opens the same element rather than nothing.
@@ -577,11 +581,15 @@ fn DetailPane(subject: DetailSubject) -> Element {
 
 #[component]
 fn ImageViewer(file: SourceFile) -> Element {
-    let path = file.path.to_str().unwrap_or_default().to_string();
+    // Inline rather than by path: see [`crate::logic::images`].
+    let source = crate::logic::images::image_data_url(&file.path);
 
     rsx! {
         div { class: "detail-image",
-            img { src: "{path}", alt: "{file.name}" }
+            match source {
+                Some(source) => rsx! { img { src: "{source}", alt: "{file.name}" } },
+                None => rsx! { p { class: "detail-empty", {t!("detail.picture_unreadable").to_string()} } },
+            }
         }
     }
 }

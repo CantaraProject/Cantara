@@ -4,13 +4,12 @@
 //! navigation behavior. Persistent application configuration is implemented in
 //! [`crate::logic::settings`].
 
-#[cfg(target_arch = "wasm32")]
 use dioxus::prelude::Signal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{
-    settings::{PresentationDesign, SlideTimerSettings, SlideTransition},
+    settings::{PresentationDesign, SelectionSidebarType, SlideTimerSettings, SlideTransition},
     sourcefiles::SourceFile,
 };
 use cantara_songlib::slides::{Slide, SlideSettings};
@@ -32,6 +31,36 @@ pub struct RuntimeInformation {
 #[derive(Clone, Copy)]
 pub struct InitialRouteState {
     pub redirected_to_detail: Signal<bool>,
+}
+
+/// Which kind of element the library list is showing.
+///
+/// Held by `App` rather than by the two views that draw the list, for two
+/// reasons. The selection view and the detail view show the *same* list, and a
+/// user who was looking through the PDFs in one of them is still looking
+/// through the PDFs after switching to the other — a signal owned by a view
+/// would start over at whatever it was initialised with every time that view
+/// mounts. And the detail view mounts constantly: opening an element writes
+/// the element's identifier into the address, which is a route change, which
+/// re-creates the view. That is what threw the list back to the songs the
+/// moment a picture or a PDF was opened.
+#[derive(Clone, Copy)]
+pub struct LibraryFilterState {
+    pub active: Signal<SelectionSidebarType>,
+}
+
+/// The kind of element the library list starts on: whichever the user has put
+/// at the top of the sidebar.
+///
+/// The sidebar can be reordered by dragging, and the top button is what a user
+/// means by "the one I work with" — starting on the songs regardless was only
+/// ever the order the buttons happened to be declared in.
+pub fn first_sidebar_type(order: &[SelectionSidebarType]) -> SelectionSidebarType {
+    order
+        .first()
+        .copied()
+        .or_else(|| crate::logic::settings::default_sidebar_order().first().copied())
+        .unwrap_or(SelectionSidebarType::Songs)
 }
 
 /// This struct represents a selected item

@@ -704,8 +704,14 @@ pub fn PresentationRendererComponent(
         let mut css: CssHandler = CssHandler::new();
         let pds = current_pds();
 
-        if let Some(image) = pds.background_image {
-            css.background_image(image.as_source().path.to_str().unwrap_or_default());
+        // A `url()` pointing into the file system is as unreachable for the
+        // page as an `img` source is, so the picture is inlined the same way.
+        if let Some(source) = pds
+            .background_image
+            .as_ref()
+            .and_then(|image| crate::logic::images::image_data_url(&image.as_source().path))
+        {
+            css.background_image(&source);
             css.background_size("cover");
             css.background_position("center");
             css.background_repeat("no-repeat");
@@ -1651,10 +1657,20 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
         };
     }
 
+    // The picture goes to the page inline. A file system path in `src` is not
+    // something a web view can fetch, which is why every picture slide showed
+    // the broken-image placeholder — see [`crate::logic::images`].
+    let Some(source) = crate::logic::images::image_data_url_str(&path) else {
+        log::warn!("could not read the picture {path}");
+        return rsx! {
+            div { style: "width: 100%; height: 100%; z-index: 2;" }
+        };
+    };
+
     rsx! {
         div { style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
             img {
-                src: "{path}",
+                src: "{source}",
                 style: "max-width: 100%; max-height: 100%; object-fit: contain;",
             }
         }
@@ -1837,8 +1853,12 @@ pub fn StaticSlideRendererComponent(
     let background_css = {
         let mut css = CssHandler::new();
         css.set_important(true);
-        if let Some(ref image) = pds.background_image {
-            css.background_image(image.as_source().path.to_str().unwrap_or_default());
+        if let Some(source) = pds
+            .background_image
+            .as_ref()
+            .and_then(|image| crate::logic::images::image_data_url(&image.as_source().path))
+        {
+            css.background_image(&source);
             css.background_size("cover");
             css.background_position("center");
             css.background_repeat("no-repeat");

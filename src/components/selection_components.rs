@@ -64,8 +64,10 @@ pub fn Selection() -> Element {
     let mut selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
+    // Shared with the detail view and kept across mounts — see
+    // [`crate::logic::states::LibraryFilterState`].
     let active_selection_filter: Signal<SelectionSidebarType> =
-        use_signal(|| SelectionSidebarType::Songs);
+        use_context::<crate::logic::states::LibraryFilterState>().active;
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
     let mut drag_over_source: Signal<bool> = use_signal(|| false);

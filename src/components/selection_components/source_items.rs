@@ -140,7 +140,9 @@ fn ImageSourceItem(
     let Some(source_file) = source_file else {
         return rsx! {};
     };
-    let image_src = source_file.path.to_string_lossy().to_string();
+    // The picture is handed to the page inline; a file system path in `src` is
+    // nothing a web view can fetch. See [`crate::logic::images`].
+    let image_src = crate::logic::images::image_data_url(&source_file.path);
 
     rsx! {
         div {
@@ -168,7 +170,9 @@ fn ImageSourceItem(
             },
             {source_file.name.clone()}
             br {}
-            img { height: "300px", src: "{image_src}" }
+            if let Some(image_src) = image_src {
+                img { height: "300px", src: "{image_src}", alt: "{source_file.name}" }
+            }
         }
     }
 }

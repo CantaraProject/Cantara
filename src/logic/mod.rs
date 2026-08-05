@@ -19,6 +19,7 @@
 //! - [`conversions`]: Provides utilities for data conversion and transformation
 //! - [`css`]: Handles CSS generation and styling
 //! - [`search`]: Implements search functionality for finding songs and other content
+//! - [`images`]: Gets a picture from the file system into a web view
 //! - [`parallel`]: Spreads the per-file work of a library scan over the cores
 //!
 //! ## Separation of Concerns
@@ -66,6 +67,7 @@ pub mod bundled_repos;
 
 pub mod detail;
 pub mod element_id;
+pub mod images;
 pub mod export;
 pub mod fonts;
 pub mod pptx;
