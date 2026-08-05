@@ -355,11 +355,46 @@ div.inline-div {
     top: 80px;
     bottom: 0;
     margin-top: 5px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--pico-border-color);
     border-radius: 4px;
     padding: 10px;
     background-color: var(--pico-background-color);
     box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+/* One hit. The whole row is clickable, so it says so. */
+.search-result {
+    padding: 0.4rem 0.2rem;
+    border-bottom: 1px solid var(--pico-border-color);
+}
+
+.search-result-title {
+    font-weight: bold;
+    cursor: pointer;
+}
+
+/* The passage a content hit was found in. */
+.search-result-content {
+    margin-top: 0.25rem;
+    font-size: 0.9em;
+    color: var(--pico-muted-color);
+}
+
+/* The keyboard shortcut in front of the first ten hits. */
+.search-result-shortcut {
+    margin-right: 0.5rem;
+    font-size: 0.85em;
+    color: var(--pico-muted-color);
+}
+
+/* What the search matched, inside a name or a passage.
+   `mark` comes with a yellow background of its own, which is unreadable in the
+   dark theme — the accent colour works in both. */
+.search-highlight {
+    background-color: var(--pico-primary-background);
+    color: var(--pico-primary-inverse);
+    border-radius: 2px;
+    padding: 0 1px;
 }
 
 .directory-entry {

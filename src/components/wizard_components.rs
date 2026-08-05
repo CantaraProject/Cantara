@@ -164,8 +164,8 @@ fn SecondStep() -> Element {
 
             let mut settings_signal: Signal<Settings> = use_context();
 
-            if let Some(path) = path {
-                if path.is_dir() && path.exists() {
+            if let Some(path) = path
+                && path.is_dir() && path.exists() {
                     chosen_directory.set(path.to_str().unwrap_or_default().to_string());
                     let mut settings = settings_signal.write();
                     settings.add_repository_folder(chosen_directory.read().to_string());
@@ -173,7 +173,6 @@ fn SecondStep() -> Element {
                     // On desktop, mark the step as done after a successful directory selection.
                     wizard_status.is_done.set(true);
                 }
-            }
         }
         #[cfg(not(feature = "desktop"))]
         {

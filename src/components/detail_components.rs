@@ -30,19 +30,6 @@ use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
-/// The file name on disk, which is what decides a song's format.
-///
-/// [`SourceFile::name`] is the *display* name — the suffix has been stripped
-/// for the list — so passing it to the importer makes every song look like an
-/// unknown format.
-fn file_name_of(file: &SourceFile) -> String {
-    file.path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(&file.name)
-        .to_string()
-}
-
 /// Writes an element's text back.
 ///
 /// The web build has nowhere to write to, so editing there stays a preview.
@@ -74,7 +61,7 @@ fn rename_element(file: &SourceFile, new_display_name: &str) -> Result<(), Strin
         return Err(t!("detail.name_has_separator").to_string());
     }
 
-    let current = file_name_of(file);
+    let current = file.file_name().to_string();
     let suffix = current
         .strip_prefix(&file.name)
         .unwrap_or("")
@@ -103,7 +90,7 @@ fn rename_element(_file: &SourceFile, _new_display_name: &str) -> Result<(), Str
 /// a different format behind the user's back — that would change what the file
 /// is, and Cantara has no importer-preserving writer for those.
 fn is_editable_in_place(file: &SourceFile) -> bool {
-    let name = file_name_of(file).to_lowercase();
+    let name = file.file_name().to_lowercase();
     name.ends_with(".song.yml") || name.ends_with(".song.yaml")
 }
 
@@ -360,13 +347,13 @@ pub fn Detail(element: Vec<String>) -> Element {
                 SearchInput {
                     input_signal: filter_string,
                     element_signal: input_element_signal,
+                    on_escape: move |_| search_visible.set(false),
                 }
             }
 
             if search_visible() {
                 SearchResults {
                     search_results,
-                    query: filter_string,
                     selected_items,
                     search_visible,
                     source_files,
@@ -664,7 +651,7 @@ fn SongViewer(file: SourceFile, tab: DetailTab) -> Element {
     // Re-read whenever a different song is opened.
     use_effect(use_reactive!(|file| {
         let parsed = read_source_file(&file).and_then(|content| {
-            crate::logic::export::song_from_content(&file_name_of(&file), &content)
+            crate::logic::export::song_from_content(file.file_name(), &content)
                 .map_err(|error| format!("{error:?}"))
         });
         song.set(parsed);
@@ -1232,7 +1219,7 @@ fn TextEditor(file: SourceFile, kind: EditorKind) -> Element {
                         }
                     }
                     EditorKind::Song => rsx! {
-                        SongDraftPreview { file_name: file_name_of(&file), source: draft() }
+                        SongDraftPreview { file_name: file.file_name().to_string(), source: draft() }
                     },
                 }
             }
@@ -1288,7 +1275,7 @@ mod tests {
             relative_path: None,
         };
 
-        assert_eq!(file_name_of(&file), "Alle Jahre wieder.song");
+        assert_eq!(file.file_name(), "Alle Jahre wieder.song");
 
         // And the display name really would not do.
         assert!(
@@ -1296,7 +1283,7 @@ mod tests {
             "the display name has no suffix, so it cannot select an importer"
         );
         assert!(
-            crate::logic::export::song_from_content(&file_name_of(&file), "#title: X\n\nHallo")
+            crate::logic::export::song_from_content(file.file_name(), "#title: X\n\nHallo")
                 .is_ok(),
             "the real file name has to reach the importer"
         );

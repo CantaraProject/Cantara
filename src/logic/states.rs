@@ -118,21 +118,19 @@ impl RunningPresentation {
     /// Go to the next slide (if any exists).
     /// Resets `markdown_scroll_position` to 0 so the new slide starts at the top.
     pub fn next_slide(&mut self) {
-        if let Some(ref mut pos) = self.position {
-            if pos.try_next(&self.presentation).is_ok() {
+        if let Some(ref mut pos) = self.position
+            && pos.try_next(&self.presentation).is_ok() {
                 self.markdown_scroll_position = 0.0;
             }
-        }
     }
 
     /// Go to the previous slide (if any exists).
     /// Resets `markdown_scroll_position` to 0 so the new slide starts at the top.
     pub fn previous_slide(&mut self) {
-        if let Some(ref mut pos) = self.position {
-            if pos.try_back(&self.presentation).is_ok() {
+        if let Some(ref mut pos) = self.position
+            && pos.try_back(&self.presentation).is_ok() {
                 self.markdown_scroll_position = 0.0;
             }
-        }
     }
 
     /// Jump to a specific chapter and slide position.
@@ -206,17 +204,6 @@ impl RunningPresentation {
             && self.position == other.position
             && self.is_black_screen == other.is_black_screen
             && self.presentation_resolution == other.presentation_resolution
-    }
-
-    pub fn get_current_slide_settings(&self) -> SlideSettings {
-        match self.position.as_ref() {
-            Some(pos) => self
-                .presentation
-                .get(pos.chapter())
-                .and_then(|ch| ch.slide_settings_option.clone())
-                .unwrap_or_default(),
-            None => SlideSettings::default(),
-        }
     }
 
     /// Returns the transition for the current chapter.

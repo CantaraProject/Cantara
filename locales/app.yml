@@ -252,8 +252,8 @@ search:
     en: Search Results
     de: Suchergebnisse
   result_number:
-    en: "Press %{number} to select"
-    de: "Drücke %{number} zum Auswählen"
+    en: "Alt+%{number}"
+    de: "Alt+%{number}"
 settings:
   repositories_headline:
     en: Repositories

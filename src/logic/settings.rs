@@ -1,15 +1,18 @@
 //! This module contains the logic and structures for managing, loading and saving the program's settings.
 
 use crate::logic::css::{CssFontFamily, CssString};
-use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, get_source_files};
+use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
+// The directory scan and the paths it works on exist on the desktop only; the
+// web build reads its repositories from an in-memory VFS instead.
+#[cfg(not(target_arch = "wasm32"))]
+use crate::logic::sourcefiles::{count_source_files, get_source_files};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::{Path, PathBuf};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
 use reqwest::Client as AsyncClient;
-#[cfg(not(target_arch = "wasm32"))]
-use reqwest::blocking::Client;
 use rgb::*;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 #[cfg(not(target_arch = "wasm32"))]
 use std::{
     fs,
@@ -241,8 +244,8 @@ fn migrate_settings_json(json: &str) -> String {
     fn upgrade(value: &mut serde_json::Value) {
         match value {
             serde_json::Value::Object(map) => {
-                if let Some(meta) = map.get("show_meta_information") {
-                    if let Some(name) = meta.as_str() {
+                if let Some(meta) = map.get("show_meta_information")
+                    && let Some(name) = meta.as_str() {
                         let (title_slide, first_slide, last_slide) = match name {
                             "FirstSlide" => (false, true, false),
                             "LastSlide" => (false, false, true),
@@ -259,7 +262,6 @@ fn migrate_settings_json(json: &str) -> String {
                             }),
                         );
                     }
-                }
                 for nested in map.values_mut() {
                     upgrade(nested);
                 }
@@ -274,18 +276,6 @@ fn migrate_settings_json(json: &str) -> String {
 }
 
 impl Settings {
-    /// Cleans up all temporary resources associated with all repositories
-    pub fn cleanup_all_repositories(&self) {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            for repo in &self.repositories {
-                repo.cleanup();
-            }
-            // Also clean up any orphaned temporary directories
-            RepositoryType::cleanup_all_temp_dirs();
-        }
-    }
-
     /// Load settings from storage or creates a new default settings if
     /// the program is run for the first time.
     pub fn load() -> Self {
@@ -302,21 +292,18 @@ impl Settings {
             settings.ensure_slide_settings_for_designs();
             settings.migrate_github_zip_repos();
             settings.ensure_bundled_repos();
-            return settings;
+            settings
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let mut settings = match get_settings_file() {
-                Some(file) => match std::fs::read_to_string(file) {
-                    Ok(content) => match serde_json::from_str(&migrate_settings_json(&content)) {
-                        Ok(settings) => settings,
-                        Err(_) => Self::default(),
-                    },
-                    Err(_) => Self::default(),
-                },
-                None => Self::default(),
-            };
+            // A settings file that cannot be read or understood is not worth
+            // reporting: the defaults are a working configuration, and the
+            // wizard picks the user up from there.
+            let mut settings: Settings = get_settings_file()
+                .and_then(|file| std::fs::read_to_string(file).ok())
+                .and_then(|content| serde_json::from_str(&migrate_settings_json(&content)).ok())
+                .unwrap_or_default();
             settings.ensure_default_presentation_design();
             settings.ensure_slide_settings_for_designs();
             settings.migrate_github_zip_repos();
@@ -333,7 +320,6 @@ impl Settings {
                     .and_then(|w| w.local_storage().ok().flatten())
                     .map(|s| s.set_item("cantara-settings", &json));
             }
-            return;
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -349,29 +335,12 @@ impl Settings {
         }
     }
 
-    /// Add a new repository to the settings if the repository is not already present (avoiding duplicates).
-    pub fn add_repository(&mut self, repo: Repository) {
-        if !self.repositories.contains(&repo) {
-            self.repositories.push(repo);
-        }
-    }
-
     /// Add a new repository folder given as String to the settings if the repository is not already present (avoiding duplicates).
     pub fn add_repository_folder(&mut self, folder: String) {
         let name: &str = get_last_dir(&folder).unwrap_or(&folder);
 
         self.repositories
             .push(Repository::new_local_folder(name.into(), folder));
-    }
-
-    /// Add a new remote ZIP repository given as URL to the settings.
-    ///
-    /// # Arguments
-    /// * `name` - A user-friendly name for the repository
-    /// * `url` - The URL to the ZIP file
-    pub fn add_remote_zip_repository(&mut self, name: String, url: String) {
-        self.repositories
-            .push(Repository::new_remote_zip(name, url));
     }
 
     /// Add a new remote ZIP repository given as URL to the settings.
@@ -425,25 +394,6 @@ impl Settings {
             .push(Repository::new_github(owner, repo, token));
     }
 
-    /// Get all elements of all repositories as a vector of [SourceFile]
-    pub fn get_sourcefiles(&self) -> Vec<SourceFile> {
-        let mut source_files: Vec<SourceFile> = vec![];
-        self.repositories
-            .iter()
-            .for_each(|repo| source_files.extend(repo.repository_type.get_files()));
-
-        source_files.sort();
-        source_files.dedup();
-
-        source_files
-    }
-
-    /// Get all elements of all repositories as a vector of [SourceFile] asynchronously.
-    /// This is the async version of `get_sourcefiles`.
-    pub async fn get_sourcefiles_async(&self) -> Vec<SourceFile> {
-        Settings::sourcefiles_of_async(&self.repositories).await
-    }
-
     /// The files of the given repositories.
     ///
     /// Taking the repositories rather than the whole settings lets a caller
@@ -494,8 +444,8 @@ impl Settings {
     /// default branch, avoiding failures from stale branch references.
     pub fn migrate_github_zip_repos(&mut self) {
         for repo in &mut self.repositories {
-            if let RepositoryType::RemoteZip(url) = &repo.repository_type {
-                if let Some((owner, repo_name)) =
+            if let RepositoryType::RemoteZip(url) = &repo.repository_type
+                && let Some((owner, repo_name)) =
                     RepositoryType::parse_github_from_zip_url(url)
                 {
                     repo.repository_type = RepositoryType::GitHub {
@@ -504,7 +454,6 @@ impl Settings {
                         token: None,
                     };
                 }
-            }
         }
     }
 
@@ -565,17 +514,13 @@ impl Settings {
             if let RepositoryType::GitHub {
                 owner, repo: rname, ..
             } = &r.repository_type
-            {
-                if bundled
+                && bundled
                     .iter()
                     .any(|&(o, n)| o == owner.as_str() && n == rname.as_str())
-                {
-                    if r.removable {
+                    && r.removable {
                         r.removable = false;
                         changed = true;
                     }
-                }
-            }
         }
 
         // Skip the wizard when bundled repos are present
@@ -587,12 +532,6 @@ impl Settings {
         if changed {
             self.save();
         }
-    }
-
-    /// No-op on non-WASM targets. Bundled repos are only used for WebAssembly builds.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn ensure_bundled_repos(&mut self) {
-        // Bundled repos are only relevant for WASM targets
     }
 }
 
@@ -672,14 +611,14 @@ impl Repository {
         }
     }
 
-    /// Get the count of source files in this repository
-    pub fn get_source_file_count(&self) -> usize {
-        self.repository_type.get_files().len()
-    }
-
-    /// Get the count of source files in this repository asynchronously
+    /// How many files this repository holds, for the settings page to show.
+    ///
+    /// Deliberately *not* the length of [`RepositoryType::get_files_async`]:
+    /// that reads and hashes every file of the library, which is seconds of
+    /// work for a number next to a folder name — and the settings page asked
+    /// for it once per repository every time it was drawn.
     pub async fn get_source_file_count_async(&self) -> usize {
-        self.repository_type.get_files_async().await.len()
+        self.repository_type.get_file_count_async().await
     }
 }
 
@@ -724,7 +663,7 @@ thread_local! {
 /// Strips a `refs/heads/` or `refs/tags/` prefix from a git ref string,
 /// returning just the branch or tag name.
 #[cfg(any(target_arch = "wasm32", test))]
-fn normalize_git_ref<'a>(ref_part: &'a str) -> &'a str {
+fn normalize_git_ref(ref_part: &str) -> &str {
     ref_part
         .strip_prefix("refs/heads/")
         .or_else(|| ref_part.strip_prefix("refs/tags/"))
@@ -786,31 +725,13 @@ impl RepositoryType {
         });
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub fn cleanup_temp_dir(_url: &str) {}
-
-    /// Cleans up all temporary directories (desktop only).
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn cleanup_all_temp_dirs() {
-        TEMP_DIRS.with(|temp_dirs| {
-            let mut temp_dirs = temp_dirs.borrow_mut();
-            let urls: Vec<String> = temp_dirs.keys().cloned().collect();
-            for url in urls {
-                temp_dirs.remove(&url);
-                log::info!("Cleaned up temporary directory for URL: {}", url);
-            }
-        });
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn cleanup_all_temp_dirs() {}
-
     /// Returns the GitHub API zipball URL for a given owner and repo.
     /// This URL fetches the default branch's latest commit as a ZIP archive.
     pub fn github_zipball_url(owner: &str, repo: &str) -> String {
         format!("https://api.github.com/repos/{}/{}/zipball", owner, repo)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     /// Returns a cache key for a GitHub repository, used for temporary directory management.
     pub fn github_cache_key(owner: &str, repo: &str) -> String {
         format!("github://{}/{}", owner, repo)
@@ -860,95 +781,12 @@ impl RepositoryType {
         // https://codeload.github.com/{owner}/{repo}/legacy.zip/... or /zip/...
         if let Some(rest) = url.strip_prefix("https://codeload.github.com/") {
             let parts: Vec<&str> = rest.splitn(3, '/').collect();
-            if parts.len() == 3 && !parts[0].is_empty() && !parts[1].is_empty() {
-                if parts[2].starts_with("legacy.zip/") || parts[2].starts_with("zip/") {
+            if parts.len() == 3 && !parts[0].is_empty() && !parts[1].is_empty()
+                && (parts[2].starts_with("legacy.zip/") || parts[2].starts_with("zip/")) {
                     return Some((parts[0].to_string(), parts[1].to_string()));
                 }
-            }
         }
         None
-    }
-
-    /// Get files which are provided by the repository.
-    /// On WASM, local file paths are not supported; only remote ZIP repositories work.
-    pub fn get_files(&self) -> Vec<SourceFile> {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            match self {
-                RepositoryType::LocaleFilePath(path_string) => {
-                    get_source_files(Path::new(&path_string))
-                }
-                RepositoryType::RemoteZip(url) => {
-                    let mut files = vec![];
-                    TEMP_DIRS.with(|temp_dirs| {
-                        let mut temp_dirs = temp_dirs.borrow_mut();
-                        if let Some(temp_dir) = temp_dirs.get(url) {
-                            log::info!("Using existing temporary directory for URL: {}", url);
-                            files = get_source_files(&archive_content_root(temp_dir.path()));
-                        } else {
-                            log::info!("Downloading and extracting ZIP file from URL: {}", url);
-                            match self.download_and_extract_zip(url, None) {
-                                Ok(temp_dir) => {
-                                    let path = temp_dir.path().to_path_buf();
-                                    log::info!("Extracted ZIP file to temporary directory: {:?}", path);
-                                    files = get_source_files(&archive_content_root(&path));
-                                    temp_dirs.insert(url.clone(), temp_dir);
-                                }
-                                Err(e) => {
-                                    log::error!("Failed to download or extract ZIP file: {}", e);
-                                }
-                            }
-                        }
-                    });
-                    files
-                }
-                RepositoryType::GitHub { owner, repo, token } => {
-                    let cache_key = Self::github_cache_key(owner, repo);
-                    let url = Self::github_zipball_url(owner, repo);
-                    let mut files = vec![];
-                    TEMP_DIRS.with(|temp_dirs| {
-                        let mut temp_dirs = temp_dirs.borrow_mut();
-                        if let Some(temp_dir) = temp_dirs.get(&cache_key) {
-                            log::info!("Using existing temporary directory for GitHub repo: {}/{}", owner, repo);
-                            files = get_source_files(&archive_content_root(temp_dir.path()));
-                        } else {
-                            log::info!("Downloading GitHub repository: {}/{}", owner, repo);
-                            match self.download_and_extract_zip(&url, token.as_deref()) {
-                                Ok(temp_dir) => {
-                                    let path = temp_dir.path().to_path_buf();
-                                    log::info!("Extracted GitHub repo to temporary directory: {:?}", path);
-                                    files = get_source_files(&archive_content_root(&path));
-                                    temp_dirs.insert(cache_key, temp_dir);
-                                }
-                                Err(e) => {
-                                    log::error!("Failed to download GitHub repository: {}", e);
-                                }
-                            }
-                        }
-                    });
-                    files
-                }
-                _ => vec![],
-            }
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            // Synchronous local file paths are not available on web.
-            // Use get_files_async() instead for RemoteZip repositories.
-            let prefix = self.web_vfs_prefix();
-            if prefix.is_empty() {
-                return vec![];
-            }
-            WEB_FILES.with(|files| {
-                files
-                    .borrow()
-                    .keys()
-                    .filter(|k| k.starts_with(&prefix))
-                    .filter_map(|path| Self::source_file_from_web_path_with_md5(path, &prefix))
-                    .collect()
-            })
-        }
     }
 
     /// Get files which are provided by the repository asynchronously.
@@ -1067,16 +905,49 @@ impl RepositoryType {
         }
     }
 
-    /// Returns the VFS prefix for this repository on WASM.
-    #[cfg(target_arch = "wasm32")]
-    fn web_vfs_prefix(&self) -> String {
-        match self {
-            RepositoryType::RemoteZip(url) => format!("web-zip://{}", url),
-            RepositoryType::GitHub { owner, repo, .. } => {
-                format!("web-github://{}/{}", owner, repo)
+    /// How many files this repository holds.
+    ///
+    /// Where the files are already there — a local folder, or an archive that
+    /// has been unpacked once already — only their names are looked at. That
+    /// is all a count needs, and it is what keeps the settings page from
+    /// reading the whole library from disk every time it is drawn. A
+    /// repository that has not been fetched yet still has to be fetched, and
+    /// then the ordinary scan answers.
+    pub async fn get_file_count_async(&self) -> usize {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            match self {
+                RepositoryType::LocaleFilePath(path_string) => {
+                    return count_source_files(Path::new(&path_string));
+                }
+                RepositoryType::RemoteZip(url) => {
+                    if let Some(count) = Self::count_in_temp_dir(url) {
+                        return count;
+                    }
+                }
+                RepositoryType::GitHub { owner, repo, .. } => {
+                    let cache_key = Self::github_cache_key(owner, repo);
+                    if let Some(count) = Self::count_in_temp_dir(&cache_key) {
+                        return count;
+                    }
+                }
+                _ => return 0,
             }
-            _ => String::new(),
         }
+
+        self.get_files_async().await.len()
+    }
+
+    /// How many files the already-unpacked copy of `cache_key` holds, if there
+    /// is one.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn count_in_temp_dir(cache_key: &str) -> Option<usize> {
+        TEMP_DIRS.with(|temp_dirs| {
+            temp_dirs
+                .borrow()
+                .get(cache_key)
+                .map(|temp_dir| count_source_files(&archive_content_root(temp_dir.path())))
+        })
     }
 
     /// Downloads a ZIP file and extracts it to the WASM in-memory VFS.
@@ -1169,77 +1040,6 @@ impl RepositoryType {
         Some(sf)
     }
 
-    /// Downloads a ZIP file from a URL and extracts it to a temporary directory (desktop only).
-    /// Optionally includes an authorization token for authenticated requests (e.g. private GitHub repos).
-    #[cfg(not(target_arch = "wasm32"))]
-    fn download_and_extract_zip(
-        &self,
-        url: &str,
-        token: Option<&str>,
-    ) -> Result<TempDir, String> {
-        let temp_dir = create_temp_dir()?;
-        let zip_path = temp_dir.path().join("download.zip");
-        // Only the mobile targets replace the TLS setup, so on every other
-        // platform the binding is never written to again.
-        #[allow(unused_mut)]
-        let mut builder = Client::builder().http1_only();
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        {
-            builder = builder.use_preconfigured_tls(mobile_tls_config());
-        }
-        let client = builder
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-        let mut request = client
-            .get(url)
-            .header("User-Agent", "Cantara");
-        if let Some(token) = token {
-            request = request.header("Authorization", format!("Bearer {}", token));
-        }
-        let response = request
-            .send()
-            .map_err(|e| format!("Failed to download ZIP file: {}", e))?;
-        if !response.status().is_success() {
-            return Err(format!(
-                "Failed to download ZIP file: HTTP status {}",
-                response.status()
-            ));
-        }
-        let mut file = fs::File::create(&zip_path)
-            .map_err(|e| format!("Failed to create temporary file: {}", e))?;
-        let content = response
-            .bytes()
-            .map_err(|e| format!("Failed to read response body: {}", e))?;
-        file.write_all(&content)
-            .map_err(|e| format!("Failed to write to temporary file: {}", e))?;
-        let file = fs::File::open(&zip_path)
-            .map_err(|e| format!("Failed to open downloaded ZIP file: {}", e))?;
-        let mut archive =
-            ZipArchive::new(file).map_err(|e| format!("Failed to parse ZIP file: {}", e))?;
-        for i in 0..archive.len() {
-            let mut file = archive
-                .by_index(i)
-                .map_err(|e| format!("Failed to access ZIP entry: {}", e))?;
-            let outpath = temp_dir.path().join(file.name());
-            if file.name().ends_with('/') {
-                fs::create_dir_all(&outpath)
-                    .map_err(|e| format!("Failed to create directory: {}", e))?;
-            } else {
-                if let Some(parent) = outpath.parent() {
-                    if !parent.exists() {
-                        fs::create_dir_all(parent)
-                            .map_err(|e| format!("Failed to create parent directory: {}", e))?;
-                    }
-                }
-                let mut outfile = fs::File::create(&outpath)
-                    .map_err(|e| format!("Failed to create output file: {}", e))?;
-                io::copy(&mut file, &mut outfile)
-                    .map_err(|e| format!("Failed to write output file: {}", e))?;
-            }
-        }
-        Ok(temp_dir)
-    }
-
     /// Downloads a ZIP file and extracts it to a temporary directory asynchronously (desktop only).
     /// Optionally includes an authorization token for authenticated requests (e.g. private GitHub repos).
     #[cfg(not(target_arch = "wasm32"))]
@@ -1296,12 +1096,11 @@ impl RepositoryType {
                 fs::create_dir_all(&outpath)
                     .map_err(|e| format!("Failed to create directory: {}", e))?;
             } else {
-                if let Some(parent) = outpath.parent() {
-                    if !parent.exists() {
+                if let Some(parent) = outpath.parent()
+                    && !parent.exists() {
                         fs::create_dir_all(parent)
                             .map_err(|e| format!("Failed to create parent directory: {}", e))?;
                     }
-                }
                 let mut outfile = fs::File::create(&outpath)
                     .map_err(|e| format!("Failed to create output file: {}", e))?;
                 io::copy(&mut file, &mut outfile)
@@ -1519,6 +1318,12 @@ impl Default for PresentationDesign {
 
 /// This enum describes the general design of the presentation (background color, font-colors etc.).
 /// It can be configured via a Template or imputed by direct HTML/CSS
+///
+/// The two variants differ a lot in size, and that is left as it is: a design
+/// exists once per configured design — a handful per installation, never a
+/// collection worth the indirection — and the template is read on every frame
+/// the presentation renders.
+#[allow(clippy::large_enum_variant)]
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub enum PresentationDesignSettings {
     /// Describe the design via a template set up in Cantara
@@ -1620,15 +1425,6 @@ impl Default for NotationSettings {
 }
 
 impl PresentationDesignTemplate {
-    /// Returns the background color as an RGB string which can be used in CSS
-    /// for example: pure black would equal to (0, 0, 0)
-    pub fn get_background_as_rgb_string(&self) -> String {
-        format!(
-            "{}, {}, {}",
-            self.background_color.r, self.background_color.g, self.background_color.b
-        )
-    }
-
     /// Returns the background color as a hexadecimal string
     /// for example, pure black would equal to #000000
     pub fn get_background_color_as_hex_string(&self) -> String {
@@ -1647,38 +1443,8 @@ impl PresentationDesignTemplate {
         }
     }
 
-    pub fn headline_index(&self) -> Option<u16> {
-        self.headline_index
-    }
-
     pub fn spoiler_index(&self) -> Option<u16> {
         self.spoiler_index
-    }
-
-    /// Sets the headline index if it does exist.
-    /// If it does not exist, no change will occur.
-    pub fn set_headline_index(&mut self, headline_index: Option<u16>) {
-        match headline_index {
-            Some(index) => {
-                if (index as usize) < self.fonts.len() {
-                    self.headline_index = Some(index);
-                }
-            }
-            None => self.headline_index = None,
-        }
-    }
-
-    /// Sets the spoiler index if it does exist.
-    /// If it does not exist, no change will occur.
-    pub fn set_spoiler_index(&mut self, spoiler_index: Option<u16>) {
-        match spoiler_index {
-            Some(index) => {
-                if (index as usize) < self.fonts.len() {
-                    self.spoiler_index = Some(index);
-                }
-            }
-            None => self.spoiler_index = None,
-        }
     }
 
     /// Gets the default [FontRepresentation] (the first element of the `fonts` vector or the configured default
@@ -1876,13 +1642,6 @@ fn default_font_weight() -> u16 {
 }
 
 impl FontRepresentation {
-    pub fn get_color_as_rgba_string(&self) -> String {
-        format!(
-            "{}, {}, {}, {}",
-            self.color.r, self.color.g, self.color.b, self.color.a
-        )
-    }
-
     pub fn default_spoiler() -> Self {
         let mut default = Self::default();
         default
@@ -2010,19 +1769,6 @@ impl CssString for CssSize {
 }
 
 impl CssSize {
-    /// Checks if the size is null or zero
-    pub fn is_null(&self) -> bool {
-        matches!(self, CssSize::Null)
-            || matches!(self, CssSize::Px(0.0))
-            || matches!(self, CssSize::Pt(0.0))
-            || matches!(self, CssSize::Em(0.0))
-            || matches!(self, CssSize::Percentage(0.0))
-    }
-
-    pub fn null() -> Self {
-        CssSize::Null
-    }
-
     /// Gets the inner float independent of the unit
     pub fn get_float(&self) -> f32 {
         match self {
@@ -2451,18 +2197,6 @@ mod tests {
     }
 
     #[test]
-    fn test_ensure_bundled_repos_noop_on_desktop() {
-        // On non-WASM targets, ensure_bundled_repos should be a no-op
-        let mut settings = Settings::default();
-        assert!(settings.repositories.is_empty());
-        assert!(!settings.wizard_completed);
-        settings.ensure_bundled_repos();
-        // On desktop, nothing should change
-        assert!(settings.repositories.is_empty());
-        assert!(!settings.wizard_completed);
-    }
-
-    #[test]
     fn test_add_remote_zip_repository_url_github_archive_migrates() {
         let mut settings = Settings::default();
         settings.add_remote_zip_repository_url(
@@ -2535,10 +2269,11 @@ mod design_block_tests {
 
     fn template_with_language(code: &str) -> PresentationDesignTemplate {
         let mut template = PresentationDesignTemplate::default();
-        let mut block = FontRepresentation::default();
-        block.language = Some(code.to_string());
-        block.font_size = CssSize::Pt(11.0);
-        template.fonts.push(block);
+        template.fonts.push(FontRepresentation {
+            language: Some(code.to_string()),
+            font_size: CssSize::Pt(11.0),
+            ..FontRepresentation::default()
+        });
         template
     }
 
@@ -2589,10 +2324,11 @@ mod design_block_tests {
     #[test]
     fn test_an_empty_code_claims_nothing() {
         let mut template = PresentationDesignTemplate::default();
-        let mut block = FontRepresentation::default();
-        block.language = Some("  ".to_string());
-        block.font_size = CssSize::Pt(11.0);
-        template.fonts.push(block);
+        template.fonts.push(FontRepresentation {
+            language: Some("  ".to_string()),
+            font_size: CssSize::Pt(11.0),
+            ..FontRepresentation::default()
+        });
 
         assert_ne!(template.font_for_row(Some("de")).font_size, CssSize::Pt(11.0));
     }

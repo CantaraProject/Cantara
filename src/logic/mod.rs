@@ -19,6 +19,7 @@
 //! - [`conversions`]: Provides utilities for data conversion and transformation
 //! - [`css`]: Handles CSS generation and styling
 //! - [`search`]: Implements search functionality for finding songs and other content
+//! - [`parallel`]: Spreads the per-file work of a library scan over the cores
 //!
 //! ## Separation of Concerns
 //!
@@ -48,8 +49,8 @@
 //! // Load settings from storage or create default settings
 //! let settings = Settings::load();
 //!
-//! // Access repositories and source files
-//! let source_files = settings.get_sourcefiles();
+//! // Read the library of every configured repository
+//! let source_files = Settings::sourcefiles_of_async(&settings.repositories).await;
 //! ```
 
 pub mod settings;
@@ -58,6 +59,9 @@ pub mod states;
 
 pub mod sourcefiles;
 
+/// Only the web build has a use for the repositories that were embedded at
+/// build time: it is the one without a file system to read them from.
+#[cfg(target_arch = "wasm32")]
 pub mod bundled_repos;
 
 pub mod detail;
@@ -70,6 +74,11 @@ pub mod presentation;
 pub mod conversions;
 pub mod css;
 pub mod search;
+
+/// Reading a library is thousands of independent file reads, and only the
+/// native builds have threads to spread them over.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod parallel;
 
 #[cfg(target_arch = "wasm32")]
 pub mod sync;

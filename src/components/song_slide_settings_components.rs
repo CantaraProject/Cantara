@@ -126,13 +126,12 @@ pub fn SongSlideSettings(song_slide_settings: Signal<Vec<SlideSettings>>) -> Ele
                             }
                         },
                         ondelete: move |_| {
-                            if let Some(index) = selected_slide_settings_index() {
-                                if index < song_slide_settings.read().len() {
+                            if let Some(index) = selected_slide_settings_index()
+                                && index < song_slide_settings.read().len() {
                                     song_slide_settings.write().remove(index);
                                     selected_slide_settings_index
                                         .set(Some(0).filter(|_| !song_slide_settings.read().is_empty()));
                                 }
-                            }
                         },
                     }
                 }

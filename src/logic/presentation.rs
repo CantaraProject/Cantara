@@ -10,7 +10,10 @@ use cantara_songlib::exporter::slides::slides_from_song;
 use cantara_songlib::importer::classic_song::slides_from_classic_song;
 use cantara_songlib::slides::{Slide, SlideContent, SimplePictureSlide, SingleLanguageMainContentSlide, SlideSettings};
 use dioxus::prelude::*;
-use std::{error::Error, path::{Path, PathBuf}};
+use std::{error::Error, path::PathBuf};
+// Only the desktop reads a PDF from a path; the web build hands over its bytes.
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
 use uuid::Uuid;
 
 /// Prefix marker used to identify slides containing rendered Markdown HTML
@@ -143,10 +146,11 @@ pub fn html_to_plain_text(html: &str) -> String {
                 "p", "/p", "h1", "h2", "h3", "h4", "h5", "h6", "/h1", "/h2", "/h3", "/h4",
                 "/h5", "/h6", "br", "br/", "div", "/div", "li", "/li", "tr", "/tr",
             ];
-            if block_tags.iter().any(|t| lower == *t) {
-                if !result.is_empty() && !result.ends_with('\n') {
-                    result.push('\n');
-                }
+            if block_tags.iter().any(|t| lower == *t)
+                && !result.is_empty()
+                && !result.ends_with('\n')
+            {
+                result.push('\n');
             }
         } else if in_tag {
             if collecting_tag_name {
@@ -385,6 +389,7 @@ pub fn build_presentation(
     }
 }
 
+#[cfg(feature = "desktop")]
 pub fn add_presentation(
     selected_items: &Vec<SelectedItemRepresentation>,
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
@@ -581,11 +586,11 @@ fn apply_presentation_update(
             } else {
                 let clamped_slide = old_chapter_slide.min(slide_count - 1);
                 // Recompute slide_total
-                let mut total: usize = 0;
-                for i in 0..new_ch_idx {
-                    total += new_chapters[i].slides.len();
-                }
-                total += clamped_slide;
+                let total: usize = new_chapters[..new_ch_idx]
+                    .iter()
+                    .map(|chapter| chapter.slides.len())
+                    .sum::<usize>()
+                    + clamped_slide;
                 Some(RunningPresentationPosition::from_raw(
                     new_ch_idx,
                     clamped_slide,
@@ -653,8 +658,8 @@ pub fn update_presentation(
         use super::sync::{SYNC_KEY_FILES, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE};
         use std::collections::HashMap;
 
-        if let Some(rp) = running_presentations.peek().first() {
-            if let Ok(json) = serde_json::to_string(rp) {
+        if let Some(rp) = running_presentations.peek().first()
+            && let Ok(json) = serde_json::to_string(rp) {
                 // Collect VFS files (e.g. PDFs) so the synced tab can render them
                 let mut files: HashMap<String, String> = HashMap::new();
                 for chapter in &rp.presentation {
@@ -664,8 +669,7 @@ pub fn update_presentation(
                             let base_path = path.split('#').next().unwrap_or(&path).to_string();
                             if base_path.to_lowercase().ends_with(".pdf")
                                 && !files.contains_key(&base_path)
-                            {
-                                if let Some(bytes) = RepositoryType::web_read_file(&base_path) {
+                                && let Some(bytes) = RepositoryType::web_read_file(&base_path) {
                                     files.insert(
                                         base_path,
                                         base64::Engine::encode(
@@ -674,7 +678,6 @@ pub fn update_presentation(
                                         ),
                                     );
                                 }
-                            }
                         }
                     }
                 }
@@ -685,14 +688,12 @@ pub fn update_presentation(
                         let _ = s.set_item(SYNC_KEY_POSITION_FROM_CONSOLE, &json);
                         let _ = s.remove_item(SYNC_KEY_POSITION);
                         // Sync VFS files if there are any PDFs
-                        if !files.is_empty() {
-                            if let Ok(files_json) = serde_json::to_string(&files) {
+                        if !files.is_empty()
+                            && let Ok(files_json) = serde_json::to_string(&files) {
                                 let _ = s.set_item(SYNC_KEY_FILES, &files_json);
                             }
-                        }
                     });
             }
-        }
     }
 }
 

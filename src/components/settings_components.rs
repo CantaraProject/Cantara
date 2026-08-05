@@ -44,10 +44,15 @@ pub fn SettingsPage() -> Element {
                         settings.write().presentation_designs = presentation_designs.read().clone();
                         settings.read().save();
 
-                        // Clean up any temporary directories before navigating away
-                        // This helps ensure that resources are properly cleaned up
-                        settings.read().cleanup_all_repositories();
-
+                        // The unpacked copies of the remote repositories are
+                        // deliberately kept. Throwing them away here meant
+                        // every visit to the settings cost a fresh download of
+                        // every remote library afterwards — and worse, the
+                        // songs already in the selection pointed into a
+                        // directory that no longer existed. They belong to the
+                        // program's lifetime and are removed when it ends; a
+                        // repository the user actually deletes is cleaned up
+                        // where that happens.
                         nav.replace(Route::Selection {});
                     },
                     { t!("settings.close").to_string() }
@@ -97,21 +102,36 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
 #[component]
 fn RepositorySettings() -> Element {
     let mut settings = use_settings();
-    let mut repository_file_counts: Signal<Vec<(usize, usize)>> = use_signal(Vec::new);
     let mut show_dir_browser: Signal<bool> = use_signal(|| false);
 
-    // Load file counts for each repository
-    use_effect(move || {
-        let repositories = settings.read().repositories.clone();
+    // How many files each repository holds, by its position in the list.
+    let mut repository_file_counts: Signal<Vec<usize>> = use_signal(Vec::new);
 
-        use_future(move || {
-            let repos = repositories.clone();
-            async move {
-                let mut counts = Vec::new();
-                for (idx, repo) in repos.iter().enumerate() {
-                    let count = repo.get_source_file_count_async().await;
-                    counts.push((idx, count));
-                }
+    // Counting depends on the repositories alone. Reading the whole settings
+    // here subscribed this to every switch on the page, so flipping "start
+    // fullscreen" counted every library again — which, back when a count was
+    // a full scan, read every file on disk a second time.
+    let repositories = use_memo(move || settings.read().repositories.clone());
+    let mut count_generation: Signal<u64> = use_signal(|| 0);
+
+    // The counts are recomputed whenever the list of repositories changes,
+    // which covers adding and removing one; nothing else has to ask for them.
+    //
+    // A repository that still has to be downloaded takes a while to answer,
+    // so a second run can start while the first is going. Each claims a
+    // generation and only publishes its result while that generation is still
+    // the current one — see the same reasoning in `main`.
+    use_effect(move || {
+        let repositories = repositories();
+        let generation = *count_generation.peek() + 1;
+        count_generation.set(generation);
+
+        spawn(async move {
+            let mut counts = Vec::with_capacity(repositories.len());
+            for repository in &repositories {
+                counts.push(repository.get_source_file_count_async().await);
+            }
+            if *count_generation.peek() == generation {
                 repository_file_counts.set(counts);
             }
         });
@@ -122,26 +142,11 @@ fn RepositorySettings() -> Element {
     #[allow(unused_mut)]
     let mut select_directory = move || {
         #[cfg(feature = "desktop")]
-        if let Some(path) = FileDialog::new().pick_folder() {
-            if path.is_dir() && path.exists() {
+        if let Some(path) = FileDialog::new().pick_folder()
+            && path.is_dir() && path.exists() {
                 let chosen_directory = path.to_str().unwrap_or_default().to_string();
                 settings.write().add_repository_folder(chosen_directory);
-
-                // Trigger a refresh of the file counts
-                let repositories = settings.read().repositories.clone();
-                use_future(move || {
-                    let repos = repositories.clone();
-                    async move {
-                        let mut counts = Vec::new();
-                        for (idx, repo) in repos.iter().enumerate() {
-                            let count = repo.get_source_file_count_async().await;
-                            counts.push((idx, count));
-                        }
-                        repository_file_counts.set(counts);
-                    }
-                });
             }
-        }
     };
 
     rsx! {
@@ -163,11 +168,10 @@ fn RepositorySettings() -> Element {
                                         Ok(str) => Some(str.to_string().replace("\"", "")),
                                         Err(_) => None,
                                     };
-                                    if let Some(name) = new_name {
-                                        if !name.trim().is_empty() && name != "null" {
+                                    if let Some(name) = new_name
+                                        && !name.trim().is_empty() && name != "null" {
                                             settings.write().repositories[index].name = name.trim().to_string();
                                         }
-                                    }
                                 }
                             },
                             EditIcon {}
@@ -181,20 +185,6 @@ fn RepositorySettings() -> Element {
                                     repo.cleanup();
 
                                     settings.write().repositories.remove(index);
-
-                                    // Trigger a refresh of the file counts
-                                    let repositories = settings.read().repositories.clone();
-                                    use_future(move || {
-                                        let repos = repositories.clone();
-                                        async move {
-                                            let mut counts = Vec::new();
-                                            for (idx, repo) in repos.iter().enumerate() {
-                                                let count = repo.get_source_file_count_async().await;
-                                                counts.push((idx, count));
-                                            }
-                                            repository_file_counts.set(counts);
-                                        }
-                                    });
                                 },
                                 DeleteIcon {}
                             }
@@ -238,7 +228,7 @@ fn RepositorySettings() -> Element {
                                 if token.is_some() {
                                     span {
                                         style: "margin-left: 8px; font-style: italic;",
-                                        { format!("({})", t!("settings.repositories_github_authenticated").to_string()) }
+                                        { format!("({})", t!("settings.repositories_github_authenticated")) }
                                     }
                                 }
                             }
@@ -247,10 +237,7 @@ fn RepositorySettings() -> Element {
                 }
                 // Display source file count
                 {
-                    let file_count = repository_file_counts.read().iter()
-                        .find(|(idx, _)| *idx == index)
-                        .map(|(_, count)| *count)
-                        .unwrap_or(0);
+                    let file_count = repository_file_counts.read().get(index).copied().unwrap_or(0);
 
                     rsx! {
                         div {
@@ -280,17 +267,6 @@ fn RepositorySettings() -> Element {
                     show: show_dir_browser,
                     on_select: move |path: String| {
                         settings.write().add_repository_folder(path);
-
-                        // Trigger a refresh of the file counts
-                        let repositories = settings.read().repositories.clone();
-                        spawn(async move {
-                            let mut counts = Vec::new();
-                            for (idx, repo) in repositories.iter().enumerate() {
-                                let count = repo.get_source_file_count_async().await;
-                                counts.push((idx, count));
-                            }
-                            repository_file_counts.set(counts);
-                        });
                     }
                 }
             }
@@ -305,21 +281,12 @@ fn RepositorySettings() -> Element {
                             Err(_) => None,
                         };
 
-                        if let Some(url) = url {
-                            if !url.trim().is_empty() && url != "null" {
+                        if let Some(url) = url
+                            && !url.trim().is_empty() && url != "null" {
                                 // Basic URL validation
                                 if url.starts_with("http://") || url.starts_with("https://") {
                                     // Add the repository
                                     settings.write().add_remote_zip_repository_url(url.trim().to_string());
-
-                                    // Trigger a refresh of the file counts
-                                    let repositories = settings.read().repositories.clone();
-                                    let mut counts = Vec::new();
-                                    for (idx, repo) in repositories.iter().enumerate() {
-                                        let count = repo.get_source_file_count_async().await;
-                                        counts.push((idx, count));
-                                    }
-                                    repository_file_counts.set(counts);
 
                                     // Show success message
                                     let success_msg = t!("settings.remote_repository_url_valid").to_string();
@@ -330,7 +297,6 @@ fn RepositorySettings() -> Element {
                                     let _ = document::eval(&js_yes_no_box(error_msg)).await;
                                 }
                             }
-                        }
                     }
                 },
                 { t!("settings.add_remote_repository").to_string() }
@@ -347,8 +313,8 @@ fn RepositorySettings() -> Element {
                             Err(_) => None,
                         };
 
-                        if let Some(input) = input {
-                            if !input.trim().is_empty() && input != "null" {
+                        if let Some(input) = input
+                            && !input.trim().is_empty() && input != "null" {
                                 match RepositoryType::parse_github_repo(&input) {
                                     Some((owner, repo)) => {
                                         // Prompt for optional token (for private repos)
@@ -369,15 +335,6 @@ fn RepositorySettings() -> Element {
                                         // Add the repository
                                         settings.write().add_github_repository(owner, repo, token);
 
-                                        // Trigger a refresh of the file counts
-                                        let repositories = settings.read().repositories.clone();
-                                        let mut counts = Vec::new();
-                                        for (idx, repo) in repositories.iter().enumerate() {
-                                            let count = repo.get_source_file_count_async().await;
-                                            counts.push((idx, count));
-                                        }
-                                        repository_file_counts.set(counts);
-
                                         // Show success message
                                         let success_msg = t!("settings.github_repository_added").to_string();
                                         let _ = document::eval(&js_yes_no_box(success_msg)).await;
@@ -389,7 +346,6 @@ fn RepositorySettings() -> Element {
                                     }
                                 }
                             }
-                        }
                     }
                 },
                 { t!("settings.add_github_repository").to_string() }
@@ -467,8 +423,8 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                             }
                         },
                         ondelete: move |_| {
-                            if let Some(index) = selected_presentation_design_index() {
-                                if index < presentation_designs.read().len() {
+                            if let Some(index) = selected_presentation_design_index()
+                                && index < presentation_designs.read().len() {
                                     // Also remove the corresponding slide setting if it exists
                                     if index < settings.read().song_slide_settings.len() {
                                         settings.write().song_slide_settings.remove(index);
@@ -480,7 +436,6 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                                     // Ensure slide settings and presentation designs stay in sync
                                     settings.write().ensure_slide_settings_for_designs();
                                 }
-                            }
                         }
                     }
                 }
@@ -599,7 +554,7 @@ fn ScreenSettings() -> Element {
                         if monitor.is_primary {
                             span {
                                 style: "margin-left: 10px; font-style: italic;",
-                                { format!("({})", t!("settings.primary_monitor").to_string()) }
+                                { format!("({})", t!("settings.primary_monitor")) }
                             }
                         }
                     }

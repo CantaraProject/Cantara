@@ -20,9 +20,6 @@ pub const SYNC_KEY_POSITION: &str = "cantara-sync-position";
 /// localStorage key written by the presenter console with its current position/state.
 pub const SYNC_KEY_POSITION_FROM_CONSOLE: &str = "cantara-sync-position-from-console";
 
-/// localStorage key for synchronizing markdown scroll position across tabs.
-pub const SYNC_KEY_SCROLL_POSITION: &str = "cantara-sync-scroll-position";
-
 /// localStorage key holding base64-encoded VFS file data (e.g. PDFs) needed by
 /// the presentation tab. The value is a JSON map of `{ path: base64_data }`.
 pub const SYNC_KEY_FILES: &str = "cantara-sync-files";

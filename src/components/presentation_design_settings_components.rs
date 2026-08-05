@@ -100,13 +100,11 @@ pub fn PresentationDesignSettingsPage(
                             if let Some(current) = settings_write
                                 .presentation_designs
                                 .get_mut(index as usize)
-                            {
-                                if let PresentationDesignSettings::Template(pdt) = &mut current
+                                && let PresentationDesignSettings::Template(pdt) = &mut current
                                     .presentation_design_settings
                                 {
                                     *pdt = new_pdt.clone();
                                 }
-                            }
                         },
                     }
                 }
@@ -445,7 +443,12 @@ fn PictureSelector(
                 source_file: source_file.clone(),
                 height: "130px",
                 max_width: "200px",
-                active: if let Some(selection_index) = selection_index() { selection_index == idx } else if Some(source_file.clone().into_inner().path) == already_selected_image_path { true } else { false },
+                // Until the user has picked one, the picture the design
+                // already uses is the one that is shown as active.
+                active: match selection_index() {
+                    Some(selected) => selected == idx,
+                    None => Some(source_file.clone().into_inner().path) == already_selected_image_path,
+                },
                 onclick: move |image_source_file| {
                     selection_index.set(Some(idx));
                     if let Some(onchange_event) = onchange {
