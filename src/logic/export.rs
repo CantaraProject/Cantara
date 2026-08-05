@@ -258,6 +258,10 @@ pub enum ExportError {
     /// Rendering the document failed.
     Render(String),
     /// Writing the file failed.
+    ///
+    /// Only a build that writes to a path of its own can fail this way; the
+    /// web and mobile builds hand the file to the platform instead.
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     Write { path: String, reason: String },
 }
 

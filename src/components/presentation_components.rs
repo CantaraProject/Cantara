@@ -294,13 +294,12 @@ pub fn PresentationPage() -> Element {
             }
             return;
         }
-        if let Some(rp) = current.first() {
-            if !rp.eq_ignoring_scroll(&running_presentation.peek()) {
+        if let Some(rp) = current.first()
+            && !rp.eq_ignoring_scroll(&running_presentation.peek()) {
                 let rp = rp.clone();
                 drop(current);
                 running_presentation.set(rp);
             }
-        }
     });
 
     // local→shared: push local changes (e.g. user clicked next slide) back
@@ -310,8 +309,8 @@ pub fn PresentationPage() -> Element {
     use_effect(move || {
         let local = running_presentation.read().clone();
         let shared = running_presentations.peek();
-        if let Some(first) = shared.first() {
-            if !first.eq_ignoring_scroll(&local) {
+        if let Some(first) = shared.first()
+            && !first.eq_ignoring_scroll(&local) {
                 drop(shared);
                 if let Some(first) = running_presentations.write().first_mut() {
                     // Merge local changes into the shared state, but preserve the
@@ -322,7 +321,6 @@ pub fn PresentationPage() -> Element {
                     *first = merged;
                 }
             }
-        }
     });
 
     // On web synced tab: write position changes to localStorage for the presenter console
@@ -341,7 +339,7 @@ pub fn PresentationPage() -> Element {
     // On web synced tab: poll for position changes from the presenter console
     #[cfg(target_arch = "wasm32")]
     {
-        let mut last_sync_json = use_signal(|| String::new());
+        let mut last_sync_json = use_signal(String::new);
         use_future(move || async move {
             // If this is not a synced tab, do nothing.
             if !is_synced_tab {
@@ -368,11 +366,10 @@ pub fn PresentationPage() -> Element {
                 if let Some(json) = web_sys::window()
                     .and_then(|w| w.local_storage().ok().flatten())
                     .and_then(|s| s.get_item(SYNC_KEY_POSITION_FROM_CONSOLE).ok().flatten())
-                {
-                    if !json.is_empty() && json != *last_sync_json.peek() {
+                    && !json.is_empty() && json != *last_sync_json.peek() {
                         last_sync_json.set(json.clone());
-                        if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json) {
-                            if *running_presentation.peek() != rp {
+                        if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json)
+                            && *running_presentation.peek() != rp {
                                 // Load any new VFS files (e.g. PDFs) that the
                                 // update_presentation call stored in localStorage
                                 if let Some(files_json) = web_sys::window()
@@ -395,9 +392,7 @@ pub fn PresentationPage() -> Element {
                                 }
                                 running_presentation.set(rp);
                             }
-                        }
                     }
-                }
             }
         });
     }
@@ -1601,11 +1596,10 @@ fn MarkdownSlideComponent(
                 // Local user scrolled — push the new position to the shared signal
                 // so the other window (presenter console or presentation) picks it up
                 last_pos = dom_pos;
-                if (signal_pos - dom_pos).abs() > SCROLL_SYNC_THRESHOLD {
-                    if let Some(first) = shared.write().first_mut() {
+                if (signal_pos - dom_pos).abs() > SCROLL_SYNC_THRESHOLD
+                    && let Some(first) = shared.write().first_mut() {
                         first.markdown_scroll_position = dom_pos;
                     }
-                }
             } else if (signal_pos - last_pos).abs() > SCROLL_SYNC_THRESHOLD {
                 // Remote scroll detected (the other window updated the signal) —
                 // apply the new scroll position to this window's DOM

@@ -1,3 +1,9 @@
+//! The search field and the list of what it found.
+//!
+//! Both views use these: the selection view collects a hit into the
+//! presentation, the detail view opens it. What is searched and how is decided
+//! in [`crate::logic::search`]; this module only shows the result.
+
 use crate::components::selection_components::source_items::ItemClickAction;
 use crate::logic::search::SearchResult;
 use crate::logic::sourcefiles::SourceFile;
@@ -6,11 +12,46 @@ use dioxus::prelude::*;
 use rust_i18n::t;
 use std::rc::Rc;
 
+/// Text with the characters the search matched picked out.
+///
+/// The positions come from the search itself, which is the only thing that
+/// knows what it matched — with a fuzzy match they are scattered through the
+/// word rather than forming one run, so looking for the query in the text
+/// again here would highlight the wrong characters, or none at all.
+#[component]
+fn Highlighted(text: String, positions: Vec<usize>) -> Element {
+    if positions.is_empty() {
+        return rsx! { span { {text} } };
+    }
+
+    // Neighbouring positions become one span, so a match of three letters is
+    // one highlight rather than three.
+    let mut runs: Vec<(String, bool)> = Vec::new();
+    for (index, character) in text.chars().enumerate() {
+        let highlighted = positions.contains(&index);
+        match runs.last_mut() {
+            Some((run, run_highlighted)) if *run_highlighted == highlighted => {
+                run.push(character);
+            }
+            _ => runs.push((character.to_string(), highlighted)),
+        }
+    }
+
+    rsx! {
+        for (run , highlighted) in runs {
+            if highlighted {
+                mark { class: "search-highlight", {run} }
+            } else {
+                span { {run} }
+            }
+        }
+    }
+}
+
 /// Component to display search results
 #[component]
 pub(crate) fn SearchResults(
     search_results: Signal<Vec<SearchResult>>,
-    query: Signal<String>,
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     search_visible: Signal<bool>,
 
@@ -31,151 +72,59 @@ pub(crate) fn SearchResults(
         return rsx! { div {} };
     }
 
-    let query_str = query.read().clone();
-
     rsx! {
         div {
+            // No `tabindex` and no focus of its own: the search field keeps the
+            // focus for as long as the search is open, so that typing — and
+            // above all backspace — always reaches the query.
             class: "search-results scrollable-container",
-            tabindex: 0,
             onclick: move |event| {
                 event.stop_propagation();
             },
-            onmounted: move |element| {
-                let _ = element.set_focus(true);
-            },
-            onkeydown: move |event: Event<KeyboardData>| {
-                let key = event.key();
-                if key == Key::Escape {
-                    search_visible.set(false);
-                    event.stop_propagation();
-                }
-            },
-            h3 { { t!("search.results").to_string() } }
+            h3 { {t!("search.results").to_string()} }
 
-            for (index, result) in results.iter().enumerate() {
+            for (index , result) in results.iter().enumerate() {
                 {
                     let source_file = result.source_file.clone();
-                    let matched_content = result.matched_content.clone();
-                    let is_title_match = result.is_title_match;
+                    let excerpt = result.excerpt.clone();
+                    let title_highlights = result.title_highlights.clone();
 
                     rsx! {
-                        div {
-                            class: "search-result",
-                            style: "margin-bottom: 10px; padding: 5px; border-bottom: 1px solid #eee;",
+                        div { class: "search-result",
                             if index < 10 {
-                                div {
-                                    style: "display: inline-block; margin-right: 5px; font-weight: bold; color: #666;",
+                                span { class: "search-result-shortcut",
                                     {
-                                        let number = if index == 9 { "0" } else { &(index + 1).to_string() };
+                                        let number = if index == 9 { "0".to_string() } else { (index + 1).to_string() };
                                         t!("search.result_number", number => number).to_string()
                                     }
                                 }
                             }
                             div {
                                 class: "search-result-title",
-                                style: "font-weight: bold; cursor: pointer;",
                                 onclick: {
                                     let source_file = source_file.clone();
                                     move |_| {
-                                        match click_action {
-                                            ItemClickAction::AddToSelection => {
-                                                selected_items.write().push(
-                                                    SelectedItemRepresentation::new_with_sourcefile(
-                                                        source_file.clone(),
-                                                    ),
-                                                );
-                                            }
-                                            ItemClickAction::OpenDetail => {
-                                                let mut active = active_detailed_item_id;
-                                                if let Some(index) =
-                                                    index_of(&source_files.read(), &source_file)
-                                                {
-                                                    active.set(Some(index));
-                                                }
-                                            }
-                                        }
+                                        pick(
+                                            &source_file,
+                                            click_action,
+                                            selected_items,
+                                            source_files,
+                                            active_detailed_item_id,
+                                        );
                                         search_visible.set(false);
                                     }
                                 },
-                                if is_title_match {
-                                    {
-                                        let title = source_file.name.clone();
-                                        let title_lower = title.to_lowercase();
-                                        let query_lower = query_str.to_lowercase();
-
-                                        if let Some(pos) = title_lower.find(&query_lower) {
-                                            let title_chars: Vec<char> = title.chars().collect();
-
-                                            let mut char_pos: usize = 0;
-                                            for (i, _) in title_lower.char_indices() {
-                                                if i == pos {
-                                                    break;
-                                                }
-                                                char_pos += 1;
-                                            }
-
-                                            let query_char_len = query_lower.chars().count();
-                                            let char_end = char_pos + query_char_len;
-
-                                            let before: String = title_chars[0..char_pos].iter().collect();
-                                            let highlight: String = title_chars[char_pos..char_end].iter().collect();
-                                            let after: String = title_chars[char_end..].iter().collect();
-
-                                            rsx! {
-                                                span { {before} }
-                                                span {
-                                                    style: "background-color: yellow; font-weight: bold;",
-                                                    {highlight}
-                                                }
-                                                span { {after} }
-                                            }
-                                        } else {
-                                            rsx! { span { {title.clone()} } }
-                                        }
-                                    }
-                                } else {
-                                    span { {source_file.name.clone()} }
+                                Highlighted {
+                                    text: source_file.name.clone(),
+                                    positions: title_highlights,
                                 }
                             }
 
-                            if let Some(content) = matched_content {
-                                div {
-                                    class: "search-result-content",
-                                    style: "margin-top: 5px; font-size: 0.9em; color: #666;",
-                                    {
-                                        let content_lower = content.to_lowercase();
-                                        let query_lower = query_str.to_lowercase();
-
-                                        if let Some(pos) = content_lower.find(&query_lower) {
-                                            let content_chars: Vec<char> = content.chars().collect();
-
-                                            let mut char_pos: usize = 0;
-                                            for (i, _) in content_lower.char_indices() {
-                                                if i == pos {
-                                                    break;
-                                                }
-                                                char_pos += 1;
-                                            }
-
-                                            let query_char_len = query_lower.chars().count();
-                                            let char_end = char_pos + query_char_len;
-
-                                            let before: String = content_chars[0..char_pos].iter().collect();
-                                            let highlight: String = content_chars[char_pos..char_end].iter().collect();
-                                            let after: String = content_chars[char_end..].iter().collect();
-
-                                            rsx! {
-                                                span { "..." {before} }
-                                                span {
-                                                    style: "background-color: yellow; font-weight: bold;",
-                                                    {highlight}
-                                                }
-                                                span { {after} "..." }
-                                            }
-                                        } else {
-                                            rsx! { span { "..." {content.clone()} "..." } }
-                                        }
-                                    }
+                            if let Some(excerpt) = excerpt {
+                                div { class: "search-result-content",
+                                    span { "…" }
+                                    Highlighted { text: excerpt.text, positions: excerpt.highlights }
+                                    span { "…" }
                                 }
                             }
                         }
@@ -186,10 +135,44 @@ pub(crate) fn SearchResults(
     }
 }
 
+/// Acts on a chosen result: the selection view collects it, the detail view
+/// opens it.
+///
+/// Shared by the click on a result and the keyboard shortcut, so the two can
+/// never come to mean different things.
+pub(crate) fn pick(
+    source_file: &SourceFile,
+    click_action: ItemClickAction,
+    mut selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    source_files: Signal<Vec<SourceFile>>,
+    mut active_detailed_item_id: Signal<Option<usize>>,
+) {
+    match click_action {
+        ItemClickAction::AddToSelection => {
+            selected_items
+                .write()
+                .push(SelectedItemRepresentation::new_with_sourcefile(
+                    source_file.clone(),
+                ));
+        }
+        ItemClickAction::OpenDetail => {
+            if let Some(index) = index_of(&source_files.read(), source_file) {
+                active_detailed_item_id.set(Some(index));
+            }
+        }
+    }
+}
+
 #[component]
 pub(crate) fn SearchInput(
     input_signal: Signal<String>,
     element_signal: Signal<Option<Rc<MountedData>>>,
+
+    /// Called when the user presses Escape in the field. Both views use it to
+    /// put the result list away — which is the field's business, since it is
+    /// the field that holds the focus while the search is open.
+    #[props(default)]
+    on_escape: EventHandler<()>,
 ) -> Element {
     rsx! {
         div {
@@ -197,14 +180,18 @@ pub(crate) fn SearchInput(
             onmounted: move |element| element_signal.set(Some(element.data())),
             input {
                 id: "searchinput",
-                type: "search",
+                r#type: "search",
                 name: "search",
                 placeholder: t!("search").to_string(),
                 aria_label: t!("search").to_string(),
                 value: input_signal,
                 oninput: move |event| {
-                    let value = event.value();
-                    input_signal.set(value);
+                    input_signal.set(event.value());
+                },
+                onkeydown: move |event: Event<KeyboardData>| {
+                    if event.key() == Key::Escape {
+                        on_escape.call(());
+                    }
                 },
             }
         }

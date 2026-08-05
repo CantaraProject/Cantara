@@ -122,8 +122,8 @@ fn RepositorySettings() -> Element {
     #[allow(unused_mut)]
     let mut select_directory = move || {
         #[cfg(feature = "desktop")]
-        if let Some(path) = FileDialog::new().pick_folder() {
-            if path.is_dir() && path.exists() {
+        if let Some(path) = FileDialog::new().pick_folder()
+            && path.is_dir() && path.exists() {
                 let chosen_directory = path.to_str().unwrap_or_default().to_string();
                 settings.write().add_repository_folder(chosen_directory);
 
@@ -141,7 +141,6 @@ fn RepositorySettings() -> Element {
                     }
                 });
             }
-        }
     };
 
     rsx! {
@@ -163,11 +162,10 @@ fn RepositorySettings() -> Element {
                                         Ok(str) => Some(str.to_string().replace("\"", "")),
                                         Err(_) => None,
                                     };
-                                    if let Some(name) = new_name {
-                                        if !name.trim().is_empty() && name != "null" {
+                                    if let Some(name) = new_name
+                                        && !name.trim().is_empty() && name != "null" {
                                             settings.write().repositories[index].name = name.trim().to_string();
                                         }
-                                    }
                                 }
                             },
                             EditIcon {}
@@ -238,7 +236,7 @@ fn RepositorySettings() -> Element {
                                 if token.is_some() {
                                     span {
                                         style: "margin-left: 8px; font-style: italic;",
-                                        { format!("({})", t!("settings.repositories_github_authenticated").to_string()) }
+                                        { format!("({})", t!("settings.repositories_github_authenticated")) }
                                     }
                                 }
                             }
@@ -305,8 +303,8 @@ fn RepositorySettings() -> Element {
                             Err(_) => None,
                         };
 
-                        if let Some(url) = url {
-                            if !url.trim().is_empty() && url != "null" {
+                        if let Some(url) = url
+                            && !url.trim().is_empty() && url != "null" {
                                 // Basic URL validation
                                 if url.starts_with("http://") || url.starts_with("https://") {
                                     // Add the repository
@@ -330,7 +328,6 @@ fn RepositorySettings() -> Element {
                                     let _ = document::eval(&js_yes_no_box(error_msg)).await;
                                 }
                             }
-                        }
                     }
                 },
                 { t!("settings.add_remote_repository").to_string() }
@@ -347,8 +344,8 @@ fn RepositorySettings() -> Element {
                             Err(_) => None,
                         };
 
-                        if let Some(input) = input {
-                            if !input.trim().is_empty() && input != "null" {
+                        if let Some(input) = input
+                            && !input.trim().is_empty() && input != "null" {
                                 match RepositoryType::parse_github_repo(&input) {
                                     Some((owner, repo)) => {
                                         // Prompt for optional token (for private repos)
@@ -389,7 +386,6 @@ fn RepositorySettings() -> Element {
                                     }
                                 }
                             }
-                        }
                     }
                 },
                 { t!("settings.add_github_repository").to_string() }
@@ -467,8 +463,8 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                             }
                         },
                         ondelete: move |_| {
-                            if let Some(index) = selected_presentation_design_index() {
-                                if index < presentation_designs.read().len() {
+                            if let Some(index) = selected_presentation_design_index()
+                                && index < presentation_designs.read().len() {
                                     // Also remove the corresponding slide setting if it exists
                                     if index < settings.read().song_slide_settings.len() {
                                         settings.write().song_slide_settings.remove(index);
@@ -480,7 +476,6 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                                     // Ensure slide settings and presentation designs stay in sync
                                     settings.write().ensure_slide_settings_for_designs();
                                 }
-                            }
                         }
                     }
                 }
@@ -599,7 +594,7 @@ fn ScreenSettings() -> Element {
                         if monitor.is_primary {
                             span {
                                 style: "margin-left: 10px; font-style: italic;",
-                                { format!("({})", t!("settings.primary_monitor").to_string()) }
+                                { format!("({})", t!("settings.primary_monitor")) }
                             }
                         }
                     }

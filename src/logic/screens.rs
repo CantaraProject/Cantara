@@ -59,11 +59,10 @@ pub fn resolve_monitor(
     }
 
     // If a specific monitor is configured, try to find it
-    if let Some(name) = configured_name {
-        if let Some(monitor) = monitors.iter().find(|m| &m.name == name) {
+    if let Some(name) = configured_name
+        && let Some(monitor) = monitors.iter().find(|m| &m.name == name) {
             return Some(monitor.clone());
         }
-    }
 
     // Auto-select: prefer primary or non-primary based on the flag
     if prefer_primary {

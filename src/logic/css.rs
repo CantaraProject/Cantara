@@ -304,6 +304,12 @@ impl From<FontRepresentation> for CssHandler {
     }
 }
 
+/// The `place-items` values the presentation uses.
+///
+/// The shared `Stretch` is not a naming accident: these are the CSS values
+/// themselves, and the second word of `place-items` is `stretch` in each of
+/// them.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlaceItems {
     StartStretch,
@@ -360,12 +366,6 @@ impl CssFontFamily {
         }
     }
 
-    pub fn generic_family(self) -> Self {
-        CssFontFamily {
-            family: self.family,
-            genereric_family: self.genereric_family,
-        }
-    }
 }
 
 impl CssString for CssFontFamily {

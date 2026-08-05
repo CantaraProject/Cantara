@@ -45,7 +45,7 @@ fn list_subdirectories(path: &PathBuf) -> Result<Vec<DirEntry>, String> {
     let mut entries: Vec<DirEntry> = read_dir
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
-            entry.file_type().map_or(false, |ft| ft.is_dir())
+            entry.file_type().is_ok_and(|ft| ft.is_dir())
                 && !entry.file_name().to_string_lossy().starts_with('.')
         })
         .map(|entry| DirEntry {

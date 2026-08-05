@@ -52,12 +52,7 @@ fn uuid_tag(file: &SourceFile) -> Option<String> {
     }
 
     let content = read_source_file(file).ok()?;
-    let file_name = file
-        .path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(&file.name);
-    let song = crate::logic::export::song_from_content(file_name, &content).ok()?;
+    let song = crate::logic::export::song_from_content(file.file_name(), &content).ok()?;
 
     song.tags()
         .iter()

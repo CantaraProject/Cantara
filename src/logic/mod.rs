@@ -48,8 +48,8 @@
 //! // Load settings from storage or create default settings
 //! let settings = Settings::load();
 //!
-//! // Access repositories and source files
-//! let source_files = settings.get_sourcefiles();
+//! // Read the library of every configured repository
+//! let source_files = Settings::sourcefiles_of_async(&settings.repositories).await;
 //! ```
 
 pub mod settings;
@@ -58,6 +58,9 @@ pub mod states;
 
 pub mod sourcefiles;
 
+/// Only the web build has a use for the repositories that were embedded at
+/// build time: it is the one without a file system to read them from.
+#[cfg(target_arch = "wasm32")]
 pub mod bundled_repos;
 
 pub mod detail;

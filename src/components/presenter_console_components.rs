@@ -155,20 +155,18 @@ pub fn PresenterConsolePage() -> Element {
             // nav.replace() triggers a synchronous re-render/diff that would
             // attempt to borrow the same RefCell, causing a panic.
             drop(current);
-            if is_main_window {
-                if let Some(nav) = &nav {
+            if is_main_window
+                && let Some(nav) = &nav {
                     nav.replace(crate::Route::Selection {});
                 }
-            }
             return;
         }
-        if let Some(rp) = current.first() {
-            if !rp.eq_ignoring_scroll(&running_presentation.peek()) {
+        if let Some(rp) = current.first()
+            && !rp.eq_ignoring_scroll(&running_presentation.peek()) {
                 let rp = rp.clone();
                 drop(current);
                 running_presentation.set(rp);
             }
-        }
     });
 
     // local→shared: push local changes back to the shared signal.
@@ -176,8 +174,8 @@ pub fn PresenterConsolePage() -> Element {
     use_effect(move || {
         let local = running_presentation.read().clone();
         let shared = running_presentations.peek();
-        if let Some(first) = shared.first() {
-            if !first.eq_ignoring_scroll(&local) {
+        if let Some(first) = shared.first()
+            && !first.eq_ignoring_scroll(&local) {
                 // We are about to push non-scroll changes from `local` into the
                 // shared signal. However, scroll synchronization writes directly
                 // to the shared signal, and `eq_ignoring_scroll` prevents scroll-
@@ -192,7 +190,6 @@ pub fn PresenterConsolePage() -> Element {
                     *first = merged;
                 }
             }
-        }
     });
 
     // On web: detect if a synced presentation tab is active
@@ -219,7 +216,7 @@ pub fn PresenterConsolePage() -> Element {
     // On web: poll for position changes from the synced presentation tab
     #[cfg(target_arch = "wasm32")]
     {
-        let mut last_sync_json = use_signal(|| String::new());
+        let mut last_sync_json = use_signal(String::new);
         use_future(move || async move {
             // If sync is not active, do not poll.
             if !is_sync_active {
@@ -230,16 +227,13 @@ pub fn PresenterConsolePage() -> Element {
                 if let Some(json) = web_sys::window()
                     .and_then(|w| w.local_storage().ok().flatten())
                     .and_then(|s| s.get_item(SYNC_KEY_POSITION).ok().flatten())
-                {
-                    if !json.is_empty() && json != *last_sync_json.peek() {
+                    && !json.is_empty() && json != *last_sync_json.peek() {
                         last_sync_json.set(json.clone());
-                        if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json) {
-                            if *running_presentation.peek() != rp {
+                        if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json)
+                            && *running_presentation.peek() != rp {
                                 running_presentation.set(rp);
                             }
-                        }
                     }
-                }
             }
         });
     }

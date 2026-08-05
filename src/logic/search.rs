@@ -1,12 +1,22 @@
-//! This module provides search functionality for source files in Cantara.
+//! Finding an element of the library.
+//!
+//! Two things are searched, and they are searched differently: the *name* of an
+//! element fuzzily, its *text* by whole words. Why, and what a song's text
+//! actually is, is written at [`search_source_files`] and [`index_text`].
+//!
+//! The text of every element is held in an index that
+//! [`refresh_search_cache`] fills after the library has been scanned, so that
+//! typing never waits for a file to be read or a PDF to be parsed.
 
-use crate::logic::sourcefiles::{SourceFile, SourceFileType};
+use crate::logic::sourcefiles::{SourceFile, SourceFileType, read_source_file};
+use cantara_songlib::exporter::text::{TextSettings, text_from_song};
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-// Cache for full-document content keyed by file path (Song, Markdown, full PDF text).
+// The indexed text of every element, keyed by file path.
 static SONG_CONTENT_CACHE: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
 
 // Dedicated cache for per-page PDF text, keyed by "{path}#page={N}" strings.
@@ -20,22 +30,28 @@ fn pdf_page_cache() -> &'static Mutex<HashMap<String, String>> {
     PDF_PAGE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Clears the entire search cache. Call this to invalidate cached file contents.
+/// Drops everything the index holds.
+///
+/// Only the tests need this: in the app the index is replaced wholesale by
+/// [`refresh_search_cache`] whenever the library is scanned, but the tests
+/// share one process and have to start from a known state.
+#[cfg(test)]
 pub fn invalidate_search_cache() {
-    if let Some(m) = SONG_CONTENT_CACHE.get() {
-        if let Ok(mut map) = m.lock() {
+    if let Some(m) = SONG_CONTENT_CACHE.get()
+        && let Ok(mut map) = m.lock() {
             map.clear();
         }
-    }
-    if let Some(m) = PDF_PAGE_CACHE.get() {
-        if let Ok(mut map) = m.lock() {
+    if let Some(m) = PDF_PAGE_CACHE.get()
+        && let Ok(mut map) = m.lock() {
             map.clear();
         }
-    }
 }
 
-/// Shared helper: extracts all page texts from an already-loaded `lopdf::Document`.
-/// Returns the concatenated text, or `None` if no text could be extracted.
+/// Every page of an already-loaded document as one text.
+///
+/// Desktop only: the web build never loads a whole PDF, it reads the single
+/// page the presenter console is showing.
+#[cfg(not(target_arch = "wasm32"))]
 fn extract_text_from_pdf_document(doc: &lopdf::Document) -> Option<String> {
     let page_numbers: Vec<u32> = doc.get_pages().keys().copied().collect();
     let mut texts = Vec::new();
@@ -80,23 +96,6 @@ fn cache_all_pdf_page_texts(doc: &lopdf::Document, path_str: &str) {
     }
 }
 
-/// Extracts plain text from a PDF file (non-WASM only).
-/// Returns all page texts concatenated, or None if extraction fails.
-#[cfg(not(target_arch = "wasm32"))]
-fn extract_pdf_text(path: &std::path::Path) -> Option<String> {
-    match lopdf::Document::load(path) {
-        Ok(doc) => extract_text_from_pdf_document(&doc),
-        Err(e) => {
-            log::warn!("Failed to load PDF for text extraction ({}): {}", path.display(), e);
-            None
-        }
-    }
-}
-
-/// Returns cached plain text for a specific page of a PDF file (non-WASM only).
-/// Only returns content from `PDF_PAGE_CACHE`; never parses PDFs synchronously.
-/// The cache is populated by `refresh_search_cache` in a background thread.
-#[cfg(not(target_arch = "wasm32"))]
 /// How many pages a PDF has, for the detail view's paging.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn pdf_page_count(path: &std::path::Path) -> Option<u32> {
@@ -111,6 +110,15 @@ pub fn pdf_page_count(_path: &std::path::Path) -> Option<u32> {
     None
 }
 
+/// The text of one page of a PDF, if the index already holds it.
+///
+/// Desktop only — the web build has no path to look the document up by and
+/// goes through [`extract_pdf_page_text_from_bytes`] instead.
+///
+/// Never parses the document: this is called while a presentation is running,
+/// where a pause of a second would be on the screen for everyone to see.
+/// [`refresh_search_cache`] is what fills the page index.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn extract_pdf_page_text(path: &std::path::Path, page_number: u32) -> Option<String> {
     let cache_key = format!("{}#page={}", path.display(), page_number);
     if let Ok(map) = pdf_page_cache().lock() {
@@ -120,23 +128,15 @@ pub fn extract_pdf_page_text(path: &std::path::Path, page_number: u32) -> Option
     }
 }
 
-/// Extracts plain text from a PDF stored in the web VFS (WASM only).
-#[cfg(target_arch = "wasm32")]
-fn extract_pdf_text_from_bytes(bytes: &[u8]) -> Option<String> {
-    let doc = lopdf::Document::load_mem(bytes).ok()?;
-    extract_text_from_pdf_document(&doc)
-}
-
 /// Extracts plain text from a specific page of a PDF stored in the web VFS (WASM only).
 /// `path_key` is the VFS path used for caching; results are stored in `PDF_PAGE_CACHE`.
 #[cfg(target_arch = "wasm32")]
 pub fn extract_pdf_page_text_from_bytes(bytes: &[u8], page_number: u32, path_key: &str) -> Option<String> {
     let cache_key = format!("{}#page={}", path_key, page_number);
-    if let Ok(map) = pdf_page_cache().lock() {
-        if let Some(cached) = map.get(&cache_key) {
+    if let Ok(map) = pdf_page_cache().lock()
+        && let Some(cached) = map.get(&cache_key) {
             return Some(cached.clone());
         }
-    }
     let doc = lopdf::Document::load_mem(bytes).ok()?;
     let text = doc.extract_text(&[page_number]).ok()?;
     if let Ok(mut map) = pdf_page_cache().lock() {
@@ -145,180 +145,267 @@ pub fn extract_pdf_page_text_from_bytes(bytes: &[u8], page_number: u32, path_key
     Some(text)
 }
 
-/// Optionally (re)populate the cache with the provided list of source files.
-/// This will read all Song, Markdown, and PDF files from disk and cache their contents.
-/// If a file can't be read, it will simply be skipped.
+/// What a file contributes to the index.
 ///
-/// All I/O and PDF parsing is done outside the mutex; the lock is only acquired once
-/// at the end to atomically clear and repopulate the cache map.
-pub fn refresh_search_cache(source_files: &[SourceFile]) {
-    // Collect all content outside the lock so PDF parsing doesn't block concurrent readers.
-    let mut entries: Vec<(PathBuf, String)> = Vec::with_capacity(source_files.len());
-    for sf in source_files {
-        match sf.file_type {
-            SourceFileType::Song | SourceFileType::Markdown => {
-                if let Ok(content) = fs::read_to_string(&sf.path) {
-                    entries.push((sf.path.clone(), content));
-                }
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            SourceFileType::Pdf => {
-                // Load the document once and populate both the full-document text cache
-                // (used by search) and the per-page text cache (used by presenter console).
-                // This ensures the presenter console's synchronous extraction is always
-                // an O(1) cache hit after the source files have been indexed.
-                match lopdf::Document::load(&sf.path) {
-                    Ok(doc) => {
-                        if let Some(content) = extract_text_from_pdf_document(&doc) {
-                            entries.push((sf.path.clone(), content));
-                        }
-                        cache_all_pdf_page_texts(&doc, &sf.path.display().to_string());
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "Failed to load PDF for cache refresh ({}): {}",
-                            sf.path.display(), e
-                        );
-                    }
-                }
-            }
-            _ => {}
+/// A song is *not* indexed as it lies on disk. Its file is a score: YAML keys,
+/// Lilypond note groups, ABC headers — none of which anyone searches for, all
+/// of which produce hits that look like noise ("d4" matches half the library).
+/// The song library can write a song out as plain text, and that is what goes
+/// into the index instead: the title and the verses in singing order, which is
+/// exactly what a user has in mind when they remember a line and want the song.
+///
+/// Anything that cannot be parsed as a song falls back to its raw contents —
+/// a broken file is still better searched than not searched at all.
+fn index_text(file: &SourceFile) -> Option<String> {
+    match file.file_type {
+        SourceFileType::Song => {
+            let content = read_source_file(file).ok()?;
+            Some(lyrics_of(file, &content).unwrap_or(content))
         }
-    }
-    // Acquire the lock once to clear and bulk-insert all entries.
-    if let Ok(mut map) = cache().lock() {
-        map.clear();
-        for (path, content) in entries {
-            map.insert(path, content);
-        }
-    }
-}
-
-/// Helper function to read the content of a source file, using the cache for Song, Markdown, and PDF files
-pub fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
-    match source_file.file_type {
-        SourceFileType::Song | SourceFileType::Markdown => {
-            // Try cache first
-            if let Ok(mut map) = cache().lock() {
-                if let Some(cached) = map.get(&source_file.path) {
-                    return Some(cached.clone());
-                }
-                // Not cached: read from disk and store
-                if let Ok(content) = fs::read_to_string(&source_file.path) {
-                    map.insert(source_file.path.clone(), content.clone());
-                    return Some(content);
-                }
-            }
-            None
-        }
+        SourceFileType::Markdown => read_source_file(file).ok(),
         SourceFileType::Pdf => {
-            // Only return cached content for PDFs. Never parse PDFs synchronously here
-            // because this function is called on the UI thread during search. The
-            // background thread in refresh_search_cache populates the cache; until
-            // then, PDF content search is simply skipped.
-            if let Ok(map) = cache().lock() {
-                if let Some(cached) = map.get(&source_file.path) {
-                    return Some(cached.clone());
-                }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                lopdf::Document::load(&file.path)
+                    .ok()
+                    .and_then(|doc| extract_text_from_pdf_document(&doc))
             }
-            None
+            // Parsing a PDF is far too slow to do while someone is typing, and
+            // the web build has no background thread to do it in.
+            #[cfg(target_arch = "wasm32")]
+            {
+                None
+            }
         }
         _ => None,
     }
 }
 
-/// Struct to represent a search result
-#[derive(Clone, PartialEq)]
-pub struct SearchResult {
-    pub source_file: SourceFile,
-    pub matched_content: Option<String>,
-    pub is_title_match: bool,
+/// The lyrics of a song file, as plain text.
+fn lyrics_of(file: &SourceFile, content: &str) -> Option<String> {
+    let song = crate::logic::export::song_from_content(file.file_name(), content).ok()?;
+    text_from_song(&song, &TextSettings::default()).ok()
 }
 
-/// Helper function to perform fuzzy search on source files
+/// Reads every file of the library into the index.
+///
+/// Both the reading and the parsing happen outside the lock, which is taken
+/// once at the end to swap the whole index in one go — a search running in
+/// parallel is never blocked for longer than that.
+pub fn refresh_search_cache(source_files: &[SourceFile]) {
+    let mut entries: Vec<(PathBuf, String)> = Vec::with_capacity(source_files.len());
+
+    for file in source_files {
+        // The presenter console reads single pages of a PDF straight from the
+        // page cache, so those are filled here as well while the document is
+        // open anyway.
+        #[cfg(not(target_arch = "wasm32"))]
+        if file.file_type == SourceFileType::Pdf
+            && let Ok(doc) = lopdf::Document::load(&file.path)
+        {
+            cache_all_pdf_page_texts(&doc, &file.path.display().to_string());
+        }
+
+        if let Some(text) = index_text(file) {
+            entries.push((file.path.clone(), text));
+        }
+    }
+
+    if let Ok(mut map) = cache().lock() {
+        map.clear();
+        map.extend(entries);
+    }
+}
+
+/// The indexed text of a file, from the index if it is there.
+///
+/// A file that has not been indexed yet is read on the spot — except for a
+/// PDF, which is left to [`refresh_search_cache`]: parsing one takes long
+/// enough to be felt between two keystrokes.
+pub fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
+    if let Ok(map) = cache().lock()
+        && let Some(cached) = map.get(&source_file.path)
+    {
+        return Some(cached.clone());
+    }
+
+    if source_file.file_type == SourceFileType::Pdf {
+        return None;
+    }
+
+    let text = index_text(source_file)?;
+    if let Ok(mut map) = cache().lock() {
+        map.insert(source_file.path.clone(), text.clone());
+    }
+    Some(text)
+}
+
+/// A passage of an element's text that matched, ready to be shown.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Excerpt {
+    /// The passage itself, cut out around the match.
+    pub text: String,
+    /// Which characters of `text` matched, as positions in `char`s.
+    pub highlights: Vec<usize>,
+}
+
+/// One element the search found.
+#[derive(Clone, PartialEq, Debug)]
+pub struct SearchResult {
+    pub source_file: SourceFile,
+    /// Which characters of the element's name matched, as positions in `char`s.
+    /// Empty when the name did not match and only the content did.
+    pub title_highlights: Vec<usize>,
+    /// The passage that matched, when the hit came from the content.
+    pub excerpt: Option<Excerpt>,
+    /// How well this hit fits the query. Higher is better; only meaningful in
+    /// comparison with the other results of the same search.
+    pub score: i64,
+}
+
+/// How much a hit in the name outweighs a hit in the text.
+///
+/// Someone who types a title wants that song, not the twelve others that
+/// happen to quote it — and a title hit is the more precise statement, since
+/// the name is short and the text is long.
+const TITLE_WEIGHT: i64 = 1000;
+
+/// The score every content hit gets, before the bonus for matching more words.
+const CONTENT_BASE_SCORE: i64 = 100;
+
+/// How much text is shown around a hit in the content, in characters.
+const EXCERPT_CONTEXT: usize = 40;
+
+/// Searches the library for `query`.
+///
+/// Names are matched *fuzzily*: the characters of the query have to turn up in
+/// the name in order, but not next to each other, so "amzgrace" and "amazing g"
+/// both find "Amazing Grace" and a typo does not send the user back to the
+/// keyboard. Each hit carries a score, and the list is ordered by it.
+///
+/// The text of an element is matched by whole words instead. A fuzzy match over
+/// a whole song would succeed for practically every song — the letters of any
+/// short query can be found scattered through a page of lyrics — so this looks
+/// for every word of the query, in any order, which is what someone half
+/// remembering a line actually needs.
 pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<SearchResult> {
+    let query = query.trim();
     if query.is_empty() {
         return Vec::new();
     }
 
-    let query = query.to_lowercase();
-    let mut results = Vec::new();
+    let matcher = SkimMatcherV2::default();
+    let words: Vec<String> = query
+        .split_whitespace()
+        .map(|word| word.to_lowercase())
+        .collect();
+
+    let mut results: Vec<SearchResult> = Vec::new();
 
     for source_file in source_files {
-        let name_lower = source_file.name.to_lowercase();
-        let is_title_match = name_lower.contains(&query);
-
-        // Check if the query matches the title
-        if is_title_match {
+        if let Some((score, indices)) = matcher.fuzzy_indices(&source_file.name, query) {
             results.push(SearchResult {
                 source_file: source_file.clone(),
-                matched_content: None,
-                is_title_match: true,
+                title_highlights: indices,
+                excerpt: None,
+                score: score * TITLE_WEIGHT,
             });
             continue;
         }
 
-        // Check if the query matches the content (for song, markdown, and PDF files)
-        let should_search_content = matches!(
+        let searchable = matches!(
             source_file.file_type,
             SourceFileType::Song | SourceFileType::Markdown | SourceFileType::Pdf
         );
-
-        if should_search_content {
-            if let Some(content) = read_source_file_content(source_file) {
-                let content_lower = content.to_lowercase();
-                if content_lower.contains(&query) {
-                    // Find the context around the match
-                    let Some(match_index) = content_lower.find(&query) else {
-                        continue;
-                    };
-
-                    // Convert byte indices to char indices for safe slicing
-                    let content_chars: Vec<char> = content.chars().collect();
-                    let _content_lower_chars: Vec<char> = content_lower.chars().collect();
-
-                    // Find the character index corresponding to the byte index
-                    let mut char_count: usize = 0;
-                    let mut match_char_index: usize = 0;
-
-                    for (i, _) in content_lower.char_indices() {
-                        if i == match_index {
-                            match_char_index = char_count;
-                            break;
-                        }
-                        char_count += 1;
-                    }
-
-                    // Calculate safe character indices for the context
-                    let start_char = match_char_index.saturating_sub(30);
-                    let end_char =
-                        (match_char_index + query.chars().count() + 30).min(content_chars.len());
-
-                    // Create the context string from character indices
-                    let context: String = content_chars[start_char..end_char].iter().collect();
-
-                    results.push(SearchResult {
-                        source_file: source_file.clone(),
-                        matched_content: Some(context),
-                        is_title_match: false,
-                    });
-                }
-            }
+        if !searchable {
+            continue;
         }
+
+        let Some(content) = read_source_file_content(source_file) else {
+            continue;
+        };
+        let Some((excerpt, matched_words)) = content_match(&content, &words) else {
+            continue;
+        };
+
+        results.push(SearchResult {
+            source_file: source_file.clone(),
+            title_highlights: Vec::new(),
+            excerpt: Some(excerpt),
+            score: CONTENT_BASE_SCORE * matched_words as i64,
+        });
     }
 
-    // Sort results: title matches first, then content matches
+    // Best first; among equally good hits the alphabet decides, so the list
+    // does not reshuffle itself for no visible reason.
     results.sort_by(|a, b| {
-        if a.is_title_match && !b.is_title_match {
-            std::cmp::Ordering::Less
-        } else if !a.is_title_match && b.is_title_match {
-            std::cmp::Ordering::Greater
-        } else {
-            a.source_file.name.cmp(&b.source_file.name)
-        }
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.source_file.name.cmp(&b.source_file.name))
     });
 
     results
+}
+
+/// Looks for every word of the query in `content` and cuts out the passage
+/// around the first of them.
+///
+/// Returns the passage and how many of the words were found — all of them, or
+/// nothing: a query is a description of one line, and a text that holds only
+/// half of its words is not that line.
+fn content_match(content: &str, words: &[String]) -> Option<(Excerpt, usize)> {
+    let haystack: Vec<char> = content.to_lowercase().chars().collect();
+    let original: Vec<char> = content.chars().collect();
+
+    // Where each word turns up, in characters.
+    let mut hits: Vec<(usize, usize)> = Vec::new();
+    for word in words {
+        let needle: Vec<char> = word.chars().collect();
+        let mut found = false;
+        for start in 0..haystack.len().saturating_sub(needle.len().saturating_sub(1)) {
+            if haystack[start..].starts_with(&needle[..]) {
+                hits.push((start, needle.len()));
+                found = true;
+                // One occurrence per word is enough to place the excerpt; the
+                // rest are found again below, inside the excerpt.
+                break;
+            }
+        }
+        if !found {
+            return None;
+        }
+    }
+
+    let first = hits.iter().map(|(start, _)| *start).min()?;
+    let start = first.saturating_sub(EXCERPT_CONTEXT);
+    let end = (first + EXCERPT_CONTEXT * 2).min(original.len());
+    let excerpt: String = original[start..end].iter().collect();
+
+    // Highlight every occurrence of every word that falls inside the excerpt,
+    // not just the one that placed it.
+    let excerpt_lower: Vec<char> = haystack[start..end].to_vec();
+    let mut highlights: Vec<usize> = Vec::new();
+    for word in words {
+        let needle: Vec<char> = word.chars().collect();
+        if needle.is_empty() {
+            continue;
+        }
+        for offset in 0..excerpt_lower.len() {
+            if excerpt_lower[offset..].starts_with(&needle[..]) {
+                highlights.extend(offset..offset + needle.len());
+            }
+        }
+    }
+    highlights.sort_unstable();
+    highlights.dedup();
+
+    Some((
+        Excerpt {
+            text: excerpt,
+            highlights,
+        },
+        words.len(),
+    ))
 }
 
 #[cfg(test)]
@@ -327,30 +414,161 @@ mod tests {
     use crate::logic::sourcefiles::{SourceFile, SourceFileType};
     use std::path::PathBuf;
 
-    #[test]
-    fn search_markdown_content() {
-        let sf = SourceFile {
-            name: "example".to_string(),
-            path: PathBuf::from("testfiles/example.md"),
-            file_type: SourceFileType::Markdown,
+    fn file(name: &str, path: &str, file_type: SourceFileType) -> SourceFile {
+        SourceFile {
+            name: name.to_string(),
+            path: PathBuf::from(path),
+            file_type,
             md5_hash: None,
             relative_path: None,
-        };
+        }
+    }
+
+    fn song(name: &str, path: &str) -> SourceFile {
+        file(name, path, SourceFileType::Song)
+    }
+
+    /// The point of the fuzzy match: a name is found without being spelled out
+    /// in full, and a slip of the finger does not cost the hit.
+    #[test]
+    fn a_name_is_found_without_being_typed_out() {
+        let library = vec![song("Amazing Grace", "testfiles/Amazing Grace.song")];
+
+        for query in ["amazing grace", "amazing", "amzgrace", "AmGr"] {
+            let results = search_source_files(&library, query);
+            assert_eq!(results.len(), 1, "'{query}' should find the song");
+            assert!(
+                !results[0].title_highlights.is_empty(),
+                "'{query}' should be a name match"
+            );
+        }
+    }
+
+    /// A query that shares no letters with anything finds nothing — a fuzzy
+    /// match must still be able to say no.
+    #[test]
+    fn a_query_that_fits_nothing_finds_nothing() {
+        let library = vec![song("Amazing Grace", "testfiles/Amazing Grace.song")];
+
+        assert!(search_source_files(&library, "xylophon").is_empty());
+    }
+
+    /// The name is the stronger statement, so it comes first even when another
+    /// song quotes the words in its text.
+    #[test]
+    fn a_name_match_outranks_a_content_match() {
+        invalidate_search_cache();
+        let library = vec![
+            song("Alas, and Did My Savior Bleed", "testfiles/Alas, and Did My Savior Bleed.song"),
+            song("Amazing Grace", "testfiles/Amazing Grace.song"),
+        ];
+
+        let results = search_source_files(&library, "amazing");
+
+        assert!(!results.is_empty());
+        assert_eq!(results[0].source_file.name, "Amazing Grace");
+        assert!(!results[0].title_highlights.is_empty());
+    }
+
+    /// What a song contributes to the index is its lyrics, not its file: the
+    /// YAML keys and the Lilypond notes of the score must not be searchable,
+    /// or every second query would hit them.
+    #[test]
+    fn a_song_is_indexed_as_lyrics_rather_than_as_its_file() {
+        invalidate_search_cache();
+        let indexed = index_text(&song("Amazing Grace", "testfiles/Amazing Grace.song.yml"))
+            .expect("the song can be read");
+
+        assert!(
+            indexed.contains("Amazing grace, How sweet the sound"),
+            "the lyrics belong in the index, got: {indexed}"
+        );
+        assert!(
+            !indexed.contains("version:") && !indexed.contains("\\breathe"),
+            "neither the YAML keys nor the notation belong in it, got: {indexed}"
+        );
+    }
+
+    /// Following from that: a search for a note group finds nothing, while a
+    /// search for a line of the lyrics finds the song.
+    #[test]
+    fn the_notation_is_not_searchable_but_the_lyrics_are() {
+        invalidate_search_cache();
+        let library = vec![song("Amazing Grace", "testfiles/Amazing Grace.song.yml")];
+
+        let lyrics = search_source_files(&library, "wretch like me");
+        assert_eq!(lyrics.len(), 1, "a line of the lyrics should find the song");
+        assert!(
+            lyrics[0].excerpt.is_some(),
+            "a hit in the text should come with the passage it was found in"
+        );
+
+        assert!(
+            search_source_files(&library, "breathe").is_empty(),
+            "a Lilypond command should not be searchable"
+        );
+    }
+
+    /// The words of a query may be scattered over the line, and they may be in
+    /// any order — someone half remembering a line does not remember its
+    /// grammar.
+    #[test]
+    fn the_words_of_a_query_are_found_in_any_order() {
+        invalidate_search_cache();
+        let library = vec![song("Amazing Grace", "testfiles/Amazing Grace.song.yml")];
+
+        assert_eq!(search_source_files(&library, "wretch sound").len(), 1);
+        // …but every word has to be there.
+        assert!(search_source_files(&library, "wretch banana").is_empty());
+    }
+
+    /// The passage that is shown carries the positions of what matched, so the
+    /// list can pick them out without searching the text again.
+    #[test]
+    fn a_passage_knows_which_characters_matched() {
+        let (excerpt, matched) =
+            content_match("Amazing grace, how sweet the sound", &["sweet".to_string()])
+                .expect("the word is in the text");
+
+        assert_eq!(matched, 1);
+        let highlighted: String = excerpt
+            .text
+            .chars()
+            .enumerate()
+            .filter(|(index, _)| excerpt.highlights.contains(index))
+            .map(|(_, character)| character)
+            .collect();
+        assert_eq!(highlighted, "sweet");
+    }
+
+    #[test]
+    fn search_markdown_content() {
+        invalidate_search_cache();
+        let sf = file("example", "testfiles/example.md", SourceFileType::Markdown);
+
         let results = search_source_files(&[sf], "slide");
+
         assert!(!results.is_empty(), "Should find markdown file by content");
+    }
+
+    #[test]
+    fn search_returns_markdown_title_match() {
+        let sf = file("example", "testfiles/example.md", SourceFileType::Markdown);
+
+        let results = search_source_files(&[sf], "example");
+
+        assert!(!results.is_empty(), "Should find markdown file by title");
+        assert!(!results[0].title_highlights.is_empty(), "Should be a title match");
     }
 
     #[test]
     fn search_pdf_content() {
         // This PDF fixture is expected to have no extractable text; it should not produce matches.
-        let sf = SourceFile {
-            name: "Example".to_string(),
-            path: PathBuf::from("testfiles/Example.pdf"),
-            file_type: SourceFileType::Pdf,
-            md5_hash: None,
-            relative_path: None,
-        };
-        let results = search_source_files(&[sf], "test");
+        invalidate_search_cache();
+        let sf = file("Example", "testfiles/Example.pdf", SourceFileType::Pdf);
+
+        let results = search_source_files(&[sf], "unfindable");
+
         assert!(
             results.is_empty(),
             "PDFs without extractable text should not produce search results"
@@ -362,48 +580,29 @@ mod tests {
         // MultiPage.pdf has pages with embedded text ("Page 1", "Page 2", "Page 3").
         // Query "page 2" contains a space+digit so it matches the content but not the
         // filename "MultiPage" (which would only match the bare word "page").
-        let sf = SourceFile {
-            name: "MultiPage".to_string(),
-            path: PathBuf::from("testfiles/MultiPage.pdf"),
-            file_type: SourceFileType::Pdf,
-            md5_hash: None,
-            relative_path: None,
-        };
-        // PDF content search requires the cache to be populated first
-        // (read_source_file_content never parses PDFs synchronously).
+        let sf = file("MultiPage", "testfiles/MultiPage.pdf", SourceFileType::Pdf);
+        // PDF content search requires the index to be filled first: nothing
+        // parses a document while the user is typing.
         invalidate_search_cache();
-        refresh_search_cache(&[sf.clone()]);
-        let results = search_source_files(&[sf], "page 2");
-        assert!(!results.is_empty(), "PDF with embedded text should produce search results");
-        assert!(!results[0].is_title_match, "Should be a content match, not a title match");
-    }
+        refresh_search_cache(std::slice::from_ref(&sf));
 
-    #[test]
-    fn search_returns_markdown_title_match() {
-        let sf = SourceFile {
-            name: "example".to_string(),
-            path: PathBuf::from("testfiles/example.md"),
-            file_type: SourceFileType::Markdown,
-            md5_hash: None,
-            relative_path: None,
-        };
-        let results = search_source_files(&[sf], "example");
-        assert!(!results.is_empty(), "Should find markdown file by title");
-        assert!(results[0].is_title_match, "Should be a title match");
+        let results = search_source_files(&[sf], "page 2");
+
+        assert!(!results.is_empty(), "PDF with embedded text should produce search results");
+        assert!(
+            results[0].title_highlights.is_empty(),
+            "Should be a content match, not a title match"
+        );
     }
 
     #[test]
     fn refresh_cache_includes_markdown() {
-        let sf = SourceFile {
-            name: "example".to_string(),
-            path: PathBuf::from("testfiles/example.md"),
-            file_type: SourceFileType::Markdown,
-            md5_hash: None,
-            relative_path: None,
-        };
+        let sf = file("example", "testfiles/example.md", SourceFileType::Markdown);
         invalidate_search_cache();
-        refresh_search_cache(&[sf.clone()]);
+        refresh_search_cache(std::slice::from_ref(&sf));
+
         let content = read_source_file_content(&sf);
+
         assert!(content.is_some(), "Markdown content should be cached");
         assert!(
             content.unwrap().contains("slide"),
@@ -414,16 +613,12 @@ mod tests {
     #[test]
     fn refresh_cache_includes_pdf_text() {
         // MultiPage.pdf has embedded text ("Page 1", "Page 2", "Page 3") across its pages.
-        let sf = SourceFile {
-            name: "MultiPage".to_string(),
-            path: PathBuf::from("testfiles/MultiPage.pdf"),
-            file_type: SourceFileType::Pdf,
-            md5_hash: None,
-            relative_path: None,
-        };
+        let sf = file("MultiPage", "testfiles/MultiPage.pdf", SourceFileType::Pdf);
         invalidate_search_cache();
-        refresh_search_cache(&[sf.clone()]);
+        refresh_search_cache(std::slice::from_ref(&sf));
+
         let content = read_source_file_content(&sf);
+
         assert!(content.is_some(), "PDF content should be cached after refresh");
         assert!(
             content.unwrap().contains("Page"),

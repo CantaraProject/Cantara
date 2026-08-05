@@ -20,8 +20,8 @@ pub(crate) fn SelectedItems(
         div {
             class: "selected-container",
             onmouseup: move |_| {
-                if let (Some(from), Some(to)) = (dragging_from(), hover_over()) {
-                    if from != to {
+                if let (Some(from), Some(to)) = (dragging_from(), hover_over())
+                    && from != to {
                         let mut items = selected_items.write();
                         let len_before = items.len();
                         if from < len_before && to <= len_before {
@@ -33,7 +33,6 @@ pub(crate) fn SelectedItems(
                             anim_flip.set(!anim_flip());
                         }
                     }
-                }
                 dragging_from.set(None);
                 hover_over.set(None);
             },

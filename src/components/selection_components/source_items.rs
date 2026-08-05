@@ -256,7 +256,7 @@ pub(crate) fn MarkdownSourceItems(
     #[props(default)]
     click_action: ItemClickAction,
 ) -> Element {
-    let mut spontaneous_text: Signal<String> = use_signal(|| String::new());
+    let mut spontaneous_text: Signal<String> = use_signal(String::new);
 
     rsx! {
         div {
@@ -427,6 +427,9 @@ pub(crate) async fn process_dropped_files(
     let files = event.data().files();
     for file_data in files {
         let file_name = file_data.name();
+        // Only the desktop keeps dropped files where they lie; the web build
+        // copies the bytes into its VFS below.
+        #[cfg(not(target_arch = "wasm32"))]
         let file_path = file_data.path();
         // The same classifier the directory scan uses, so a file that can be
         // opened from a repository can also be dropped onto the window.

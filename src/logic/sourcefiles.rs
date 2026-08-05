@@ -1,14 +1,21 @@
 //! This module provides functionality for handling available source files (for creating output) in Cantara.
 
 
+// Reading files from disk, and the paths to do it with, are a desktop matter:
+// the web build keeps its repositories in an in-memory VFS.
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
-use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(target_arch = "wasm32"))]
 /// The maximal depth for recursive file searching. Implemented as a constant to prevent loops.
 const MAX_DEPTH: usize = 6;
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Recursively finds all files in a directory whose filenames end with the given suffix,
 /// up to a recursion depth of the constant [MAX_DEPTH].
 ///
@@ -19,7 +26,7 @@ const MAX_DEPTH: usize = 6;
 ///
 /// # Returns
 /// A vector of `PathBuf`s containing the full paths of matching files.
-fn find_files_recursive(dir: &Path, endings: &Vec<&'static str>, depth: usize) -> Vec<PathBuf> {
+fn find_files_recursive(dir: &Path, endings: &[&'static str], depth: usize) -> Vec<PathBuf> {
     let mut result = Vec::new();
 
     // Stop recursion beyond depth 6
@@ -27,36 +34,38 @@ fn find_files_recursive(dir: &Path, endings: &Vec<&'static str>, depth: usize) -
         return result;
     }
 
-    // Read directory entries, skip if there's an error
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
+    // A directory that cannot be read is skipped: a library may well contain
+    // one the user has no access to, and that is no reason to abandon the scan.
+    let Ok(entries) = fs::read_dir(dir) else {
+        return result;
+    };
 
-                // If it's a file, check if its name ends with the given ending
-                if path.is_file() {
-                    if let Some(file_name) = path.file_name() {
-                        if let Some(file_name_str) = file_name.to_str() {
-                            for ending in endings {
-                                if file_name_str.ends_with(ending) {
-                                    result.push(path.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-                // If it's a directory, recurse into it
-                else if path.is_dir() {
-                    let sub_result = find_files_recursive(&path, endings, depth + 1);
-                    result.extend(sub_result);
-                }
-            }
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        if path.is_dir() {
+            result.extend(find_files_recursive(&path, endings, depth + 1));
+            continue;
+        }
+
+        if !path.is_file() {
+            continue;
+        }
+
+        let matches_ending = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| endings.iter().any(|ending| name.ends_with(ending)));
+
+        if matches_ending {
+            result.push(path);
         }
     }
 
     result
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Finds all files in a directory and its subdirectories (up to 6 levels deep)
 /// whose filenames end with the given suffix.
 ///
@@ -82,6 +91,7 @@ fn find_files_with_ending(dir: &Path, endings: Vec<&'static str>) -> Vec<PathBuf
     find_files_recursive(dir, &endings, 0)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Every file below `dir` that Cantara can read, each listed once.
 ///
 /// Matching goes through [`SourceFileType::of`], so this cannot fall behind the
@@ -219,6 +229,7 @@ pub struct SourceFile {
     pub relative_path: Option<String>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// This function will get all source files in a given directory which can be imported and used by Cantara
 ///
 /// # Parameters
@@ -255,6 +266,7 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
         .collect()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// The position of `file` below `root`, in the form the URL identifier is built
 /// from: `/` as separator, whatever the platform's own separator is.
 fn relative_path(root: &Path, file: &Path) -> Option<String> {
@@ -291,32 +303,20 @@ impl ImageSourceFile {
     }
 }
 
-/// This is a wrapper around [SourceFile] which ensures that the [SourceFile] is a PDF
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct PdfSourceFile(SourceFile);
-
-impl PdfSourceFile {
-    // Constructor that enforces the FileType::Pdf constraint
-    pub fn new(source_file: SourceFile) -> Option<Self> {
-        if matches!(source_file.file_type, SourceFileType::Pdf) {
-            Some(PdfSourceFile(source_file))
-        } else {
-            None
-        }
-    }
-
-    // Accessor to get the inner SourceFile
-    pub fn into_inner(self) -> SourceFile {
-        self.0
-    }
-
-    // Optional: Reference accessor for convenience
-    pub fn as_source(&self) -> &SourceFile {
-        &self.0
-    }
-}
-
 impl SourceFile {
+    /// The name of the file itself — the thing that decides its format.
+    ///
+    /// [`name`](Self::name) is the *display* name, with the suffix stripped
+    /// for the list, so handing that to an importer makes every song look like
+    /// an unknown format. Falls back to the display name for an element that
+    /// was never a file, such as a piece of Markdown typed into the app.
+    pub fn file_name(&self) -> &str {
+        self.path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(&self.name)
+    }
+
     /// Creates a [SourceFile] from a web VFS path (e.g., `web-zip://url/path/to/file.song`).
     /// Only available on WASM targets.
     ///
@@ -486,27 +486,6 @@ pub mod tests {
             .filter(|sf| sf.file_type == SourceFileType::Pdf)
             .collect();
         assert_eq!(pdf_files.len(), 2);
-    }
-
-    #[test]
-    fn pdf_source_file_wrapper() {
-        let pdf_sf = SourceFile {
-            name: "test".to_string(),
-            path: PathBuf::from("test.pdf"),
-            file_type: SourceFileType::Pdf,
-            md5_hash: None,
-            relative_path: None,
-        };
-        assert!(PdfSourceFile::new(pdf_sf).is_some());
-
-        let song_sf = SourceFile {
-            name: "test".to_string(),
-            path: PathBuf::from("test.song"),
-            file_type: SourceFileType::Song,
-            md5_hash: None,
-            relative_path: None,
-        };
-        assert!(PdfSourceFile::new(song_sf).is_none());
     }
 
     /// Length of an MD5 hash in hexadecimal representation (16 bytes × 2 hex chars per byte).

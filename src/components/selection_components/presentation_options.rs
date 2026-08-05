@@ -138,7 +138,7 @@ pub(crate) fn PresentationOptions(
                                         {
                                             format!(
                                                 "{} {}",
-                                                t!("selection.presentation_options.slide_settings").to_string(),
+                                                t!("selection.presentation_options.slide_settings"),
                                                 idx + 1,
                                             )
                                         }
@@ -230,14 +230,13 @@ pub(crate) fn PresentationOptions(
                                     value: "{timer_seconds}",
                                     style: "margin-top: 8px;",
                                     onchange: move |evt| {
-                                        if let Ok(secs) = evt.value().parse::<u32>() {
-                                            if secs > 0 {
+                                        if let Ok(secs) = evt.value().parse::<u32>()
+                                            && secs > 0 {
                                                 let mut items = selected_items.write();
                                                 if let Some(ref mut ts) = items[item_index].timer_settings_option {
                                                     ts.timer_seconds = secs;
                                                 }
                                             }
-                                        }
                                     },
                                 }
                                 div { style: "margin-top: 8px;",
