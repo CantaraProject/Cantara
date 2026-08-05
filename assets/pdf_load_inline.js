@@ -46,6 +46,12 @@ try {
         await window.__pdfDocLoads[cacheKey];
     }
 
+    // The document is here, so the canvases that `pdf_render_inline.js` told
+    // to wait can stop waiting. A failed load deliberately leaves the request
+    // standing: it expires on its own, and clearing it here would send every
+    // one of them after the same unreadable file at once.
+    if (window.__pdfDocRequests) delete window.__pdfDocRequests[cacheKey];
+
     return { ok: true, pages: window.__pdfDocCache[cacheKey].numPages };
 } catch (e) {
     delete window.__pdfDocLoads[__CACHE_KEY__];

@@ -17,7 +17,8 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// The encoded pictures, keyed by the path they were read from.
@@ -101,6 +102,189 @@ pub fn image_data_url_str(path: &str) -> Option<String> {
     Some(url)
 }
 
+// ── Thumbnails for the list of pictures ──────────────────────────────────────
+//
+// The list is a different problem from a single picture on a slide. It shows
+// every picture of the library at once, at a couple of hundred pixels each,
+// and inlining them the way [`image_data_url`] does meant reading and encoding
+// the whole library — hundreds of megabytes of photographs — during the render
+// that was supposed to draw the list. The window stopped responding until it
+// was done.
+//
+// So the list gets scaled-down copies instead, made on background threads and
+// filled in as they arrive. A view asks [`thumbnail`] for what is ready and
+// draws a placeholder for the rest, and watches [`thumbnail_generation`] to
+// know when to look again.
+
+/// What is known about one picture's thumbnail.
+#[derive(Clone)]
+enum Thumbnail {
+    /// A background thread has it.
+    Loading,
+    /// Done — `None` when the picture could not be read or decoded.
+    Done(Option<String>),
+}
+
+static THUMBNAILS: OnceLock<Mutex<HashMap<PathBuf, Thumbnail>>> = OnceLock::new();
+
+/// Bumped every time a thumbnail lands, which is how a view notices without
+/// the background threads having to reach into it. Signals cannot be touched
+/// from another thread, and a counter can.
+static THUMBNAIL_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// How many pictures are still being worked on.
+static THUMBNAILS_OUTSTANDING: AtomicUsize = AtomicUsize::new(0);
+
+/// The longest edge of a list thumbnail, in pixels.
+///
+/// The list draws them 300 pixels tall, so this still has something in hand
+/// for a high-resolution screen while being a thousandth of the data of the
+/// photograph it came from.
+const THUMBNAIL_MAX_EDGE: u32 = 600;
+
+fn thumbnails() -> &'static Mutex<HashMap<PathBuf, Thumbnail>> {
+    THUMBNAILS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// The thumbnail of a picture, if one has been made.
+///
+/// Never reads a file: a view calls this while it renders, and that is the
+/// place the whole arrangement exists to keep free of file access. `None`
+/// means "not ready yet", which the list draws as a placeholder.
+pub fn thumbnail(path: &Path) -> Option<String> {
+    let map = thumbnails().lock().ok()?;
+    match map.get(path) {
+        Some(Thumbnail::Done(thumbnail)) => thumbnail.clone(),
+        _ => None,
+    }
+}
+
+/// Counts up as thumbnails arrive. A view that remembers the last value it saw
+/// knows whether there is anything new to draw.
+pub fn thumbnail_generation() -> u64 {
+    THUMBNAIL_GENERATION.load(Ordering::Relaxed)
+}
+
+/// Whether any thumbnail is still being made.
+pub fn thumbnails_in_progress() -> bool {
+    THUMBNAILS_OUTSTANDING.load(Ordering::Relaxed) > 0
+}
+
+/// Makes the thumbnails of `paths` that do not have one yet.
+///
+/// Returns at once; the work happens on background threads. Calling it again
+/// with the same pictures does nothing, so a view may call it on every scan.
+pub fn prepare_thumbnails(paths: Vec<PathBuf>) {
+    let todo: Vec<PathBuf> = {
+        let Ok(mut map) = thumbnails().lock() else {
+            return;
+        };
+        paths
+            .into_iter()
+            .filter(|path| {
+                // `Loading` counts as known: another thread has it.
+                map.insert(path.clone(), Thumbnail::Loading).is_none()
+            })
+            .collect()
+    };
+
+    if todo.is_empty() {
+        return;
+    }
+    THUMBNAILS_OUTSTANDING.fetch_add(todo.len(), Ordering::Relaxed);
+
+    // The web build has no threads. Its pictures are already in memory rather
+    // than on a disk, so the cost is the encoding alone and it is paid here.
+    #[cfg(target_arch = "wasm32")]
+    {
+        for path in todo {
+            let made = image_data_url(&path);
+            finish_thumbnail(path, made);
+        }
+    }
+
+    // One thread hands the pictures out to the others, so that this call
+    // returns immediately and the pictures are read several at a time.
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(move || {
+        crate::logic::parallel::map_parallel(&todo, |path| {
+            let made = make_thumbnail(path);
+            finish_thumbnail(path.clone(), made);
+        });
+        // Nothing may be left saying `Loading` that no longer has a thread
+        // behind it: a picture whose decoder gave up mid-way would otherwise
+        // keep the list looking for a thumbnail that is never coming.
+        abandon_unfinished(&todo);
+    });
+}
+
+/// Marks as failed anything still claimed but not delivered.
+#[cfg(not(target_arch = "wasm32"))]
+fn abandon_unfinished(paths: &[PathBuf]) {
+    let Ok(mut map) = thumbnails().lock() else {
+        return;
+    };
+    for path in paths {
+        if matches!(map.get(path), Some(Thumbnail::Loading)) {
+            log::warn!("could not make a thumbnail of {}", path.display());
+            map.insert(path.clone(), Thumbnail::Done(None));
+            THUMBNAILS_OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
+            THUMBNAIL_GENERATION.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Records a finished thumbnail and lets the views know there is one more.
+fn finish_thumbnail(path: PathBuf, made: Option<String>) {
+    if let Ok(mut map) = thumbnails().lock() {
+        map.insert(path, Thumbnail::Done(made));
+    }
+    THUMBNAILS_OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
+    THUMBNAIL_GENERATION.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Reads a picture and scales it down to something a list can hold.
+///
+/// Only where the image library is compiled in. Everywhere else the picture is
+/// inlined whole — still off the render, which is what made the list
+/// unresponsive, just larger than it needs to be.
+#[cfg(all(feature = "desktop", not(target_arch = "wasm32")))]
+fn make_thumbnail(path: &Path) -> Option<String> {
+    let picture = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .decode()
+        .ok()?;
+
+    // `thumbnail` is the cheap filter on purpose: at this size the difference
+    // is not visible and the library may hold hundreds of photographs.
+    let small = picture.thumbnail(THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE);
+
+    // A photograph goes back out as JPEG, which is a tenth of the size of the
+    // same thing as PNG and indistinguishable at this scale — and the whole
+    // list travels into the page as markup, so its size is what the window has
+    // to carry. A picture with transparency stays PNG: JPEG has no
+    // transparency, and a logo would come back with a black box around it.
+    let (media_type, format) = if small.color().has_alpha() {
+        ("image/png", image::ImageFormat::Png)
+    } else {
+        ("image/jpeg", image::ImageFormat::Jpeg)
+    };
+
+    let mut encoded: Vec<u8> = Vec::new();
+    small
+        .write_to(&mut std::io::Cursor::new(&mut encoded), format)
+        .ok()?;
+
+    Some(format!("data:{};base64,{}", media_type, BASE64.encode(&encoded)))
+}
+
+#[cfg(all(not(feature = "desktop"), not(target_arch = "wasm32")))]
+fn make_thumbnail(path: &Path) -> Option<String> {
+    image_data_url(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +318,50 @@ mod tests {
     #[test]
     fn a_missing_file_gives_nothing() {
         assert_eq!(image_data_url(Path::new("testfiles/not-a-picture.png")), None);
+    }
+
+    /// Asking for a thumbnail must never read a file: the list asks while it
+    /// is rendering, and reading there is what made the window stop
+    /// responding.
+    #[test]
+    fn a_thumbnail_that_is_not_ready_is_not_waited_for() {
+        assert_eq!(thumbnail(Path::new("assets/favicon.png")), None);
+    }
+
+    /// The list gets a small copy rather than the picture itself, made off the
+    /// render and announced by the counter the list watches.
+    #[test]
+    fn a_thumbnail_is_made_in_the_background_and_is_smaller_than_the_picture() {
+        let logo = PathBuf::from("assets/cantara-logo_small.png");
+        let before = thumbnail_generation();
+
+        prepare_thumbnails(vec![logo.clone()]);
+
+        // The work is on another thread; the call above must not have waited
+        // for it. Give it a moment to land.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while thumbnails_in_progress() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        let small = thumbnail(&logo).expect("the bundled logo can be scaled down");
+        assert!(small.starts_with("data:image/"), "got: {}", &small[..30.min(small.len())]);
+        assert!(
+            thumbnail_generation() > before,
+            "the list is never told that the thumbnail arrived"
+        );
+
+        let whole = image_data_url(&logo).expect("the bundled logo can be read");
+        assert!(
+            small.len() <= whole.len(),
+            "the list is being handed {} bytes where the picture itself is {}",
+            small.len(),
+            whole.len()
+        );
+
+        // Asking again must not queue the same picture a second time.
+        prepare_thumbnails(vec![logo.clone()]);
+        assert!(!thumbnails_in_progress());
     }
 
     /// What the page gets is a `data:` URL carrying the file, and the second

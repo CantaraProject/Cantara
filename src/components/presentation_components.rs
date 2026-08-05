@@ -1696,6 +1696,17 @@ fn read_pdf_as_base64(pdf_path: &str) -> String {
     }
 }
 
+/// How long to wait between two looks at whether another canvas has finished
+/// handing the document over.
+const PDF_WAIT_STEP_MS: u32 = 120;
+
+/// How many such looks before giving up.
+///
+/// This has to outlast the point at which `pdf_render_inline.js` declares a
+/// request stale (four seconds), or a canvas whose loader was unmounted before
+/// it delivered would give up rather than fetch the document itself.
+const PDF_WAIT_ATTEMPTS: usize = 60;
+
 /// Renders a single PDF page onto a `<canvas>` via PDF.js.
 ///
 /// The document is parsed once per window and kept in `window.__pdfDocCache`;
@@ -1751,18 +1762,43 @@ pub(crate) fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
 
                     // 1. Try the document already in the page. This is the
                     //    common case — every slide after the first.
-                    let missing = match document::eval(&render_js).await {
-                        Ok(value) => {
-                            value.get("missing").and_then(|m| m.as_bool()) == Some(true)
+                    //
+                    //    While another canvas of the same document is fetching
+                    //    it, this one is told to wait rather than to ask for a
+                    //    copy of its own; it looks again in a moment, and the
+                    //    document is normally there by the second or third
+                    //    look. Should that canvas never deliver — it may be
+                    //    unmounted mid-flight — the request goes stale and
+                    //    this one is told to fetch the document itself, which
+                    //    is what the budget below outlasts.
+                    let mut attempt = 0;
+                    loop {
+                        match document::eval(&render_js).await {
+                            Ok(value) => {
+                                if value.get("missing").and_then(|m| m.as_bool()) == Some(true) {
+                                    break;
+                                }
+                                if value.get("waiting").and_then(|w| w.as_bool()) != Some(true) {
+                                    return;
+                                }
+                            }
+                            Err(error) => {
+                                log::error!("could not render the PDF page: {error:?}");
+                                return;
+                            }
                         }
-                        Err(error) => {
-                            log::error!("could not render the PDF page: {error:?}");
+
+                        attempt += 1;
+                        if attempt > PDF_WAIT_ATTEMPTS {
+                            log::warn!(
+                                "gave up waiting for {pdf_path} to be loaded by another slide"
+                            );
                             return;
                         }
-                    };
-
-                    if !missing {
-                        return;
+                        let _ = document::eval(&format!(
+                            "await new Promise(r => setTimeout(r, {PDF_WAIT_STEP_MS}))"
+                        ))
+                        .await;
                     }
 
                     // 2. First page of this document in this window: pay for

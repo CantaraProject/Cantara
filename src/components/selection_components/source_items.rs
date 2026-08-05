@@ -103,6 +103,38 @@ pub(crate) fn ImageSourceItems(
     #[props(default)]
     click_action: ItemClickAction,
 ) -> Element {
+    // Counts up as thumbnails arrive; reading it here is what makes the list
+    // draw them. See [`crate::logic::images`] for why they are not simply read
+    // while this renders — doing that froze the window for as long as it took
+    // to encode every photograph in the library.
+    let mut thumbnails_ready: Signal<u64> = use_signal(crate::logic::images::thumbnail_generation);
+
+    use_effect(move || {
+        let paths: Vec<std::path::PathBuf> = source_files
+            .read()
+            .iter()
+            .filter(|file| file.file_type == SourceFileType::Image)
+            .map(|file| file.path.clone())
+            .collect();
+        crate::logic::images::prepare_thumbnails(paths);
+
+        // The pictures are made on threads, which cannot write to a signal, so
+        // the list looks for new ones instead. It stops as soon as they are
+        // all in; a scan that brings more starts this effect again.
+        spawn(async move {
+            loop {
+                let generation = crate::logic::images::thumbnail_generation();
+                if generation != *thumbnails_ready.peek() {
+                    thumbnails_ready.set(generation);
+                }
+                if !crate::logic::images::thumbnails_in_progress() {
+                    return;
+                }
+                let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
+            }
+        });
+    });
+
     rsx! {
         div {
             class: "scrollable-container",
@@ -120,7 +152,8 @@ pub(crate) fn ImageSourceItems(
                     source_files,
                     active_detailed_item_id,
                     selected_items,
-                click_action,
+                    click_action,
+                    thumbnails_ready,
                 }
             }
         }
@@ -135,14 +168,19 @@ fn ImageSourceItem(
     active_detailed_item_id: Signal<Option<usize>>,
     #[props(default)]
     click_action: ItemClickAction,
+    /// Read so that this item is drawn again when its thumbnail arrives.
+    thumbnails_ready: Signal<u64>,
 ) -> Element {
     let source_file = source_files.read().get(id).cloned();
     let Some(source_file) = source_file else {
         return rsx! {};
     };
-    // The picture is handed to the page inline; a file system path in `src` is
-    // nothing a web view can fetch. See [`crate::logic::images`].
-    let image_src = crate::logic::images::image_data_url(&source_file.path);
+    let _ = thumbnails_ready();
+    // A scaled-down copy, made on a background thread and inlined into the
+    // page — a file system path in `src` is nothing a web view can fetch, and
+    // the picture itself is far more than a list needs. See
+    // [`crate::logic::images`].
+    let image_src = crate::logic::images::thumbnail(&source_file.path);
 
     rsx! {
         div {
@@ -170,8 +208,15 @@ fn ImageSourceItem(
             },
             {source_file.name.clone()}
             br {}
-            if let Some(image_src) = image_src {
-                img { height: "300px", src: "{image_src}", alt: "{source_file.name}" }
+            // The box keeps its size while the thumbnail is being made, so the
+            // list does not jump about as the pictures come in.
+            match image_src {
+                Some(image_src) => rsx! {
+                    img { height: "300px", src: "{image_src}", alt: "{source_file.name}" }
+                },
+                None => rsx! {
+                    div { class: "picture-placeholder", aria_busy: true }
+                },
             }
         }
     }

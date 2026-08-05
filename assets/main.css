@@ -839,6 +839,16 @@ div.inline-div {
 
 .detail-song-tags dd { margin: 0; }
 
+/* Holds a picture's place in the list while its thumbnail is being made. */
+.picture-placeholder {
+    height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--pico-border-radius);
+    background-color: var(--pico-form-element-background-color);
+}
+
 /* A row in the list of what has been picked for the presentation.
  *
  * The name takes the space that is left and the buttons keep theirs: a

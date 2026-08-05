@@ -274,6 +274,20 @@ fn App() -> Element {
             }
             source_files.set(files.clone());
 
+            // The list of pictures shows scaled-down copies, which are made on
+            // background threads. Started here rather than when that list is
+            // first drawn, so that they are usually there by the time anyone
+            // looks — see [`logic::images`].
+            crate::logic::images::prepare_thumbnails(
+                files
+                    .iter()
+                    .filter(|file| {
+                        file.file_type == logic::sourcefiles::SourceFileType::Image
+                    })
+                    .map(|file| file.path.clone())
+                    .collect(),
+            );
+
             #[cfg(not(target_arch = "wasm32"))]
             std::thread::spawn(move || {
                 crate::logic::search::refresh_search_cache(&files);
