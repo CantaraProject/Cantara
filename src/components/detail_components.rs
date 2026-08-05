@@ -225,6 +225,40 @@ fn InlineEditable(
     }
 }
 
+/// Puts the identifier of the open element into the address bar.
+///
+/// Deliberately not a navigation, which is what this used to be. The whole
+/// route tree hangs in an animated outlet, and that outlet cross-fades on any
+/// change of the route *value* — not only between one view and another. Going
+/// from `/detail` to `/detail/a3f9c2b1` is such a change, so opening an element
+/// mounted the detail view a second time next to the one already on screen and
+/// faded between them: every element visibly loaded twice.
+///
+/// A link still *opens* an element through the route, which is the direction
+/// that matters; only the write-back goes around the router. Nothing is pushed
+/// onto the history either way, so the back button still leaves the view rather
+/// than stepping through everything that was looked at in it.
+///
+/// The desktop has no address bar to keep in step, so there this does nothing.
+fn show_element_in_address(id: &str) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        // The address is built from the one in the bar, so that a deployment
+        // under a base path — `/Cantara/` on GitHub Pages — is carried over
+        // without having to be known here.
+        let js = format!(
+            "var base = location.pathname.split('/detail')[0].replace(/\\/$/, '');\
+             history.replaceState(null, '', base + '/detail/' + {} + location.search + location.hash);",
+            serde_json::to_string(id).unwrap_or_else(|_| "''".to_string())
+        );
+        let _ = document::eval(&js);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = id;
+    }
+}
+
 /// The detail view: the same element list as the selection view, with one
 /// element opened beside it.
 ///
@@ -276,15 +310,12 @@ pub fn Detail(element: Vec<String>) -> Element {
         }
     });
 
-    // ... and the other way round: opening an element writes the URL, so the
-    // address bar always shows a link to what is on screen. `replace` rather
-    // than `push`, so the back button leaves the detail view instead of
-    // stepping back through everything that was looked at in it.
+    // ... and the other way round: opening an element writes the address, so
+    // that it always shows a link to what is on screen and can be copied out.
     //
     // Reading the identifier from the URL with `peek` keeps this effect out of
     // the other direction: it reacts to the element that is open, not to the
-    // address that itself writes.
-    let nav = navigator();
+    // address that it writes itself.
     use_effect(move || {
         let library = source_files.read();
         let open_id = active_detailed_item_id()
@@ -292,12 +323,13 @@ pub fn Detail(element: Vec<String>) -> Element {
             .map(|file| crate::logic::element_id::of(file, &library));
 
         // While the library is still being scanned there is nothing to derive
-        // an identifier from; replacing the URL then would throw away the one
-        // the user arrived with before it could be resolved.
+        // an identifier from; writing the address then would throw away the
+        // one the user arrived with before it could be resolved.
         if let Some(id) = open_id
             && Some(&id) != requested_id.peek().as_ref()
         {
-            nav.replace(crate::Route::Detail { element: vec![id] });
+            requested_id.set(Some(id.clone()));
+            show_element_in_address(&id);
         }
     });
 

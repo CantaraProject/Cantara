@@ -182,8 +182,19 @@ pub fn prepare_thumbnails(paths: Vec<PathBuf>) {
         paths
             .into_iter()
             .filter(|path| {
-                // `Loading` counts as known: another thread has it.
-                map.insert(path.clone(), Thumbnail::Loading).is_none()
+                // Only a picture nothing is known about is claimed. Writing
+                // `Loading` unconditionally — and only queueing the entries
+                // that were new — put every *finished* thumbnail back into a
+                // state nothing would ever complete, which is what left the
+                // list showing its placeholders for good: the scan makes them
+                // once, and the list asking a second time threw them away.
+                match map.entry(path.clone()) {
+                    std::collections::hash_map::Entry::Vacant(slot) => {
+                        slot.insert(Thumbnail::Loading);
+                        true
+                    }
+                    std::collections::hash_map::Entry::Occupied(_) => false,
+                }
             })
             .collect()
     };
@@ -359,9 +370,19 @@ mod tests {
             whole.len()
         );
 
-        // Asking again must not queue the same picture a second time.
+        // Asking again must not queue the same picture a second time — and
+        // above all must not take away the thumbnail that is already there.
+        // The list asks on every scan and again when it is drawn, and doing
+        // that used to leave every picture stuck behind its placeholder.
         prepare_thumbnails(vec![logo.clone()]);
         assert!(!thumbnails_in_progress());
+        // Compared by length rather than by value: a mismatch would otherwise
+        // print two screenfuls of base64.
+        assert_eq!(
+            thumbnail(&logo).map(|kept| kept.len()),
+            Some(small.len()),
+            "asking a second time threw the thumbnail away"
+        );
     }
 
     /// What the page gets is a `data:` URL carrying the file, and the second
