@@ -1,8 +1,8 @@
 //! Finding an element of the library.
 //!
 //! Two things are searched, and they are searched differently: the *name* of an
-//! element fuzzily, its *text* by whole words. Why, and what a song's text
-//! actually is, is written at [`search_source_files`] and [`index_text`].
+//! element fuzzily, its *text* by words. Why, and what a song's text actually
+//! is, is written at [`search_source_files`] and [`index_text`].
 //!
 //! The text of every element is held in an index that
 //! [`refresh_search_cache`] fills after the library has been scanned, so that
@@ -45,55 +45,6 @@ pub fn invalidate_search_cache() {
         && let Ok(mut map) = m.lock() {
             map.clear();
         }
-}
-
-/// Every page of an already-loaded document as one text.
-///
-/// Desktop only: the web build never loads a whole PDF, it reads the single
-/// page the presenter console is showing.
-#[cfg(not(target_arch = "wasm32"))]
-fn extract_text_from_pdf_document(doc: &lopdf::Document) -> Option<String> {
-    let page_numbers: Vec<u32> = doc.get_pages().keys().copied().collect();
-    let mut texts = Vec::new();
-    for page_num in page_numbers {
-        if let Ok(text) = doc.extract_text(&[page_num]) {
-            texts.push(text);
-        }
-    }
-    if texts.is_empty() {
-        None
-    } else {
-        Some(texts.join("\n"))
-    }
-}
-
-/// Shared helper: iterates every page of `doc`, attempts text extraction, and
-/// inserts each successfully-extracted page into `PDF_PAGE_CACHE` under the key
-/// `"{path_str}#page={N}"`.
-/// Text extraction is done outside the lock to avoid blocking concurrent readers.
-#[cfg(not(target_arch = "wasm32"))]
-fn cache_all_pdf_page_texts(doc: &lopdf::Document, path_str: &str) {
-    // Extract all page texts outside the lock
-    let mut page_texts: Vec<(String, String)> = Vec::new();
-    for pnum in doc.get_pages().keys().copied() {
-        match doc.extract_text(&[pnum]) {
-            Ok(text) => {
-                page_texts.push((format!("{}#page={}", path_str, pnum), text));
-            }
-            Err(e) => {
-                log::debug!(
-                    "Text extraction failed for page {} of {}: {}",
-                    pnum, path_str, e
-                );
-            }
-        }
-    }
-    // Acquire the lock only for the bulk insert
-    if let Ok(mut map) = pdf_page_cache().lock() {
-        for (key, text) in page_texts {
-            map.insert(key, text);
-        }
-    }
 }
 
 /// How many pages a PDF has, for the detail view's paging.
@@ -156,6 +107,10 @@ pub fn extract_pdf_page_text_from_bytes(bytes: &[u8], page_number: u32, path_key
 ///
 /// Anything that cannot be parsed as a song falls back to its raw contents —
 /// a broken file is still better searched than not searched at all.
+///
+/// A PDF contributes nothing here: it is the one format whose text has to be
+/// parsed out of it, which is far too slow to do while someone is typing, and
+/// [`index_pdf`] does it during the scan instead.
 fn index_text(file: &SourceFile) -> Option<String> {
     match file.file_type {
         SourceFileType::Song => {
@@ -163,22 +118,50 @@ fn index_text(file: &SourceFile) -> Option<String> {
             Some(lyrics_of(file, &content).unwrap_or(content))
         }
         SourceFileType::Markdown => read_source_file(file).ok(),
-        SourceFileType::Pdf => {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                lopdf::Document::load(&file.path)
-                    .ok()
-                    .and_then(|doc| extract_text_from_pdf_document(&doc))
-            }
-            // Parsing a PDF is far too slow to do while someone is typing, and
-            // the web build has no background thread to do it in.
-            #[cfg(target_arch = "wasm32")]
-            {
-                None
-            }
-        }
         _ => None,
     }
+}
+
+/// What one file of the library contributes to the two indexes: the text the
+/// search matches against, and — for a PDF — the text of each of its pages,
+/// keyed as [`PDF_PAGE_CACHE`] holds them.
+type IndexedFile = (Option<String>, Vec<(String, String)>);
+
+/// What one PDF contributes to both indexes: the text of each of its pages,
+/// keyed as the page index holds them, and all of it as one text for the
+/// search.
+///
+/// The document is parsed *once* for both. It used to be loaded and walked
+/// twice per scan — once to fill the page index the presenter console reads
+/// from, once more for the search index — which on a library of scanned
+/// scores is the single most expensive thing the program does.
+#[cfg(not(target_arch = "wasm32"))]
+fn index_pdf(path: &std::path::Path) -> IndexedFile {
+    let Ok(document) = lopdf::Document::load(path) else {
+        return (None, Vec::new());
+    };
+
+    let path_str = path.display().to_string();
+    let mut pages: Vec<(String, String)> = Vec::new();
+    for number in document.get_pages().keys().copied() {
+        match document.extract_text(&[number]) {
+            Ok(text) => pages.push((format!("{}#page={}", path_str, number), text)),
+            Err(error) => log::debug!(
+                "Text extraction failed for page {} of {}: {}",
+                number, path_str, error
+            ),
+        }
+    }
+
+    if pages.is_empty() {
+        return (None, pages);
+    }
+    let text = pages
+        .iter()
+        .map(|(_, text)| text.as_str())
+        .collect::<Vec<&str>>()
+        .join("\n");
+    (Some(text), pages)
 }
 
 /// The lyrics of a song file, as plain text.
@@ -191,30 +174,55 @@ fn lyrics_of(file: &SourceFile, content: &str) -> Option<String> {
 ///
 /// Both the reading and the parsing happen outside the lock, which is taken
 /// once at the end to swap the whole index in one go — a search running in
-/// parallel is never blocked for longer than that.
+/// parallel is never blocked for longer than that. The files are independent
+/// of one another, so on the desktop they are read a handful at a time; see
+/// [`crate::logic::parallel`].
 pub fn refresh_search_cache(source_files: &[SourceFile]) {
+    // What each file contributes: its indexed text, and — for a PDF — the
+    // text of each of its pages.
+    #[cfg(not(target_arch = "wasm32"))]
+    let indexed: Vec<IndexedFile> =
+        crate::logic::parallel::map_parallel(source_files, |file| {
+            if file.file_type == SourceFileType::Pdf {
+                index_pdf(&file.path)
+            } else {
+                (index_text(file), Vec::new())
+            }
+        });
+
+    // The web build has neither threads to read in parallel with nor a
+    // document to parse: its libraries are already in memory.
+    #[cfg(target_arch = "wasm32")]
+    let indexed: Vec<IndexedFile> = source_files
+        .iter()
+        .map(|file| (index_text(file), Vec::new()))
+        .collect();
+
     let mut entries: Vec<(PathBuf, String)> = Vec::with_capacity(source_files.len());
-
-    for file in source_files {
-        // The presenter console reads single pages of a PDF straight from the
-        // page cache, so those are filled here as well while the document is
-        // open anyway.
-        #[cfg(not(target_arch = "wasm32"))]
-        if file.file_type == SourceFileType::Pdf
-            && let Ok(doc) = lopdf::Document::load(&file.path)
-        {
-            cache_all_pdf_page_texts(&doc, &file.path.display().to_string());
-        }
-
-        if let Some(text) = index_text(file) {
+    let mut pages: Vec<(String, String)> = Vec::new();
+    for (file, (text, file_pages)) in source_files.iter().zip(indexed) {
+        if let Some(text) = text {
             entries.push((file.path.clone(), text));
         }
+        pages.extend(file_pages);
     }
 
     if let Ok(mut map) = cache().lock() {
         map.clear();
         map.extend(entries);
     }
+
+    // The page index is replaced rather than added to, so that the pages of a
+    // repository the user has removed do not stay behind. It is filled here
+    // only where a document can be parsed; the web build caches the single
+    // page it is shown, see [`extract_pdf_page_text_from_bytes`].
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Ok(mut map) = pdf_page_cache().lock() {
+        map.clear();
+        map.extend(pages);
+    }
+    #[cfg(target_arch = "wasm32")]
+    drop(pages);
 }
 
 /// The indexed text of a file, from the index if it is there.
@@ -283,8 +291,8 @@ const EXCERPT_CONTEXT: usize = 40;
 /// both find "Amazing Grace" and a typo does not send the user back to the
 /// keyboard. Each hit carries a score, and the list is ordered by it.
 ///
-/// The text of an element is matched by whole words instead. A fuzzy match over
-/// a whole song would succeed for practically every song — the letters of any
+/// The text of an element is matched by words instead. A fuzzy match over a
+/// whole song would succeed for practically every song — the letters of any
 /// short query can be found scattered through a page of lyrics — so this looks
 /// for every word of the query, in any order, which is what someone half
 /// remembering a line actually needs.
@@ -295,10 +303,7 @@ pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<Sear
     }
 
     let matcher = SkimMatcherV2::default();
-    let words: Vec<String> = query
-        .split_whitespace()
-        .map(|word| word.to_lowercase())
-        .collect();
+    let words: Vec<Vec<char>> = query.split_whitespace().map(fold).collect();
 
     let mut results: Vec<SearchResult> = Vec::new();
 
@@ -347,51 +352,80 @@ pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<Sear
     results
 }
 
+/// Lower-cases a text, one character per character.
+///
+/// `str::to_lowercase` is not usable here, because for a few characters it
+/// returns more than one — Turkish `İ` becomes `i` followed by a combining dot
+/// — and every position after such a character would be off by one. The
+/// excerpt and its highlights are cut out of the *original* text by position,
+/// so a shift there does not merely mislead the highlighting, it can index
+/// past the end of the text and bring the program down.
+///
+/// Where a character has no single-character lower case, the first character
+/// of its expansion is used, which is the letter itself; the mark that would
+/// have followed is not something anyone types into the search field.
+fn fold(text: &str) -> Vec<char> {
+    text.chars()
+        .map(|character| character.to_lowercase().next().unwrap_or(character))
+        .collect()
+}
+
+/// Whether the character at `at` begins a word.
+fn starts_word(text: &[char], at: usize) -> bool {
+    at == 0 || !text[at - 1].is_alphanumeric()
+}
+
+/// The first position at which `needle` begins a word in `haystack`.
+///
+/// A word of the query may be cut short — someone typing `wretc` is on their
+/// way to `wretch` and should see the song before they get there — but it has
+/// to *begin* where a word begins. Without that, `he` is found inside `the`
+/// and a two-letter query brings back the whole library.
+fn find_word(haystack: &[char], needle: &[char]) -> Option<usize> {
+    if needle.is_empty() {
+        return None;
+    }
+    (0..haystack.len())
+        .find(|start| starts_word(haystack, *start) && haystack[*start..].starts_with(needle))
+}
+
 /// Looks for every word of the query in `content` and cuts out the passage
 /// around the first of them.
 ///
 /// Returns the passage and how many of the words were found — all of them, or
 /// nothing: a query is a description of one line, and a text that holds only
 /// half of its words is not that line.
-fn content_match(content: &str, words: &[String]) -> Option<(Excerpt, usize)> {
-    let haystack: Vec<char> = content.to_lowercase().chars().collect();
+fn content_match(content: &str, words: &[Vec<char>]) -> Option<(Excerpt, usize)> {
     let original: Vec<char> = content.chars().collect();
+    let haystack: Vec<char> = fold(content);
+    debug_assert_eq!(haystack.len(), original.len());
 
-    // Where each word turns up, in characters.
-    let mut hits: Vec<(usize, usize)> = Vec::new();
-    for word in words {
-        let needle: Vec<char> = word.chars().collect();
-        let mut found = false;
-        for start in 0..haystack.len().saturating_sub(needle.len().saturating_sub(1)) {
-            if haystack[start..].starts_with(&needle[..]) {
-                hits.push((start, needle.len()));
-                found = true;
-                // One occurrence per word is enough to place the excerpt; the
-                // rest are found again below, inside the excerpt.
-                break;
-            }
-        }
-        if !found {
-            return None;
-        }
+    // Where each word turns up, in characters. One occurrence per word is
+    // enough to place the excerpt; the rest are found again below, inside it.
+    let mut hits: Vec<usize> = Vec::with_capacity(words.len());
+    for needle in words {
+        hits.push(find_word(&haystack, needle)?);
     }
 
-    let first = hits.iter().map(|(start, _)| *start).min()?;
+    let first = hits.into_iter().min()?;
     let start = first.saturating_sub(EXCERPT_CONTEXT);
     let end = (first + EXCERPT_CONTEXT * 2).min(original.len());
     let excerpt: String = original[start..end].iter().collect();
 
     // Highlight every occurrence of every word that falls inside the excerpt,
-    // not just the one that placed it.
-    let excerpt_lower: Vec<char> = haystack[start..end].to_vec();
+    // not just the one that placed it. Whether a word begins is asked of the
+    // whole text rather than of the cut-out passage, so that a word the cut
+    // happens to run through is not mistaken for one starting at the edge.
+    let excerpt_lower = &haystack[start..end];
     let mut highlights: Vec<usize> = Vec::new();
-    for word in words {
-        let needle: Vec<char> = word.chars().collect();
+    for needle in words {
         if needle.is_empty() {
             continue;
         }
         for offset in 0..excerpt_lower.len() {
-            if excerpt_lower[offset..].starts_with(&needle[..]) {
+            if starts_word(&haystack, start + offset)
+                && excerpt_lower[offset..].starts_with(needle)
+            {
                 highlights.extend(offset..offset + needle.len());
             }
         }
@@ -527,7 +561,7 @@ mod tests {
     #[test]
     fn a_passage_knows_which_characters_matched() {
         let (excerpt, matched) =
-            content_match("Amazing grace, how sweet the sound", &["sweet".to_string()])
+            content_match("Amazing grace, how sweet the sound", &[fold("sweet")])
                 .expect("the word is in the text");
 
         assert_eq!(matched, 1);
@@ -539,6 +573,72 @@ mod tests {
             .map(|(_, character)| character)
             .collect();
         assert_eq!(highlighted, "sweet");
+    }
+
+    /// A word of the query has to start where a word starts. Without that,
+    /// two letters of a half-typed query are found inside every second word
+    /// of the library and the result list is noise.
+    #[test]
+    fn a_word_is_found_at_the_start_of_a_word_only() {
+        assert!(
+            content_match("how sweet the sound", &[fold("he")]).is_none(),
+            "'he' must not be found inside 'the'"
+        );
+        assert!(
+            content_match("how sweet the sound", &[fold("the")]).is_some(),
+            "'the' is a word of the text"
+        );
+    }
+
+    /// …but it may stop short of the end, or the list would stay empty until
+    /// the last letter of a word has been typed.
+    #[test]
+    fn a_word_of_the_query_may_be_half_typed() {
+        for query in ["s", "swe", "sweet"] {
+            assert!(
+                content_match("how sweet the sound", &[fold(query)]).is_some(),
+                "'{query}' should find 'sweet'"
+            );
+        }
+    }
+
+    /// Lower-casing must not move any character: the passage and the positions
+    /// of what matched in it are cut out of the original text by position, and
+    /// `İ` lower-cases to *two* characters.
+    ///
+    /// Before this, the mismatch shifted the highlights and could index past
+    /// the end of the text.
+    #[test]
+    fn a_character_whose_lower_case_is_longer_does_not_shift_the_passage() {
+        let content = format!("{} Amazing grace", "İ".repeat(50));
+        let content = content.as_str();
+        assert_eq!(fold(content).len(), content.chars().count());
+        assert!(
+            content.to_lowercase().chars().count() > content.chars().count(),
+            "the fixture no longer reproduces the mismatch"
+        );
+
+        let (excerpt, _) = content_match(content, &[fold("grace")])
+            .expect("the word is in the text");
+
+        let highlighted: String = excerpt
+            .text
+            .chars()
+            .enumerate()
+            .filter(|(index, _)| excerpt.highlights.contains(index))
+            .map(|(_, character)| character)
+            .collect();
+        assert_eq!(highlighted, "grace");
+    }
+
+    /// The search is indifferent to case in both directions.
+    #[test]
+    fn case_does_not_matter_in_the_content() {
+        let (excerpt, _) = content_match("Amazing GRACE", &[fold("Grace")])
+            .expect("the word is in the text");
+
+        assert!(excerpt.text.contains("GRACE"));
+        assert!(!excerpt.highlights.is_empty());
     }
 
     #[test]

@@ -19,6 +19,7 @@
 //! - [`conversions`]: Provides utilities for data conversion and transformation
 //! - [`css`]: Handles CSS generation and styling
 //! - [`search`]: Implements search functionality for finding songs and other content
+//! - [`parallel`]: Spreads the per-file work of a library scan over the cores
 //!
 //! ## Separation of Concerns
 //!
@@ -73,6 +74,11 @@ pub mod presentation;
 pub mod conversions;
 pub mod css;
 pub mod search;
+
+/// Reading a library is thousands of independent file reads, and only the
+/// native builds have threads to spread them over.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod parallel;
 
 #[cfg(target_arch = "wasm32")]
 pub mod sync;

@@ -16,17 +16,25 @@ use serde::{Deserialize, Serialize};
 const MAX_DEPTH: usize = 6;
 
 #[cfg(not(target_arch = "wasm32"))]
-/// Recursively finds all files in a directory whose filenames end with the given suffix,
+/// Recursively collects every file below `dir` whose name `accept` says yes to,
 /// up to a recursion depth of the constant [MAX_DEPTH].
 ///
 /// # Arguments
 /// * `dir` - The starting directory path.
-/// * `ending` - The suffix to match (e.g., ".txt").
+/// * `accept` - Decides, from the file name alone, whether a file is wanted.
 /// * `depth` - The current recursion depth (starts at 0).
 ///
 /// # Returns
 /// A vector of `PathBuf`s containing the full paths of matching files.
-fn find_files_recursive(dir: &Path, endings: &[&'static str], depth: usize) -> Vec<PathBuf> {
+///
+/// # Note
+/// The kind of an entry is taken from the directory listing rather than asked
+/// for per entry. Both `Path::is_dir` and `Path::is_file` open the file to
+/// answer, which on Windows costs more than the whole rest of the scan on a
+/// library of a few thousand files. A symbolic link is the one case the
+/// listing cannot answer, and only there is the target looked at — which also
+/// keeps linked directories being followed, as they always were.
+fn find_files_recursive(dir: &Path, accept: &dyn Fn(&str) -> bool, depth: usize) -> Vec<PathBuf> {
     let mut result = Vec::new();
 
     // Stop recursion beyond depth 6
@@ -41,23 +49,32 @@ fn find_files_recursive(dir: &Path, endings: &[&'static str], depth: usize) -> V
     };
 
     for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
         let path = entry.path();
 
-        if path.is_dir() {
-            result.extend(find_files_recursive(&path, endings, depth + 1));
+        let (is_dir, is_file) = if kind.is_symlink() {
+            (path.is_dir(), path.is_file())
+        } else {
+            (kind.is_dir(), kind.is_file())
+        };
+
+        if is_dir {
+            result.extend(find_files_recursive(&path, accept, depth + 1));
             continue;
         }
 
-        if !path.is_file() {
+        if !is_file {
             continue;
         }
 
-        let matches_ending = path
+        let wanted = path
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| endings.iter().any(|ending| name.ends_with(ending)));
+            .is_some_and(accept);
 
-        if matches_ending {
+        if wanted {
             result.push(path);
         }
     }
@@ -81,33 +98,42 @@ fn find_files_recursive(dir: &Path, endings: &[&'static str], depth: usize) -> V
 /// - The `ending` should include the dot if matching extensions (e.g., ".txt").
 /// - Matching is case-sensitive.
 /// - Symlinks are followed (default behavior of `is_file` and `is_dir`).
+#[cfg(test)]
 fn find_files_with_ending(dir: &Path, endings: Vec<&'static str>) -> Vec<PathBuf> {
+    find_matching_files(dir, &|name| {
+        endings.iter().any(|ending| name.ends_with(ending))
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+/// Every file below `dir` whose name `accept` says yes to.
+///
+/// Returns an empty vector if the directory does not exist or is not a
+/// directory.
+fn find_matching_files(dir: &Path, accept: &dyn Fn(&str) -> bool) -> Vec<PathBuf> {
     // Check if the directory exists and is a directory
-    if !dir.exists() || !dir.is_dir() {
+    if !dir.is_dir() {
         return Vec::new();
     }
 
     // Start recursive traversal at depth 0.
-    find_files_recursive(dir, &endings, 0)
+    find_files_recursive(dir, accept, 0)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-/// Every file below `dir` that Cantara can read, each listed once.
+/// Every file below `dir` that Cantara can read, each listed once and in a
+/// stable order.
 ///
 /// Matching goes through [`SourceFileType::of`], so this cannot fall behind the
-/// list of supported formats.
+/// list of supported formats — and it inherits that function's indifference to
+/// case, which a plain suffix comparison did not: a `LIED.CCLI` from a Windows
+/// share was recognised everywhere else in the program but never found by the
+/// scan.
 fn find_supported_files(dir: &Path) -> Vec<PathBuf> {
-    let suffixes: Vec<&'static str> = SourceFileType::SUFFIXES
-        .iter()
-        .map(|(suffix, _)| *suffix)
-        .collect();
-
-    let mut files = find_files_with_ending(dir, suffixes);
-    // A file whose name ends with two of the suffixes — `.song.yml` ends with
-    // both `.song.yml` and `.yml` were that ever added — would otherwise be
-    // listed twice and appear twice in the song list.
+    let mut files = find_matching_files(dir, &|name| SourceFileType::of(name).is_some());
+    // The order a directory is listed in is the file system's business, not
+    // something the song list should inherit.
     files.sort();
-    files.dedup();
     files
 }
 
@@ -242,18 +268,20 @@ pub struct SourceFile {
 /// # Hint
 /// To prevent infinitive recursion (e.g. if there are symbolic links causing a loop) the maximum depth for recursive search is determined by [MAX_DEPTH].
 pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
-    find_supported_files(start_dir)
+    let paths = find_supported_files(start_dir);
+
+    // Fingerprinting is what makes a scan expensive — every file is read from
+    // beginning to end — and each file's fingerprint is independent of the
+    // others, so they are computed a handful at a time. Everything else here
+    // is string work on names that are already in memory.
+    let hashes = crate::logic::parallel::map_parallel(&paths, |path| fingerprint(path));
+
+    paths
         .into_iter()
-        .filter_map(|file| {
+        .zip(hashes)
+        .filter_map(|(file, md5_hash)| {
             let file_name = file.file_name()?.to_str()?;
             let file_type = SourceFileType::of(file_name)?;
-
-            // Read the file content once to compute the MD5 hash.
-            // The file path is stored in `SourceFile.path`, so the content is not
-            // retained after this function returns; subsequent reads happen on demand.
-            let md5_hash = fs::read(&file)
-                .ok()
-                .map(|content| format!("{:x}", md5::compute(&content)));
 
             Some(SourceFile {
                 name: SourceFileType::display_name(file_name),
@@ -264,6 +292,45 @@ pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
             })
         })
         .collect()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+/// How many files below `start_dir` Cantara can read.
+///
+/// Nothing but the names is looked at, which is what the settings page needs
+/// to say how large a repository is. Going through [`get_source_files`] for
+/// that read and hashed every file in the library — including videos and
+/// scanned PDFs — every time the page was drawn.
+pub fn count_source_files(start_dir: &Path) -> usize {
+    find_supported_files(start_dir).len()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+/// The MD5 hash of a file's contents, which is how the program tells one
+/// version of a file from another — see [`SourceFile::md5_hash`].
+///
+/// Read in blocks rather than in one piece: a library may hold a video or a
+/// scanned score of a few hundred megabytes, and there is no reason for any of
+/// it to be in memory at once when all that comes out is a hash.
+fn fingerprint(path: &Path) -> Option<String> {
+    use std::io::Read;
+
+    /// Big enough that the read syscalls disappear next to the disk itself,
+    /// small enough to stay in cache while it is being hashed.
+    const BLOCK: usize = 64 * 1024;
+
+    let mut file = fs::File::open(path).ok()?;
+    let mut context = md5::Context::new();
+    let mut block = vec![0u8; BLOCK];
+    loop {
+        match file.read(&mut block) {
+            Ok(0) => break,
+            Ok(read) => context.consume(&block[..read]),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return None,
+        }
+    }
+    Some(format!("{:x}", context.finalize()))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -441,6 +508,33 @@ pub mod tests {
             .filter(|file| file.file_type == SourceFileType::Song)
             .count();
         assert!(songs >= 4, "expected the song files, found {songs}");
+    }
+
+    /// [`SourceFileType::of`] ignores case, and the scan has to agree with it:
+    /// a `LIED.CCLI` off a Windows share was recognised as a song everywhere
+    /// in the program except by the one thing that had to find it first.
+    #[test]
+    fn the_scan_finds_a_file_whose_suffix_is_written_in_capitals() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        fs::write(dir.path().join("LIED.CCLI"), "").expect("the file can be written");
+        fs::write(dir.path().join("Handout.PDF"), "").expect("the file can be written");
+
+        let names: Vec<String> = get_source_files(dir.path())
+            .into_iter()
+            .map(|file| file.name)
+            .collect();
+
+        assert!(names.contains(&"LIED".to_string()), "found {names:?}");
+        assert!(names.contains(&"Handout".to_string()), "found {names:?}");
+    }
+
+    /// The count the settings page shows is the number of files the scan
+    /// would return — it just does not read any of them.
+    #[test]
+    fn the_count_agrees_with_the_scan() {
+        let dir = Path::new("testfiles");
+
+        assert_eq!(count_source_files(dir), get_source_files(dir).len());
     }
 
     #[test]

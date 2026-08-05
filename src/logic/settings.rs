@@ -5,7 +5,7 @@ use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 // The directory scan and the paths it works on exist on the desktop only; the
 // web build reads its repositories from an in-memory VFS instead.
 #[cfg(not(target_arch = "wasm32"))]
-use crate::logic::sourcefiles::get_source_files;
+use crate::logic::sourcefiles::{count_source_files, get_source_files};
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 use cantara_songlib::slides::SlideSettings;
@@ -276,18 +276,6 @@ fn migrate_settings_json(json: &str) -> String {
 }
 
 impl Settings {
-    /// Cleans up all temporary resources associated with all repositories
-    pub fn cleanup_all_repositories(&self) {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            for repo in &self.repositories {
-                repo.cleanup();
-            }
-            // Also clean up any orphaned temporary directories
-            RepositoryType::cleanup_all_temp_dirs();
-        }
-    }
-
     /// Load settings from storage or creates a new default settings if
     /// the program is run for the first time.
     pub fn load() -> Self {
@@ -623,9 +611,14 @@ impl Repository {
         }
     }
 
-    /// Get the count of source files in this repository asynchronously
+    /// How many files this repository holds, for the settings page to show.
+    ///
+    /// Deliberately *not* the length of [`RepositoryType::get_files_async`]:
+    /// that reads and hashes every file of the library, which is seconds of
+    /// work for a number next to a folder name — and the settings page asked
+    /// for it once per repository every time it was drawn.
     pub async fn get_source_file_count_async(&self) -> usize {
-        self.repository_type.get_files_async().await.len()
+        self.repository_type.get_file_count_async().await
     }
 }
 
@@ -727,19 +720,6 @@ impl RepositoryType {
         TEMP_DIRS.with(|temp_dirs| {
             let mut temp_dirs = temp_dirs.borrow_mut();
             if temp_dirs.remove(url).is_some() {
-                log::info!("Cleaned up temporary directory for URL: {}", url);
-            }
-        });
-    }
-
-    /// Cleans up all temporary directories (desktop only).
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn cleanup_all_temp_dirs() {
-        TEMP_DIRS.with(|temp_dirs| {
-            let mut temp_dirs = temp_dirs.borrow_mut();
-            let urls: Vec<String> = temp_dirs.keys().cloned().collect();
-            for url in urls {
-                temp_dirs.remove(&url);
                 log::info!("Cleaned up temporary directory for URL: {}", url);
             }
         });
@@ -923,6 +903,51 @@ impl RepositoryType {
                 _ => vec![],
             }
         }
+    }
+
+    /// How many files this repository holds.
+    ///
+    /// Where the files are already there — a local folder, or an archive that
+    /// has been unpacked once already — only their names are looked at. That
+    /// is all a count needs, and it is what keeps the settings page from
+    /// reading the whole library from disk every time it is drawn. A
+    /// repository that has not been fetched yet still has to be fetched, and
+    /// then the ordinary scan answers.
+    pub async fn get_file_count_async(&self) -> usize {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            match self {
+                RepositoryType::LocaleFilePath(path_string) => {
+                    return count_source_files(Path::new(&path_string));
+                }
+                RepositoryType::RemoteZip(url) => {
+                    if let Some(count) = Self::count_in_temp_dir(url) {
+                        return count;
+                    }
+                }
+                RepositoryType::GitHub { owner, repo, .. } => {
+                    let cache_key = Self::github_cache_key(owner, repo);
+                    if let Some(count) = Self::count_in_temp_dir(&cache_key) {
+                        return count;
+                    }
+                }
+                _ => return 0,
+            }
+        }
+
+        self.get_files_async().await.len()
+    }
+
+    /// How many files the already-unpacked copy of `cache_key` holds, if there
+    /// is one.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn count_in_temp_dir(cache_key: &str) -> Option<usize> {
+        TEMP_DIRS.with(|temp_dirs| {
+            temp_dirs
+                .borrow()
+                .get(cache_key)
+                .map(|temp_dir| count_source_files(&archive_content_root(temp_dir.path())))
+        })
     }
 
     /// Downloads a ZIP file and extracts it to the WASM in-memory VFS.
