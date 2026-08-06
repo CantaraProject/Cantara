@@ -106,6 +106,18 @@ pub struct StreamDesign {
     /// falls back to something sensible, which is why this is a whole family
     /// list and not one name.
     pub font_family: String,
+
+    /// The design's background picture, named the way slide pictures are —
+    /// the page fetches it once rather than having it pushed with every
+    /// update. `None` when the design is a plain colour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_image: Option<String>,
+
+    /// How far the background picture is faded towards the background colour,
+    /// from 0 (the picture as it is) to 100 (not visible at all). The same
+    /// number the projection uses, so the two look alike.
+    #[serde(default)]
+    pub background_transparency: u8,
 }
 
 impl Default for StreamDesign {
@@ -114,6 +126,8 @@ impl Default for StreamDesign {
             background: "#000000".to_string(),
             foreground: "#ffffff".to_string(),
             font_family: "system-ui, sans-serif".to_string(),
+            background_image: None,
+            background_transparency: 0,
         }
     }
 }
@@ -189,10 +203,14 @@ impl StreamState {
     /// Every picture the running order refers to, each named once.
     ///
     /// What the program has to render and hand to the server before a viewer
-    /// asking for it gets anything.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// asking for it gets anything — the design's background as well as the
+    /// slides', since a page whose background never arrives is as wrong as a
+    /// slide whose picture does not.
     pub fn media(&self) -> Vec<String> {
         let mut named: Vec<String> = Vec::new();
+        if let Some(background) = &self.design.background_image {
+            named.push(background.clone());
+        }
         for chapter in &self.chapters {
             for slide in &chapter.slides {
                 if let StreamSlide::Picture { media } = slide
@@ -217,6 +235,11 @@ impl StreamDesign {
 
         let font = template.fonts.first().cloned().unwrap_or_default();
         StreamDesign {
+            background_image: template
+                .background_image
+                .as_ref()
+                .map(|picture| media_id(&picture.as_source().path.to_string_lossy())),
+            background_transparency: template.background_transparency,
             background: template.get_background_color_as_hex_string(),
             foreground: format!(
                 "#{:02x}{:02x}{:02x}",
@@ -518,5 +541,66 @@ mod tests {
         assert_eq!(back, state);
         // The page switches on this, so the name matters.
         assert!(json.contains(r#""kind":"text""#), "got: {json}");
+    }
+
+    /// A design's background picture reaches a viewer too. Without it the page
+    /// is the right colour and the wrong presentation — and it has to be in
+    /// the list of what to prepare, or it is named and never sent.
+    #[test]
+    fn a_design_background_is_named_and_asked_for() {
+        use crate::logic::settings::{
+            PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate,
+        };
+        use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, SourceFileType};
+
+        let picture = ImageSourceFile::new(SourceFile {
+            name: "sunrise".to_string(),
+            path: PathBuf::from("sunrise.png"),
+            file_type: SourceFileType::Image,
+            md5_hash: None,
+            relative_path: None,
+        })
+        .expect("a picture is a picture");
+
+        let mut template = PresentationDesignTemplate::default();
+        template.background_image = Some(picture);
+        template.background_transparency = 40;
+        let design = PresentationDesign {
+            presentation_design_settings: PresentationDesignSettings::Template(template),
+            ..PresentationDesign::default()
+        };
+
+        let mut presentation = RunningPresentation::new(vec![chapter(
+            "Amazing Grace",
+            vec![Slide::new_content_slide("Amazing grace".to_string(), None, None)],
+        )]);
+        presentation.presentation[0].presentation_design_option = Some(design);
+
+        let state = StreamState::of(&presentation, 1);
+
+        assert_eq!(
+            state.design.background_image.as_deref(),
+            Some(media_id("sunrise.png").as_str())
+        );
+        assert_eq!(state.design.background_transparency, 40);
+        assert!(
+            state.media().contains(&media_id("sunrise.png")),
+            "the background is among the pictures to prepare"
+        );
+    }
+
+    /// A design that is only a colour names no picture, so the page does not
+    /// go asking for one that will never exist.
+    #[test]
+    fn a_plain_design_names_no_background_picture() {
+        let presentation = RunningPresentation::new(vec![chapter(
+            "Amazing Grace",
+            vec![Slide::new_content_slide("Amazing grace".to_string(), None, None)],
+        )]);
+
+        let state = StreamState::of(&presentation, 1);
+
+        assert_eq!(state.design.background_image, None);
+        assert!(state.media().is_empty());
     }
 }

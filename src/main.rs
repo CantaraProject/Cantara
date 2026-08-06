@@ -322,15 +322,7 @@ fn App() -> Element {
             // A picture cannot be sent as words, so the slides that are one are
             // rendered and handed over before the state that refers to them —
             // otherwise a viewer asks for a picture that is not there yet.
-            let wanted: Vec<String> = state
-                .chapters
-                .iter()
-                .flat_map(|chapter| chapter.slides.iter())
-                .filter_map(|slide| match slide {
-                    logic::stream::protocol::StreamSlide::Picture { media } => Some(media.clone()),
-                    _ => None,
-                })
-                .collect();
+            let wanted = state.media();
             let sources = picture_sources(&presentations);
 
             spawn(async move {
@@ -482,6 +474,17 @@ fn picture_sources(
     let mut sources = std::collections::HashMap::new();
     for presentation in running {
         for chapter in &presentation.presentation {
+            // The design's background picture, which is as much a part of what
+            // a viewer sees as any slide.
+            if let Some(design) = &chapter.presentation_design_option
+                && let logic::settings::PresentationDesignSettings::Template(template) =
+                    &design.presentation_design_settings
+                && let Some(picture) = &template.background_image
+            {
+                let path = picture.as_source().path.to_string_lossy().to_string();
+                sources.insert(media_id(&path), path);
+            }
+
             for slide in &chapter.slides {
                 let source = match &slide.slide_content {
                     SlideContent::SimplePicture(picture) => {

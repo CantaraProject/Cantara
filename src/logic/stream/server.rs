@@ -383,25 +383,66 @@ fn describe_bind_failure(port: u16, error: &std::io::Error) -> String {
 
 /// This machine's address on the network it is actually attached to.
 ///
-/// Found by asking the operating system which interface it *would* use to
-/// reach the outside world, rather than by listing every interface and
-/// guessing. No packet is sent — a UDP socket that has never been written to
-/// sends nothing — and no name server is consulted, so this works on a hall
-/// network with no internet at all.
+/// Two ways of asking, because neither is enough on its own.
+///
+/// The routing table is asked first: which interface *would* be used to reach
+/// the outside world. No packet is sent — a UDP socket that has never been
+/// written to sends nothing — and no name server is consulted. That is the
+/// right answer on an ordinary network, and it picks the sensible interface on
+/// a machine that has several.
+///
+/// But a hall network with no route to the internet answers "nowhere", and the
+/// fallback was then `localhost` — an address that works on the machine
+/// showing it and nowhere else, which is precisely the network a church is
+/// most likely to be on. So the interfaces are then listed and a private
+/// address taken from them.
 fn local_address() -> IpAddr {
-    let probe = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))
+    if let Some(routed) = address_by_route() {
+        return routed;
+    }
+    if let Ok(addresses) = local_ip_address::list_afinet_netifas() {
+        let candidates: Vec<IpAddr> = addresses.into_iter().map(|(_name, ip)| ip).collect();
+        if let Some(found) = best_address(&candidates) {
+            return found;
+        }
+    }
+    // No network at all. `localhost` is at least true, and says plainly that
+    // nobody else is going to reach it.
+    IpAddr::V4(Ipv4Addr::LOCALHOST)
+}
+
+/// Which address the operating system would use to reach the outside world.
+fn address_by_route() -> Option<IpAddr> {
+    let address = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))
         .and_then(|socket| {
+            // Reserved for documentation, so it is never a real host, and no
+            // packet is sent to it either way.
             socket.connect((Ipv4Addr::new(203, 0, 113, 1), 80))?;
             socket.local_addr()
         })
-        .map(|address| address.ip());
+        .ok()?
+        .ip();
 
-    match probe {
-        Ok(address) if !address.is_unspecified() => address,
-        // No network at all. `localhost` is at least true, and says plainly
-        // that nobody else is going to reach it.
-        _ => IpAddr::V4(Ipv4Addr::LOCALHOST),
-    }
+    (!address.is_unspecified() && !address.is_loopback()).then_some(address)
+}
+
+/// The address most likely to be the one another device on the same network
+/// can reach.
+///
+/// A private IPv4 address is preferred above everything: that is what a home
+/// or church network hands out, and it is what a phone on the same wi-fi will
+/// be able to reach. Anything else is a guess, and loopback is not an answer
+/// at all — a page that can only be opened on the machine already showing the
+/// presentation is no use to anyone.
+fn best_address(candidates: &[IpAddr]) -> Option<IpAddr> {
+    let usable = |address: &&IpAddr| !address.is_loopback() && !address.is_unspecified();
+
+    candidates
+        .iter()
+        .filter(usable)
+        .find(|address| matches!(address, IpAddr::V4(v4) if v4.is_private()))
+        .or_else(|| candidates.iter().filter(usable).find(|address| address.is_ipv4()))
+        .copied()
 }
 
 #[cfg(test)]
@@ -734,5 +775,61 @@ mod tests {
             first.contains("Amazing Grace"),
             "and it is the state that was published, got: {first}"
         );
+    }
+
+    /// A private address is what a phone on the same wi-fi can reach, so it
+    /// wins over anything else on the machine.
+    #[test]
+    fn a_private_address_is_preferred() {
+        let candidates = vec![
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            IpAddr::V4(Ipv4Addr::new(169, 254, 3, 4)),
+            IpAddr::V4(Ipv4Addr::new(192, 168, 0, 52)),
+        ];
+
+        assert_eq!(
+            best_address(&candidates),
+            Some(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 52)))
+        );
+    }
+
+    /// Loopback is never the answer: a page that opens only on the machine
+    /// already showing the presentation is no use to anyone.
+    #[test]
+    fn loopback_is_never_offered() {
+        let only_loopback = vec![IpAddr::V4(Ipv4Addr::LOCALHOST)];
+
+        assert_eq!(best_address(&only_loopback), None);
+        assert_eq!(best_address(&[]), None);
+    }
+
+    /// With nothing private on offer, any real address beats none — a machine
+    /// on a network that hands out public addresses still has to be reachable.
+    #[test]
+    fn something_reachable_beats_nothing() {
+        let candidates = vec![
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)),
+        ];
+
+        assert_eq!(
+            best_address(&candidates),
+            Some(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)))
+        );
+    }
+
+    /// Every private range counts, not just the one this machine happens to be
+    /// on — 10.x and 172.16–31.x are as common in halls as 192.168.x.
+    #[test]
+    fn every_private_range_is_recognised() {
+        for private in [
+            Ipv4Addr::new(10, 0, 0, 5),
+            Ipv4Addr::new(172, 20, 1, 2),
+            Ipv4Addr::new(192, 168, 178, 30),
+        ] {
+            let candidates = vec![IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V4(private)];
+            assert_eq!(best_address(&candidates), Some(IpAddr::V4(private)));
+        }
     }
 }

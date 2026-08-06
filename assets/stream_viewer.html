@@ -95,6 +95,21 @@
     object-fit: contain;
   }
 
+  /* The design's background picture, behind everything.
+     Its own layer rather than a background on the body, because the design
+     fades it towards the background colour and only a separate layer can carry
+     that opacity without taking the words down with it — which is exactly how
+     the projection does it. */
+  #backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    display: none;
+  }
+
   /* Nothing running, and nothing wrong. */
   .quiet {
     opacity: 0.55;
@@ -143,6 +158,7 @@
 </style>
 </head>
 <body>
+<div id="backdrop"></div>
 <main id="stage"><p class="quiet">…</p></main>
 <div id="connection"></div>
 
@@ -151,6 +167,7 @@
   'use strict';
 
   var stage = document.getElementById('stage');
+  var backdrop = document.getElementById('backdrop');
   var connection = document.getElementById('connection');
 
   // The last state drawn, so an update saying the same thing is ignored rather
@@ -218,6 +235,24 @@
     if (design.background) root.setProperty('--background', design.background);
     if (design.foreground) root.setProperty('--foreground', design.foreground);
     if (design.font_family) root.setProperty('--font', design.font_family);
+
+    if (design.background_image) {
+      var url = 'media/' + encodeURIComponent(design.background_image);
+      // Only when it changes: reassigning the same picture makes the browser
+      // fetch and repaint it on every slide.
+      if (backdrop.dataset.media !== design.background_image) {
+        backdrop.dataset.media = design.background_image;
+        backdrop.style.backgroundImage = 'url("' + url + '")';
+      }
+      // The same fade the projection applies, so the two match.
+      var transparency = design.background_transparency || 0;
+      backdrop.style.opacity = String(1 - Math.min(Math.max(transparency, 0), 100) / 100);
+      backdrop.style.display = 'block';
+    } else {
+      delete backdrop.dataset.media;
+      backdrop.style.backgroundImage = '';
+      backdrop.style.display = 'none';
+    }
   }
 
   function currentSlide(state) {
