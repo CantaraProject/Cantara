@@ -21,6 +21,7 @@
 //! - [`search`]: Implements search functionality for finding songs and other content
 //! - [`images`]: Gets a picture from the file system into a web view
 //! - [`pdf`]: Talks to the PDF viewer that lives in the page
+//! - [`stream`]: Offers the running presentation to browsers on the network
 //! - [`parallel`]: Spreads the per-file work of a library scan over the cores
 //!
 //! ## Separation of Concerns
@@ -70,6 +71,11 @@ pub mod detail;
 pub mod element_id;
 pub mod images;
 pub mod pdf;
+
+/// Offering the running presentation to browsers on the local network.
+/// There is no server in a browser, so the web build has none of this.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod stream;
 pub mod export;
 pub mod fonts;
 pub mod pptx;

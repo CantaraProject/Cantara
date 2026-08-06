@@ -1401,7 +1401,7 @@ fn slide_container_style(slide_content: &SlideContent) -> &'static str {
 /// `SingleLanguageMainContentSlide::meta_text` is private in the song library
 /// and has no accessor, so it is read through serde — the same workaround this
 /// module already uses for `SimplePictureSlide::picture_path`.
-fn meta_text_of(slide_content: &SlideContent) -> Option<String> {
+pub(crate) fn meta_text_of(slide_content: &SlideContent) -> Option<String> {
     let text = match slide_content {
         SlideContent::Title(title) => title.meta_text.clone(),
         SlideContent::MultiLanguageMainContent(multi) => multi.meta_text.clone(),

@@ -568,6 +568,8 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "itoa",
  "matchit",
  "memchr",
@@ -580,6 +582,7 @@ dependencies = [
  "serde_path_to_error",
  "serde_urlencoded",
  "sync_wrapper",
+ "tokio",
  "tower",
  "tower-layer",
  "tower-service",
@@ -824,6 +827,7 @@ dependencies = [
 name = "cantara"
 version = "0.3.0"
 dependencies = [
+ "axum",
  "base64 0.22.1",
  "base64 0.23.0",
  "cantara-songlib",
@@ -833,6 +837,7 @@ dependencies = [
  "dioxus-motion",
  "dirs",
  "fontdb",
+ "futures-util",
  "fuzzy-matcher",
  "getrandom 0.3.4",
  "getrandom 0.4.3",
@@ -854,6 +859,7 @@ dependencies = [
  "serde_json",
  "sys-locale",
  "tempfile",
+ "tokio",
  "uuid",
  "web-sys",
  "webpki-root-certs",
@@ -3448,6 +3454,7 @@ dependencies = [
  "http",
  "http-body",
  "httparse",
+ "httpdate",
  "itoa",
  "pin-project-lite",
  "smallvec",
