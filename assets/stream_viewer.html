@@ -101,20 +101,25 @@
     font-size: clamp(1rem, 3.4vw, 1.4rem);
   }
 
-  footer {
-    flex: 0 0 auto;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.5rem 1rem;
+  /* Says when the connection has dropped, so a viewer knows the words are old
+     rather than the service having stopped. Nothing but that is ever put on
+     screen: the slide is what a viewer came for, and the projection carries no
+     chrome either. */
+  #connection {
+    position: fixed;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom) + 0.75rem);
+    transform: translateX(-50%);
+    padding: 0.35rem 0.9rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #ff8a80;
     font-size: 0.8rem;
-    opacity: 0.5;
+    /* Out of the way until there is something wrong. */
+    display: none;
   }
 
-  /* Says when the connection has dropped, so a viewer knows the words are old
-     rather than the service having stopped. */
-  #connection[data-state="lost"] { color: #ff8a80; opacity: 1; }
+  #connection[data-state="lost"] { display: block; }
 
   form {
     display: flex;
@@ -139,17 +144,13 @@
 </head>
 <body>
 <main id="stage"><p class="quiet">…</p></main>
-<footer>
-  <span id="where"></span>
-  <span id="connection"></span>
-</footer>
+<div id="connection"></div>
 
 <script>
 (function () {
   'use strict';
 
   var stage = document.getElementById('stage');
-  var where = document.getElementById('where');
   var connection = document.getElementById('connection');
 
   // The last state drawn, so an update saying the same thing is ignored rather
@@ -226,15 +227,8 @@
     return chapter.slides[state.position.slide] || null;
   }
 
-  function chapterTitle(state) {
-    if (!state.position) return '';
-    var chapter = state.chapters[state.position.chapter];
-    return chapter ? chapter.title : '';
-  }
-
   function draw(state) {
     applyDesign(state.design);
-    where.textContent = state.running ? chapterTitle(state) : '';
 
     if (!state.running) {
       show([text('p', 'quiet', 'Waiting for the presentation to begin…')]);
