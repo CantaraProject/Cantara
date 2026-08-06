@@ -18,16 +18,78 @@
 
     var DURATION = 420;
     var EASING = 'cubic-bezier(0.2, 0, 0, 1)';
-    // The elements that carry text. Keeping this list short keeps the matching
-    // meaningful: a wrapper that contains everything would always "match".
-    var TEXT_SELECTOR = 'p, .complex-slide-row';
+    // Everything a slide is made of, not only its paragraphs. A picture that
+    // is on both slides should travel and grow into its new place like a line
+    // of text does — and so should a heading, a notation block and a page of a
+    // PDF. Kept to the things that *are* content: a wrapper containing
+    // everything would always "match" and nothing would ever move.
+    var TEXT_SELECTOR =
+        'p, .complex-slide-row, h1, h2, h3, h4, h5, h6, li, img, canvas, .notation-block';
+
+    // How alike two lines have to be to count as the same one moving.
+    //
+    // The point of the morph is to resolve the *difference* between two
+    // slides: a verse whose last word changes should slide across and settle,
+    // not be thrown away and drawn again. Matching only on text that is
+    // identical meant almost nothing ever matched between two slides of one
+    // song, which is precisely where the effect is supposed to earn its keep.
+    var SIMILAR_ENOUGH = 0.45;
     var MORPH_CLASS = 'presentation-morph';
 
     // What is currently on screen, so the next slide can morph out of it.
     var previous = null;
 
+    // What identifies an element across two slides.
+    ///
+    // A picture is its source and a canvas is its kind: neither has text, and
+    // both are the same thing on both slides when they carry the same file.
     function textKey(element) {
+        var tag = element.tagName;
+        if (tag === 'IMG') return 'img:' + (element.getAttribute('src') || '').slice(0, 120);
+        if (tag === 'CANVAS') return 'canvas';
         return (element.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function words(key) {
+        return key.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    }
+
+    // How much two lines have in common, from 0 to 1.
+    function likeness(a, b) {
+        if (a === b) return 1;
+        var left = words(a);
+        var right = words(b);
+        if (left.length === 0 || right.length === 0) return 0;
+        var pool = right.slice();
+        var shared = 0;
+        for (var i = 0; i < left.length; i++) {
+            var at = pool.indexOf(left[i]);
+            if (at >= 0) {
+                shared++;
+                pool.splice(at, 1);
+            }
+        }
+        return (2 * shared) / (left.length + right.length);
+    }
+
+    // The line on the old slide this one came from, if any.
+    ///
+    // An exact match first — a line that is simply still there. Failing that,
+    // the most alike line that nothing else has claimed, which is what lets a
+    // verse that has changed by a word travel rather than blink.
+    function origin(key, snap, taken) {
+        if (snap.boxes.has(key) && !taken.has(key)) return key;
+        var best = null;
+        var bestScore = SIMILAR_ENOUGH;
+        snap.boxes.forEach(function (_box, candidate) {
+            if (taken.has(candidate)) return;
+            var score = likeness(key, candidate);
+            if (score > bestScore) {
+                bestScore = score;
+                best = candidate;
+            }
+        });
+        return best;
     }
 
     function snapshot(container) {
@@ -76,7 +138,8 @@
 
         container.querySelectorAll(TEXT_SELECTOR).forEach(function (element) {
             var key = textKey(element);
-            var from = key ? snap.boxes.get(key) : undefined;
+            var came_from = key ? origin(key, snap, matched) : null;
+            var from = came_from ? snap.boxes.get(came_from) : undefined;
             var to = element.getBoundingClientRect();
 
             if (!from || to.width === 0 || to.height === 0) {
@@ -88,7 +151,7 @@
                 return;
             }
 
-            matched.add(key);
+            matched.add(came_from);
 
             // FLIP: start the element where the old one was, then let it settle
             // into its real position.

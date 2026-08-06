@@ -451,15 +451,19 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
     // the row, which left the slide narrower than the cell it sat in and the
     // scale no longer the one the column was built for.
     let grid_style = format!("grid-template-columns: repeat(auto-fill, {}px);", size);
-    // Use the presentation screen resolution for native rendering size
-    let (native_w, native_h) = rp.presentation_resolution;
+    // The size the presentation window is actually laid out at — not the
+    // monitor's, which is in physical pixels and is two thirds larger on a
+    // screen at 150% scaling. Laying the thumbnail out at a different size
+    // breaks its text in different places, and then it is no longer a picture
+    // of the slide.
+    let (native_w, native_h) = rp.layout_size();
     // The slide is laid out at the presentation's size and then scaled down as
     // a whole — see `.slide-scale`. Everything keeps its proportions, which is
     // what makes the thumbnail a picture of the slide rather than the same
     // slide re-laid-out into a smaller page.
-    let scale = size as f64 / native_w as f64;
+    let scale = size as f64 / native_w;
     // The scaled height matches the presentation aspect ratio
-    let thumb_height = (size as f64 * native_h as f64 / native_w as f64).round() as u32;
+    let thumb_height = (size as f64 * native_h / native_w).round() as u32;
 
     rsx! {
         div { class: "presenter-grid-panel",
@@ -708,14 +712,14 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
 #[component]
 fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> Element {
     let rp = running_presentation.read();
-    let (native_w, native_h) = rp.presentation_resolution;
+    let (native_w, native_h) = rp.layout_size();
     // The slide keeps the presentation's own layout and is scaled as a whole
     // — see `.slide-scale`. That is what makes the preview show the slide the
     // audience is looking at, down to where the text breaks, and what lets a
     // scroll position taken from one mean the same in the other.
     const PREVIEW_WIDTH: f64 = 480.0;
-    let scale = PREVIEW_WIDTH / native_w as f64;
-    let preview_height = (PREVIEW_WIDTH * native_h as f64 / native_w as f64).round();
+    let scale = PREVIEW_WIDTH / native_w;
+    let preview_height = (PREVIEW_WIDTH * native_h / native_w).round();
 
     let timer_seconds = rp.get_current_timer_settings().map(|t| t.timer_seconds);
     let current_slide = rp.position.as_ref().map(|p| p.slide_total()).unwrap_or(0);

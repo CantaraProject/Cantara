@@ -589,6 +589,44 @@ pub fn PresentationRendererComponent(
         }
     });
 
+    // The presentation window measures the size it is actually laid out at and
+    // publishes it, so that anything showing the same slide beside it — the
+    // console's preview, its overview — lays it out at exactly the same size
+    // and breaks its lines in the same places.
+    //
+    // Only the window that *is* the presentation does this; `fire_timer` is
+    // the same flag that marks it as the primary one everywhere else. Watched
+    // rather than measured once, because a window that is not fullscreen can
+    // be resized in the middle of a presentation.
+    use_effect(move || {
+        if !fire_timer {
+            return;
+        }
+        spawn(async move {
+            loop {
+                if let Ok(measured) = document::eval(
+                    "var el = document.querySelector('.presentation');
+                     if (!el) return null;
+                     return { w: el.clientWidth, h: el.clientHeight };",
+                )
+                .await
+                    && let (Some(width), Some(height)) = (
+                        measured.get("w").and_then(|w| w.as_f64()),
+                        measured.get("h").and_then(|h| h.as_f64()),
+                    )
+                    && width > 0.0
+                    && height > 0.0
+                {
+                    let measured = Some((width, height));
+                    if running_presentation.peek().presentation_layout != measured {
+                        running_presentation.write().presentation_layout = measured;
+                    }
+                }
+                let _ = document::eval("await new Promise(r => setTimeout(r, 500))").await;
+            }
+        });
+    });
+
     // Auto-advance timer: each time the slide changes, a new `spawn`-ed task
     // is launched via `use_effect`. A generation counter ensures that only the
     // most-recent timer fires – if the user (or a previous timer) navigated to
@@ -1708,7 +1746,11 @@ fn SimplePictureSlideComponent(
         div { style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
             img {
                 src: "{source}",
-                style: "max-width: 100%; max-height: 100%; object-fit: contain;",
+                // As large as the slide allows, never distorted. `max-width`
+                // alone only ever shrinks, so a picture smaller than the slide
+                // was left sitting in the middle at its own size instead of
+                // filling the screen.
+                style: "width: 100%; height: 100%; object-fit: contain;",
             }
         }
     }

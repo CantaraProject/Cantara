@@ -159,9 +159,22 @@ pub fn flush() {
 mod tests {
     use super::*;
 
-    fn reset() {
+    /// The state these tests work on is the program's own, one copy shared by
+    /// the whole process — so they have to take turns. Without this they pass
+    /// or fail depending on which of them the test runner happens to schedule
+    /// alongside which.
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+    /// Takes the turn and clears what the last test left behind.
+    fn alone() -> std::sync::MutexGuard<'static, ()> {
+        // A test that panicked poisons the lock; the next one still has to be
+        // able to run, and it clears the state itself.
+        let guard = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *PENDING.lock().unwrap() = None;
         *LAST_WRITE.lock().unwrap() = None;
+        guard
     }
 
     fn pending() -> Option<WindowState> {
@@ -173,7 +186,7 @@ mod tests {
     /// open Cantara as a sliver.
     #[test]
     fn an_unusable_size_is_not_kept() {
-        reset();
+        let _turn = alone();
 
         record(Some((0.0, 0.0)), false);
         assert_eq!(pending(), None);
@@ -189,7 +202,7 @@ mod tests {
     /// user chose has to survive being maximised and un-maximised.
     #[test]
     fn maximising_does_not_forget_the_chosen_size() {
-        reset();
+        let _turn = alone();
 
         record(Some((900.0, 800.0)), false);
         record(None, true);
@@ -203,7 +216,7 @@ mod tests {
     /// the very first moment must not invent a size.
     #[test]
     fn a_window_maximised_from_the_start_writes_nothing() {
-        reset();
+        let _turn = alone();
 
         record(None, true);
 

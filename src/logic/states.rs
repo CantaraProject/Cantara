@@ -130,6 +130,20 @@ pub struct RunningPresentation {
     /// and is synced by a dedicated polling loop in `MarkdownSlideComponent`.
     #[serde(default)]
     pub markdown_scroll_position: f64,
+    /// The size the presentation is actually laid out at, in CSS pixels, as
+    /// the presentation window measures it.
+    ///
+    /// Not the same as [`presentation_resolution`](Self::presentation_resolution),
+    /// which is the monitor in *physical* pixels: a screen at 150% scaling
+    /// lays a window out at two thirds of that. The console's preview has to
+    /// use this number, or its text breaks in different places from the screen
+    /// the audience is looking at — and a preview that breaks its lines
+    /// somewhere else is not a preview.
+    ///
+    /// `None` until the presentation window has measured itself; the monitor's
+    /// size stands in until then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation_layout: Option<(f64, f64)>,
 }
 
 impl RunningPresentation {
@@ -141,7 +155,17 @@ impl RunningPresentation {
             is_black_screen: false,
             presentation_resolution: default_presentation_resolution(),
             markdown_scroll_position: 0.0,
+            presentation_layout: None,
         }
+    }
+
+    /// The size a slide is laid out at, which is what anything showing the
+    /// same slide beside it has to use.
+    pub fn layout_size(&self) -> (f64, f64) {
+        self.presentation_layout.unwrap_or((
+            self.presentation_resolution.0 as f64,
+            self.presentation_resolution.1 as f64,
+        ))
     }
 
     /// Go to the next slide (if any exists).
@@ -233,6 +257,7 @@ impl RunningPresentation {
         self.presentation == other.presentation
             && self.position == other.position
             && self.is_black_screen == other.is_black_screen
+            && self.presentation_layout == other.presentation_layout
             && self.presentation_resolution == other.presentation_resolution
     }
 
@@ -546,5 +571,39 @@ mod tests {
         rp.jump_to(7, 0);
 
         assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(1));
+    }
+
+    /// The console lays a slide out at the size the presentation window is
+    /// actually using, not at the monitor's. They are different numbers on any
+    /// screen that is not at 100% scaling — the monitor is in physical pixels
+    /// and a window at 150% is laid out at two thirds of it — and laying the
+    /// preview out at the wrong one breaks its text in different places from
+    /// the screen the audience is looking at.
+    #[test]
+    fn a_slide_is_laid_out_at_the_size_the_presentation_uses() {
+        let mut rp = three_slides();
+        rp.presentation_resolution = (1920, 1080);
+
+        // Nothing measured yet: the monitor stands in.
+        assert_eq!(rp.layout_size(), (1920.0, 1080.0));
+
+        // Measured: a window on that monitor at 150% scaling.
+        rp.presentation_layout = Some((1280.0, 720.0));
+        assert_eq!(rp.layout_size(), (1280.0, 720.0));
+    }
+
+    /// The measurement is made in the presentation window and needed in the
+    /// console, so it has to survive the comparison the windows sync through —
+    /// otherwise the console never hears about it.
+    #[test]
+    fn the_layout_size_reaches_the_other_window() {
+        let mut measured = three_slides();
+        let unmeasured = measured.clone();
+        measured.presentation_layout = Some((1280.0, 720.0));
+
+        assert!(
+            !measured.eq_ignoring_scroll(&unmeasured),
+            "a window that has measured itself differs from one that has not"
+        );
     }
 }
