@@ -579,16 +579,25 @@ pub fn PresentationRendererComponent(
     // animation ran when it was the slide coming in, and it is only still here
     // to stand behind its successor.
     //
-    // Held only for a slide that will cover it completely. A text slide's
-    // container is transparent, so keeping the old text under the new one
-    // would show both at once — and text needs no time to appear anyway.
+    // Held only while the slide coming in is a PDF page that is not on screen
+    // yet — see [`pdf_page_key`]. Anything else is there the moment it is
+    // drawn, and keeping the old slide under a transparent one would show both
+    // at once.
+    //
+    // And held only until that page arrives, not a moment longer. Two
+    // documents need not have pages of the same shape, and a page is fitted
+    // into the slide rather than filling it, so a slide left underneath goes
+    // on showing around the edges of the one in front of it — which is what
+    // kept the previous document on screen when stepping back through a
+    // presentation of several PDFs.
     let on_stage: Memo<Vec<(usize, Slide, &'static str)>> = use_memo(move || {
         let mut stage: Vec<(usize, Slide, &'static str)> = Vec::with_capacity(2);
         let Some(slide) = current_slide.read().clone() else {
             return stage;
         };
 
-        if covers_the_slide_behind_it(&slide.slide_content)
+        if let Some(awaited) = pdf_page_key(&slide.slide_content)
+            && PDF_PAGE_DRAWN.read().as_deref() != Some(awaited.as_str())
             && let Some((number, previous)) = running_presentation.read().get_previous_slide()
         {
             stage.push((number, previous, ""));
@@ -1739,16 +1748,52 @@ fn read_pdf_as_base64(pdf_path: &str) -> String {
     }
 }
 
-/// Whether a slide, once drawn, hides whatever is behind it.
+/// Which page of which document a slide shows, if it shows one.
 ///
-/// Only such a slide may be brought in over the one before it: a slide whose
-/// container is transparent — anything made of text — would show both at once.
-fn covers_the_slide_behind_it(content: &SlideContent) -> bool {
-    matches!(
-        content,
-        SlideContent::SimplePicture(_) | SlideContent::PdfPage(_)
-    )
+/// This is the one kind of slide that cannot be put on screen the moment it is
+/// asked for: the page has to be rendered first. Everything else — text, and a
+/// picture, which is inlined into the page and arrives with the DOM — is there
+/// as soon as it is drawn, and needs nothing held behind it.
+///
+/// The key is what [`PDF_PAGE_DRAWN`] reports, so a view can tell whether the
+/// page it is waiting for has arrived.
+fn pdf_page_key(content: &SlideContent) -> Option<String> {
+    match content {
+        SlideContent::PdfPage(page) => {
+            Some(format!("{}#{}", page.pdf_path, page.page_number))
+        }
+        SlideContent::SimplePicture(picture) => {
+            let path = get_picture_path(picture);
+            let document = path.split('#').next().unwrap_or(&path).to_string();
+            if !document.to_lowercase().ends_with(".pdf") {
+                return None;
+            }
+            let page: u32 = path
+                .split("#page=")
+                .nth(1)
+                .and_then(|number| number.parse().ok())
+                .unwrap_or(1);
+            Some(format!("{document}#{page}"))
+        }
+        _ => None,
+    }
 }
+
+/// The page most recently drawn onto a canvas in this window, as the key
+/// [`pdf_page_key`] builds.
+///
+/// How the presentation knows that the slide coming in has actually arrived,
+/// and that the one being held behind it can go. That moment cannot be guessed
+/// at from a timer: too early and the audience sees the background again, too
+/// late and the old slide stays visible around the edges of the new one —
+/// which is what it did, since two documents need not have pages of the same
+/// shape and a page is fitted into the slide rather than filling it.
+///
+/// A global rather than a value passed down, because the canvas that draws the
+/// page sits three components below the one that has to know. Each window runs
+/// its own instance of this, which is what it should be: what has been drawn
+/// is a fact about one window's page.
+pub static PDF_PAGE_DRAWN: GlobalSignal<Option<String>> = Global::new(|| None);
 
 /// How many times a canvas asks again while another one is fetching the
 /// document.
@@ -1986,7 +2031,11 @@ pub(crate) fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
                         &serde_json::to_string(&canvas_id).unwrap_or_default(),
                     );
 
-                with_pdf_document(&pdf_path, &render_js).await;
+                if with_pdf_document(&pdf_path, &render_js).await {
+                    // The page is on screen. Whatever was being held behind
+                    // this slide has done its job and can go.
+                    *PDF_PAGE_DRAWN.write() = Some(format!("{pdf_path}#{page_num}"));
+                }
             });
         }));
     }
@@ -1994,11 +2043,16 @@ pub(crate) fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
     rsx! {
         canvas {
             id: "{canvas_id}",
-            // Transparent until a page has been drawn onto it — see `present`
-            // in `pdf_render_inline.js`. What shows through in the meantime is
+            // Not shown until a page has been drawn onto it — see `present` in
+            // `pdf_render_inline.js`. What shows through in the meantime is
             // the slide being held behind this one, not the background.
-            style: "display: block; max-width: 100%; max-height: 100%; \
-                    opacity: 0; transition: opacity 200ms ease-in-out;",
+            //
+            // Deliberately `visibility` and not a fade. A fade here is an
+            // effect of its own, and it ran on every slide change including
+            // the ones set to have no effect at all; which effect a slide
+            // arrives with is the user's to choose, and it is the slide
+            // container that carries it.
+            style: "display: block; max-width: 100%; max-height: 100%; visibility: hidden;",
         }
     }
 }
@@ -2088,30 +2142,61 @@ pub fn StaticSlideRendererComponent(
 #[cfg(test)]
 mod stage_tests {
     use super::*;
-    /// A page of a PDF covers what is behind it once it is drawn, so the slide
-    /// it replaces may be held underneath until it gets there — which is what
-    /// keeps the audience from seeing the bare background while the page is
-    /// being rendered.
+    /// A PDF page is the one slide that has to be rendered before it can be
+    /// seen, so the presentation has to be able to name the page it is waiting
+    /// for and match it against what has been drawn.
     #[test]
-    fn a_pdf_page_may_be_brought_in_over_the_slide_before_it() {
+    fn a_pdf_page_is_named_by_its_document_and_page() {
         let page = Slide::new_pdf_page_slide("handout.pdf".to_string(), 2);
 
-        assert!(covers_the_slide_behind_it(&page.slide_content));
+        assert_eq!(
+            pdf_page_key(&page.slide_content).as_deref(),
+            Some("handout.pdf#2")
+        );
     }
 
-    /// Text does not: its container is transparent, and holding the previous
-    /// slide under it would show both at once. It also needs no time to
-    /// appear, which is the only reason any of this exists.
+    /// A picture slide, built the way [`get_picture_path`] reads one — the
+    /// song library keeps the path private.
+    fn picture(path: &str) -> SlideContent {
+        SlideContent::SimplePicture(
+            serde_json::from_value(serde_json::json!({ "picture_path": path }))
+                .expect("a picture slide is its path"),
+        )
+    }
+
+    /// The same page reached as a picture slide — which is how a PDF added to
+    /// a presentation arrives — must produce the same name, or the slide would
+    /// wait for a page that is never reported.
     #[test]
-    fn text_is_not_brought_in_over_anything() {
-        for slide in [
-            Slide::new_content_slide("Amazing grace".to_string(), None, None),
-            Slide::new_title_slide("Amazing Grace".to_string(), None),
-            Slide::new_empty_slide(false),
-        ] {
-            assert!(
-                !covers_the_slide_behind_it(&slide.slide_content),
-                "a slide made of text must not be laid over the one before it"
+    fn a_pdf_reached_as_a_picture_is_named_the_same_way() {
+        assert_eq!(
+            pdf_page_key(&picture("handout.pdf#page=2")).as_deref(),
+            Some("handout.pdf#2")
+        );
+        // A document with no page named is its first page.
+        assert_eq!(
+            pdf_page_key(&picture("handout.pdf")).as_deref(),
+            Some("handout.pdf#1")
+        );
+    }
+
+    /// Nothing else waits for anything. Text is there as soon as it is drawn,
+    /// and a picture is inlined into the page and arrives with it — holding
+    /// the previous slide under either would only show both at once.
+    #[test]
+    fn nothing_else_is_waited_for() {
+        let contents = [
+            Slide::new_content_slide("Amazing grace".to_string(), None, None).slide_content,
+            Slide::new_title_slide("Amazing Grace".to_string(), None).slide_content,
+            Slide::new_empty_slide(false).slide_content,
+            picture("background.png"),
+        ];
+
+        for content in contents {
+            assert_eq!(
+                pdf_page_key(&content),
+                None,
+                "only a page that has to be rendered is waited for"
             );
         }
     }
