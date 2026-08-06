@@ -104,6 +104,18 @@ try {
     var canvases = Array.prototype.slice.call(
         container.querySelectorAll('canvas[data-page]')
     );
+
+    // A canvas remembers the width it was drawn at so it is not drawn again
+    // for nothing. That mark belongs to the document it was drawn from: if the
+    // view is now showing a different one, every page has to be drawn afresh
+    // however wide the column is.
+    if (container.dataset.doc !== cacheKey) {
+        container.dataset.doc = cacheKey;
+        canvases.forEach(function (canvas) {
+            delete canvas.dataset.drawnAt;
+        });
+    }
+
     var first = await doc.getPage(1);
     var shape = first.getViewport({ scale: 1 });
     canvases.forEach(function (canvas) {

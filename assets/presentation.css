@@ -92,6 +92,14 @@ html, body {
     z-index: 2!important;
     width: 100%;
     overflow: hidden;
+    /* Every slide sits in the same cell of the grid.
+     *
+     * During a slide change there are two of them: the one going out is held
+     * under the one coming in so that the audience never sees the bare
+     * background while a PDF page is being drawn. Without being placed, the
+     * second one makes the grid open an implicit row and the two slides share
+     * the height between them — the whole picture jumps on every change. */
+    grid-area: 1 / 1;
 }
 
 @keyframes presentationFadeIn {

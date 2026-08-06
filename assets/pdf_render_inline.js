@@ -48,6 +48,12 @@ try {
         canvas.width = drawn.canvas.width;
         canvas.height = drawn.canvas.height;
         canvas.getContext('2d').drawImage(drawn.canvas, 0, 0);
+        // The canvas is transparent until there is a page on it, and comes up
+        // over the slide being held behind it. A page that has to be rendered
+        // arrives a moment after the slide changed, and appearing all at once
+        // at that point is a jolt in the middle of a presentation; this way it
+        // is the end of the crossfade rather than an event of its own.
+        canvas.style.opacity = '1';
     }
 
     function pageKey(page, width) {

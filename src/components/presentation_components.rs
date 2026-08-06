@@ -557,15 +557,46 @@ pub fn PresentationRendererComponent(
 
     let mut go_to_next_slide = move || {
         running_presentation.write().next_slide();
-        presentation_is_visible.set(false);
-        presentation_is_visible.set(true);
     };
 
     let mut go_to_previous_slide = move || {
         running_presentation.write().previous_slide();
-        presentation_is_visible.set(false);
-        presentation_is_visible.set(true);
     };
+
+    // What is on the stage: the slide going out, where one is worth holding,
+    // and then the slide coming in over it. Oldest first, so the new one is
+    // painted over the old.
+    //
+    // A picture — and a PDF page is one — cannot be drawn the instant the
+    // slide changes: it has to be rendered first. Without something underneath
+    // it, the moment between the old slide being taken away and the new one
+    // arriving is a flash of the design's bare background in front of the
+    // audience. The outgoing slide covers exactly that gap, and where the
+    // transition is a fade it turns into the crossfade it always looked like
+    // it should be.
+    //
+    // The outgoing entry deliberately carries no transition class: its
+    // animation ran when it was the slide coming in, and it is only still here
+    // to stand behind its successor.
+    //
+    // Held only for a slide that will cover it completely. A text slide's
+    // container is transparent, so keeping the old text under the new one
+    // would show both at once — and text needs no time to appear anyway.
+    let on_stage: Memo<Vec<(usize, Slide, &'static str)>> = use_memo(move || {
+        let mut stage: Vec<(usize, Slide, &'static str)> = Vec::with_capacity(2);
+        let Some(slide) = current_slide.read().clone() else {
+            return stage;
+        };
+
+        if covers_the_slide_behind_it(&slide.slide_content)
+            && let Some((number, previous)) = running_presentation.read().get_previous_slide()
+        {
+            stage.push((number, previous, ""));
+        }
+
+        stage.push((current_slide_number(), slide, transition_class()));
+        stage
+    });
 
     // Auto-advance timer: each time the slide changes, a new `spawn`-ed task
     // is launched via `use_effect`. A generation counter ensures that only the
@@ -755,18 +786,30 @@ pub fn PresentationRendererComponent(
                 div { style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: black; z-index: 1000;" }
             }
             div { class: "background", style: background_css() }
+            // What is on the stage: the slide going out, where one is being
+            // held, and then the slide coming in over it.
+            //
+            // One keyed list, deliberately. The outgoing entry keeps the key
+            // it had while it was the current slide, so it is not rebuilt from
+            // its data — it is the very element that has been on screen all
+            // along, pixels and all, and the audience sees no gap at any point
+            // in the handover. The incoming entry is a key that was not there
+            // before, so its element is created, which is the only thing that
+            // starts a CSS animation: that is what brings the configured
+            // effect back for a slide change that did not come from this
+            // window's own click or key press, such as a jump from the
+            // presenter console's overview.
             if presentation_is_visible() {
-                if let Some(slide) = current_slide.read().clone() {
+                for (number , slide , transition) in on_stage() {
                     {
                         let slide_content = slide.slide_content.clone();
                         let container_style = slide_container_style(&slide_content);
-                        let tc = transition_class();
 
                         rsx! {
                             div {
-                                class: "slide-container {tc}",
+                                key: "{number}",
+                                class: "slide-container {transition}",
                                 style: "{container_style}",
-                                key: "{current_slide_number}",
                                 SlideContentRenderer {
                                     slide_content,
                                     pds: current_pds(),
@@ -1696,6 +1739,17 @@ fn read_pdf_as_base64(pdf_path: &str) -> String {
     }
 }
 
+/// Whether a slide, once drawn, hides whatever is behind it.
+///
+/// Only such a slide may be brought in over the one before it: a slide whose
+/// container is transparent — anything made of text — would show both at once.
+fn covers_the_slide_behind_it(content: &SlideContent) -> bool {
+    matches!(
+        content,
+        SlideContent::SimplePicture(_) | SlideContent::PdfPage(_)
+    )
+}
+
 /// How many times a canvas asks again while another one is fetching the
 /// document.
 ///
@@ -1828,31 +1882,53 @@ pub(crate) fn PdfScrollView(pdf_path: String, pages: u32) -> Element {
     let mount_id = use_hook(Uuid::new_v4);
     let container_id = format!("pdf-scroll-{}", mount_id.as_simple());
 
+    // Built when the view appears *and* again whenever the document changes.
+    //
+    // `onmounted` cannot do the second part, which is what this used to hang
+    // on: opening another PDF gives this component new props but the same
+    // container element, so the DOM node is updated rather than mounted and
+    // the handler never fires again. The view kept showing whichever document
+    // had been opened first.
+    {
+        let container_id = container_id.clone();
+        let pdf_path = pdf_path.clone();
+        use_effect(use_reactive!(|(pdf_path, pages)| {
+            // The page count is in the dependencies because the canvases for a
+            // longer document have to exist before the view is set up over
+            // them; reading it also keeps this effect honest about what it
+            // depends on.
+            let _ = pages;
+            let container_id = container_id.clone();
+            let pdf_path = pdf_path.clone();
+
+            spawn(async move {
+                let scroll_js = include_str!("../../assets/pdf_scroll_inline.js")
+                    .replace(
+                        "__CACHE_KEY__",
+                        &serde_json::to_string(&pdf_path).unwrap_or_default(),
+                    )
+                    .replace(
+                        "__CONTAINER_ID__",
+                        &serde_json::to_string(&container_id).unwrap_or_default(),
+                    );
+
+                with_pdf_document(&pdf_path, &scroll_js).await;
+            });
+        }));
+    }
+
     rsx! {
         div {
             id: "{container_id}",
             class: "pdf-scroll",
-            onmounted: move |_| {
-                let container_id = container_id.clone();
-                let pdf_path = pdf_path.clone();
-
-                spawn(async move {
-                    let scroll_js = include_str!("../../assets/pdf_scroll_inline.js")
-                        .replace(
-                            "__CACHE_KEY__",
-                            &serde_json::to_string(&pdf_path).unwrap_or_default(),
-                        )
-                        .replace(
-                            "__CONTAINER_ID__",
-                            &serde_json::to_string(&container_id).unwrap_or_default(),
-                        );
-
-                    with_pdf_document(&pdf_path, &scroll_js).await;
-                });
-            },
             for page in 1..=pages.max(1) {
                 canvas {
-                    key: "{page}",
+                    // The document is part of the key, so the canvases of one
+                    // PDF are never handed on to the next. Reused elements
+                    // still carry the pages that were drawn into them, and a
+                    // document with the same number of pages would have shown
+                    // its predecessor's.
+                    key: "{pdf_path}-{page}",
                     class: "pdf-scroll-page",
                     "data-page": "{page}",
                 }
@@ -1885,29 +1961,44 @@ pub(crate) fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
         mount_id.as_simple()
     );
 
+    // Drawn when the canvas appears *and* again whenever the page changes.
+    //
+    // `onmounted` only fires when the element is created. Where this component
+    // is kept and given a new page instead — which is what happens wherever a
+    // canvas outlives a slide — the handler would never run again and the
+    // canvas would go on showing the page it was first given.
+    {
+        let canvas_id = canvas_id.clone();
+        let pdf_path = pdf_path.clone();
+        use_effect(use_reactive!(|(pdf_path, page_num)| {
+            let canvas_id = canvas_id.clone();
+            let pdf_path = pdf_path.clone();
+
+            spawn(async move {
+                let render_js = include_str!("../../assets/pdf_render_inline.js")
+                    .replace(
+                        "__CACHE_KEY__",
+                        &serde_json::to_string(&pdf_path).unwrap_or_default(),
+                    )
+                    .replace("__PAGE_NUM__", &page_num.to_string())
+                    .replace(
+                        "__CANVAS_ID__",
+                        &serde_json::to_string(&canvas_id).unwrap_or_default(),
+                    );
+
+                with_pdf_document(&pdf_path, &render_js).await;
+            });
+        }));
+    }
+
     rsx! {
         canvas {
             id: "{canvas_id}",
-            style: "display: block; max-width: 100%; max-height: 100%;",
-            onmounted: move |_| {
-                let canvas_id = canvas_id.clone();
-                let pdf_path = pdf_path.clone();
-
-                spawn(async move {
-                    let render_js = include_str!("../../assets/pdf_render_inline.js")
-                        .replace(
-                            "__CACHE_KEY__",
-                            &serde_json::to_string(&pdf_path).unwrap_or_default(),
-                        )
-                        .replace("__PAGE_NUM__", &page_num.to_string())
-                        .replace(
-                            "__CANVAS_ID__",
-                            &serde_json::to_string(&canvas_id).unwrap_or_default(),
-                        );
-
-                    with_pdf_document(&pdf_path, &render_js).await;
-                });
-            },
+            // Transparent until a page has been drawn onto it — see `present`
+            // in `pdf_render_inline.js`. What shows through in the meantime is
+            // the slide being held behind this one, not the background.
+            style: "display: block; max-width: 100%; max-height: 100%; \
+                    opacity: 0; transition: opacity 200ms ease-in-out;",
         }
     }
 }
@@ -1990,6 +2081,38 @@ pub fn StaticSlideRendererComponent(
             div { class: "slide-container", style: "{container_style}",
                 SlideContentRenderer { slide_content, pds }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod stage_tests {
+    use super::*;
+    /// A page of a PDF covers what is behind it once it is drawn, so the slide
+    /// it replaces may be held underneath until it gets there — which is what
+    /// keeps the audience from seeing the bare background while the page is
+    /// being rendered.
+    #[test]
+    fn a_pdf_page_may_be_brought_in_over_the_slide_before_it() {
+        let page = Slide::new_pdf_page_slide("handout.pdf".to_string(), 2);
+
+        assert!(covers_the_slide_behind_it(&page.slide_content));
+    }
+
+    /// Text does not: its container is transparent, and holding the previous
+    /// slide under it would show both at once. It also needs no time to
+    /// appear, which is the only reason any of this exists.
+    #[test]
+    fn text_is_not_brought_in_over_anything() {
+        for slide in [
+            Slide::new_content_slide("Amazing grace".to_string(), None, None),
+            Slide::new_title_slide("Amazing Grace".to_string(), None),
+            Slide::new_empty_slide(false),
+        ] {
+            assert!(
+                !covers_the_slide_behind_it(&slide.slide_content),
+                "a slide made of text must not be laid over the one before it"
+            );
         }
     }
 }

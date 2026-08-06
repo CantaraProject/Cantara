@@ -656,23 +656,23 @@ fn ImageViewer(file: SourceFile) -> Element {
 /// drawn as they come near the viewport, so a long document costs no more to
 /// open than a short one; see `pdf_scroll_inline.js`.
 ///
-/// Keyed on the file, so that opening a different PDF builds a new view rather
-/// than leaving the previous document's pages on screen — which is exactly
-/// what the paged version did, since its page number and its canvases belonged
-/// to whichever document had been open first.
 #[component]
 fn PdfViewer(file: SourceFile) -> Element {
     let path = file.path.to_str().unwrap_or_default().to_string();
-    let pages = crate::logic::search::pdf_page_count(&file.path)
-        .unwrap_or(1)
-        .max(1);
+
+    // Counting the pages means parsing the document, so it is done once per
+    // file and not on every render of this view.
+    let pages = use_memo(use_reactive!(|file| {
+        crate::logic::search::pdf_page_count(&file.path)
+            .unwrap_or(1)
+            .max(1)
+    }));
 
     rsx! {
         div { class: "detail-pdf",
             crate::components::presentation_components::PdfScrollView {
-                key: "{path}",
                 pdf_path: path.clone(),
-                pages,
+                pages: pages(),
             }
         }
     }

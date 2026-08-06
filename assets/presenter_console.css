@@ -270,6 +270,30 @@
     box-shadow: 0 0 0 2px var(--pico-primary-focus);
 }
 
+/* A slide shown smaller than it is presented.
+ *
+ * The inner box keeps the presentation's own size and is scaled with a
+ * transform, which does not touch the layout: the same line breaks, the same
+ * proportion of text to page, the same scroll height. `zoom`, which this used
+ * to do, lays the slide out *again* at the smaller size — text reflows against
+ * a narrower page, so the preview showed a slide the audience never sees, and
+ * a scroll position taken from the presentation meant something else in the
+ * preview, which is what stopped the markdown scrolling lining up.
+ *
+ * The caller gives the outer box the scaled size and the inner box the
+ * presentation's, with the matching `transform: scale()`. */
+.slide-scale {
+    position: relative;
+    overflow: hidden;
+}
+
+.slide-scale-inner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: top left;
+}
+
 .presenter-grid-slide-inner {
     pointer-events: none;
 }
