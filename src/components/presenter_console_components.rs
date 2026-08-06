@@ -274,6 +274,13 @@ pub fn PresenterConsolePage() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }
+        // The PDF viewer, loaded once per window. Registered *here*, at the
+        // root, for the reason written above about the stylesheets: a
+        // registration made by a scope that is dropped before its effect runs
+        // is lost, and Dioxus never inserts the same src twice — so a script
+        // asked for from inside a slide or a thumbnail may never arrive at
+        // all. That is what left the presenter console's overview blank.
+        document::Script { src: crate::logic::pdf::PDF_VIEWER_JS }
         // Only a window of its own gets its own name. Setting the title while
         // the console is a page *inside* the main window renamed the window —
         // or the browser tab — and nothing put the name back when the console

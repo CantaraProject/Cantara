@@ -1,6 +1,5 @@
 //! This module provides functionality for rendering the slides in HTML for the presentation
 
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cantara_songlib::slides::*;
 use dioxus::prelude::*;
 use regex::Regex;
@@ -57,15 +56,11 @@ const ABCJS_LIB: Asset = asset!(
 #[cfg(target_arch = "wasm32")]
 const ABCJS_CDN_LIB: &str = "https://cdn.jsdelivr.net/npm/abcjs@6.6.4/dist/abcjs-basic-min.js";
 #[cfg(not(target_arch = "wasm32"))]
-const PDFJS_LIB: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.min.mjs");
 #[cfg(not(target_arch = "wasm32"))]
-const PDFJS_WORKER: Asset = asset!("/node_modules/pdfjs-dist/build/pdf.worker.min.mjs");
 /// CDN URL for PDF.js library (used on the web/WASM target where node_modules are unavailable).
 /// Loaded via dynamic `import()` in JavaScript, which does not support Subresource Integrity (SRI).
 #[cfg(target_arch = "wasm32")]
-const PDFJS_CDN_LIB: &str = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
 #[cfg(target_arch = "wasm32")]
-const PDFJS_CDN_WORKER: &str = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -381,7 +376,7 @@ pub fn PresentationPage() -> Element {
 
                                     if let Ok(files) = serde_json::from_str::<HashMap<String, String>>(&files_json) {
                                         for (path, b64) in &files {
-                                            if let Ok(bytes) = BASE64.decode(b64) {
+                                            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64) {
                                                 RepositoryType::store_web_file(path, bytes);
                                             }
                                         }
@@ -437,6 +432,13 @@ pub fn PresentationPage() -> Element {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         BundledFontFaces {}
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
+        // The PDF viewer, loaded once per window. Registered *here*, at the
+        // root, for the reason written above about the stylesheets: a
+        // registration made by a scope that is dropped before its effect runs
+        // is lost, and Dioxus never inserts the same src twice — so a script
+        // asked for from inside a slide or a thumbnail may never arrive at
+        // all. That is what left the presenter console's overview blank.
+        document::Script { src: crate::logic::pdf::PDF_VIEWER_JS }
         document::Title { {t!("presentation.title").to_string()} }
         // This div is needed for fullscreen mode
         div {
@@ -563,48 +565,28 @@ pub fn PresentationRendererComponent(
         running_presentation.write().previous_slide();
     };
 
-    // What is on the stage: the slide going out, where one is worth holding,
-    // and then the slide coming in over it. Oldest first, so the new one is
-    // painted over the old.
+    // The slide on the stage, and what identifies the element it lives in.
     //
-    // A picture — and a PDF page is one — cannot be drawn the instant the
-    // slide changes: it has to be rendered first. Without something underneath
-    // it, the moment between the old slide being taken away and the new one
-    // arriving is a flash of the design's bare background in front of the
-    // audience. The outgoing slide covers exactly that gap, and where the
-    // transition is a fade it turns into the crossfade it always looked like
-    // it should be.
+    // For everything but a PDF that is the slide number, so each slide gets an
+    // element of its own — which is the only thing that starts a CSS animation
+    // and therefore the only way the configured effect runs at all.
     //
-    // The outgoing entry deliberately carries no transition class: its
-    // animation ran when it was the slide coming in, and it is only still here
-    // to stand behind its successor.
-    //
-    // Held only while the slide coming in is a PDF page that is not on screen
-    // yet — see [`pdf_page_key`]. Anything else is there the moment it is
-    // drawn, and keeping the old slide under a transparent one would show both
-    // at once.
-    //
-    // And held only until that page arrives, not a moment longer. Two
-    // documents need not have pages of the same shape, and a page is fitted
-    // into the slide rather than filling it, so a slide left underneath goes
-    // on showing around the edges of the one in front of it — which is what
-    // kept the previous document on screen when stepping back through a
-    // presentation of several PDFs.
-    let on_stage: Memo<Vec<(usize, Slide, &'static str)>> = use_memo(move || {
-        let mut stage: Vec<(usize, Slide, &'static str)> = Vec::with_capacity(2);
-        let Some(slide) = current_slide.read().clone() else {
-            return stage;
-        };
-
-        if let Some(awaited) = pdf_page_key(&slide.slide_content)
-            && PDF_PAGE_DRAWN.read().as_deref() != Some(awaited.as_str())
-            && let Some((number, previous)) = running_presentation.read().get_previous_slide()
-        {
-            stage.push((number, previous, ""));
+    // For a PDF it is the *document*. Stepping through its pages then reuses
+    // one element, and with it one canvas, so the page on screen stays until
+    // the next has been drawn beside it and copied across: no empty screen
+    // between two pages, whatever the effect. The effect itself is started by
+    // `pdf_viewer.js` at the moment the new page appears, so the container
+    // carries none — see [`crate::logic::pdf::show`].
+    let stage: Memo<Option<(String, Slide, &'static str)>> = use_memo(move || {
+        let slide = current_slide.read().clone()?;
+        match pdf_document_of(&slide.slide_content) {
+            Some(document) => Some((format!("pdf:{document}"), slide, "")),
+            None => Some((
+                format!("slide:{}", current_slide_number()),
+                slide,
+                transition_class(),
+            )),
         }
-
-        stage.push((current_slide_number(), slide, transition_class()));
-        stage
     });
 
     // Auto-advance timer: each time the slide changes, a new `spawn`-ed task
@@ -795,34 +777,27 @@ pub fn PresentationRendererComponent(
                 div { style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: black; z-index: 1000;" }
             }
             div { class: "background", style: background_css() }
-            // What is on the stage: the slide going out, where one is being
-            // held, and then the slide coming in over it.
-            //
-            // One keyed list, deliberately. The outgoing entry keeps the key
-            // it had while it was the current slide, so it is not rebuilt from
-            // its data — it is the very element that has been on screen all
-            // along, pixels and all, and the audience sees no gap at any point
-            // in the handover. The incoming entry is a key that was not there
-            // before, so its element is created, which is the only thing that
-            // starts a CSS animation: that is what brings the configured
-            // effect back for a slide change that did not come from this
-            // window's own click or key press, such as a jump from the
-            // presenter console's overview.
+            // A keyed list of one, so that the key decides the element's
+            // identity — outside a list it does not, which is why the
+            // configured effect used to be re-triggered by hand in the click
+            // and key handlers, and therefore not at all when the slide was
+            // changed from the presenter console.
             if presentation_is_visible() {
-                for (number , slide , transition) in on_stage() {
+                for (identity , slide , transition) in stage() {
                     {
                         let slide_content = slide.slide_content.clone();
                         let container_style = slide_container_style(&slide_content);
 
                         rsx! {
                             div {
-                                key: "{number}",
+                                key: "{identity}",
                                 class: "slide-container {transition}",
                                 style: "{container_style}",
                                 SlideContentRenderer {
                                     slide_content,
                                     pds: current_pds(),
                                     running_presentation: Some(running_presentation),
+                                    transition: transition_class(),
                                 }
                             }
                         }
@@ -1407,6 +1382,11 @@ fn SlideContentRenderer(
     slide_content: SlideContent,
     pds: PresentationDesignTemplate,
     running_presentation: Option<Signal<RunningPresentation>>,
+    /// The effect a PDF page should arrive with. Every other slide gets its
+    /// effect from its container being created; a PDF page's canvas is kept
+    /// between pages, so it has to be told.
+    #[props(default)]
+    transition: String,
 ) -> Element {
     let meta_text = meta_text_of(&slide_content);
     let meta_font = pds.get_default_meta_font();
@@ -1417,7 +1397,7 @@ fn SlideContentRenderer(
     let is_title_slide = matches!(slide_content, SlideContent::Title(_));
 
     rsx! {
-        {slide_body(slide_content, pds, running_presentation)}
+        {slide_body(slide_content, pds, running_presentation, transition)}
         if let Some(text) = meta_text {
             if !is_title_slide {
                 MetaTextCorner { text, meta_font }
@@ -1431,6 +1411,7 @@ fn slide_body(
     slide_content: SlideContent,
     pds: PresentationDesignTemplate,
     running_presentation: Option<Signal<RunningPresentation>>,
+    transition: String,
 ) -> Element {
     match slide_content {
         SlideContent::Title(title_slide) => rsx! {
@@ -1482,7 +1463,7 @@ fn slide_body(
             EmptySlideComponent {}
         },
         SlideContent::SimplePicture(picture_slide) => rsx! {
-            SimplePictureSlideComponent { picture_slide: picture_slide.clone() }
+            SimplePictureSlideComponent { picture_slide: picture_slide.clone(), transition }
         },
         SlideContent::PdfPage(pdf_slide) => rsx! {
             PdfPageCanvas {
@@ -1688,7 +1669,11 @@ fn MarkdownSlideComponent(
 }
 
 #[component]
-fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
+fn SimplePictureSlideComponent(
+    picture_slide: SimplePictureSlide,
+    #[props(default)]
+    transition: String,
+) -> Element {
     let path = get_picture_path(&picture_slide);
 
     // Check if this is a PDF; the path may contain a #page=N fragment
@@ -1704,7 +1689,7 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
 
         return rsx! {
             div { style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
-                PdfPageCanvas { pdf_path: base_path, page_num }
+                PdfPageCanvas { pdf_path: base_path, page_num, transition }
             }
         };
     }
@@ -1729,189 +1714,73 @@ fn SimplePictureSlideComponent(picture_slide: SimplePictureSlide) -> Element {
     }
 }
 
-/// Reads a PDF and returns it base64-encoded, ready to hand to PDF.js.
+/// Which document a slide shows a page of, if it shows one.
 ///
-/// Only called on a cache miss: the bytes are the expensive part of showing a
-/// PDF slide, and they only have to cross into the page once per document.
-fn read_pdf_as_base64(pdf_path: &str) -> String {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        std::fs::read(pdf_path)
-            .map(|bytes| BASE64.encode(&bytes))
-            .unwrap_or_default()
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        crate::logic::settings::RepositoryType::web_read_file(pdf_path)
-            .map(|bytes| BASE64.encode(&bytes))
-            .unwrap_or_default()
-    }
-}
-
-/// Which page of which document a slide shows, if it shows one.
-///
-/// This is the one kind of slide that cannot be put on screen the moment it is
-/// asked for: the page has to be rendered first. Everything else — text, and a
-/// picture, which is inlined into the page and arrives with the DOM — is there
-/// as soon as it is drawn, and needs nothing held behind it.
-///
-/// The key is what [`PDF_PAGE_DRAWN`] reports, so a view can tell whether the
-/// page it is waiting for has arrived.
-fn pdf_page_key(content: &SlideContent) -> Option<String> {
+/// A PDF is the one kind of slide whose element is kept from one page to the
+/// next: the canvas holds the page that is up until the next has been drawn,
+/// so the identity of the element on the stage is the *document* rather than
+/// the slide. Everything else — text, and a picture, which is inlined into the
+/// page and arrives with it — is there as soon as it is drawn and gets an
+/// element per slide.
+fn pdf_document_of(content: &SlideContent) -> Option<String> {
     match content {
-        SlideContent::PdfPage(page) => {
-            Some(format!("{}#{}", page.pdf_path, page.page_number))
-        }
+        SlideContent::PdfPage(page) => Some(page.pdf_path.clone()),
         SlideContent::SimplePicture(picture) => {
-            let path = get_picture_path(picture);
-            let document = path.split('#').next().unwrap_or(&path).to_string();
-            if !document.to_lowercase().ends_with(".pdf") {
-                return None;
-            }
-            let page: u32 = path
-                .split("#page=")
-                .nth(1)
-                .and_then(|number| number.parse().ok())
-                .unwrap_or(1);
-            Some(format!("{document}#{page}"))
+            crate::logic::pdf::pdf_page_of(&get_picture_path(picture))
+                .map(|(document, _)| document)
         }
         _ => None,
     }
 }
 
-/// The page most recently drawn onto a canvas in this window, as the key
-/// [`pdf_page_key`] builds.
+/// A page of a PDF, drawn by the viewer that lives in the page.
 ///
-/// How the presentation knows that the slide coming in has actually arrived,
-/// and that the one being held behind it can go. That moment cannot be guessed
-/// at from a timer: too early and the audience sees the background again, too
-/// late and the old slide stays visible around the edges of the new one —
-/// which is what it did, since two documents need not have pages of the same
-/// shape and a page is fitted into the slide rather than filling it.
+/// The element is deliberately kept between the pages of one document: what is
+/// on it stays there until the next page has been drawn beside it and copied
+/// across, so a slide change never shows an empty screen. That is also why the
+/// effect the slide arrives with is started from `pdf_viewer.js` rather than by
+/// a CSS class on a newly created element — there is no new element.
 ///
-/// A global rather than a value passed down, because the canvas that draws the
-/// page sits three components below the one that has to know. Each window runs
-/// its own instance of this, which is what it should be: what has been drawn
-/// is a fact about one window's page.
-pub static PDF_PAGE_DRAWN: GlobalSignal<Option<String>> = Global::new(|| None);
+/// Everything about the rendering itself is in [`crate::logic::pdf`].
+#[component]
+pub(crate) fn PdfPageCanvas(
+    pdf_path: String,
+    page_num: u32,
+    /// The CSS class of the configured effect, started when the page appears.
+    /// Nothing chosen means nothing happens.
+    #[props(default)]
+    transition: String,
+) -> Element {
+    // One identity per mount. The element outlives a slide, so this must not
+    // be derived from the page.
+    let mount_id = use_hook(Uuid::new_v4);
+    let canvas_id = format!("pdf-canvas-{}", mount_id.as_simple());
 
-/// How many times a canvas asks again while another one is fetching the
-/// document.
-///
-/// Each of these waits inside the page until the document arrives, so this is
-/// a count of *stalled* loaders to survive rather than a polling interval —
-/// three of them is well past anything that is not simply broken.
-const PDF_WAIT_ATTEMPTS: usize = 3;
-
-/// Hands a document to the page if it is not there already.
-///
-/// `on_page` is a script that does something with the document — draw a slide,
-/// set a scrolling view up — and reports back `{ missing: true }` when the
-/// document is not in `window.__pdfDocCache` and this caller should fetch it,
-/// or `{ waiting: true }` when someone else already is. Everything around that
-/// is the same for every caller and lives here.
-///
-/// Returns whether the page ended up with the document.
-async fn with_pdf_document(pdf_path: &str, on_page: &str) -> bool {
-    // Every script that draws a page needs the frame fallback in place first,
-    // and putting it here is the only way that cannot be forgotten by one of
-    // them. It was, once: the scrolling document in the detail view drew
-    // nothing at all in a window that was not in front, because the fallback
-    // lived in the slide renderer and nowhere else.
-    let on_page = format!(
-        "{}\n{}",
-        include_str!("../../assets/frame_fallback_inline.js"),
-        on_page
-    );
-    let on_page = on_page.as_str();
-
-    // Get URLs for PDF.js library and worker
-    #[cfg(not(target_arch = "wasm32"))]
-    let (pdfjs_url, worker_url) = (format!("{}", PDFJS_LIB), format!("{}", PDFJS_WORKER));
-    #[cfg(target_arch = "wasm32")]
-    let (pdfjs_url, worker_url) = (PDFJS_CDN_LIB.to_string(), PDFJS_CDN_WORKER.to_string());
-
-    let js_cache_key = serde_json::to_string(pdf_path).unwrap_or_default();
-
-    // 1. Try the document already in the page. This is the common case —
-    //    every slide after the first.
-    //
-    //    While another canvas of the same document is fetching it, this call
-    //    waits inside the page until that one delivers and then goes on — no
-    //    second copy of the file, and no asking over and over. It comes back
-    //    with `waiting` only if that loader never delivered, in which case
-    //    asking again lets this caller take the job over.
-    let mut attempt = 0;
-    loop {
-        match document::eval(on_page).await {
-            Ok(value) => {
-                if value.get("missing").and_then(|missing| missing.as_bool()) == Some(true) {
-                    break;
-                }
-                if value.get("waiting").and_then(|waiting| waiting.as_bool()) != Some(true) {
-                    return true;
-                }
-            }
-            Err(error) => {
-                log::error!("could not reach the page for {pdf_path}: {error:?}");
-                return false;
-            }
-        }
-
-        attempt += 1;
-        if attempt > PDF_WAIT_ATTEMPTS {
-            log::warn!("gave up waiting for {pdf_path} to be loaded elsewhere");
-            return false;
-        }
+    // Drawn when the canvas appears *and* again whenever the page changes.
+    // `onmounted` fires only when the element is created, and this element is
+    // reused from one page to the next.
+    {
+        let canvas_id = canvas_id.clone();
+        let pdf_path = pdf_path.clone();
+        let transition = transition.clone();
+        use_effect(use_reactive!(|(pdf_path, page_num, transition)| {
+            let canvas_id = canvas_id.clone();
+            let pdf_path = pdf_path.clone();
+            let transition = transition.clone();
+            spawn(async move {
+                crate::logic::pdf::show(&canvas_id, &pdf_path, page_num, &transition).await;
+            });
+        }));
     }
 
-    // 2. This caller is the one to fetch it: pay for reading and encoding the
-    //    file, then hand it over once.
-    let base64_data = read_pdf_as_base64(pdf_path);
-    if base64_data.is_empty() {
-        log::warn!("PDF data empty for {pdf_path}, skipping render");
-        return false;
-    }
-
-    let load_js = include_str!("../../assets/pdf_load_inline.js")
-        .replace(
-            "__PDFJS_URL__",
-            &serde_json::to_string(&pdfjs_url).unwrap_or_default(),
-        )
-        .replace(
-            "__WORKER_URL__",
-            &serde_json::to_string(&worker_url).unwrap_or_default(),
-        )
-        .replace("__CACHE_KEY__", &js_cache_key)
-        .replace(
-            "__BASE64__",
-            &serde_json::to_string(&base64_data).unwrap_or_default(),
-        );
-
-    match document::eval(&load_js).await {
-        Ok(value) if value.get("ok").and_then(|ok| ok.as_bool()) == Some(true) => {}
-        Ok(value) => {
-            log::error!(
-                "could not load the PDF {pdf_path}: {}",
-                value
-                    .get("error")
-                    .and_then(|error| error.as_str())
-                    .unwrap_or("unknown")
-            );
-            return false;
-        }
-        Err(error) => {
-            log::error!("could not load the PDF {pdf_path}: {error:?}");
-            return false;
+    rsx! {
+        canvas {
+            id: "{canvas_id}",
+            // Not shown until a page has been drawn onto it, so an empty
+            // canvas is never part of the picture.
+            style: "display: block; max-width: 100%; max-height: 100%; visibility: hidden;",
         }
     }
-
-    // 3. Now the page holds it, so the caller's script can do its work.
-    if let Err(error) = document::eval(on_page).await {
-        log::error!("could not reach the page for {pdf_path}: {error:?}");
-        return false;
-    }
-    true
 }
 
 /// A PDF as a document to read: every page under the last, in a column that
@@ -1919,45 +1788,28 @@ async fn with_pdf_document(pdf_path: &str, on_page: &str) -> bool {
 ///
 /// The pages are drawn as they come near the viewport rather than all at once
 /// — a scanned score runs to hundreds of them — and the mechanics of that are
-/// in `pdf_scroll_inline.js`.
+/// in `cantaraPdf.setupScroll`.
 #[component]
 pub(crate) fn PdfScrollView(pdf_path: String, pages: u32) -> Element {
-    // One identity per mount, so that a view left behind by an element that
-    // has been closed cannot be mistaken for this one.
     let mount_id = use_hook(Uuid::new_v4);
     let container_id = format!("pdf-scroll-{}", mount_id.as_simple());
 
-    // Built when the view appears *and* again whenever the document changes.
-    //
-    // `onmounted` cannot do the second part, which is what this used to hang
-    // on: opening another PDF gives this component new props but the same
-    // container element, so the DOM node is updated rather than mounted and
-    // the handler never fires again. The view kept showing whichever document
-    // had been opened first.
+    // Built when the view appears and again whenever the document changes.
+    // `onmounted` cannot do the second part: opening another PDF gives this
+    // component new props but the same container element, so the node is
+    // updated rather than mounted and the view would go on showing whichever
+    // document was opened first.
     {
         let container_id = container_id.clone();
         let pdf_path = pdf_path.clone();
         use_effect(use_reactive!(|(pdf_path, pages)| {
-            // The page count is in the dependencies because the canvases for a
-            // longer document have to exist before the view is set up over
-            // them; reading it also keeps this effect honest about what it
-            // depends on.
+            // The page count is a dependency because the canvases for a longer
+            // document have to exist before the view is built over them.
             let _ = pages;
             let container_id = container_id.clone();
             let pdf_path = pdf_path.clone();
-
             spawn(async move {
-                let scroll_js = include_str!("../../assets/pdf_scroll_inline.js")
-                    .replace(
-                        "__CACHE_KEY__",
-                        &serde_json::to_string(&pdf_path).unwrap_or_default(),
-                    )
-                    .replace(
-                        "__CONTAINER_ID__",
-                        &serde_json::to_string(&container_id).unwrap_or_default(),
-                    );
-
-                with_pdf_document(&pdf_path, &scroll_js).await;
+                crate::logic::pdf::setup_scroll(&container_id, &pdf_path).await;
             });
         }));
     }
@@ -1969,90 +1821,13 @@ pub(crate) fn PdfScrollView(pdf_path: String, pages: u32) -> Element {
             for page in 1..=pages.max(1) {
                 canvas {
                     // The document is part of the key, so the canvases of one
-                    // PDF are never handed on to the next. Reused elements
-                    // still carry the pages that were drawn into them, and a
-                    // document with the same number of pages would have shown
-                    // its predecessor's.
+                    // PDF are never handed on to the next: a reused element
+                    // still carries the page drawn into it.
                     key: "{pdf_path}-{page}",
                     class: "pdf-scroll-page",
                     "data-page": "{page}",
                 }
             }
-        }
-    }
-}
-
-/// Renders a single PDF page onto a `<canvas>` via PDF.js.
-///
-/// The document is parsed once per window and kept in `window.__pdfDocCache`;
-/// each slide then only sends the short script in `pdf_render_inline.js`. The
-/// file is read and base64-encoded **only when that cache misses**, because
-/// doing it per slide meant a multi-megabyte string crossed the IPC on every
-/// slide change — the reason long PDFs used to stall the presentation.
-///
-/// The data is read on the Rust side (file system on desktop, VFS on web) so
-/// that the page's file-access restrictions do not apply. On desktop PDF.js
-/// comes from the bundled `node_modules` assets, on the web from a CDN.
-#[component]
-pub(crate) fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
-    // Use a unique ID per mount cycle to prevent conflicts when the component
-    // unmounts and remounts during live updates. Old async render tasks will
-    // target a canvas ID that no longer exists in the DOM and exit gracefully.
-    let mount_id = use_hook(Uuid::new_v4);
-    let canvas_id = format!(
-        "pdf-canvas-{}-{}-{}",
-        pdf_path.replace(['/', '\\', '.', ' ', ':'], "-"),
-        page_num,
-        mount_id.as_simple()
-    );
-
-    // Drawn when the canvas appears *and* again whenever the page changes.
-    //
-    // `onmounted` only fires when the element is created. Where this component
-    // is kept and given a new page instead — which is what happens wherever a
-    // canvas outlives a slide — the handler would never run again and the
-    // canvas would go on showing the page it was first given.
-    {
-        let canvas_id = canvas_id.clone();
-        let pdf_path = pdf_path.clone();
-        use_effect(use_reactive!(|(pdf_path, page_num)| {
-            let canvas_id = canvas_id.clone();
-            let pdf_path = pdf_path.clone();
-
-            spawn(async move {
-                let render_js = include_str!("../../assets/pdf_render_inline.js")
-                    .replace(
-                        "__CACHE_KEY__",
-                        &serde_json::to_string(&pdf_path).unwrap_or_default(),
-                    )
-                    .replace("__PAGE_NUM__", &page_num.to_string())
-                    .replace(
-                        "__CANVAS_ID__",
-                        &serde_json::to_string(&canvas_id).unwrap_or_default(),
-                    );
-
-                if with_pdf_document(&pdf_path, &render_js).await {
-                    // The page is on screen. Whatever was being held behind
-                    // this slide has done its job and can go.
-                    *PDF_PAGE_DRAWN.write() = Some(format!("{pdf_path}#{page_num}"));
-                }
-            });
-        }));
-    }
-
-    rsx! {
-        canvas {
-            id: "{canvas_id}",
-            // Not shown until a page has been drawn onto it — see `present` in
-            // `pdf_render_inline.js`. What shows through in the meantime is
-            // the slide being held behind this one, not the background.
-            //
-            // Deliberately `visibility` and not a fade. A fade here is an
-            // effect of its own, and it ran on every slide change including
-            // the ones set to have no effect at all; which effect a slide
-            // arrives with is the user's to choose, and it is the slide
-            // container that carries it.
-            style: "display: block; max-width: 100%; max-height: 100%; visibility: hidden;",
         }
     }
 }
@@ -2142,18 +1917,6 @@ pub fn StaticSlideRendererComponent(
 #[cfg(test)]
 mod stage_tests {
     use super::*;
-    /// A PDF page is the one slide that has to be rendered before it can be
-    /// seen, so the presentation has to be able to name the page it is waiting
-    /// for and match it against what has been drawn.
-    #[test]
-    fn a_pdf_page_is_named_by_its_document_and_page() {
-        let page = Slide::new_pdf_page_slide("handout.pdf".to_string(), 2);
-
-        assert_eq!(
-            pdf_page_key(&page.slide_content).as_deref(),
-            Some("handout.pdf#2")
-        );
-    }
 
     /// A picture slide, built the way [`get_picture_path`] reads one — the
     /// song library keeps the path private.
@@ -2164,27 +1927,56 @@ mod stage_tests {
         )
     }
 
-    /// The same page reached as a picture slide — which is how a PDF added to
-    /// a presentation arrives — must produce the same name, or the slide would
-    /// wait for a page that is never reported.
+    /// Every page of one PDF shares an element, so stepping through it keeps
+    /// the page that is up until the next has been drawn. What identifies that
+    /// element is therefore the document, and it must not change with the
+    /// page.
     #[test]
-    fn a_pdf_reached_as_a_picture_is_named_the_same_way() {
+    fn every_page_of_one_pdf_belongs_to_the_same_element() {
+        let first = Slide::new_pdf_page_slide("handout.pdf".to_string(), 1);
+        let second = Slide::new_pdf_page_slide("handout.pdf".to_string(), 7);
+
         assert_eq!(
-            pdf_page_key(&picture("handout.pdf#page=2")).as_deref(),
-            Some("handout.pdf#2")
+            pdf_document_of(&first.slide_content),
+            pdf_document_of(&second.slide_content)
         );
-        // A document with no page named is its first page.
         assert_eq!(
-            pdf_page_key(&picture("handout.pdf")).as_deref(),
-            Some("handout.pdf#1")
+            pdf_document_of(&first.slide_content).as_deref(),
+            Some("handout.pdf")
         );
     }
 
-    /// Nothing else waits for anything. Text is there as soon as it is drawn,
-    /// and a picture is inlined into the page and arrives with it — holding
-    /// the previous slide under either would only show both at once.
+    /// A PDF reached as a picture slide — which is how one added to a
+    /// presentation arrives — has to be recognised the same way, or its pages
+    /// would each get an element of their own and the screen would empty
+    /// between them.
     #[test]
-    fn nothing_else_is_waited_for() {
+    fn a_pdf_reached_as_a_picture_is_recognised() {
+        assert_eq!(
+            pdf_document_of(&picture("handout.pdf#page=2")).as_deref(),
+            Some("handout.pdf")
+        );
+        assert_eq!(
+            pdf_document_of(&picture("handout.pdf#page=9")).as_deref(),
+            Some("handout.pdf")
+        );
+    }
+
+    /// Two documents must not share an element: the canvas holds the page last
+    /// drawn into it, and one document's page has no business showing while
+    /// another is being opened.
+    #[test]
+    fn two_documents_do_not_share_an_element() {
+        assert_ne!(
+            pdf_document_of(&picture("a.pdf#page=1")),
+            pdf_document_of(&picture("b.pdf#page=1"))
+        );
+    }
+
+    /// Everything else gets an element per slide, which is what starts the
+    /// effect it was configured to arrive with.
+    #[test]
+    fn everything_else_gets_an_element_of_its_own() {
         let contents = [
             Slide::new_content_slide("Amazing grace".to_string(), None, None).slide_content,
             Slide::new_title_slide("Amazing Grace".to_string(), None).slide_content,
@@ -2193,11 +1985,7 @@ mod stage_tests {
         ];
 
         for content in contents {
-            assert_eq!(
-                pdf_page_key(&content),
-                None,
-                "only a page that has to be rendered is waited for"
-            );
+            assert_eq!(pdf_document_of(&content), None);
         }
     }
 }

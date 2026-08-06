@@ -189,6 +189,9 @@ selection:
   export_pptx_notation_note:
     en: "%{count} slides contain notation, which PowerPoint cannot show. Their lyrics are kept."
     de: "%{count} Folien enthalten Noten, die PowerPoint nicht darstellen kann. Ihr Text bleibt erhalten."
+  export_pptx_pictures_pending:
+    en: "%{count} slides are pictures still being rendered. They will be included once they are ready."
+    de: "%{count} Folien sind Bilder, die noch gerendert werden. Sie kommen hinzu, sobald sie fertig sind."
   export_format_pdf:
     en: PDF (coming soon)
     de: PDF (demnächst)

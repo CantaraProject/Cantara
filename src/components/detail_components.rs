@@ -378,6 +378,10 @@ pub fn Detail(element: Vec<String>) -> Element {
     });
 
     rsx! {
+        // The PDF viewer, for the scrolling document below. Registered here
+        // rather than in the viewer component, which is mounted and unmounted
+        // as elements are opened.
+        document::Script { src: crate::logic::pdf::PDF_VIEWER_JS }
         div { class: "wrapper",
             header { class: "top-bar no-padding",
                 SearchInput {
@@ -654,7 +658,7 @@ fn ImageViewer(file: SourceFile) -> Element {
 /// through *slides* — but nothing here is being presented, and looking
 /// something up in a twenty-page handout that way is tedious. The pages are
 /// drawn as they come near the viewport, so a long document costs no more to
-/// open than a short one; see `pdf_scroll_inline.js`.
+/// open than a short one; the mechanics are in `cantaraPdf.setupScroll`.
 ///
 #[component]
 fn PdfViewer(file: SourceFile) -> Element {

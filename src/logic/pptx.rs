@@ -155,9 +155,8 @@ pub struct PptxImage {
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum PptxShape {
     Text(PptxText),
-    /// Nothing produces one yet — engraved notation is the obvious candidate,
-    /// once it can be rasterised. `pptx_export_inline.js` already draws it.
-    #[allow(dead_code)]
+    /// A picture slide, and a page of a PDF. Engraved notation is the
+    /// remaining candidate, once it can be rasterised.
     Image(PptxImage),
 }
 
@@ -259,7 +258,11 @@ use crate::logic::settings::{
 /// line sit. What cannot: the notation of a complex slide, because it is drawn
 /// by abcjs as SVG in the browser — those slides keep their lyrics, and the
 /// caller is told with [`PptxConversion::skipped_notation`].
-pub fn deck_from_slides(slides: &[Slide], design: &PresentationDesign) -> PptxConversion {
+pub fn deck_from_slides(
+    slides: &[Slide],
+    design: &PresentationDesign,
+    pictures: &std::collections::HashMap<String, String>,
+) -> PptxConversion {
     let template = match &design.presentation_design_settings {
         PresentationDesignSettings::Template(template) => template.clone(),
         // A hand-written HTML design cannot be translated into shapes, so the
@@ -270,6 +273,7 @@ pub fn deck_from_slides(slides: &[Slide], design: &PresentationDesign) -> PptxCo
 
     let mut deck = PptxDeck::widescreen();
     let mut skipped_notation = 0usize;
+    let mut missing_pictures = 0usize;
 
     for slide in slides {
         let mut pptx_slide = PptxSlide::new(deck_background.clone());
@@ -378,10 +382,22 @@ pub fn deck_from_slides(slides: &[Slide], design: &PresentationDesign) -> PptxCo
             // between songs — so it becomes an empty slide here too.
             SlideContent::Empty(_) => {}
 
-            // Pictures and PDF pages are files on disk; embedding them would
-            // mean reading and base64-encoding every one. Left out for now,
-            // with the slide kept so the deck still has the right length.
-            SlideContent::SimplePicture(_) | SlideContent::PdfPage(_) => {}
+            // A picture — and a PDF page is one — goes onto the slide as a
+            // picture. The caller renders them first and passes them in;
+            // getting a PDF page as an image means asking the viewer in the
+            // page for it, which is asynchronous and has no place in a pure
+            // translation. See [`pictures_needed`].
+            SlideContent::SimplePicture(_) | SlideContent::PdfPage(_) => {
+                match picture_key(&slide.slide_content).and_then(|key| pictures.get(&key)) {
+                    Some(data) => {
+                        pptx_slide = pptx_slide.with(picture_shape(&deck, data));
+                    }
+                    // Nothing came back for it. The slide is still kept, so the
+                    // deck has the same number of slides as the presentation
+                    // and the moderator's notes still line up.
+                    None => missing_pictures += 1,
+                }
+            }
         }
 
         // The meta line of a content slide goes in the bottom corner, as it
@@ -402,7 +418,58 @@ pub fn deck_from_slides(slides: &[Slide], design: &PresentationDesign) -> PptxCo
     PptxConversion {
         deck,
         skipped_notation,
+        missing_pictures,
     }
+}
+
+/// What a slide's picture is called, if it has one.
+///
+/// The same string the caller renders and hands back in `pictures`: for a PDF
+/// the document and the page, for anything else the path of the file.
+pub fn picture_key(content: &SlideContent) -> Option<String> {
+    match content {
+        SlideContent::PdfPage(page) => Some(format!("{}#page={}", page.pdf_path, page.page_number)),
+        SlideContent::SimplePicture(picture) => {
+            Some(crate::logic::presentation::get_picture_path(picture))
+        }
+        _ => None,
+    }
+}
+
+/// Every picture a deck of these slides needs, each named once.
+///
+/// The caller renders them — a PDF page through
+/// [`crate::logic::pdf::page_image`], an ordinary picture through
+/// [`crate::logic::images::image_data_url`] — and passes the result to
+/// [`deck_from_slides`]. A presentation that shows the same page twice renders
+/// it once.
+pub fn pictures_needed(slides: &[Slide]) -> Vec<String> {
+    let mut needed: Vec<String> = Vec::new();
+    for slide in slides {
+        if let Some(key) = picture_key(&slide.slide_content)
+            && !needed.contains(&key)
+        {
+            needed.push(key);
+        }
+    }
+    needed
+}
+
+/// A picture filling the slide, keeping its proportions.
+///
+/// PowerPoint has no `object-fit`, so the box is the whole slide and the
+/// picture is told to sit inside it — which is what `pptx_export_inline.js`
+/// asks PptxGenJS for.
+fn picture_shape(deck: &PptxDeck, data: &str) -> PptxShape {
+    PptxShape::Image(PptxImage {
+        data: data.to_string(),
+        rect: PptxRect {
+            x: 0.0,
+            y: 0.0,
+            w: deck.width,
+            h: deck.height,
+        },
+    })
 }
 
 /// The result of converting a presentation.
@@ -411,6 +478,9 @@ pub struct PptxConversion {
     pub deck: PptxDeck,
     /// How many slides had notation that could not be carried over.
     pub skipped_notation: usize,
+    /// How many slides should have carried a picture and could not — a file
+    /// that would not open, or a PDF page that would not render.
+    pub missing_pictures: usize,
 }
 
 /// A text box spanning the slide width at the given vertical band.
@@ -515,6 +585,7 @@ fn meta_text_of_slide(content: &SlideContent) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     use cantara_songlib::slides::{Slide, SlideSettings};
 
@@ -542,7 +613,7 @@ mod tests {
             "testfiles/Amazing Grace.song.yml",
             &SlideSettings::default(),
         );
-        let conversion = deck_from_slides(&slides, &PresentationDesign::default());
+        let conversion = deck_from_slides(&slides, &PresentationDesign::default(), &HashMap::new());
 
         assert_eq!(conversion.deck.slides.len(), slides.len());
         assert_eq!(conversion.skipped_notation, 0);
@@ -556,7 +627,7 @@ mod tests {
             "testfiles/Amazing Grace.song.yml",
             &SlideSettings::default(),
         );
-        let conversion = deck_from_slides(&slides, &PresentationDesign::default());
+        let conversion = deck_from_slides(&slides, &PresentationDesign::default(), &HashMap::new());
         let json = conversion.deck.to_json();
 
         assert!(json.contains("Amazing Grace"), "the title is missing");
@@ -574,7 +645,7 @@ mod tests {
             "testfiles/Amazing Grace.song.yml",
             &SlideSettings::default(),
         );
-        let deck = deck_from_slides(&slides, &PresentationDesign::default()).deck;
+        let deck = deck_from_slides(&slides, &PresentationDesign::default(), &HashMap::new()).deck;
 
         for (index, slide) in deck.slides.iter().enumerate() {
             for shape in &slide.shapes {
@@ -603,7 +674,7 @@ mod tests {
             "testfiles/Amazing Grace.song.yml",
             &SlideSettings::default(),
         );
-        let deck = deck_from_slides(&slides, &PresentationDesign::default()).deck;
+        let deck = deck_from_slides(&slides, &PresentationDesign::default(), &HashMap::new()).deck;
 
         let first_text = deck
             .slides
@@ -638,7 +709,7 @@ mod tests {
             ..SlideSettings::default()
         };
         let slides = slides_of("testfiles/Amazing Grace.song.yml", &settings);
-        let conversion = deck_from_slides(&slides, &PresentationDesign::default());
+        let conversion = deck_from_slides(&slides, &PresentationDesign::default(), &HashMap::new());
 
         assert!(
             conversion.skipped_notation > 0,
@@ -728,5 +799,77 @@ mod tests {
         assert!(deck.is_empty());
         let json: serde_json::Value = serde_json::from_str(&deck.to_json()).unwrap();
         assert_eq!(json["slides"].as_array().unwrap().len(), 0);
+    }
+
+    /// A picture slide used to come out blank. It carries its picture now, and
+    /// a page of a PDF is a picture like any other.
+    #[test]
+    fn a_picture_slide_carries_its_picture() {
+        let slides = vec![
+            Slide::new_pdf_page_slide("handout.pdf".to_string(), 2),
+        ];
+        let mut pictures = HashMap::new();
+        pictures.insert(
+            "handout.pdf#page=2".to_string(),
+            "data:image/png;base64,AAAA".to_string(),
+        );
+
+        let conversion = deck_from_slides(&slides, &PresentationDesign::default(), &pictures);
+
+        assert_eq!(conversion.missing_pictures, 0);
+        let shapes = &conversion.deck.slides[0].shapes;
+        let picture = shapes
+            .iter()
+            .find_map(|shape| match shape {
+                PptxShape::Image(image) => Some(image),
+                _ => None,
+            })
+            .expect("the slide carries its picture");
+        assert_eq!(picture.data, "data:image/png;base64,AAAA");
+        // The whole slide, so PowerPoint fits the page into it.
+        assert_eq!(picture.rect.x, 0.0);
+        assert_eq!(picture.rect.w, conversion.deck.width);
+    }
+
+    /// A picture that could not be rendered leaves the slide in place — the
+    /// deck has to have as many slides as the presentation — and is counted, so
+    /// the user is told rather than finding a blank slide later.
+    #[test]
+    fn a_picture_that_is_not_there_is_counted() {
+        let slides = vec![Slide::new_pdf_page_slide("handout.pdf".to_string(), 2)];
+
+        let conversion =
+            deck_from_slides(&slides, &PresentationDesign::default(), &HashMap::new());
+
+        assert_eq!(conversion.deck.slides.len(), 1, "the slide is still there");
+        assert_eq!(conversion.missing_pictures, 1);
+    }
+
+    /// The caller has to know what to render, and a page shown twice is
+    /// rendered once.
+    #[test]
+    fn the_pictures_a_deck_needs_are_named_once_each() {
+        let slides = vec![
+            Slide::new_pdf_page_slide("handout.pdf".to_string(), 1),
+            Slide::new_content_slide("Amazing grace".to_string(), None, None),
+            Slide::new_pdf_page_slide("handout.pdf".to_string(), 2),
+            Slide::new_pdf_page_slide("handout.pdf".to_string(), 1),
+        ];
+
+        assert_eq!(
+            pictures_needed(&slides),
+            vec!["handout.pdf#page=1", "handout.pdf#page=2"]
+        );
+    }
+
+    /// A slide made of text needs no picture.
+    #[test]
+    fn a_text_slide_needs_no_picture() {
+        let slides = vec![
+            Slide::new_content_slide("Amazing grace".to_string(), None, None),
+            Slide::new_title_slide("Amazing Grace".to_string(), None),
+        ];
+
+        assert!(pictures_needed(&slides).is_empty());
     }
 }

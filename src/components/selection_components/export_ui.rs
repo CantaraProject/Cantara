@@ -14,6 +14,7 @@ use crate::logic::pptx::{PptxConversion, PptxDeck, deck_from_slides};
 use crate::logic::settings::use_settings;
 use dioxus::prelude::*;
 use rust_i18n::t;
+use std::collections::HashMap;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -365,6 +366,77 @@ pub(crate) fn ExportMenu(
             .count()
     });
 
+    // The pictures the deck needs, rendered as they become available.
+    //
+    // A slide that is a picture — or a page of a PDF, which is one — cannot be
+    // turned into a shape: it has to be *rendered*, and for a PDF that means
+    // asking the viewer in the page, which is asynchronous. So they are
+    // collected here and handed to the deck builder, which stays a pure
+    // translation that can be tested without a browser.
+    //
+    // Nothing has to be on screen for this. The page is drawn beside whatever
+    // the window is showing and comes back as a picture, which is what lets a
+    // deck be exported without the presentation ever being started.
+    let mut pictures: Signal<HashMap<String, String>> = use_signal(HashMap::new);
+
+    let wanted_pictures: Memo<Vec<String>> = use_memo(move || {
+        if *export_format.read() != ExportFormat::Pptx {
+            return Vec::new();
+        }
+        let design = settings
+            .read()
+            .presentation_designs
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        let slide_settings = settings
+            .read()
+            .song_slide_settings
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        crate::logic::presentation::build_presentation(
+            &selected_items.read(),
+            &design,
+            &slide_settings,
+        )
+        .map(|presentation| {
+            let slides: Vec<_> = presentation
+                .presentation
+                .iter()
+                .flat_map(|chapter| chapter.slides.clone())
+                .collect();
+            crate::logic::pptx::pictures_needed(&slides)
+        })
+        .unwrap_or_default()
+    });
+
+    use_effect(move || {
+        let wanted = wanted_pictures();
+        spawn(async move {
+            for key in wanted {
+                if pictures.peek().contains_key(&key) {
+                    continue;
+                }
+                // A PDF names a page; anything else is a picture file.
+                let rendered = match crate::logic::pdf::pdf_page_of(&key) {
+                    Some((document, page)) => {
+                        crate::logic::pdf::page_image(
+                            &document,
+                            page,
+                            crate::logic::pdf::EXPORT_WIDTH,
+                        )
+                        .await
+                    }
+                    None => crate::logic::images::image_data_url(std::path::Path::new(&key)),
+                };
+                if let Some(data) = rendered {
+                    pictures.write().insert(key, data);
+                }
+            }
+        });
+    });
+
     // A PowerPoint deck is built from the presentation slides rather than from
     // the songs, so it takes its own path through the design.
     let conversion: Memo<Option<PptxConversion>> = use_memo(move || {
@@ -395,7 +467,7 @@ pub(crate) fn ExportMenu(
                 .iter()
                 .flat_map(|chapter| chapter.slides.clone())
                 .collect();
-            deck_from_slides(&slides, &design)
+            deck_from_slides(&slides, &design, &pictures.read())
         })
     });
 
@@ -420,6 +492,16 @@ pub(crate) fn ExportMenu(
                         note.push_str(&t!(
                             "selection.export_pptx_notation_note",
                             count = conversion.skipped_notation
+                        ));
+                    }
+                    // A picture slide whose picture is not there yet. Saying so
+                    // is the difference between waiting a moment and saving a
+                    // deck with blank slides in it without knowing why.
+                    if conversion.missing_pictures > 0 {
+                        note.push('\n');
+                        note.push_str(&t!(
+                            "selection.export_pptx_pictures_pending",
+                            count = conversion.missing_pictures
                         ));
                     }
                     Ok(vec![ExportedFile {

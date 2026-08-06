@@ -617,11 +617,6 @@ fn apply_presentation_update(
         is_black_screen: old_rp.is_black_screen,
         presentation_resolution: old_rp.presentation_resolution,
         markdown_scroll_position: old_rp.markdown_scroll_position,
-        // The slides have just been rebuilt, so whatever the presentation came
-        // from is no longer a position in *this* presentation. Holding a slide
-        // from the old one under the new one would put something on screen
-        // that the user has just changed away from.
-        previous_position: None,
     }
 }
 

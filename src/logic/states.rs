@@ -130,20 +130,6 @@ pub struct RunningPresentation {
     /// and is synced by a dedicated polling loop in `MarkdownSlideComponent`.
     #[serde(default)]
     pub markdown_scroll_position: f64,
-    /// Where the presentation was immediately before its current position.
-    ///
-    /// The presentation window holds that slide underneath the one coming in
-    /// until the new one has been drawn — a picture, and a PDF page is one,
-    /// cannot appear the instant the slide changes, and without something
-    /// behind it the gap is a flash of bare background in front of the
-    /// audience.
-    ///
-    /// It has to be part of the state rather than something the renderer
-    /// remembers for itself: a slide change may arrive from another window
-    /// entirely, and by the time a view could react to one the old slide has
-    /// already been taken off the screen.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub previous_position: Option<RunningPresentationPosition>,
 }
 
 impl RunningPresentation {
@@ -155,22 +141,14 @@ impl RunningPresentation {
             is_black_screen: false,
             presentation_resolution: default_presentation_resolution(),
             markdown_scroll_position: 0.0,
-            previous_position: None,
         }
-    }
-
-    /// Remembers where the presentation stood, for [`Self::previous_position`].
-    fn leaving(&mut self) {
-        self.previous_position = self.position.clone();
     }
 
     /// Go to the next slide (if any exists).
     /// Resets `markdown_scroll_position` to 0 so the new slide starts at the top.
     pub fn next_slide(&mut self) {
-        let leaving = self.position.clone();
         if let Some(ref mut pos) = self.position
             && pos.try_next(&self.presentation).is_ok() {
-                self.previous_position = leaving;
                 self.markdown_scroll_position = 0.0;
             }
     }
@@ -178,10 +156,8 @@ impl RunningPresentation {
     /// Go to the previous slide (if any exists).
     /// Resets `markdown_scroll_position` to 0 so the new slide starts at the top.
     pub fn previous_slide(&mut self) {
-        let leaving = self.position.clone();
         if let Some(ref mut pos) = self.position
             && pos.try_back(&self.presentation).is_ok() {
-                self.previous_position = leaving;
                 self.markdown_scroll_position = 0.0;
             }
     }
@@ -199,7 +175,6 @@ impl RunningPresentation {
                 }
                 total += slide;
 
-                self.leaving();
                 self.position = Some(RunningPresentationPosition {
                     chapter,
                     chapter_slide: slide,
@@ -210,20 +185,6 @@ impl RunningPresentation {
         }
     }
 
-    /// The slide the presentation has just come from, if it has come from one.
-    pub fn get_previous_slide(&self) -> Option<(usize, Slide)> {
-        let previous = self.previous_position.as_ref()?;
-        if Some(previous) == self.position.as_ref() {
-            return None;
-        }
-        let slide = self
-            .presentation
-            .get(previous.chapter())?
-            .slides
-            .get(previous.chapter_slide())?
-            .clone();
-        Some((previous.slide_total(), slide))
-    }
 
     /// Returns the total number of slides across all chapters
     pub fn total_slides(&self) -> usize {
@@ -547,72 +508,43 @@ mod tests {
         RunningPresentation::new(vec![SlideChapter::new(slides, source_file, None, None)])
     }
 
-    /// The presentation window holds the slide that is going out underneath
-    /// the one coming in, so it has to know which one that was — and know it
-    /// straight away, since a change may arrive from the presenter console and
-    /// by then the old slide would already be off the screen.
+    /// Moving about a presentation: forwards, straight to a slide, and back.
     #[test]
-    fn the_presentation_remembers_the_slide_it_has_just_left() {
+    fn the_presentation_moves_where_it_is_told() {
         let mut rp = three_slides();
-        assert_eq!(rp.get_previous_slide(), None, "nothing has been left yet");
+        assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(0));
 
         rp.next_slide();
-        assert_eq!(
-            rp.get_previous_slide().map(|(number, _)| number),
-            Some(0),
-            "advancing leaves the slide it came from"
-        );
+        assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(1));
 
         rp.jump_to(0, 2);
-        assert_eq!(
-            rp.get_previous_slide().map(|(number, _)| number),
-            Some(1),
-            "a jump from the console leaves one just as advancing does"
-        );
+        assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(2));
 
         rp.previous_slide();
-        assert_eq!(rp.get_previous_slide().map(|(number, _)| number), Some(2));
+        assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(1));
     }
 
-    /// Standing still leaves nothing behind: at the end of the presentation
-    /// `next_slide` does nothing, and the slide on screen must not also be
-    /// held underneath itself.
+    /// There is no slide after the last one, and asking for one must leave the
+    /// presentation where it is rather than run off the end.
     #[test]
-    fn a_slide_change_that_does_not_happen_leaves_nothing() {
+    fn the_presentation_stops_at_the_last_slide() {
         let mut rp = three_slides();
         rp.jump_to(0, 2);
         rp.next_slide();
 
-        assert_eq!(
-            rp.position.as_ref().map(|position| position.slide_total()),
-            Some(2),
-            "there is no slide after the last one"
-        );
-        assert_ne!(
-            rp.get_previous_slide().map(|(number, _)| number),
-            Some(2),
-            "the slide on screen is not the slide behind it"
-        );
+        assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(2));
     }
 
-    /// The field is new, so a presentation written by an older version — or
-    /// sent between two windows of this one — has to load without it.
+    /// A position outside the presentation is not a position: asking to jump
+    /// there must change nothing.
     #[test]
-    fn a_presentation_without_a_previous_position_still_loads() {
+    fn a_jump_outside_the_presentation_is_ignored() {
         let mut rp = three_slides();
-        rp.next_slide();
+        rp.jump_to(0, 1);
 
-        let json = serde_json::to_string(&rp).expect("serialises");
-        let mut document: serde_json::Value = serde_json::from_str(&json).expect("is JSON");
-        document
-            .as_object_mut()
-            .expect("an object")
-            .remove("previous_position");
+        rp.jump_to(0, 99);
+        rp.jump_to(7, 0);
 
-        let restored: RunningPresentation =
-            serde_json::from_value(document).expect("loads without the field");
-
-        assert_eq!(restored.get_previous_slide(), None);
-        assert_eq!(restored.position, rp.position);
+        assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(1));
     }
 }
