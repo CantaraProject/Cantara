@@ -148,13 +148,23 @@ fn main() {
                 .expect("Failed to create window icon")
         };
 
-        let window = tao::window::WindowBuilder::new()
+        let mut window = tao::window::WindowBuilder::new()
             .with_resizable(true)
             .with_title("Cantara")
-            .with_inner_size(tao::dpi::LogicalSize::new(900.0, 800.0))
             .with_decorations(true)
             .with_visible(true)
             .with_window_icon(Some(icon));
+
+        // The size the window was left at last time, if there was a last time.
+        // Only the size: where the window *stood* is not restored, because a
+        // screen that has since been unplugged would put it out of sight with
+        // nothing to say why. See [`logic::window_state`].
+        window = match logic::window_state::load() {
+            Some(state) => window
+                .with_inner_size(tao::dpi::LogicalSize::new(state.width, state.height))
+                .with_maximized(state.maximized),
+            None => window.with_inner_size(tao::dpi::LogicalSize::new(900.0, 800.0)),
+        };
         dioxus::LaunchBuilder::new()
             .with_cfg(
                 dioxus::desktop::Config::new()
@@ -199,6 +209,50 @@ fn App() -> Element {
         }
     });
 
+    // Keeps track of how large the window is, so that the next start can open
+    // it the same way. Every window of the program reports through the same
+    // handler, so the events of the presentation and of a separate presenter
+    // console have to be told apart from this one's — otherwise going
+    // fullscreen for a presentation would be remembered as the main window's
+    // size. See [`logic::window_state`].
+    #[cfg(feature = "desktop")]
+    {
+        use dioxus::desktop::tao::event::{Event as WindowingEvent, WindowEvent};
+
+        let main_window_id = dioxus::desktop::window().id();
+        dioxus::desktop::use_wry_event_handler(move |event, _| {
+            let WindowingEvent::WindowEvent {
+                window_id, event, ..
+            } = event
+            else {
+                return;
+            };
+            if *window_id != main_window_id {
+                return;
+            }
+            match event {
+                WindowEvent::Resized(_) | WindowEvent::Moved(_) => {
+                    let window = dioxus::desktop::window();
+                    let maximized = window.is_maximized();
+                    let size = (!maximized).then(|| {
+                        let logical = window
+                            .inner_size()
+                            .to_logical::<f64>(window.scale_factor());
+                        (logical.width, logical.height)
+                    });
+                    logic::window_state::record(size, maximized);
+                }
+                // The last resize before the window closes is the one the user
+                // meant to keep, and it is usually inside the interval the
+                // periodic write skips.
+                WindowEvent::CloseRequested | WindowEvent::Destroyed => {
+                    logic::window_state::flush();
+                }
+                _ => {}
+            }
+        });
+    }
+
     let cloned_locale = locale.clone();
     use_context_provider(|| states::RuntimeInformation {
         language: cloned_locale,
@@ -211,6 +265,17 @@ fn App() -> Element {
     // The source files and selected items should live here because they should stay persistent in the different routes.
     let mut source_files: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));
     let _: Signal<Vec<SelectedItemRepresentation>> = use_context_provider(|| Signal::new(vec![]));
+
+    // Which kind of element the library list is showing. Kept here so that it
+    // survives switching between the selection and the detail view, and so
+    // that the detail view — which re-mounts every time an element is opened,
+    // since that writes the address — does not throw it away. It starts on
+    // whatever the user has dragged to the top of the sidebar.
+    use_context_provider(|| states::LibraryFilterState {
+        active: Signal::new(states::first_sidebar_type(
+            &settings.peek().sidebar_order,
+        )),
+    });
 
     // The running presentations given as a global signal
     let _: Signal<Vec<RunningPresentation>> = use_context_provider(|| Signal::new(vec![]));
@@ -263,6 +328,20 @@ fn App() -> Element {
             }
             source_files.set(files.clone());
 
+            // The list of pictures shows scaled-down copies, which are made on
+            // background threads. Started here rather than when that list is
+            // first drawn, so that they are usually there by the time anyone
+            // looks — see [`logic::images`].
+            crate::logic::images::prepare_thumbnails(
+                files
+                    .iter()
+                    .filter(|file| {
+                        file.file_type == logic::sourcefiles::SourceFileType::Image
+                    })
+                    .map(|file| file.path.clone())
+                    .collect(),
+            );
+
             #[cfg(not(target_arch = "wasm32"))]
             std::thread::spawn(move || {
                 crate::logic::search::refresh_search_cache(&files);
@@ -296,6 +375,13 @@ fn App() -> Element {
         document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }
         document::Script { src: PRESENTATION_JS }
         document::Script { src: MORPH_JS }
+        // The PDF viewer, loaded once per window. Registered *here*, at the
+        // root, for the reason written above about the stylesheets: a
+        // registration made by a scope that is dropped before its effect runs
+        // is lost, and Dioxus never inserts the same src twice — so a script
+        // asked for from inside a slide or a thumbnail may never arrive at
+        // all. That is what left the presenter console's overview blank.
+        document::Script { src: crate::logic::pdf::PDF_VIEWER_JS }
         // Makes the fonts shipped in `assets/fonts/` usable by name.
         BundledFontFaces {}
         document::Link { rel: "icon", href: FAVICON }

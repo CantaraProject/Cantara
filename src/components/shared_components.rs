@@ -1,6 +1,8 @@
 //! Shared components reusable across different parts of the program.
 
-use crate::components::presentation_components::PresentationRendererComponent;
+use crate::components::presentation_components::{
+    PresentationRendererComponent, PresentationRole,
+};
 use crate::logic::presentation::{create_amazing_grace_presentation, create_single_item_presentation};
 use crate::logic::settings::{CssSize, PresentationDesign};
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
@@ -127,7 +129,7 @@ pub fn PresentationViewer(
             onclick: move |event| if let Some(onclick_event) = onclick { onclick_event.call(event) },
             PresentationRendererComponent {
                 running_presentation: presentation_signal,
-                fire_timer: false,
+                role: PresentationRole::Follower,
             }
             if let Some(title) = title {
                 div {
@@ -212,7 +214,10 @@ pub fn SelectedItemPreview(
             ),
             PresentationRendererComponent {
                 running_presentation: presentation_signal,
-                fire_timer: true,
+                // It shows what a slide timer does, so it has to run —
+                // but it is a preview on the selection page, not the
+                // screen the audience is looking at.
+                role: PresentationRole::SelfRunning,
             }
             // Countdown timer bar at the bottom
             if let Some(seconds) = timer_seconds {

@@ -14,7 +14,9 @@ use cantara_songlib::slides::{SlideContent, SlideRow};
 use dioxus::prelude::*;
 use rust_i18n::t;
 
-use super::presentation_components::{PresentationRendererComponent, StaticSlideRendererComponent};
+use super::presentation_components::{
+    PresentationRendererComponent, PresentationRole, StaticSlideRendererComponent,
+};
 
 /// The stylesheet of the presenter console.
 ///
@@ -274,7 +276,22 @@ pub fn PresenterConsolePage() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }
-        document::Title { {t!("presenter.title").to_string()} }
+        // The PDF viewer, loaded once per window. Registered *here*, at the
+        // root, for the reason written above about the stylesheets: a
+        // registration made by a scope that is dropped before its effect runs
+        // is lost, and Dioxus never inserts the same src twice — so a script
+        // asked for from inside a slide or a thumbnail may never arrive at
+        // all. That is what left the presenter console's overview blank.
+        document::Script { src: crate::logic::pdf::PDF_VIEWER_JS }
+        // Only a window of its own gets its own name. Setting the title while
+        // the console is a page *inside* the main window renamed the window —
+        // or the browser tab — and nothing put the name back when the console
+        // was left again, so it kept calling itself the presenter console for
+        // the rest of the session. The main window is Cantara throughout; the
+        // name is set once, by `App`.
+        if !is_main_window {
+            document::Title { {t!("presenter.title").to_string()} }
+        }
 
         div {
             class: "presenter-console",
@@ -432,17 +449,23 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
     let current_slide = rp.position.as_ref().map(|p| p.chapter_slide()).unwrap_or(0);
 
     let size = *grid_size.read();
-    let grid_style = format!(
-        "grid-template-columns: repeat(auto-fill, minmax({}px, 1fr));",
-        size
-    );
-    // Use the presentation screen resolution for native rendering size
-    let (native_w, native_h) = rp.presentation_resolution;
-    // Compute zoom: the slide renders at native width, scale it to fit the thumbnail width
-    let zoom_factor = size as f64 / native_w as f64;
-    let zoom_css = format!("zoom: {};", zoom_factor);
+    // Columns of exactly the thumbnail's width. They used to stretch to fill
+    // the row, which left the slide narrower than the cell it sat in and the
+    // scale no longer the one the column was built for.
+    let grid_style = format!("grid-template-columns: repeat(auto-fill, {}px);", size);
+    // The size the presentation window is actually laid out at — not the
+    // monitor's, which is in physical pixels and is two thirds larger on a
+    // screen at 150% scaling. Laying the thumbnail out at a different size
+    // breaks its text in different places, and then it is no longer a picture
+    // of the slide.
+    let (native_w, native_h) = rp.layout_size();
+    // The slide is laid out at the presentation's size and then scaled down as
+    // a whole — see `.slide-scale`. Everything keeps its proportions, which is
+    // what makes the thumbnail a picture of the slide rather than the same
+    // slide re-laid-out into a smaller page.
+    let scale = size as f64 / native_w;
     // The scaled height matches the presentation aspect ratio
-    let thumb_height = (size as f64 * native_h as f64 / native_w as f64).round() as u32;
+    let thumb_height = (size as f64 * native_h / native_w).round() as u32;
 
     rsx! {
         div { class: "presenter-grid-panel",
@@ -494,9 +517,11 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                                                     }
                                                 },
                                                 div {
-                                                    class: "presenter-grid-slide-inner",
-                                                    style: "width: 100%; height: {thumb_height}px; overflow: hidden;",
-                                                    div { style: "width: {native_w}px; height: {native_h}px; {zoom_css} transform-origin: top left;",
+                                                    class: "presenter-grid-slide-inner slide-scale",
+                                                    style: "width: {size}px; height: {thumb_height}px;",
+                                                    div {
+                                                        class: "slide-scale-inner",
+                                                        style: "width: {native_w}px; height: {native_h}px; transform: scale({scale});",
                                                         StaticSlideRendererComponent { slide: slide.clone(), presentation_design: design.clone() }
                                                     }
                                                 }
@@ -689,10 +714,14 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
 #[component]
 fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> Element {
     let rp = running_presentation.read();
-    let (native_w, native_h) = rp.presentation_resolution;
-    // Scale so the preview fits ~480px wide
-    let scale_percentage = ((480.0f64 / native_w as f64) * 100.0).round();
-    let zoom_css = format!("zoom: {}%;", scale_percentage);
+    let (native_w, native_h) = rp.layout_size();
+    // The slide keeps the presentation's own layout and is scaled as a whole
+    // — see `.slide-scale`. That is what makes the preview show the slide the
+    // audience is looking at, down to where the text breaks, and what lets a
+    // scroll position taken from one mean the same in the other.
+    const PREVIEW_WIDTH: f64 = 480.0;
+    let scale = PREVIEW_WIDTH / native_w;
+    let preview_height = (PREVIEW_WIDTH * native_h / native_w).round();
 
     let timer_seconds = rp.get_current_timer_settings().map(|t| t.timer_seconds);
     let current_slide = rp.position.as_ref().map(|p| p.slide_total()).unwrap_or(0);
@@ -702,15 +731,18 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
         div { class: "presenter-preview-panel",
             h4 { {t!("presenter.preview").to_string()} }
             div {
-                class: "presentation-preview",
-                style: format!(
-                    "position: relative; width: {}px; height: {}px; border-radius: 4px; overflow: hidden; {}",
-                    native_w,
-                    native_h,
-                    zoom_css,
-                ),
-                PresentationRendererComponent { running_presentation, fire_timer: false }
-                // Countdown timer bar
+                class: "presentation-preview slide-scale",
+                style: "width: {PREVIEW_WIDTH}px; height: {preview_height}px; border-radius: 4px;",
+                div {
+                    class: "slide-scale-inner",
+                    style: "width: {native_w}px; height: {native_h}px; transform: scale({scale});",
+                    PresentationRendererComponent { running_presentation, role: PresentationRole::Follower }
+                }
+                // The timer and the counter belong to the console, not to the
+                // slide, so they sit outside the scaled box and are read at
+                // their own size. Inside it they were shrunk along with
+                // everything else — a counter set in twenty pixels arrived on
+                // screen in five.
                 if let Some(seconds) = timer_seconds {
                     div {
                         key: "{current_slide}",
@@ -720,8 +752,7 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
                         ),
                     }
                 }
-                // Slide counter
-                div { style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 20px; z-index: 100;",
+                div { style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.9rem; z-index: 100;",
                     {format!("{} / {}", current_slide + 1, total_slides)}
                 }
             }

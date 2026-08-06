@@ -25,7 +25,7 @@ use cantara_songlib::exporter::song_yml::song_yml_from_song;
 use cantara_songlib::song::Song;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
-use dioxus_free_icons::icons::fa_solid_icons::{FaPencil, FaPlus};
+use dioxus_free_icons::icons::fa_solid_icons::{FaCircleInfo, FaGear, FaList, FaPencil, FaPlus};
 use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -225,6 +225,40 @@ fn InlineEditable(
     }
 }
 
+/// Puts the identifier of the open element into the address bar.
+///
+/// Deliberately not a navigation, which is what this used to be. The whole
+/// route tree hangs in an animated outlet, and that outlet cross-fades on any
+/// change of the route *value* — not only between one view and another. Going
+/// from `/detail` to `/detail/a3f9c2b1` is such a change, so opening an element
+/// mounted the detail view a second time next to the one already on screen and
+/// faded between them: every element visibly loaded twice.
+///
+/// A link still *opens* an element through the route, which is the direction
+/// that matters; only the write-back goes around the router. Nothing is pushed
+/// onto the history either way, so the back button still leaves the view rather
+/// than stepping through everything that was looked at in it.
+///
+/// The desktop has no address bar to keep in step, so there this does nothing.
+fn show_element_in_address(id: &str) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        // The address is built from the one in the bar, so that a deployment
+        // under a base path — `/Cantara/` on GitHub Pages — is carried over
+        // without having to be known here.
+        let js = format!(
+            "var base = location.pathname.split('/detail')[0].replace(/\\/$/, '');\
+             history.replaceState(null, '', base + '/detail/' + {} + location.search + location.hash);",
+            serde_json::to_string(id).unwrap_or_else(|_| "''".to_string())
+        );
+        let _ = document::eval(&js);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = id;
+    }
+}
+
 /// The detail view: the same element list as the selection view, with one
 /// element opened beside it.
 ///
@@ -238,8 +272,12 @@ pub fn Detail(element: Vec<String>) -> Element {
     let source_files: Signal<Vec<SourceFile>> = use_context();
     let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let mut active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
+    // Not a signal of this view's own: opening an element replaces the address,
+    // which re-mounts this component, and a fresh signal would send the list
+    // back to the songs every time a picture or a PDF was opened. See
+    // [`crate::logic::states::LibraryFilterState`].
     let active_selection_filter: Signal<SelectionSidebarType> =
-        use_signal(|| SelectionSidebarType::Songs);
+        use_context::<crate::logic::states::LibraryFilterState>().active;
 
     // What the URL asks for. Only the first segment means anything, so
     // `/detail/a3f9c2b1/whatever` opens the same element rather than nothing.
@@ -272,15 +310,12 @@ pub fn Detail(element: Vec<String>) -> Element {
         }
     });
 
-    // ... and the other way round: opening an element writes the URL, so the
-    // address bar always shows a link to what is on screen. `replace` rather
-    // than `push`, so the back button leaves the detail view instead of
-    // stepping back through everything that was looked at in it.
+    // ... and the other way round: opening an element writes the address, so
+    // that it always shows a link to what is on screen and can be copied out.
     //
     // Reading the identifier from the URL with `peek` keeps this effect out of
     // the other direction: it reacts to the element that is open, not to the
-    // address that itself writes.
-    let nav = navigator();
+    // address that it writes itself.
     use_effect(move || {
         let library = source_files.read();
         let open_id = active_detailed_item_id()
@@ -288,12 +323,13 @@ pub fn Detail(element: Vec<String>) -> Element {
             .map(|file| crate::logic::element_id::of(file, &library));
 
         // While the library is still being scanned there is nothing to derive
-        // an identifier from; replacing the URL then would throw away the one
-        // the user arrived with before it could be resolved.
+        // an identifier from; writing the address then would throw away the
+        // one the user arrived with before it could be resolved.
         if let Some(id) = open_id
             && Some(&id) != requested_id.peek().as_ref()
         {
-            nav.replace(crate::Route::Detail { element: vec![id] });
+            requested_id.set(Some(id.clone()));
+            show_element_in_address(&id);
         }
     });
 
@@ -342,6 +378,10 @@ pub fn Detail(element: Vec<String>) -> Element {
     });
 
     rsx! {
+        // The PDF viewer, for the scrolling document below. Registered here
+        // rather than in the viewer component, which is mounted and unmounted
+        // as elements are opened.
+        document::Script { src: crate::logic::pdf::PDF_VIEWER_JS }
         div { class: "wrapper",
             header { class: "top-bar no-padding",
                 SearchInput {
@@ -442,10 +482,17 @@ fn DetailFooter() -> Element {
             div { class: "no-padding width-100", role: "group",
                 button {
                     class: "outline secondary smaller-buttons",
+                    title: t!("settings.settings_button").to_string(),
                     onclick: move |_| {
                         nav.push(crate::Route::SettingsPage {});
                     },
-                    {t!("settings.settings_button").to_string()}
+                    // The selection view's footer says it this way too, and a
+                    // button that keeps its words where the ones beside it
+                    // have gone to icons looks like a different kind of thing.
+                    span { class: "mobile-only",
+                        Icon { icon: FaGear }
+                    }
+                    span { class: "desktop-only", {t!("settings.settings_button").to_string()} }
                 }
                 ViewModeToggle {}
             }
@@ -467,6 +514,7 @@ pub fn ViewModeToggle() -> Element {
     rsx! {
         button {
             class: "outline secondary smaller-buttons",
+            title: if in_detail { t!("detail.to_selection").to_string() } else { t!("detail.to_detail").to_string() },
             onclick: move |_| {
                 if in_detail {
                     nav.push(crate::Route::Selection {});
@@ -474,10 +522,23 @@ pub fn ViewModeToggle() -> Element {
                     nav.push(crate::Route::Detail { element: vec![] });
                 }
             },
-            if in_detail {
-                {t!("detail.to_selection").to_string()}
-            } else {
-                {t!("detail.to_detail").to_string()}
+            // Like every other button of the bar: the icon where the bar is
+            // narrow, the words where there is room. This one had only the
+            // words, so on a narrow window it was the one control that still
+            // said anything while the rest showed their icons.
+            span { class: "mobile-only",
+                if in_detail {
+                    Icon { icon: FaList }
+                } else {
+                    Icon { icon: FaCircleInfo }
+                }
+            }
+            span { class: "desktop-only",
+                if in_detail {
+                    {t!("detail.to_selection").to_string()}
+                } else {
+                    {t!("detail.to_detail").to_string()}
+                }
             }
         }
     }
@@ -577,48 +638,45 @@ fn DetailPane(subject: DetailSubject) -> Element {
 
 #[component]
 fn ImageViewer(file: SourceFile) -> Element {
-    let path = file.path.to_str().unwrap_or_default().to_string();
+    // Inline rather than by path: see [`crate::logic::images`].
+    let source = crate::logic::images::image_data_url(&file.path);
 
     rsx! {
         div { class: "detail-image",
-            img { src: "{path}", alt: "{file.name}" }
+            match source {
+                Some(source) => rsx! { img { src: "{source}", alt: "{file.name}" } },
+                None => rsx! { p { class: "detail-empty", {t!("detail.picture_unreadable").to_string()} } },
+            }
         }
     }
 }
 
-/// A PDF, one page at a time.
+/// A PDF, read the way a document is read: scrolled through, one page under
+/// the next.
 ///
-/// Reuses the presentation's page renderer, so the document is parsed once per
-/// window and paging costs only a short script.
+/// It used to be paged with a previous/next button, which is how one moves
+/// through *slides* — but nothing here is being presented, and looking
+/// something up in a twenty-page handout that way is tedious. The pages are
+/// drawn as they come near the viewport, so a long document costs no more to
+/// open than a short one; the mechanics are in `cantaraPdf.setupScroll`.
+///
 #[component]
 fn PdfViewer(file: SourceFile) -> Element {
-    let mut page = use_signal(|| 1_u32);
     let path = file.path.to_str().unwrap_or_default().to_string();
-    let pages = crate::logic::search::pdf_page_count(&file.path).unwrap_or(1).max(1);
+
+    // Counting the pages means parsing the document, so it is done once per
+    // file and not on every render of this view.
+    let pages = use_memo(use_reactive!(|file| {
+        crate::logic::search::pdf_page_count(&file.path)
+            .unwrap_or(1)
+            .max(1)
+    }));
 
     rsx! {
         div { class: "detail-pdf",
-            div { class: "detail-pdf-page",
-                crate::components::presentation_components::PdfPageCanvas {
-                    key: "{path}-{page()}",
-                    pdf_path: path.clone(),
-                    page_num: page(),
-                }
-            }
-            div { class: "detail-pdf-controls",
-                button {
-                    class: "outline",
-                    disabled: page() <= 1,
-                    onclick: move |_| page.set(page().saturating_sub(1).max(1)),
-                    "‹"
-                }
-                span { "{page()} / {pages}" }
-                button {
-                    class: "outline",
-                    disabled: page() >= pages,
-                    onclick: move |_| page.set((page() + 1).min(pages)),
-                    "›"
-                }
+            crate::components::presentation_components::PdfScrollView {
+                pdf_path: path.clone(),
+                pages: pages(),
             }
         }
     }

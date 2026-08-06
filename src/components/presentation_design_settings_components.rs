@@ -471,6 +471,11 @@ fn PictureSelectorItem(
 ) -> Element {
     // We need a source file signal here due to the use in the closure
     let sourcefile_signal = use_signal(|| source_file);
+    // Inlined rather than referenced by path, like every other picture — see
+    // [`crate::logic::images`].
+    let preview =
+        crate::logic::images::image_data_url(&sourcefile_signal().into_inner().path);
+
     rsx! {
         button {
             role: "button",
@@ -480,10 +485,15 @@ fn PictureSelectorItem(
                 onclick.call(sourcefile_signal());
                 event.prevent_default();
             },
-            img {
-                max_width: "180px",
-                height: "100px",
-                src: sourcefile_signal().into_inner().path.to_str().unwrap_or("").to_string(),
+            if let Some(preview) = preview {
+                img {
+                    max_width: "180px",
+                    height: "100px",
+                    src: "{preview}",
+                    alt: sourcefile_signal().into_inner().name,
+                }
+            } else {
+                span { {sourcefile_signal().into_inner().name} }
             }
         }
     }

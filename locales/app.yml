@@ -3,6 +3,12 @@ selection:
   start_presentation:
     en: Start Presentation...
     de: Präsentation starten...
+  move_up:
+    en: Move up
+    de: Nach oben verschieben
+  move_down:
+    en: Move down
+    de: Nach unten verschieben
   import:
     en: Import...
     de: Importieren...
@@ -183,6 +189,9 @@ selection:
   export_pptx_notation_note:
     en: "%{count} slides contain notation, which PowerPoint cannot show. Their lyrics are kept."
     de: "%{count} Folien enthalten Noten, die PowerPoint nicht darstellen kann. Ihr Text bleibt erhalten."
+  export_pptx_pictures_pending:
+    en: "%{count} slides are pictures still being rendered. They will be included once they are ready."
+    de: "%{count} Folien sind Bilder, die noch gerendert werden. Sie kommen hinzu, sobald sie fertig sind."
   export_format_pdf:
     en: PDF (coming soon)
     de: PDF (demnächst)
@@ -843,6 +852,9 @@ detail:
   no_write_on_web:
     en: The web version cannot write files.
     de: Die Webversion kann keine Dateien schreiben.
+  picture_unreadable:
+    en: This picture cannot be read.
+    de: Dieses Bild kann nicht gelesen werden.
   tag_author:
     en: Author
     de: Autor

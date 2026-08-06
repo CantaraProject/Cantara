@@ -37,7 +37,23 @@ where
     R: Send,
     F: Fn(&T) -> R + Sync,
 {
-    let workers = worker_count(items.len());
+    map_parallel_within(items, MAX_WORKERS, work)
+}
+
+/// [`map_parallel`], but over at most `max_workers` threads.
+///
+/// Not every job should be allowed to take the whole machine. Work that runs
+/// while the user is doing something else — scaling a library of photographs
+/// down to list thumbnails, say — has to leave a core for the window to be
+/// drawn on, or the program stops responding for as long as it lasts, which is
+/// worse than the work taking longer.
+pub fn map_parallel_within<T, R, F>(items: &[T], max_workers: usize, work: F) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+    F: Fn(&T) -> R + Sync,
+{
+    let workers = worker_count(items.len()).min(max_workers.max(1));
     if workers <= 1 {
         return items.iter().map(work).collect();
     }
@@ -114,6 +130,17 @@ mod tests {
         });
 
         assert_eq!(seen.load(Ordering::Relaxed), items.len());
+    }
+
+    /// Work that runs beside the user has to leave the machine something to
+    /// draw the window with.
+    #[test]
+    fn a_capped_run_leaves_cores_free() {
+        let items: Vec<usize> = (0..500).collect();
+
+        let doubled = map_parallel_within(&items, 2, |item| item * 2);
+
+        assert_eq!(doubled, items.iter().map(|item| item * 2).collect::<Vec<_>>());
     }
 
     /// The degenerate cases must not need a thread at all.

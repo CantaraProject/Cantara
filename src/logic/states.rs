@@ -4,13 +4,12 @@
 //! navigation behavior. Persistent application configuration is implemented in
 //! [`crate::logic::settings`].
 
-#[cfg(target_arch = "wasm32")]
 use dioxus::prelude::Signal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{
-    settings::{PresentationDesign, SlideTimerSettings, SlideTransition},
+    settings::{PresentationDesign, SelectionSidebarType, SlideTimerSettings, SlideTransition},
     sourcefiles::SourceFile,
 };
 use cantara_songlib::slides::{Slide, SlideSettings};
@@ -32,6 +31,36 @@ pub struct RuntimeInformation {
 #[derive(Clone, Copy)]
 pub struct InitialRouteState {
     pub redirected_to_detail: Signal<bool>,
+}
+
+/// Which kind of element the library list is showing.
+///
+/// Held by `App` rather than by the two views that draw the list, for two
+/// reasons. The selection view and the detail view show the *same* list, and a
+/// user who was looking through the PDFs in one of them is still looking
+/// through the PDFs after switching to the other — a signal owned by a view
+/// would start over at whatever it was initialised with every time that view
+/// mounts. And the detail view mounts constantly: opening an element writes
+/// the element's identifier into the address, which is a route change, which
+/// re-creates the view. That is what threw the list back to the songs the
+/// moment a picture or a PDF was opened.
+#[derive(Clone, Copy)]
+pub struct LibraryFilterState {
+    pub active: Signal<SelectionSidebarType>,
+}
+
+/// The kind of element the library list starts on: whichever the user has put
+/// at the top of the sidebar.
+///
+/// The sidebar can be reordered by dragging, and the top button is what a user
+/// means by "the one I work with" — starting on the songs regardless was only
+/// ever the order the buttons happened to be declared in.
+pub fn first_sidebar_type(order: &[SelectionSidebarType]) -> SelectionSidebarType {
+    order
+        .first()
+        .copied()
+        .or_else(|| crate::logic::settings::default_sidebar_order().first().copied())
+        .unwrap_or(SelectionSidebarType::Songs)
 }
 
 /// This struct represents a selected item
@@ -101,6 +130,20 @@ pub struct RunningPresentation {
     /// and is synced by a dedicated polling loop in `MarkdownSlideComponent`.
     #[serde(default)]
     pub markdown_scroll_position: f64,
+    /// The size the presentation is actually laid out at, in CSS pixels, as
+    /// the presentation window measures it.
+    ///
+    /// Not the same as [`presentation_resolution`](Self::presentation_resolution),
+    /// which is the monitor in *physical* pixels: a screen at 150% scaling
+    /// lays a window out at two thirds of that. The console's preview has to
+    /// use this number, or its text breaks in different places from the screen
+    /// the audience is looking at — and a preview that breaks its lines
+    /// somewhere else is not a preview.
+    ///
+    /// `None` until the presentation window has measured itself; the monitor's
+    /// size stands in until then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation_layout: Option<(f64, f64)>,
 }
 
 impl RunningPresentation {
@@ -112,7 +155,17 @@ impl RunningPresentation {
             is_black_screen: false,
             presentation_resolution: default_presentation_resolution(),
             markdown_scroll_position: 0.0,
+            presentation_layout: None,
         }
+    }
+
+    /// The size a slide is laid out at, which is what anything showing the
+    /// same slide beside it has to use.
+    pub fn layout_size(&self) -> (f64, f64) {
+        self.presentation_layout.unwrap_or((
+            self.presentation_resolution.0 as f64,
+            self.presentation_resolution.1 as f64,
+        ))
     }
 
     /// Go to the next slide (if any exists).
@@ -155,6 +208,7 @@ impl RunningPresentation {
             }
         }
     }
+
 
     /// Returns the total number of slides across all chapters
     pub fn total_slides(&self) -> usize {
@@ -203,6 +257,7 @@ impl RunningPresentation {
         self.presentation == other.presentation
             && self.position == other.position
             && self.is_black_screen == other.is_black_screen
+            && self.presentation_layout == other.presentation_layout
             && self.presentation_resolution == other.presentation_resolution
     }
 
@@ -264,7 +319,7 @@ impl RunningPresentation {
 
 /// This represents a position in a running presentation.
 /// This struct should always be save in that sense that the presentation does exist.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct RunningPresentationPosition {
     /// The number of the current chapter
     chapter: usize,
@@ -456,5 +511,99 @@ mod tests {
         assert!(rp2.presentation[0].source_file.name == "Test Song");
         assert!(rp2.position.is_some());
         assert!(!rp2.is_black_screen);
+    }
+
+    /// A presentation of three slides, to move about in.
+    fn three_slides() -> RunningPresentation {
+        use crate::logic::sourcefiles::{SourceFile, SourceFileType};
+        use cantara_songlib::slides::Slide;
+        use std::path::PathBuf;
+
+        let source_file = SourceFile {
+            name: "Handout".to_string(),
+            path: PathBuf::from("handout.pdf"),
+            file_type: SourceFileType::Pdf,
+            md5_hash: None,
+            relative_path: None,
+        };
+        let slides: Vec<Slide> = (1..=3)
+            .map(|page| Slide::new_pdf_page_slide("handout.pdf".to_string(), page))
+            .collect();
+
+        RunningPresentation::new(vec![SlideChapter::new(slides, source_file, None, None)])
+    }
+
+    /// Moving about a presentation: forwards, straight to a slide, and back.
+    #[test]
+    fn the_presentation_moves_where_it_is_told() {
+        let mut rp = three_slides();
+        assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(0));
+
+        rp.next_slide();
+        assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(1));
+
+        rp.jump_to(0, 2);
+        assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(2));
+
+        rp.previous_slide();
+        assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(1));
+    }
+
+    /// There is no slide after the last one, and asking for one must leave the
+    /// presentation where it is rather than run off the end.
+    #[test]
+    fn the_presentation_stops_at_the_last_slide() {
+        let mut rp = three_slides();
+        rp.jump_to(0, 2);
+        rp.next_slide();
+
+        assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(2));
+    }
+
+    /// A position outside the presentation is not a position: asking to jump
+    /// there must change nothing.
+    #[test]
+    fn a_jump_outside_the_presentation_is_ignored() {
+        let mut rp = three_slides();
+        rp.jump_to(0, 1);
+
+        rp.jump_to(0, 99);
+        rp.jump_to(7, 0);
+
+        assert_eq!(rp.position.as_ref().map(|p| p.slide_total()), Some(1));
+    }
+
+    /// The console lays a slide out at the size the presentation window is
+    /// actually using, not at the monitor's. They are different numbers on any
+    /// screen that is not at 100% scaling — the monitor is in physical pixels
+    /// and a window at 150% is laid out at two thirds of it — and laying the
+    /// preview out at the wrong one breaks its text in different places from
+    /// the screen the audience is looking at.
+    #[test]
+    fn a_slide_is_laid_out_at_the_size_the_presentation_uses() {
+        let mut rp = three_slides();
+        rp.presentation_resolution = (1920, 1080);
+
+        // Nothing measured yet: the monitor stands in.
+        assert_eq!(rp.layout_size(), (1920.0, 1080.0));
+
+        // Measured: a window on that monitor at 150% scaling.
+        rp.presentation_layout = Some((1280.0, 720.0));
+        assert_eq!(rp.layout_size(), (1280.0, 720.0));
+    }
+
+    /// The measurement is made in the presentation window and needed in the
+    /// console, so it has to survive the comparison the windows sync through —
+    /// otherwise the console never hears about it.
+    #[test]
+    fn the_layout_size_reaches_the_other_window() {
+        let mut measured = three_slides();
+        let unmeasured = measured.clone();
+        measured.presentation_layout = Some((1280.0, 720.0));
+
+        assert!(
+            !measured.eq_ignoring_scroll(&unmeasured),
+            "a window that has measured itself differs from one that has not"
+        );
     }
 }

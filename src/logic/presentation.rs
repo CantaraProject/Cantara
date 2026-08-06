@@ -617,6 +617,7 @@ fn apply_presentation_update(
         is_black_screen: old_rp.is_black_screen,
         presentation_resolution: old_rp.presentation_resolution,
         markdown_scroll_position: old_rp.markdown_scroll_position,
+        presentation_layout: old_rp.presentation_layout,
     }
 }
 

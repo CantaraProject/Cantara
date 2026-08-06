@@ -221,6 +221,20 @@ div.inline-div {
     background-color: var(--pico-table-row-stripped-background-color);
 }
 
+/* Whether a control shows its icon or its words.
+ *
+ * One breakpoint, declared once. There used to be two — 576px and 767px —
+ * written as four rules in three blocks, and between 577px and 767px both of
+ * them came out as `display: none`: every button in the footer was blank at
+ * those widths, with neither a label nor an icon in it. */
+.mobile-only {
+    display: none;
+}
+
+.desktop-only {
+    display: inline;
+}
+
 /* Show the elements only on mobile screens (max-width: 767px) */
 @media only screen and (max-width: 767px) {
     .mobile-only {
@@ -268,20 +282,6 @@ div.inline-div {
     }
     .swipe-dot.active {
         background-color: var(--pico-primary-background);
-    }
-}
-
-/* Show the element only on mobile screens (max-width: 576px) */
-@media only screen and (max-width: 576px) {
-    .desktop-only {
-        display: none;
-    }
-}
-
-/* Show the element only on larger screens (min-width: 577px) */
-@media only screen and (min-width: 577px) {
-    .mobile-only {
-        display: none;
     }
 }
 
@@ -759,14 +759,33 @@ div.inline-div {
 
 .detail-image img { max-width: 100%; height: auto; }
 
-.detail-pdf-controls {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
-    margin-top: 0.75rem;
+/* A PDF in the detail view: a column of pages to scroll through, not a slide
+ * with buttons under it. The container scrolls rather than the pane, so the
+ * pages of the document stay together and the reader's place in one document
+ * is not the reader's place in another. */
+.pdf-scroll {
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.5rem;
+    background-color: var(--pico-form-element-background-color);
+    border-radius: var(--pico-border-radius);
 }
-.detail-pdf-controls button { width: auto; margin: 0; }
+
+/* The page keeps its place in the column before it has been drawn — the shape
+ * comes from the page itself, set as an aspect ratio when the view is built —
+ * so the column has its full height at once and the scrollbar does not jump
+ * as the pages arrive. */
+.pdf-scroll-page {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 0 auto 0.5rem;
+    background-color: var(--pico-background-color);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.pdf-scroll-page:last-child { margin-bottom: 0; }
 
 .detail-song-part { margin-bottom: 1.5rem; }
 
@@ -838,6 +857,77 @@ div.inline-div {
 }
 
 .detail-song-tags dd { margin: 0; }
+
+/* Holds a picture's place in the list while its thumbnail is being made. */
+.picture-placeholder {
+    height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--pico-border-radius);
+    background-color: var(--pico-form-element-background-color);
+}
+
+/* A row in the list of what has been picked for the presentation.
+ *
+ * The name takes the space that is left and the buttons keep theirs: a
+ * `float: right` inside a flex row is ignored, so the buttons used to be laid
+ * out as an ordinary flex item and a name long enough to wrap pushed the
+ * wastebasket onto a line of its own. */
+.selected-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    transition: background-color 300ms ease-out;
+}
+
+.selected-item-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+}
+
+/* The name may wrap; what must not is the column of buttons beside it. */
+.selected-item-name {
+    overflow-wrap: anywhere;
+}
+
+.selected-item-actions {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    align-self: start;
+    gap: 0.25em;
+}
+
+/* Every button gets the same box, so the icons of one row sit above the icons
+ * of the next even where a row has nothing to move up or down. */
+.selected-item-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75em;
+    height: 1.75em;
+    cursor: pointer;
+    border-radius: var(--pico-border-radius);
+}
+
+.selected-item-action:hover {
+    background-color: color-mix(in srgb, var(--pico-primary) 15%, transparent);
+}
+
+/* The slot a row cannot use — it holds the column open. */
+.selected-item-action-empty {
+    cursor: default;
+    pointer-events: none;
+}
+
+.selected-item-action-empty:hover {
+    background-color: transparent;
+}
 
 /* The element the detail view is showing. */
 .selection_item-active {

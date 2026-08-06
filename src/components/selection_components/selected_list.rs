@@ -5,6 +5,7 @@ use dioxus::prelude::*;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
 use dioxus_free_icons::icons::fa_solid_icons::{FaArrowDown, FaArrowUp};
 use dioxus_free_icons::Icon;
+use rust_i18n::t;
 
 #[component]
 pub(crate) fn SelectedItems(
@@ -87,14 +88,15 @@ fn SelectedItem(
         return rsx! {};
     };
 
+    let is_first = id == 0;
+    let is_last = id + 1 >= selected_items.read().len();
+
     rsx! {
         div {
             role: "button",
-            class: "outline secondary selection_item",
+            class: "outline secondary selection_item selected-item",
             style: {
-                let mut s = String::from(
-                    "display: flex; align-items: left; cursor: grab; transition: background-color 300ms ease-out;",
-                );
+                let mut s = String::from("cursor: grab;");
                 if dragging_from().is_some() && hover_over() == Some(id) {
                     s.push_str(" outline: 2px dashed #888; background-color: rgba(0,0,0,0.03);");
                 }
@@ -110,14 +112,17 @@ fn SelectedItem(
                 }
             },
             onmouseup: move |_| {}, // If mouse is released over the same item, the container onmouseup will also handle it,
-            span {
-                style: "flex-grow: 1; display: flex; align-items: center; gap: 0.5em;",
-                onmousedown: move |_| {
-                    anim_target.set(None);
-                    dragging_from.set(Some(id));
-                    hover_over.set(Some(id));
-                },
-                onclick: move |_| { active_selected_item_id.set(Some(id)) },
+            // The whole row opens the item, not only the words on it. With the
+            // handler on the title alone, the padding around it and the empty
+            // space after a short name did nothing, so an item had to be hit
+            // squarely on its name to be selected.
+            onmousedown: move |_| {
+                anim_target.set(None);
+                dragging_from.set(Some(id));
+                hover_over.set(Some(id));
+            },
+            onclick: move |_| { active_selected_item_id.set(Some(id)) },
+            span { class: "selected-item-label",
                 match current_item.source_file.file_type {
                     SourceFileType::Song => rsx! {
                         MusicIcon {}
@@ -133,20 +138,39 @@ fn SelectedItem(
                     },
                     _ => rsx! {},
                 }
-                {current_item.source_file.name.clone()}
+                span { class: "selected-item-name", {current_item.source_file.name.clone()} }
             }
 
-            span { class: "right-justified",
-                if id > 0 {
+            // Every row keeps all three slots, whether or not it can use them:
+            // the first row has nothing to move up and the last nothing to move
+            // down, and leaving those buttons out shifted the remaining ones
+            // sideways so that no column of icons lined up with the next. The
+            // group never wraps either — a name long enough to take two lines
+            // used to push the wastebasket onto a line of its own.
+            span {
+                class: "selected-item-actions",
+                // A click on one of these acts on the row; it must not also
+                // select it, and pressing one must not start a drag.
+                onmousedown: move |event: Event<MouseData>| event.stop_propagation(),
+                onclick: move |event: Event<MouseData>| event.stop_propagation(),
+                if is_first {
+                    span { class: "selected-item-action selected-item-action-empty" }
+                } else {
                     span {
+                        class: "selected-item-action",
+                        title: t!("selection.move_up").to_string(),
                         onclick: move |_| {
                             selected_items.write().swap(id, id - 1);
                         },
                         Icon { icon: FaArrowUp }
                     }
                 }
-                if id + 1 < selected_items.read().len() {
+                if is_last {
+                    span { class: "selected-item-action selected-item-action-empty" }
+                } else {
                     span {
+                        class: "selected-item-action",
+                        title: t!("selection.move_down").to_string(),
                         onclick: move |_| {
                             selected_items.write().swap(id, id + 1);
                         },
@@ -154,6 +178,8 @@ fn SelectedItem(
                     }
                 }
                 span {
+                    class: "selected-item-action",
+                    title: t!("general.delete").to_string(),
                     onclick: move |_| {
                         if *active_selected_item_id.read() == Some(id) {
                             active_selected_item_id.set(None);

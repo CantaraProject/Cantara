@@ -1189,7 +1189,7 @@ fn create_temp_dir() -> Result<TempDir, String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn get_settings_folder() -> Option<PathBuf> {
+pub(crate) fn get_settings_folder() -> Option<PathBuf> {
     // On Android, the `dirs` crate cannot resolve standard config/data directories
     // because the HOME and XDG_* environment variables are not set by the Android runtime.
     // Use JNI to query the app's private files directory instead.
