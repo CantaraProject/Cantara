@@ -1696,16 +1696,170 @@ fn read_pdf_as_base64(pdf_path: &str) -> String {
     }
 }
 
-/// How long to wait between two looks at whether another canvas has finished
-/// handing the document over.
-const PDF_WAIT_STEP_MS: u32 = 120;
-
-/// How many such looks before giving up.
+/// How many times a canvas asks again while another one is fetching the
+/// document.
 ///
-/// This has to outlast the point at which `pdf_render_inline.js` declares a
-/// request stale (four seconds), or a canvas whose loader was unmounted before
-/// it delivered would give up rather than fetch the document itself.
-const PDF_WAIT_ATTEMPTS: usize = 60;
+/// Each of these waits inside the page until the document arrives, so this is
+/// a count of *stalled* loaders to survive rather than a polling interval —
+/// three of them is well past anything that is not simply broken.
+const PDF_WAIT_ATTEMPTS: usize = 3;
+
+/// Hands a document to the page if it is not there already.
+///
+/// `on_page` is a script that does something with the document — draw a slide,
+/// set a scrolling view up — and reports back `{ missing: true }` when the
+/// document is not in `window.__pdfDocCache` and this caller should fetch it,
+/// or `{ waiting: true }` when someone else already is. Everything around that
+/// is the same for every caller and lives here.
+///
+/// Returns whether the page ended up with the document.
+async fn with_pdf_document(pdf_path: &str, on_page: &str) -> bool {
+    // Every script that draws a page needs the frame fallback in place first,
+    // and putting it here is the only way that cannot be forgotten by one of
+    // them. It was, once: the scrolling document in the detail view drew
+    // nothing at all in a window that was not in front, because the fallback
+    // lived in the slide renderer and nowhere else.
+    let on_page = format!(
+        "{}\n{}",
+        include_str!("../../assets/frame_fallback_inline.js"),
+        on_page
+    );
+    let on_page = on_page.as_str();
+
+    // Get URLs for PDF.js library and worker
+    #[cfg(not(target_arch = "wasm32"))]
+    let (pdfjs_url, worker_url) = (format!("{}", PDFJS_LIB), format!("{}", PDFJS_WORKER));
+    #[cfg(target_arch = "wasm32")]
+    let (pdfjs_url, worker_url) = (PDFJS_CDN_LIB.to_string(), PDFJS_CDN_WORKER.to_string());
+
+    let js_cache_key = serde_json::to_string(pdf_path).unwrap_or_default();
+
+    // 1. Try the document already in the page. This is the common case —
+    //    every slide after the first.
+    //
+    //    While another canvas of the same document is fetching it, this call
+    //    waits inside the page until that one delivers and then goes on — no
+    //    second copy of the file, and no asking over and over. It comes back
+    //    with `waiting` only if that loader never delivered, in which case
+    //    asking again lets this caller take the job over.
+    let mut attempt = 0;
+    loop {
+        match document::eval(on_page).await {
+            Ok(value) => {
+                if value.get("missing").and_then(|missing| missing.as_bool()) == Some(true) {
+                    break;
+                }
+                if value.get("waiting").and_then(|waiting| waiting.as_bool()) != Some(true) {
+                    return true;
+                }
+            }
+            Err(error) => {
+                log::error!("could not reach the page for {pdf_path}: {error:?}");
+                return false;
+            }
+        }
+
+        attempt += 1;
+        if attempt > PDF_WAIT_ATTEMPTS {
+            log::warn!("gave up waiting for {pdf_path} to be loaded elsewhere");
+            return false;
+        }
+    }
+
+    // 2. This caller is the one to fetch it: pay for reading and encoding the
+    //    file, then hand it over once.
+    let base64_data = read_pdf_as_base64(pdf_path);
+    if base64_data.is_empty() {
+        log::warn!("PDF data empty for {pdf_path}, skipping render");
+        return false;
+    }
+
+    let load_js = include_str!("../../assets/pdf_load_inline.js")
+        .replace(
+            "__PDFJS_URL__",
+            &serde_json::to_string(&pdfjs_url).unwrap_or_default(),
+        )
+        .replace(
+            "__WORKER_URL__",
+            &serde_json::to_string(&worker_url).unwrap_or_default(),
+        )
+        .replace("__CACHE_KEY__", &js_cache_key)
+        .replace(
+            "__BASE64__",
+            &serde_json::to_string(&base64_data).unwrap_or_default(),
+        );
+
+    match document::eval(&load_js).await {
+        Ok(value) if value.get("ok").and_then(|ok| ok.as_bool()) == Some(true) => {}
+        Ok(value) => {
+            log::error!(
+                "could not load the PDF {pdf_path}: {}",
+                value
+                    .get("error")
+                    .and_then(|error| error.as_str())
+                    .unwrap_or("unknown")
+            );
+            return false;
+        }
+        Err(error) => {
+            log::error!("could not load the PDF {pdf_path}: {error:?}");
+            return false;
+        }
+    }
+
+    // 3. Now the page holds it, so the caller's script can do its work.
+    if let Err(error) = document::eval(on_page).await {
+        log::error!("could not reach the page for {pdf_path}: {error:?}");
+        return false;
+    }
+    true
+}
+
+/// A PDF as a document to read: every page under the last, in a column that
+/// scrolls.
+///
+/// The pages are drawn as they come near the viewport rather than all at once
+/// — a scanned score runs to hundreds of them — and the mechanics of that are
+/// in `pdf_scroll_inline.js`.
+#[component]
+pub(crate) fn PdfScrollView(pdf_path: String, pages: u32) -> Element {
+    // One identity per mount, so that a view left behind by an element that
+    // has been closed cannot be mistaken for this one.
+    let mount_id = use_hook(Uuid::new_v4);
+    let container_id = format!("pdf-scroll-{}", mount_id.as_simple());
+
+    rsx! {
+        div {
+            id: "{container_id}",
+            class: "pdf-scroll",
+            onmounted: move |_| {
+                let container_id = container_id.clone();
+                let pdf_path = pdf_path.clone();
+
+                spawn(async move {
+                    let scroll_js = include_str!("../../assets/pdf_scroll_inline.js")
+                        .replace(
+                            "__CACHE_KEY__",
+                            &serde_json::to_string(&pdf_path).unwrap_or_default(),
+                        )
+                        .replace(
+                            "__CONTAINER_ID__",
+                            &serde_json::to_string(&container_id).unwrap_or_default(),
+                        );
+
+                    with_pdf_document(&pdf_path, &scroll_js).await;
+                });
+            },
+            for page in 1..=pages.max(1) {
+                canvas {
+                    key: "{page}",
+                    class: "pdf-scroll-page",
+                    "data-page": "{page}",
+                }
+            }
+        }
+    }
+}
 
 /// Renders a single PDF page onto a `<canvas>` via PDF.js.
 ///
@@ -1731,16 +1885,6 @@ pub(crate) fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
         mount_id.as_simple()
     );
 
-    // Get URLs for PDF.js library and worker
-    #[cfg(not(target_arch = "wasm32"))]
-    let pdfjs_url = format!("{}", PDFJS_LIB);
-    #[cfg(not(target_arch = "wasm32"))]
-    let worker_url = format!("{}", PDFJS_WORKER);
-    #[cfg(target_arch = "wasm32")]
-    let pdfjs_url = PDFJS_CDN_LIB.to_string();
-    #[cfg(target_arch = "wasm32")]
-    let worker_url = PDFJS_CDN_WORKER.to_string();
-
     rsx! {
         canvas {
             id: "{canvas_id}",
@@ -1748,97 +1892,26 @@ pub(crate) fn PdfPageCanvas(pdf_path: String, page_num: u32) -> Element {
             onmounted: move |_| {
                 let canvas_id = canvas_id.clone();
                 let pdf_path = pdf_path.clone();
-                let pdfjs_url = pdfjs_url.clone();
-                let worker_url = worker_url.clone();
 
                 spawn(async move {
-                    let js_cache_key = serde_json::to_string(&pdf_path).unwrap_or_default();
-                    let js_canvas_id = serde_json::to_string(&canvas_id).unwrap_or_default();
-
                     let render_js = include_str!("../../assets/pdf_render_inline.js")
-                        .replace("__CACHE_KEY__", &js_cache_key)
+                        .replace(
+                            "__CACHE_KEY__",
+                            &serde_json::to_string(&pdf_path).unwrap_or_default(),
+                        )
                         .replace("__PAGE_NUM__", &page_num.to_string())
-                        .replace("__CANVAS_ID__", &js_canvas_id);
+                        .replace(
+                            "__CANVAS_ID__",
+                            &serde_json::to_string(&canvas_id).unwrap_or_default(),
+                        );
 
-                    // 1. Try the document already in the page. This is the
-                    //    common case — every slide after the first.
-                    //
-                    //    While another canvas of the same document is fetching
-                    //    it, this one is told to wait rather than to ask for a
-                    //    copy of its own; it looks again in a moment, and the
-                    //    document is normally there by the second or third
-                    //    look. Should that canvas never deliver — it may be
-                    //    unmounted mid-flight — the request goes stale and
-                    //    this one is told to fetch the document itself, which
-                    //    is what the budget below outlasts.
-                    let mut attempt = 0;
-                    loop {
-                        match document::eval(&render_js).await {
-                            Ok(value) => {
-                                if value.get("missing").and_then(|m| m.as_bool()) == Some(true) {
-                                    break;
-                                }
-                                if value.get("waiting").and_then(|w| w.as_bool()) != Some(true) {
-                                    return;
-                                }
-                            }
-                            Err(error) => {
-                                log::error!("could not render the PDF page: {error:?}");
-                                return;
-                            }
-                        }
-
-                        attempt += 1;
-                        if attempt > PDF_WAIT_ATTEMPTS {
-                            log::warn!(
-                                "gave up waiting for {pdf_path} to be loaded by another slide"
-                            );
-                            return;
-                        }
-                        let _ = document::eval(&format!(
-                            "await new Promise(r => setTimeout(r, {PDF_WAIT_STEP_MS}))"
-                        ))
-                        .await;
-                    }
-
-                    // 2. First page of this document in this window: pay for
-                    //    reading and encoding it, then hand it over once.
-                    let base64_data = read_pdf_as_base64(&pdf_path);
-                    if base64_data.is_empty() {
-                        log::warn!("PDF data empty for {pdf_path}, skipping render");
-                        return;
-                    }
-
-                    let load_js = include_str!("../../assets/pdf_load_inline.js")
-                        .replace("__PDFJS_URL__", &serde_json::to_string(&pdfjs_url).unwrap_or_default())
-                        .replace("__WORKER_URL__", &serde_json::to_string(&worker_url).unwrap_or_default())
-                        .replace("__CACHE_KEY__", &js_cache_key)
-                        .replace("__BASE64__", &serde_json::to_string(&base64_data).unwrap_or_default());
-
-                    match document::eval(&load_js).await {
-                        Ok(value) if value.get("ok").and_then(|ok| ok.as_bool()) == Some(true) => {}
-                        Ok(value) => {
-                            log::error!(
-                                "could not load the PDF {pdf_path}: {}",
-                                value.get("error").and_then(|e| e.as_str()).unwrap_or("unknown")
-                            );
-                            return;
-                        }
-                        Err(error) => {
-                            log::error!("could not load the PDF {pdf_path}: {error:?}");
-                            return;
-                        }
-                    }
-
-                    // 3. Now the cache holds it, so the page can be drawn.
-                    if let Err(error) = document::eval(&render_js).await {
-                        log::error!("could not render the PDF page: {error:?}");
-                    }
+                    with_pdf_document(&pdf_path, &render_js).await;
                 });
             },
         }
     }
 }
+
 
 /// A static (non-interactive) slide renderer that renders a single slide with its
 /// presentation design. Used for grid overview thumbnails. It reuses the same

@@ -52,6 +52,17 @@ try {
     // one of them after the same unreadable file at once.
     if (window.__pdfDocRequests) delete window.__pdfDocRequests[cacheKey];
 
+    // Wake them rather than leaving them to notice by themselves. This is what
+    // turns the presenter console's grid from twenty canvases each asking the
+    // page every tenth of a second into twenty that are told once.
+    if (window.__pdfDocWaiters) {
+        var waiters = window.__pdfDocWaiters[cacheKey] || [];
+        delete window.__pdfDocWaiters[cacheKey];
+        for (var w = 0; w < waiters.length; w++) {
+            try { waiters[w](); } catch (_) { }
+        }
+    }
+
     return { ok: true, pages: window.__pdfDocCache[cacheKey].numPages };
 } catch (e) {
     delete window.__pdfDocLoads[__CACHE_KEY__];

@@ -759,14 +759,33 @@ div.inline-div {
 
 .detail-image img { max-width: 100%; height: auto; }
 
-.detail-pdf-controls {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
-    margin-top: 0.75rem;
+/* A PDF in the detail view: a column of pages to scroll through, not a slide
+ * with buttons under it. The container scrolls rather than the pane, so the
+ * pages of the document stay together and the reader's place in one document
+ * is not the reader's place in another. */
+.pdf-scroll {
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.5rem;
+    background-color: var(--pico-form-element-background-color);
+    border-radius: var(--pico-border-radius);
 }
-.detail-pdf-controls button { width: auto; margin: 0; }
+
+/* The page keeps its place in the column before it has been drawn — the shape
+ * comes from the page itself, set as an aspect ratio when the view is built —
+ * so the column has its full height at once and the scrollbar does not jump
+ * as the pages arrive. */
+.pdf-scroll-page {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 0 auto 0.5rem;
+    background-color: var(--pico-background-color);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.pdf-scroll-page:last-child { margin-bottom: 0; }
 
 .detail-song-part { margin-bottom: 1.5rem; }
 

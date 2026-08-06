@@ -137,10 +137,18 @@ static THUMBNAILS_OUTSTANDING: AtomicUsize = AtomicUsize::new(0);
 
 /// The longest edge of a list thumbnail, in pixels.
 ///
-/// The list draws them 300 pixels tall, so this still has something in hand
-/// for a high-resolution screen while being a thousandth of the data of the
-/// photograph it came from.
-const THUMBNAIL_MAX_EDGE: u32 = 600;
+/// The list draws them 300 pixels tall. Everything past that is data the
+/// window has to carry through the IPC and pixels it has to decode before it
+/// can draw the list, for a difference nobody can see at that size.
+const THUMBNAIL_MAX_EDGE: u32 = 400;
+
+/// How many pictures are scaled down at once.
+///
+/// Decoding a photograph is the most expensive thing the program does per
+/// file, and it happens while the user is looking at the list it is for. Given
+/// every core, it takes them all and the window stops responding — so it gets
+/// half of them, and at most this many.
+const THUMBNAIL_WORKERS: usize = 3;
 
 fn thumbnails() -> &'static Mutex<HashMap<PathBuf, Thumbnail>> {
     THUMBNAILS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -218,7 +226,7 @@ pub fn prepare_thumbnails(paths: Vec<PathBuf>) {
     // returns immediately and the pictures are read several at a time.
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::spawn(move || {
-        crate::logic::parallel::map_parallel(&todo, |path| {
+        crate::logic::parallel::map_parallel_within(&todo, THUMBNAIL_WORKERS, |path| {
             let made = make_thumbnail(path);
             finish_thumbnail(path.clone(), made);
         });

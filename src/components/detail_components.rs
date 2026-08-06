@@ -647,39 +647,32 @@ fn ImageViewer(file: SourceFile) -> Element {
     }
 }
 
-/// A PDF, one page at a time.
+/// A PDF, read the way a document is read: scrolled through, one page under
+/// the next.
 ///
-/// Reuses the presentation's page renderer, so the document is parsed once per
-/// window and paging costs only a short script.
+/// It used to be paged with a previous/next button, which is how one moves
+/// through *slides* — but nothing here is being presented, and looking
+/// something up in a twenty-page handout that way is tedious. The pages are
+/// drawn as they come near the viewport, so a long document costs no more to
+/// open than a short one; see `pdf_scroll_inline.js`.
+///
+/// Keyed on the file, so that opening a different PDF builds a new view rather
+/// than leaving the previous document's pages on screen — which is exactly
+/// what the paged version did, since its page number and its canvases belonged
+/// to whichever document had been open first.
 #[component]
 fn PdfViewer(file: SourceFile) -> Element {
-    let mut page = use_signal(|| 1_u32);
     let path = file.path.to_str().unwrap_or_default().to_string();
-    let pages = crate::logic::search::pdf_page_count(&file.path).unwrap_or(1).max(1);
+    let pages = crate::logic::search::pdf_page_count(&file.path)
+        .unwrap_or(1)
+        .max(1);
 
     rsx! {
         div { class: "detail-pdf",
-            div { class: "detail-pdf-page",
-                crate::components::presentation_components::PdfPageCanvas {
-                    key: "{path}-{page()}",
-                    pdf_path: path.clone(),
-                    page_num: page(),
-                }
-            }
-            div { class: "detail-pdf-controls",
-                button {
-                    class: "outline",
-                    disabled: page() <= 1,
-                    onclick: move |_| page.set(page().saturating_sub(1).max(1)),
-                    "‹"
-                }
-                span { "{page()} / {pages}" }
-                button {
-                    class: "outline",
-                    disabled: page() >= pages,
-                    onclick: move |_| page.set((page() + 1).min(pages)),
-                    "›"
-                }
+            crate::components::presentation_components::PdfScrollView {
+                key: "{path}",
+                pdf_path: path.clone(),
+                pages,
             }
         }
     }
