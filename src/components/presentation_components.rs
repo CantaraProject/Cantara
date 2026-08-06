@@ -788,7 +788,12 @@ pub fn PresentationRendererComponent(
         document::Script { src: PRESENTATION_JS }
         document::Script { src: MORPH_JS }
         div {
-            class: "presentation",
+            // `fire_timer` marks the window the audience is looking at — it is
+            // the same flag that decides which window drives the auto-advance,
+            // and there is exactly one of them. The console's preview and the
+            // design viewer are the same component with it turned off, and
+            // they keep their scrollbar; see `presentation.css`.
+            class: if fire_timer { "presentation presentation-live" } else { "presentation" },
             style: css_handler.read().to_string(),
 
             tabindex: 0,
