@@ -87,3 +87,8 @@ pub mod sync;
 
 #[cfg(feature = "desktop")]
 pub mod screens;
+
+/// Remembering the main window's size between sessions. Only the desktop has
+/// a window whose size is the user's to choose.
+#[cfg(feature = "desktop")]
+pub mod window_state;

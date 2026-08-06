@@ -221,6 +221,20 @@ div.inline-div {
     background-color: var(--pico-table-row-stripped-background-color);
 }
 
+/* Whether a control shows its icon or its words.
+ *
+ * One breakpoint, declared once. There used to be two — 576px and 767px —
+ * written as four rules in three blocks, and between 577px and 767px both of
+ * them came out as `display: none`: every button in the footer was blank at
+ * those widths, with neither a label nor an icon in it. */
+.mobile-only {
+    display: none;
+}
+
+.desktop-only {
+    display: inline;
+}
+
 /* Show the elements only on mobile screens (max-width: 767px) */
 @media only screen and (max-width: 767px) {
     .mobile-only {
@@ -268,20 +282,6 @@ div.inline-div {
     }
     .swipe-dot.active {
         background-color: var(--pico-primary-background);
-    }
-}
-
-/* Show the element only on mobile screens (max-width: 576px) */
-@media only screen and (max-width: 576px) {
-    .desktop-only {
-        display: none;
-    }
-}
-
-/* Show the element only on larger screens (min-width: 577px) */
-@media only screen and (min-width: 577px) {
-    .mobile-only {
-        display: none;
     }
 }
 

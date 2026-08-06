@@ -25,7 +25,7 @@ use cantara_songlib::exporter::song_yml::song_yml_from_song;
 use cantara_songlib::song::Song;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
-use dioxus_free_icons::icons::fa_solid_icons::{FaPencil, FaPlus};
+use dioxus_free_icons::icons::fa_solid_icons::{FaCircleInfo, FaGear, FaList, FaPencil, FaPlus};
 use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -478,10 +478,17 @@ fn DetailFooter() -> Element {
             div { class: "no-padding width-100", role: "group",
                 button {
                     class: "outline secondary smaller-buttons",
+                    title: t!("settings.settings_button").to_string(),
                     onclick: move |_| {
                         nav.push(crate::Route::SettingsPage {});
                     },
-                    {t!("settings.settings_button").to_string()}
+                    // The selection view's footer says it this way too, and a
+                    // button that keeps its words where the ones beside it
+                    // have gone to icons looks like a different kind of thing.
+                    span { class: "mobile-only",
+                        Icon { icon: FaGear }
+                    }
+                    span { class: "desktop-only", {t!("settings.settings_button").to_string()} }
                 }
                 ViewModeToggle {}
             }
@@ -503,6 +510,7 @@ pub fn ViewModeToggle() -> Element {
     rsx! {
         button {
             class: "outline secondary smaller-buttons",
+            title: if in_detail { t!("detail.to_selection").to_string() } else { t!("detail.to_detail").to_string() },
             onclick: move |_| {
                 if in_detail {
                     nav.push(crate::Route::Selection {});
@@ -510,10 +518,23 @@ pub fn ViewModeToggle() -> Element {
                     nav.push(crate::Route::Detail { element: vec![] });
                 }
             },
-            if in_detail {
-                {t!("detail.to_selection").to_string()}
-            } else {
-                {t!("detail.to_detail").to_string()}
+            // Like every other button of the bar: the icon where the bar is
+            // narrow, the words where there is room. This one had only the
+            // words, so on a narrow window it was the one control that still
+            // said anything while the rest showed their icons.
+            span { class: "mobile-only",
+                if in_detail {
+                    Icon { icon: FaList }
+                } else {
+                    Icon { icon: FaCircleInfo }
+                }
+            }
+            span { class: "desktop-only",
+                if in_detail {
+                    {t!("detail.to_selection").to_string()}
+                } else {
+                    {t!("detail.to_detail").to_string()}
+                }
             }
         }
     }

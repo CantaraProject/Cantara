@@ -148,13 +148,23 @@ fn main() {
                 .expect("Failed to create window icon")
         };
 
-        let window = tao::window::WindowBuilder::new()
+        let mut window = tao::window::WindowBuilder::new()
             .with_resizable(true)
             .with_title("Cantara")
-            .with_inner_size(tao::dpi::LogicalSize::new(900.0, 800.0))
             .with_decorations(true)
             .with_visible(true)
             .with_window_icon(Some(icon));
+
+        // The size the window was left at last time, if there was a last time.
+        // Only the size: where the window *stood* is not restored, because a
+        // screen that has since been unplugged would put it out of sight with
+        // nothing to say why. See [`logic::window_state`].
+        window = match logic::window_state::load() {
+            Some(state) => window
+                .with_inner_size(tao::dpi::LogicalSize::new(state.width, state.height))
+                .with_maximized(state.maximized),
+            None => window.with_inner_size(tao::dpi::LogicalSize::new(900.0, 800.0)),
+        };
         dioxus::LaunchBuilder::new()
             .with_cfg(
                 dioxus::desktop::Config::new()
@@ -198,6 +208,50 @@ fn App() -> Element {
             }
         }
     });
+
+    // Keeps track of how large the window is, so that the next start can open
+    // it the same way. Every window of the program reports through the same
+    // handler, so the events of the presentation and of a separate presenter
+    // console have to be told apart from this one's — otherwise going
+    // fullscreen for a presentation would be remembered as the main window's
+    // size. See [`logic::window_state`].
+    #[cfg(feature = "desktop")]
+    {
+        use dioxus::desktop::tao::event::{Event as WindowingEvent, WindowEvent};
+
+        let main_window_id = dioxus::desktop::window().id();
+        dioxus::desktop::use_wry_event_handler(move |event, _| {
+            let WindowingEvent::WindowEvent {
+                window_id, event, ..
+            } = event
+            else {
+                return;
+            };
+            if *window_id != main_window_id {
+                return;
+            }
+            match event {
+                WindowEvent::Resized(_) | WindowEvent::Moved(_) => {
+                    let window = dioxus::desktop::window();
+                    let maximized = window.is_maximized();
+                    let size = (!maximized).then(|| {
+                        let logical = window
+                            .inner_size()
+                            .to_logical::<f64>(window.scale_factor());
+                        (logical.width, logical.height)
+                    });
+                    logic::window_state::record(size, maximized);
+                }
+                // The last resize before the window closes is the one the user
+                // meant to keep, and it is usually inside the interval the
+                // periodic write skips.
+                WindowEvent::CloseRequested | WindowEvent::Destroyed => {
+                    logic::window_state::flush();
+                }
+                _ => {}
+            }
+        });
+    }
 
     let cloned_locale = locale.clone();
     use_context_provider(|| states::RuntimeInformation {

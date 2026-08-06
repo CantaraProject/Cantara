@@ -274,7 +274,15 @@ pub fn PresenterConsolePage() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }
-        document::Title { {t!("presenter.title").to_string()} }
+        // Only a window of its own gets its own name. Setting the title while
+        // the console is a page *inside* the main window renamed the window —
+        // or the browser tab — and nothing put the name back when the console
+        // was left again, so it kept calling itself the presenter console for
+        // the rest of the session. The main window is Cantara throughout; the
+        // name is set once, by `App`.
+        if !is_main_window {
+            document::Title { {t!("presenter.title").to_string()} }
+        }
 
         div {
             class: "presenter-console",
