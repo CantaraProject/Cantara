@@ -517,17 +517,63 @@ pub fn PresentationPage() -> Element {
     }
 }
 
+/// What a rendering of a presentation is *for*.
+///
+/// Three things follow from it, and they do not line up with any single yes or
+/// no — which is why this is a role and not a flag. It was one, called
+/// `fire_timer`, and by the time it also decided which view publishes its
+/// layout size and which hides its scrollbar, the name had stopped describing
+/// what it did.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PresentationRole {
+    /// The window the audience is looking at. Exactly one of these exists
+    /// while a presentation is running.
+    ///
+    /// It drives the auto-advance timer, so a slide is not advanced once per
+    /// window showing it; it measures and publishes the size it is laid out
+    /// at, which is what everything showing the same slide beside it lays
+    /// itself out at; and it hides its scrollbar, because the audience should
+    /// not be looking at one.
+    #[default]
+    Audience,
+    /// A view that follows the presentation without being it: the presenter
+    /// console's preview, the design selector. It advances when the
+    /// presentation does and never of its own accord.
+    Follower,
+    /// A preview that runs by itself — the options panel's example of a slide
+    /// timer, which has to advance in order to show what was configured. It
+    /// fires the timer as the audience view does but is not one: it keeps its
+    /// scrollbar, and the size it happens to be laid out at is nobody else's
+    /// business.
+    SelfRunning,
+}
+
+impl PresentationRole {
+    /// Whether this is the window the audience is looking at.
+    pub fn is_audience_view(self) -> bool {
+        matches!(self, PresentationRole::Audience)
+    }
+
+    /// Whether this view advances the slides by itself when a timer is set.
+    pub fn fires_timer(self) -> bool {
+        matches!(
+            self,
+            PresentationRole::Audience | PresentationRole::SelfRunning
+        )
+    }
+}
+
 /// The actual presentation rendering component which can be used to render presentations accordingly
 /// It takes a signal and rewrites to it when the presentation position changes
 #[component]
 pub fn PresentationRendererComponent(
     /// The running presentation as a signal: This will be changed by the component if the user moves the current slide
     running_presentation: Signal<RunningPresentation>,
-    /// Whether this instance should fire the auto-advance timer.
-    /// Defaults to `true`. Set to `false` in secondary views (presenter console preview,
-    /// example viewer) so only the primary presentation window drives the timer.
-    #[props(default = true)]
-    fire_timer: bool,
+    /// What this rendering is for. Defaults to [`PresentationRole::Audience`]:
+    /// the presentation window renders it without saying so, and every other
+    /// view has to name itself.
+    #[props(default)]
+    role: PresentationRole,
 ) -> Element {
     let current_slide: Memo<Option<Slide>> =
         use_memo(move || running_presentation.read().get_current_slide());
@@ -594,12 +640,12 @@ pub fn PresentationRendererComponent(
     // console's preview, its overview — lays it out at exactly the same size
     // and breaks its lines in the same places.
     //
-    // Only the window that *is* the presentation does this; `fire_timer` is
-    // the same flag that marks it as the primary one everywhere else. Watched
-    // rather than measured once, because a window that is not fullscreen can
-    // be resized in the middle of a presentation.
+    // Only the window the audience is looking at does this: it is the one
+    // whose layout everything else has to match. Watched rather than measured
+    // once, because a window that is not fullscreen can be resized in the
+    // middle of a presentation.
     use_effect(move || {
-        if !fire_timer {
+        if !role.is_audience_view() {
             return;
         }
         spawn(async move {
@@ -633,18 +679,17 @@ pub fn PresentationRendererComponent(
     // a new slide before the sleep completed, the old task detects the changed
     // generation and exits without advancing again.
     //
-    // `fire_timer` is false in secondary views (presenter console preview, example
-    // viewer) so that only the primary presentation window drives the timer.
-    // Without this guard every window hosting a PresentationRendererComponent would
-    // independently advance the slide, causing slides to be skipped.
+    // Only a view that [`PresentationRole::fires_timer`] does this. Without the
+    // guard every window hosting a `PresentationRendererComponent` would
+    // advance the slide independently, and slides would be skipped as fast as
+    // there are windows.
     let mut timer_generation: Signal<u64> = use_signal(|| 0);
 
     use_effect(move || {
         // Track slide changes by reading current_slide_number (subscribes to it)
         let _ = current_slide_number();
 
-        // Only the primary presentation window should fire the timer.
-        if !fire_timer {
+        if !role.fires_timer() {
             return;
         }
 
@@ -788,12 +833,10 @@ pub fn PresentationRendererComponent(
         document::Script { src: PRESENTATION_JS }
         document::Script { src: MORPH_JS }
         div {
-            // `fire_timer` marks the window the audience is looking at — it is
-            // the same flag that decides which window drives the auto-advance,
-            // and there is exactly one of them. The console's preview and the
-            // design viewer are the same component with it turned off, and
-            // they keep their scrollbar; see `presentation.css`.
-            class: if fire_timer { "presentation presentation-live" } else { "presentation" },
+            // The audience view says so in its class, so the stylesheet can
+            // hide the one thing only the audience should not see: its
+            // scrollbar. See `presentation.css`.
+            class: if role.is_audience_view() { "presentation presentation-live" } else { "presentation" },
             style: css_handler.read().to_string(),
 
             tabindex: 0,
@@ -1958,6 +2001,42 @@ pub fn StaticSlideRendererComponent(
                 SlideContentRenderer { slide_content, pds }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod role_tests {
+    use super::*;
+
+    /// Exactly one view is the screen the audience is looking at, and it is
+    /// the one a caller gets without asking — the presentation window renders
+    /// the component without naming a role.
+    #[test]
+    fn the_audience_view_is_the_one_nobody_has_to_ask_for() {
+        assert_eq!(PresentationRole::default(), PresentationRole::Audience);
+        assert!(PresentationRole::default().is_audience_view());
+        assert!(!PresentationRole::Follower.is_audience_view());
+        assert!(!PresentationRole::SelfRunning.is_audience_view());
+    }
+
+    /// A slide must not be advanced once per window showing it, so only the
+    /// audience's screen and a preview that runs on its own fire the timer.
+    #[test]
+    fn only_a_view_that_runs_by_itself_advances_the_slides() {
+        assert!(PresentationRole::Audience.fires_timer());
+        assert!(PresentationRole::SelfRunning.fires_timer());
+        assert!(!PresentationRole::Follower.fires_timer());
+    }
+
+    /// The reason this is a role rather than a flag: firing the timer and
+    /// being the audience's screen are not the same question. The options
+    /// panel's example of a slide timer has to advance to show what was
+    /// configured, and would have hidden its scrollbar and published its
+    /// layout size had the two been one boolean.
+    #[test]
+    fn running_by_itself_does_not_make_a_preview_the_audience_view() {
+        assert!(PresentationRole::SelfRunning.fires_timer());
+        assert!(!PresentationRole::SelfRunning.is_audience_view());
     }
 }
 

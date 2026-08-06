@@ -14,7 +14,9 @@ use cantara_songlib::slides::{SlideContent, SlideRow};
 use dioxus::prelude::*;
 use rust_i18n::t;
 
-use super::presentation_components::{PresentationRendererComponent, StaticSlideRendererComponent};
+use super::presentation_components::{
+    PresentationRendererComponent, PresentationRole, StaticSlideRendererComponent,
+};
 
 /// The stylesheet of the presenter console.
 ///
@@ -734,7 +736,7 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
                 div {
                     class: "slide-scale-inner",
                     style: "width: {native_w}px; height: {native_h}px; transform: scale({scale});",
-                    PresentationRendererComponent { running_presentation, fire_timer: false }
+                    PresentationRendererComponent { running_presentation, role: PresentationRole::Follower }
                 }
                 // The timer and the counter belong to the console, not to the
                 // slide, so they sit outside the scaled box and are read at
