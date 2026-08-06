@@ -1,7 +1,6 @@
 use crate::components::shared_components::SelectedItemPreview;
 use crate::logic::settings::{use_settings, AfterLastSlide, SlideTimerSettings, SlideTransition};
 use crate::logic::states::SelectedItemRepresentation;
-use crate::TEST_STATE;
 use dioxus::prelude::*;
 use rust_i18n::t;
 
@@ -26,14 +25,12 @@ pub(crate) fn PresentationOptions(
         }
     });
 
-    let active_id = active_selected_item_id.read();
-    let Some(item_index) = *active_id else {
-        return rsx! {};
-    };
-
-    if item_index >= selected_items.read().len() {
-        return rsx! {};
-    }
+    // Only the *specific* half needs an element; the general half is about the
+    // presentation as a whole and has to be reachable before anything is
+    // picked — the streaming switch lives there.
+    let selected_index = active_selected_item_id
+        .read()
+        .filter(|index| *index < selected_items.read().len());
 
     rsx! {
         div { role: "group",
@@ -53,15 +50,14 @@ pub(crate) fn PresentationOptions(
 
         match *tab_state.read() {
             PresentationOptionTabState::General => {
-                rsx! {
-                    p { {TEST_STATE.read().clone()} }
-                }
+                rsx! { StreamSwitch {} }
             }
             PresentationOptionTabState::Specific => {
                 let items = selected_items.read();
-                let Some(item) = items.get(item_index).cloned() else {
+                let Some(item) = selected_index.and_then(|index| items.get(index).cloned()) else {
                     return rsx! {};
                 };
+                let item_index = selected_index.unwrap_or(0);
 
                 let timer_enabled = item.timer_settings_option.is_some();
                 let default_timer_settings = SlideTimerSettings::default();
@@ -296,4 +292,96 @@ pub(crate) fn PresentationOptions(
             }
         }
     }
+}
+
+/// Turns network streaming on for the presentation at hand, and says where to
+/// find it.
+///
+/// The switch is here rather than in the settings on purpose: how streaming
+/// works — the port, the password — is a setting and worth keeping, but
+/// *whether* a given service is broadcast to the network is a decision for
+/// that service. A program that streamed once should not quietly start doing
+/// it again the next time it opens.
+#[cfg(not(target_arch = "wasm32"))]
+#[component]
+fn StreamSwitch() -> Element {
+    let settings = use_settings();
+    // Read from the server rather than remembered here: this panel is built
+    // and thrown away as the user moves about, and the server is not.
+    let mut enabled = use_signal(crate::logic::stream::is_enabled);
+    let mut address = use_signal(crate::logic::stream::address);
+    let mut failure: Signal<Option<String>> = use_signal(|| None);
+    // Bumped so that the publisher in `App` comes round and sends the
+    // presentation as it stands — switching this on is not a change to the
+    // presentation, and a viewer should not have to wait for the next slide.
+    let mut stream_generation: Signal<u64> = use_context();
+
+    rsx! {
+        hgroup {
+            h6 { { t!("selection.stream_headline").to_string() } }
+            p { { t!("selection.stream_description").to_string() } }
+        }
+        label {
+            class: "switch",
+            input {
+                r#type: "checkbox",
+                role: "switch",
+                checked: enabled(),
+                onchange: move |event| {
+                    let wanted: bool = event.value().parse().unwrap_or(false);
+                    failure.set(None);
+                    if wanted {
+                        let stream = settings.read().stream.clone();
+                        match crate::logic::stream::enable(stream.port, stream.password) {
+                            Ok(reachable_at) => {
+                                enabled.set(true);
+                                address.set(Some(reachable_at));
+                                stream_generation += 1;
+                            }
+                            // A port that is already in use is the likeliest
+                            // outcome and is worth saying out loud, next to the
+                            // switch that did not go on.
+                            Err(reason) => {
+                                enabled.set(false);
+                                address.set(None);
+                                failure.set(Some(
+                                    t!("selection.stream_failed", reason = reason).to_string(),
+                                ));
+                            }
+                        }
+                    } else {
+                        crate::logic::stream::disable();
+                        enabled.set(false);
+                        address.set(None);
+                        stream_generation += 1;
+                    }
+                },
+            }
+            span { class: "slider" }
+            { t!("selection.stream_enable").to_string() }
+        }
+
+        if let Some(reachable_at) = address() {
+            p {
+                style: "margin-top: 0.5rem;",
+                { t!("selection.stream_address_hint").to_string() }
+                br {}
+                code {
+                    style: "user-select: all; font-size: 1.1em;",
+                    { reachable_at }
+                }
+            }
+        }
+
+        if let Some(reason) = failure() {
+            p { style: "color: var(--pico-del-color, #b3261e);", { reason } }
+        }
+    }
+}
+
+/// There is no server inside a browser, so the web build has no switch.
+#[cfg(target_arch = "wasm32")]
+#[component]
+fn StreamSwitch() -> Element {
+    rsx! {}
 }

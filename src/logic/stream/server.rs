@@ -176,6 +176,7 @@ impl StreamServer {
 
     /// The port the server actually took, which is not the one that was asked
     /// for when that was 0.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn port(&self) -> u16 {
         self.port
     }
@@ -270,22 +271,28 @@ async fn events(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Respon
         return locked();
     }
 
-    let mut receiver = shared.state.subscribe();
-    let updates = stream::unfold(receiver.clone(), move |mut receiver| async move {
-        // The first thing a viewer gets is where things stand now; after that,
-        // every change.
-        let state = receiver.borrow_and_update().clone();
-        let event = Event::default().json_data(&*state).unwrap_or_default();
-        if receiver.changed().await.is_err() {
+    let receiver = shared.state.subscribe();
+
+    // The first thing a viewer gets is where things stand *now*; after that,
+    // every change as it happens.
+    //
+    // The order matters and is the whole of it: waiting for a change before
+    // sending anything means a page that connects between two slides sits on
+    // its loading placeholder until the next one — which, in the middle of a
+    // reading, is minutes. So the state is yielded first and the wait comes
+    // after.
+    let updates = stream::unfold((receiver, true), |(mut receiver, first)| async move {
+        if !first && receiver.changed().await.is_err() {
             // The program has gone; the stream ends and the page reconnects.
             return None;
         }
-        Some((Ok::<Event, std::convert::Infallible>(event), receiver))
+        let state = receiver.borrow_and_update().clone();
+        let event = Event::default().json_data(&*state).unwrap_or_default();
+        Some((
+            Ok::<Event, std::convert::Infallible>(event),
+            (receiver, false),
+        ))
     });
-
-    // Mark the first state as unseen so it is sent immediately rather than
-    // only when something changes.
-    receiver.mark_changed();
 
     Sse::new(updates)
         .keep_alive(KeepAlive::default())
@@ -687,6 +694,45 @@ mod tests {
             again.is_ok(),
             "the port was not released: {:?}",
             again.err()
+        );
+    }
+
+    /// A viewer is told where things stand the moment it connects, not when
+    /// something next changes.
+    ///
+    /// This is what a page opened between two slides depends on. Waiting for a
+    /// change first left it on its loading placeholder — for as long as the
+    /// reading lasted.
+    #[test]
+    fn a_viewer_is_told_where_things_stand_on_connecting() {
+        use std::io::Read;
+
+        let mut server = serving("");
+        server.publish(StreamState {
+            running: true,
+            chapters: vec![super::super::protocol::StreamChapter {
+                title: "Amazing Grace".to_string(),
+                slides: vec![],
+            }],
+            ..StreamState::default()
+        });
+
+        // Connecting *after* the change, and receiving without another one.
+        let mut stream = client()
+            .get(at(&server, "/events"))
+            .send()
+            .expect("the stream opens");
+
+        let mut buffer = [0u8; 1024];
+        let read = stream
+            .read(&mut buffer)
+            .expect("the current state arrives without waiting for a change");
+        let first = String::from_utf8_lossy(&buffer[..read]);
+
+        assert!(read > 0, "something arrives at once");
+        assert!(
+            first.contains("Amazing Grace"),
+            "and it is the state that was published, got: {first}"
         );
     }
 }

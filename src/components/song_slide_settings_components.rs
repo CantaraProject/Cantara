@@ -130,7 +130,7 @@ pub fn SongSlideSettings(song_slide_settings: Signal<Vec<SlideSettings>>) -> Ele
                                 && index < song_slide_settings.read().len() {
                                     song_slide_settings.write().remove(index);
                                     selected_slide_settings_index
-                                        .set(Some(0).filter(|_| !song_slide_settings.read().is_empty()));
+                                        .set((!song_slide_settings.read().is_empty()).then_some(0));
                                 }
                         },
                     }

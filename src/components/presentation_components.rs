@@ -1380,12 +1380,13 @@ fn EmptySlideComponent() -> Element {
 fn slide_container_style(slide_content: &SlideContent) -> &'static str {
     match slide_content {
         SlideContent::SimplePicture(_) => "height: 100%;",
-        SlideContent::SingleLanguageMainContent(main_slide) => {
-            if get_markdown_html(&main_slide.clone().main_text()).is_some() {
-                "height: 100%;"
-            } else {
-                ""
-            }
+        // A markdown slide scrolls, so it needs the whole cell to scroll
+        // inside; the same slide holding plain lyrics is laid out by the
+        // design and must not be stretched.
+        SlideContent::SingleLanguageMainContent(main_slide)
+            if get_markdown_html(&main_slide.clone().main_text()).is_some() =>
+        {
+            "height: 100%;"
         }
         _ => "",
     }

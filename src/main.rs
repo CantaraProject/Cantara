@@ -53,9 +53,6 @@ pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
 /// The favicon / window icon
 const FAVICON: Asset = asset!("/assets/favicon.png");
 
-/// The test state for debugging purposes (will be removed in the final version)
-static TEST_STATE: GlobalSignal<String> = Global::new(|| "test".to_string());
-
 /// The routes of the application.
 ///
 /// All of them live inside [`AnimatedLayout`], which renders an animated outlet
@@ -280,6 +277,79 @@ fn App() -> Element {
     // The running presentations given as a global signal
     let _: Signal<Vec<RunningPresentation>> = use_context_provider(|| Signal::new(vec![]));
 
+    // Counts up when streaming is switched on or off. Turning the switch is
+    // not a change to the presentation, so without something for the publisher
+    // below to watch, enabling streaming in the middle of a service would
+    // publish nothing until the next slide change.
+    let stream_generation: Signal<u64> = use_context_provider(|| Signal::new(0));
+
+    // Keeps every browser watching over the network in step with the
+    // presentation.
+    //
+    // Here rather than in the presentation window, because this is the window
+    // that outlives it: a viewer who opens the address between two services
+    // is told to wait rather than met with a dead connection, which is the
+    // whole reason the server stays up while the switch is on.
+    //
+    // Publishing is cheap and does nothing at all when streaming is off, so
+    // this may follow every change without asking first.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let running_presentations: Signal<Vec<RunningPresentation>> = use_context();
+        use_effect(move || {
+            use logic::stream::protocol::StreamState;
+
+            // Read before deciding, both of them. An effect subscribes to
+            // what it *reads*, so returning early on "streaming is off" before
+            // touching a signal meant this effect subscribed to nothing at all
+            // and never ran a second time — the server sat on its opening
+            // "nothing is running" for the rest of the session. And switching
+            // streaming on is not a change to the presentation, so the switch
+            // bumps a counter of its own to bring this back round.
+            let _ = stream_generation();
+            let presentations = running_presentations.read().clone();
+
+            if !logic::stream::is_enabled() {
+                return;
+            }
+
+            let state = match presentations.first() {
+                Some(running) => StreamState::of(running, 0),
+                // Between services. The address stays open and says so.
+                None => StreamState::waiting(0),
+            };
+
+            // A picture cannot be sent as words, so the slides that are one are
+            // rendered and handed over before the state that refers to them —
+            // otherwise a viewer asks for a picture that is not there yet.
+            let wanted: Vec<String> = state
+                .chapters
+                .iter()
+                .flat_map(|chapter| chapter.slides.iter())
+                .filter_map(|slide| match slide {
+                    logic::stream::protocol::StreamSlide::Picture { media } => Some(media.clone()),
+                    _ => None,
+                })
+                .collect();
+            let sources = picture_sources(&presentations);
+
+            spawn(async move {
+                for id in wanted {
+                    if logic::stream::has_media(&id) {
+                        continue;
+                    }
+                    let Some(source) = sources.get(&id) else {
+                        continue;
+                    };
+                    if let Some((bytes, content_type)) = render_for_stream(source).await {
+                        logic::stream::publish_media(id, bytes, content_type);
+                    }
+                }
+                logic::stream::publish(state);
+            });
+        });
+    }
+
     // Where a build starts. The desktop is built around assembling a
     // presentation, so it opens the selection; the web version is mostly used
     // to look songs up, so it opens the detail view.
@@ -395,3 +465,72 @@ fn App() -> Element {
         Router::<Route> {}
     }
 }
+
+/// Where every picture in a running order came from, by the name the stream
+/// gives it.
+///
+/// The state a viewer receives names its pictures but does not say where they
+/// are — a viewer has no file system and no business knowing about one. This
+/// is the other half of that mapping, kept on this side.
+#[cfg(not(target_arch = "wasm32"))]
+fn picture_sources(
+    running: &[RunningPresentation],
+) -> std::collections::HashMap<String, String> {
+    use cantara_songlib::slides::SlideContent;
+    use logic::stream::protocol::media_id;
+
+    let mut sources = std::collections::HashMap::new();
+    for presentation in running {
+        for chapter in &presentation.presentation {
+            for slide in &chapter.slides {
+                let source = match &slide.slide_content {
+                    SlideContent::SimplePicture(picture) => {
+                        logic::presentation::get_picture_path(picture)
+                    }
+                    SlideContent::PdfPage(page) => {
+                        format!("{}#page={}", page.pdf_path, page.page_number)
+                    }
+                    _ => continue,
+                };
+                sources.insert(media_id(&source), source);
+            }
+        }
+    }
+    sources
+}
+
+/// A picture, as bytes a browser can be handed.
+///
+/// A PDF page has to be rendered first, which happens in this window's own
+/// page and needs nothing to be on screen — the same route the PowerPoint
+/// export takes. See [`logic::pdf::page_image`].
+#[cfg(not(target_arch = "wasm32"))]
+async fn render_for_stream(source: &str) -> Option<(Vec<u8>, &'static str)> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
+    let data_url = match logic::pdf::pdf_page_of(source) {
+        Some((document, page)) => {
+            logic::pdf::page_image(&document, page, STREAM_PICTURE_WIDTH).await?
+        }
+        None => logic::images::image_data_url(std::path::Path::new(source))?,
+    };
+
+    // `data:{type};base64,{payload}` — the server wants the bytes, not the
+    // wrapper a web view needs.
+    let (declared, payload) = data_url.split_once(";base64,")?;
+    let content_type = if declared.contains("jpeg") {
+        "image/jpeg"
+    } else {
+        "image/png"
+    };
+    let bytes = BASE64.decode(payload).ok()?;
+    Some((bytes, content_type))
+}
+
+/// How wide a picture is rendered for a viewer.
+///
+/// A phone is not a projector: a full-resolution page would be several
+/// megabytes over a hall's wi-fi for no visible gain on a screen a few inches
+/// across.
+#[cfg(not(target_arch = "wasm32"))]
+const STREAM_PICTURE_WIDTH: u32 = 1280;

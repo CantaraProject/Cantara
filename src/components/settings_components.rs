@@ -86,6 +86,8 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
     rsx! {
         RepositorySettings {}
         hr {}
+        StreamSettingsSection {}
+        hr {}
         ScreenSettings {}
         hr {}
         PresentationSettings {
@@ -94,6 +96,64 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
         hr {}
         SongSlideSettings {
             song_slide_settings
+        }
+    }
+}
+
+/// How the running presentation is offered to the local network.
+///
+/// Only the *how* is here. Whether a given presentation is streamed is
+/// switched on beside its other options in the selection window, so that a
+/// program which was streaming once does not quietly start doing it again the
+/// next time it opens.
+#[component]
+fn StreamSettingsSection() -> Element {
+    let mut settings = use_settings();
+    let port = use_memo(move || settings.read().stream.port);
+    let password = use_memo(move || settings.read().stream.password.clone());
+
+    rsx! {
+        hgroup {
+            h3 { { t!("settings.stream_headline").to_string() } }
+            p { { t!("settings.stream_description").to_string() } }
+        }
+        article {
+            class: "listed-article",
+            label {
+                { t!("settings.stream_port").to_string() }
+                input {
+                    r#type: "number",
+                    min: "1024",
+                    max: "65535",
+                    value: "{port}",
+                    onchange: move |event| {
+                        // Anything that is not a port at all leaves the setting
+                        // alone: a half-typed number should not silently move
+                        // the server somewhere unexpected.
+                        if let Ok(chosen) = event.value().parse::<u16>()
+                            && chosen >= 1024
+                        {
+                            settings.write().stream.port = chosen;
+                            settings.read().save();
+                        }
+                    },
+                }
+            }
+            label {
+                { t!("settings.stream_password").to_string() }
+                input {
+                    r#type: "password",
+                    value: "{password}",
+                    onchange: move |event| {
+                        settings.write().stream.password = event.value();
+                        settings.read().save();
+                    },
+                }
+            }
+            p {
+                style: "font-size: 0.85em; color: var(--pico-muted-color);",
+                { t!("settings.stream_plain_http_note").to_string() }
+            }
         }
     }
 }
@@ -431,7 +491,7 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                                     }
                                     
                                     presentation_designs.write().remove(index);
-                                    selected_presentation_design_index.set(Some(0).filter(|_| !presentation_designs.read().is_empty()));
+                                    selected_presentation_design_index.set((!presentation_designs.read().is_empty()).then_some(0));
                                     
                                     // Ensure slide settings and presentation designs stay in sync
                                     settings.write().ensure_slide_settings_for_designs();

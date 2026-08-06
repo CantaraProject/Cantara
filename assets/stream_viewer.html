@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Cantara</title>
+<!--
+  The page a phone on the network is given.
+
+  Deliberately one file with nothing to fetch: a church hall's wi-fi is often
+  the only thing between this and the internet, and often there is no internet
+  at all. No framework, no fonts, no icons — the whole thing is what arrives in
+  the first response.
+
+  It renders the *words*, not a picture of the slide, so the text reflows to
+  whatever it is being read on and stays sharp at any size. Pictures and PDF
+  pages are the exception, and those are fetched from the server one at a time.
+
+  What it shows is decided entirely by the state described in
+  `src/logic/stream/protocol.rs`; adding the planned stage view and
+  running-order sheet is a matter of drawing that same state differently.
+-->
+<style>
+  :root {
+    --background: #000;
+    --foreground: #fff;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    /* Clear of the notch and the home indicator. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  main {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 1.2rem;
+    overflow-y: auto;
+    gap: 0.6em;
+  }
+
+  /* The words. Sized against the viewport so one line fills a phone held
+     upright and a tablet held sideways, without either of them needing a
+     setting. */
+  .line {
+    margin: 0;
+    font-size: clamp(1.4rem, 5.2vw, 3rem);
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .title {
+    font-size: clamp(1.8rem, 7vw, 4rem);
+    font-weight: 700;
+    line-height: 1.15;
+    margin: 0;
+  }
+
+  /* What is coming, where the design shows it ahead. Quieter than the words
+     being sung, so the two are not confused at a glance. */
+  .spoiler {
+    opacity: 0.55;
+    font-size: clamp(1.1rem, 4vw, 2.2rem);
+  }
+
+  .meta {
+    opacity: 0.6;
+    font-size: clamp(0.75rem, 2.6vw, 1rem);
+    margin: 0;
+  }
+
+  .picture {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  /* Nothing running, and nothing wrong. */
+  .quiet {
+    opacity: 0.55;
+    font-size: clamp(1rem, 3.4vw, 1.4rem);
+  }
+
+  footer {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+    opacity: 0.5;
+  }
+
+  /* Says when the connection has dropped, so a viewer knows the words are old
+     rather than the service having stopped. */
+  #connection[data-state="lost"] { color: #ff8a80; opacity: 1; }
+
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    width: min(20rem, 100%);
+  }
+
+  input, button {
+    font: inherit;
+    padding: 0.7rem 0.9rem;
+    border-radius: 0.5rem;
+    border: 1px solid currentColor;
+    background: transparent;
+    color: inherit;
+  }
+
+  button { cursor: pointer; font-weight: 600; }
+
+  #error { color: #ff8a80; min-height: 1.2em; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<main id="stage"><p class="quiet">…</p></main>
+<footer>
+  <span id="where"></span>
+  <span id="connection"></span>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  var stage = document.getElementById('stage');
+  var where = document.getElementById('where');
+  var connection = document.getElementById('connection');
+
+  // The last state drawn, so an update saying the same thing is ignored rather
+  // than redrawing the page under someone's eyes.
+  var drawnRevision = -1;
+  var source = null;
+
+  function text(tag, className, value) {
+    var element = document.createElement(tag);
+    if (className) element.className = className;
+    element.textContent = value;
+    return element;
+  }
+
+  function show(nodes) {
+    stage.replaceChildren.apply(stage, nodes);
+  }
+
+  // ── The password, when there is one ──────────────────────────────────────
+
+  function askForPassword() {
+    var form = document.createElement('form');
+    var field = document.createElement('input');
+    field.type = 'password';
+    field.placeholder = 'Password';
+    field.autocomplete = 'current-password';
+    var submit = document.createElement('button');
+    submit.type = 'submit';
+    submit.textContent = 'Watch';
+    var error = text('p', '', '');
+    error.id = 'error';
+
+    form.append(field, submit, error);
+    show([text('p', 'quiet', 'This presentation is protected.'), form]);
+    field.focus();
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      submit.disabled = true;
+      error.textContent = '';
+      fetch('login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: field.value })
+      }).then(function (response) {
+        submit.disabled = false;
+        if (response.ok) {
+          start();
+        } else {
+          error.textContent = 'That is not the password.';
+          field.select();
+        }
+      }).catch(function () {
+        submit.disabled = false;
+        error.textContent = 'Cantara cannot be reached.';
+      });
+    });
+  }
+
+  // ── Drawing a state ──────────────────────────────────────────────────────
+
+  function applyDesign(design) {
+    if (!design) return;
+    var root = document.documentElement.style;
+    if (design.background) root.setProperty('--background', design.background);
+    if (design.foreground) root.setProperty('--foreground', design.foreground);
+    if (design.font_family) root.setProperty('--font', design.font_family);
+  }
+
+  function currentSlide(state) {
+    if (!state.position) return null;
+    var chapter = state.chapters[state.position.chapter];
+    if (!chapter) return null;
+    return chapter.slides[state.position.slide] || null;
+  }
+
+  function chapterTitle(state) {
+    if (!state.position) return '';
+    var chapter = state.chapters[state.position.chapter];
+    return chapter ? chapter.title : '';
+  }
+
+  function draw(state) {
+    applyDesign(state.design);
+    where.textContent = state.running ? chapterTitle(state) : '';
+
+    if (!state.running) {
+      show([text('p', 'quiet', 'Waiting for the presentation to begin…')]);
+      return;
+    }
+
+    // The moderator has blanked the projection. Blanking the wall and leaving
+    // the words up on fifty phones would defeat the point of the button.
+    if (state.blacked_out) {
+      show([]);
+      return;
+    }
+
+    var slide = currentSlide(state);
+    if (!slide) {
+      show([text('p', 'quiet', '…')]);
+      return;
+    }
+
+    if (slide.kind === 'title') {
+      var titleNodes = [text('h1', 'title', slide.text)];
+      if (slide.meta) titleNodes.push(text('p', 'meta', slide.meta));
+      show(titleNodes);
+      return;
+    }
+
+    if (slide.kind === 'text') {
+      var nodes = slide.lines.map(function (line) {
+        return text('p', 'line', line);
+      });
+      slide.spoiler.forEach(function (line) {
+        nodes.push(text('p', 'line spoiler', line));
+      });
+      if (slide.meta) nodes.push(text('p', 'meta', slide.meta));
+      show(nodes.length ? nodes : [text('p', 'quiet', '…')]);
+      return;
+    }
+
+    if (slide.kind === 'picture') {
+      var picture = document.createElement('img');
+      picture.className = 'picture';
+      picture.alt = '';
+      picture.src = 'media/' + encodeURIComponent(slide.media);
+      // A picture that has not been prepared yet says so rather than leaving a
+      // broken frame on the screen.
+      picture.addEventListener('error', function () {
+        show([text('p', 'quiet', 'This slide is a picture, which is still being prepared…')]);
+      });
+      show([picture]);
+      return;
+    }
+
+    // An empty slide is part of the service — the gap between two songs — so it
+    // is shown as one.
+    show([]);
+  }
+
+  // ── Staying connected ────────────────────────────────────────────────────
+
+  function setConnection(state) {
+    connection.dataset.state = state;
+    connection.textContent = state === 'lost' ? 'Reconnecting…' : '';
+  }
+
+  function start() {
+    if (source) source.close();
+    setConnection('opening');
+
+    source = new EventSource('events');
+
+    source.addEventListener('open', function () {
+      setConnection('open');
+    });
+
+    source.addEventListener('message', function (event) {
+      var state;
+      try {
+        state = JSON.parse(event.data);
+      } catch (e) {
+        return;
+      }
+      setConnection('open');
+      if (state.revision === drawnRevision) return;
+      drawnRevision = state.revision;
+      draw(state);
+    });
+
+    source.addEventListener('error', function () {
+      // `EventSource` reconnects by itself, so this only has to say so. The
+      // exception is a password: the stream is refused outright, and no amount
+      // of retrying will help.
+      setConnection('lost');
+      fetch('state').then(function (response) {
+        if (response.status === 401) {
+          source.close();
+          source = null;
+          setConnection('open');
+          askForPassword();
+        }
+      }).catch(function () { /* still offline; EventSource keeps trying */ });
+    });
+  }
+
+  // Find out whether a password is wanted before opening the stream, so a
+  // protected presentation asks once rather than flickering through an error.
+  fetch('state')
+    .then(function (response) {
+      if (response.status === 401) {
+        askForPassword();
+        return;
+      }
+      start();
+    })
+    .catch(function () {
+      show([text('p', 'quiet', 'Cantara cannot be reached.')]);
+    });
+})();
+</script>
+</body>
+</html>

@@ -172,6 +172,12 @@ impl StreamState {
     }
 
     /// The slide that is up, if there is one.
+    ///
+    /// Not read by the program itself — the page works this out for itself
+    /// from the same fields — but it is the operation the planned stage view
+    /// and running-order sheet are built on, and it is tested here so that the
+    /// meaning of a position cannot drift away from what a viewer assumes.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn current_slide(&self) -> Option<&StreamSlide> {
         let position = self.position?;
         self.chapters
@@ -184,6 +190,7 @@ impl StreamState {
     ///
     /// What the program has to render and hand to the server before a viewer
     /// asking for it gets anything.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn media(&self) -> Vec<String> {
         let mut named: Vec<String> = Vec::new();
         for chapter in &self.chapters {
