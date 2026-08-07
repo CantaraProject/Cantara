@@ -68,6 +68,8 @@ pub mod sourcefiles;
 pub mod bundled_repos;
 
 pub mod detail;
+/// The second reading of the same service: what the network stream shows.
+pub mod stream_view;
 pub mod element_id;
 pub mod images;
 pub mod pdf;

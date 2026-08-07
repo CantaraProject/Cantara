@@ -1,5 +1,6 @@
 use crate::components::shared_components::SelectedItemPreview;
 use crate::logic::settings::{use_settings, AfterLastSlide, SlideTimerSettings, SlideTransition};
+use crate::logic::stream_view::reconcile_max_lines;
 use crate::logic::states::SelectedItemRepresentation;
 use dioxus::prelude::*;
 use rust_i18n::t;
@@ -50,7 +51,10 @@ pub(crate) fn PresentationOptions(
 
         match *tab_state.read() {
             PresentationOptionTabState::General => {
-                rsx! { StreamSwitch {} }
+                rsx! {
+                    StreamSwitch {}
+                    StreamViewSettings {}
+                }
             }
             PresentationOptionTabState::Specific => {
                 let items = selected_items.read();
@@ -143,6 +147,100 @@ pub(crate) fn PresentationOptions(
                             }
                         }
                     }
+                    // What the phones are shown for *this* element, overriding
+                    // whatever the service chose generally. "Same as the
+                    // presentation" here means exactly that and not "fall back
+                    // to the general choice": an element singled out to look
+                    // like the projection has to be able to say so even when
+                    // the service as a whole does not.
+                    hgroup { style: "margin-top: 1rem;",
+                        h6 { {t!("selection.presentation_options.stream_view.headline").to_string()} }
+                    }
+                    div { class: "grid",
+                        div {
+                            label { {t!("selection.presentation_options.stream_view.design").to_string()} }
+                            select {
+                                onchange: move |evt| {
+                                    let val = evt.value();
+                                    let mut items = selected_items.write();
+                                    if val == "default" {
+                                        items[item_index].stream_design_option = None;
+                                    } else if let Ok(idx) = val.parse::<usize>() {
+                                        items[item_index].stream_design_option = Some(
+                                            settings.read().presentation_designs[idx].clone(),
+                                        );
+                                    }
+                                },
+                                option {
+                                    value: "default",
+                                    selected: item.stream_design_option.is_none(),
+                                    {t!("selection.presentation_options.default").to_string()}
+                                }
+                                for (idx , pd) in settings.read().presentation_designs.iter().enumerate() {
+                                    option {
+                                        value: "{idx}",
+                                        selected: item
+                                            .stream_design_option
+                                            .as_ref()
+                                            .is_some_and(|p| p.name == pd.name),
+                                        "{pd.name}"
+                                    }
+                                }
+                            }
+                        }
+                        div {
+                            label { {t!("selection.presentation_options.stream_view.slide_settings").to_string()} }
+                            select {
+                                onchange: move |evt| {
+                                    let val = evt.value();
+                                    let mut items = selected_items.write();
+                                    if val == "default" {
+                                        items[item_index].stream_slide_settings_option = None;
+                                    } else if let Ok(idx) = val.parse::<usize>() {
+                                        items[item_index].stream_slide_settings_option = Some(
+                                            settings.read().song_slide_settings[idx].clone(),
+                                        );
+                                    }
+                                },
+                                option {
+                                    value: "default",
+                                    selected: item.stream_slide_settings_option.is_none(),
+                                    {t!("selection.presentation_options.default").to_string()}
+                                }
+                                for (idx , _) in settings.read().song_slide_settings.iter().enumerate() {
+                                    option {
+                                        value: "{idx}",
+                                        selected: item.stream_slide_settings_option
+                                            .as_ref()
+                                            .is_some_and(|s| { s == &settings.read().song_slide_settings[idx] }),
+                                        {
+                                            format!(
+                                                "{} {}",
+                                                t!("selection.presentation_options.slide_settings"),
+                                                idx + 1,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    {
+                        // Reconciled against *this* element's own wrap, which
+                        // is the reference the mapping is built on.
+                        let projection_wrap = item
+                            .slide_settings_option
+                            .clone()
+                            .or_else(|| settings.read().song_slide_settings.first().cloned())
+                            .and_then(|slide_settings| slide_settings.max_lines);
+                        let chosen_wrap = item
+                            .stream_slide_settings_option
+                            .as_ref()
+                            .and_then(|slide_settings| slide_settings.max_lines);
+                        wrap_note(chosen_wrap, reconcile_max_lines(projection_wrap, chosen_wrap))
+                    }
+
                     div { class: "grid",
                         div {
                             label { {t!("selection.presentation_options.transition.label").to_string()} }
@@ -291,6 +389,124 @@ pub(crate) fn PresentationOptions(
                 }
             }
         }
+    }
+}
+
+/// What the phones are shown, for the service as a whole.
+///
+/// Beside the switch rather than in the settings, and for the same reason: how
+/// streaming works is a setting, but what a given service sends is a decision
+/// for that service. This one is kept, though — it is a choice between designs
+/// the user has already built, and rebuilding it every Sunday would be a chore
+/// rather than a safeguard.
+#[component]
+fn StreamViewSettings() -> Element {
+    let mut settings = use_settings();
+
+    // The projection's own general choice, which is what "the same" means here
+    // and what the line wrap is reconciled against.
+    let projection_wrap = settings
+        .read()
+        .song_slide_settings
+        .first()
+        .and_then(|slide_settings| slide_settings.max_lines);
+
+    let design_index = settings.read().stream.design_index;
+    let slide_settings_index = settings.read().stream.slide_settings_index;
+
+    // What the chosen wrap will actually come to. Said out loud rather than
+    // silently applied: a user who asks for five lines and gets six should be
+    // told why, next to the control that did it.
+    let chosen_wrap = slide_settings_index
+        .and_then(|index| settings.read().song_slide_settings.get(index).cloned())
+        .and_then(|slide_settings| slide_settings.max_lines);
+    let used_wrap = reconcile_max_lines(projection_wrap, chosen_wrap);
+
+    rsx! {
+        hgroup { style: "margin-top: 1.5rem;",
+            h6 { {t!("selection.presentation_options.stream_view.headline").to_string()} }
+            p { {t!("selection.presentation_options.stream_view.description").to_string()} }
+        }
+        div { class: "grid",
+            div {
+                label { {t!("selection.presentation_options.stream_view.design").to_string()} }
+                select {
+                    onchange: move |event| {
+                        let chosen = event.value().parse::<usize>().ok();
+                        settings.write().stream.design_index = chosen;
+                        settings.read().save();
+                    },
+                    option {
+                        value: "",
+                        selected: design_index.is_none(),
+                        {t!("selection.presentation_options.stream_view.same_as_presentation").to_string()}
+                    }
+                    for (index , design) in settings.read().presentation_designs.iter().enumerate() {
+                        option {
+                            value: "{index}",
+                            selected: design_index == Some(index),
+                            "{design.name}"
+                        }
+                    }
+                }
+            }
+            div {
+                label { {t!("selection.presentation_options.stream_view.slide_settings").to_string()} }
+                select {
+                    onchange: move |event| {
+                        let chosen = event.value().parse::<usize>().ok();
+                        settings.write().stream.slide_settings_index = chosen;
+                        settings.read().save();
+                    },
+                    option {
+                        value: "",
+                        selected: slide_settings_index.is_none(),
+                        {t!("selection.presentation_options.stream_view.same_as_presentation").to_string()}
+                    }
+                    for (index , _) in settings.read().song_slide_settings.iter().enumerate() {
+                        option {
+                            value: "{index}",
+                            selected: slide_settings_index == Some(index),
+                            {
+                                format!(
+                                    "{} {}",
+                                    t!("selection.presentation_options.slide_settings"),
+                                    index + 1,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        {wrap_note(chosen_wrap, used_wrap)}
+    }
+}
+
+/// Says what a chosen line wrap will actually come to, where that is not what
+/// was asked for.
+///
+/// Silence where the two agree: a note that only ever says "yes, that one" is
+/// noise, and the user stops reading it before the one time it matters.
+fn wrap_note(chosen: Option<usize>, used: Option<usize>) -> Element {
+    if chosen == used {
+        return rsx! {};
+    }
+
+    let text = match (chosen, used) {
+        (Some(chosen), Some(used)) => t!(
+            "selection.presentation_options.stream_view.max_lines_note",
+            chosen = chosen,
+            used = used
+        )
+        .to_string(),
+        // Asked for a wrap under a projection that has none.
+        _ => t!("selection.presentation_options.stream_view.max_lines_dropped").to_string(),
+    };
+
+    rsx! {
+        p { class: "stream-wrap-note", { text } }
     }
 }
 

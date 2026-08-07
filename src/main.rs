@@ -474,8 +474,9 @@ fn picture_sources(
     for presentation in running {
         for chapter in &presentation.presentation {
             // The design's background picture, which is as much a part of what
-            // a viewer sees as any slide.
-            if let Some(design) = &chapter.presentation_design_option
+            // a viewer sees as any slide. The design the *stream* uses, which
+            // is the projection's unless the service asked for another.
+            if let Some(design) = chapter.design_for_stream()
                 && let logic::settings::PresentationDesignSettings::Template(template) =
                     &design.presentation_design_settings
                 && let Some(picture) = &template.background_image
@@ -484,7 +485,9 @@ fn picture_sources(
                 sources.insert(media_id(&path), path);
             }
 
-            for slide in &chapter.slides {
+            // Likewise the slides: where the stream has a division of its own,
+            // those are the pictures a viewer will ask for.
+            for slide in chapter.slides_for_stream() {
                 let source = match &slide.slide_content {
                     SlideContent::SimplePicture(picture) => {
                         logic::presentation::get_picture_path(picture)

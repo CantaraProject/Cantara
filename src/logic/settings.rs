@@ -114,6 +114,26 @@ pub struct StreamSettings {
     /// It travels in the clear either way — this is plain HTTP on a local
     /// network, and a password here keeps the curious out, not an attacker.
     pub password: String,
+
+    /// Which of [`Settings::presentation_designs`] the phones are shown, as an
+    /// index into that list. `None` — the ordinary case — means they are shown
+    /// the same design as the projection.
+    ///
+    /// An index rather than a copy, so that editing a design reaches the
+    /// stream as it reaches the wall. The two lists a user maintains are
+    /// exactly the choice on offer here: a stream design is a presentation
+    /// design, built and previewed in the same editor.
+    #[serde(default)]
+    pub design_index: Option<usize>,
+
+    /// The same, for [`Settings::song_slide_settings`] — how a song is divided
+    /// into slides for a phone.
+    ///
+    /// What is chosen here is not always what is used: the projection is the
+    /// reference, and the line wrap is reconciled against it by
+    /// [`crate::logic::stream_view::stream_slide_settings`].
+    #[serde(default)]
+    pub slide_settings_index: Option<usize>,
 }
 
 impl Default for StreamSettings {
@@ -121,6 +141,8 @@ impl Default for StreamSettings {
         StreamSettings {
             port: default_stream_port(),
             password: String::new(),
+            design_index: None,
+            slide_settings_index: None,
         }
     }
 }

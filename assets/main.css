@@ -1087,3 +1087,12 @@ div.inline-div {
 .stream-copy-failed {
     color: var(--pico-del-color, #b3261e);
 }
+
+/* Says what a chosen line wrap for the stream will actually come to. Only
+   appears when that is not what was asked for, so it reads as an answer rather
+   than as a warning. */
+.stream-wrap-note {
+    margin-top: 0.35rem;
+    font-size: 0.85em;
+    color: var(--pico-muted-color);
+}

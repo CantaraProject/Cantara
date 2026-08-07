@@ -270,25 +270,31 @@ impl StreamState {
     }
 
     /// What to tell a viewer about a presentation that is running.
+    ///
+    /// Built throughout from what the *stream* is set up to show, which is the
+    /// projection's own slides and design unless the service asked for
+    /// something else. Where it did, the second division of the song is what
+    /// travels and the position is the mapped one — see
+    /// [`crate::logic::stream_view`].
     pub fn of(presentation: &RunningPresentation, revision: u64) -> Self {
-        let design = StreamDesign::of(&presentation.get_current_presentation_design());
+        let design = StreamDesign::of(&presentation.get_current_stream_design());
 
         let chapters = presentation
             .presentation
             .iter()
             .map(|chapter| StreamChapter {
                 title: chapter.source_file.name.clone(),
-                slides: chapter.slides.iter().map(StreamSlide::of).collect(),
+                slides: chapter
+                    .slides_for_stream()
+                    .iter()
+                    .map(StreamSlide::of)
+                    .collect(),
             })
             .collect();
 
         let position = presentation
-            .position
-            .as_ref()
-            .map(|position| StreamPosition {
-                chapter: position.chapter(),
-                slide: position.chapter_slide(),
-            });
+            .stream_position()
+            .map(|(chapter, slide)| StreamPosition { chapter, slide });
 
         StreamState {
             revision,
@@ -663,6 +669,102 @@ mod tests {
         assert_eq!(state.chapters[0].title, "Amazing Grace");
         assert_eq!(state.chapters[0].slides.len(), 2);
         assert_eq!(state.chapters[1].slides.len(), 1);
+    }
+
+    /// Where a service divides the song differently for the phones, that
+    /// division is what travels — and the position that travels with it is the
+    /// mapped one, or a viewer would be told to look at a slide that means
+    /// something else.
+    #[test]
+    fn a_stream_with_its_own_division_sends_that_one() {
+        let mut presentation = RunningPresentation::new(vec![chapter(
+            "Amazing Grace",
+            vec![
+                Slide::new_content_slide("one\ntwo".to_string(), None, None),
+                Slide::new_content_slide("three\nfour".to_string(), None, None),
+            ],
+        )]);
+        presentation.presentation[0].stream_slides = Some(vec![Slide::new_content_slide(
+            "one\ntwo\nthree\nfour".to_string(),
+            None,
+            None,
+        )]);
+        presentation.presentation[0].stream_slide_map = vec![0, 0];
+
+        // The wall moves on; the phones stay where they are, because the slide
+        // they are showing already holds what the wall has just put up.
+        presentation.next_slide();
+        let state = StreamState::of(&presentation, 1);
+
+        assert_eq!(state.chapters[0].slides.len(), 1, "the phones' division");
+        assert_eq!(
+            state.position,
+            Some(StreamPosition {
+                chapter: 0,
+                slide: 0
+            })
+        );
+        assert!(matches!(
+            state.current_slide(),
+            Some(StreamSlide::Text { rows, .. })
+                if rows == &[lyrics_row(&["one", "two", "three", "four"])]
+        ));
+    }
+
+    /// A service that asked for nothing of its own is sent the projection,
+    /// exactly as before. This is what most services are, and the cost of the
+    /// feature to them has to be nothing at all.
+    #[test]
+    fn without_a_second_division_the_projection_is_what_travels() {
+        let mut presentation = RunningPresentation::new(vec![chapter(
+            "Amazing Grace",
+            vec![
+                Slide::new_content_slide("one".to_string(), None, None),
+                Slide::new_content_slide("two".to_string(), None, None),
+            ],
+        )]);
+        presentation.next_slide();
+
+        let state = StreamState::of(&presentation, 1);
+
+        assert_eq!(state.chapters[0].slides.len(), 2);
+        assert_eq!(state.position.map(|position| position.slide), Some(1));
+    }
+
+    /// The design a viewer sees is the stream's where the service named one.
+    /// Sending the projection's would leave a phone showing forty-point type
+    /// over a photograph meant for a wall ten metres away.
+    #[test]
+    fn a_stream_design_is_what_reaches_a_viewer() {
+        use crate::logic::settings::{
+            PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate,
+        };
+
+        let plain = |background: &str| {
+            let mut template = PresentationDesignTemplate::default();
+            template
+                .set_background_color_from_hex_str(background)
+                .expect("a colour");
+            PresentationDesign {
+                presentation_design_settings: PresentationDesignSettings::Template(template),
+                ..PresentationDesign::default()
+            }
+        };
+
+        let mut presentation = RunningPresentation::new(vec![chapter(
+            "Amazing Grace",
+            vec![Slide::new_content_slide("Amazing grace".to_string(), None, None)],
+        )]);
+        presentation.presentation[0].presentation_design_option = Some(plain("#102030"));
+        presentation.presentation[0].stream_design_option = Some(plain("#fafafa"));
+
+        let sent = StreamState::of(&presentation, 1).design;
+
+        assert_eq!(
+            sent.background.to_lowercase(),
+            "#fafafa",
+            "the phones design, not the walls"
+        );
     }
 
     /// Where the presentation stands has to point *into* what was sent, or a

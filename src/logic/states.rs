@@ -75,6 +75,17 @@ pub struct SelectedItemRepresentation {
     /// The [PresentationDesign] as an option. If [None], the default [PresentationDesign] will be used.
     pub slide_settings_option: Option<SlideSettings>,
 
+    /// The design the network stream shows this element in, where it is not
+    /// the one on the wall. [None] falls back to the service's general choice,
+    /// and that in turn to the projection's own — a phone showing the same
+    /// thing as the projector is the ordinary case and costs nothing.
+    pub stream_design_option: Option<PresentationDesign>,
+
+    /// The same, for how this element is divided into slides on a phone. A
+    /// congregation reading from their own screens can be given the whole
+    /// verse while the wall goes two lines at a time.
+    pub stream_slide_settings_option: Option<SlideSettings>,
+
     /// Optional inline markdown content for spontaneous markdown text.
     /// When set, this content is used instead of reading from the source file path.
     pub inline_markdown: Option<String>,
@@ -92,6 +103,8 @@ impl SelectedItemRepresentation {
             source_file,
             presentation_design_option: None,
             slide_settings_option: None,
+            stream_design_option: None,
+            stream_slide_settings_option: None,
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: SlideTransition::default(),
@@ -239,6 +252,55 @@ impl RunningPresentation {
                 .unwrap_or_default(),
             None => PresentationDesign::default(),
         }
+    }
+
+    /// The design a viewer on the network sees, for the chapter that is up.
+    pub fn get_current_stream_design(&self) -> PresentationDesign {
+        match self.position.as_ref() {
+            Some(pos) => self
+                .presentation
+                .get(pos.chapter())
+                .and_then(|chapter| chapter.design_for_stream())
+                .unwrap_or_default(),
+            None => PresentationDesign::default(),
+        }
+    }
+
+    /// Where a viewer on the network stands, as a chapter and a slide within
+    /// it.
+    ///
+    /// The same place as the projection where the two show the same slides,
+    /// and the mapped one where the service asked the stream to divide the
+    /// song differently.
+    pub fn stream_position(&self) -> Option<(usize, usize)> {
+        let position = self.position.as_ref()?;
+        let chapter = self.presentation.get(position.chapter())?;
+        Some((
+            position.chapter(),
+            chapter.stream_slide_for(position.chapter_slide()),
+        ))
+    }
+
+    /// The slide a viewer on the network is looking at.
+    ///
+    /// What the presenter console previews beside the projection's, so that a
+    /// moderator can see both of the things the congregation can see.
+    pub fn get_current_stream_slide(&self) -> Option<Slide> {
+        let (chapter_index, slide_index) = self.stream_position()?;
+        self.presentation
+            .get(chapter_index)?
+            .slides_for_stream()
+            .get(slide_index)
+            .cloned()
+    }
+
+    /// Whether the chapter that is up shows a viewer on the network something
+    /// other than what the projection shows.
+    pub fn current_stream_differs(&self) -> bool {
+        self.position
+            .as_ref()
+            .and_then(|position| self.presentation.get(position.chapter()))
+            .is_some_and(|chapter| chapter.stream_differs())
     }
 
     /// Compares two `RunningPresentation` instances for structural equality,
@@ -429,6 +491,31 @@ pub struct SlideChapter {
     pub source_file: SourceFile,
     pub presentation_design_option: Option<PresentationDesign>,
     pub slide_settings_option: Option<SlideSettings>,
+
+    /// The design the network stream shows this chapter in, where that is not
+    /// the projection's. [None] means the phones look like the wall.
+    #[serde(default)]
+    pub stream_design_option: Option<PresentationDesign>,
+
+    /// A second division of the same song, for the phones.
+    ///
+    /// [None] — the ordinary case — means the stream shows
+    /// [`slides`](Self::slides) itself, and nothing here has to be kept in
+    /// step with anything. A second set only exists where the service asked
+    /// for one, and then [`stream_slide_map`](Self::stream_slide_map) says
+    /// which of these slides each slide of the projection is showing part of.
+    #[serde(default)]
+    pub stream_slides: Option<Vec<Slide>>,
+
+    /// For every slide of [`slides`](Self::slides), the index into
+    /// [`stream_slides`](Self::stream_slides) that shows it.
+    ///
+    /// Worked out once, when the slides are generated, rather than every time
+    /// a viewer is told where things stand: it depends only on the two sets of
+    /// slides, and both are fixed for as long as the presentation runs.
+    #[serde(default)]
+    pub stream_slide_map: Vec<usize>,
+
     /// Optional timer settings for automatic slide advance.
     #[serde(default)]
     pub timer_settings_option: Option<SlideTimerSettings>,
@@ -457,10 +544,54 @@ impl SlideChapter {
             source_file,
             presentation_design_option: presentation_design,
             slide_settings_option: slide_settings,
+            stream_design_option: None,
+            stream_slides: None,
+            stream_slide_map: Vec::new(),
             timer_settings_option: None,
             transition_option: SlideTransition::default(),
             inline_markdown: None,
         }
+    }
+
+    /// The slides the network stream shows for this chapter.
+    ///
+    /// The projection's own, unless the service asked for a second division.
+    pub fn slides_for_stream(&self) -> &[Slide] {
+        match &self.stream_slides {
+            Some(slides) => slides,
+            None => &self.slides,
+        }
+    }
+
+    /// Which slide the stream is showing while the projection shows `slide`.
+    ///
+    /// The same index where there is no second division, and the mapped one
+    /// where there is. Clamped rather than trusted: a map is generated
+    /// alongside the slides, and a presentation restored from an older session
+    /// may have one that no longer fits.
+    pub fn stream_slide_for(&self, slide: usize) -> usize {
+        if self.stream_slides.is_none() {
+            return slide;
+        }
+        let last = self.slides_for_stream().len().saturating_sub(1);
+        self.stream_slide_map.get(slide).copied().unwrap_or(0).min(last)
+    }
+
+    /// The design the stream shows this chapter in — its own where it has one,
+    /// and otherwise the projection's.
+    pub fn design_for_stream(&self) -> Option<PresentationDesign> {
+        self.stream_design_option
+            .clone()
+            .or_else(|| self.presentation_design_option.clone())
+    }
+
+    /// Whether a viewer is being shown something other than the projection.
+    ///
+    /// What the presenter console asks before offering a second preview: with
+    /// nothing differing there is nothing to preview, and a second picture of
+    /// the same slide is just clutter beside the first.
+    pub fn stream_differs(&self) -> bool {
+        self.stream_slides.is_some() || self.stream_design_option.is_some()
     }
 }
 

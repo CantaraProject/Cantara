@@ -756,6 +756,75 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
                     {format!("{} / {}", current_slide + 1, total_slides)}
                 }
             }
+
+            StreamPreview { running_presentation }
+        }
+    }
+}
+
+/// What the congregation's phones are showing, where that is not what the wall
+/// is showing.
+///
+/// A moderator can see the projection over their shoulder; the stream they
+/// cannot see at all. Once a service gives the phones a design or a slide
+/// division of their own, the second half of what the room is looking at is
+/// invisible from the console — including, and this is the one that matters,
+/// *which* slide it is on, since a wall going two lines at a time and phones
+/// going four do not change together.
+///
+/// Nothing at all where the two agree, which is the ordinary case: a second
+/// picture of the same slide is clutter beside the first.
+#[component]
+fn StreamPreview(running_presentation: Signal<RunningPresentation>) -> Element {
+    let rp = running_presentation.read();
+    if !rp.current_stream_differs() {
+        return rsx! {};
+    }
+
+    let Some(slide) = rp.get_current_stream_slide() else {
+        return rsx! {};
+    };
+    let design = rp.get_current_stream_design();
+
+    // Laid out at the projection's size and scaled down, exactly as the
+    // preview above it is. The two then sit one under the other at the same
+    // size and can be read against each other, which is the whole point of
+    // showing the second one — and a design's sizes are stated for the
+    // presentation's geometry, so laying it out at anything else would be a
+    // picture of a design nobody configured.
+    //
+    // Not a picture of the phone's own page: a viewer's browser reflows the
+    // words to whatever screen it is on, and there is no one shape to draw.
+    // What can be shown, and what a moderator needs, is *which slide* the
+    // phones are on and what design it is wearing.
+    let (native_w, native_h) = rp.layout_size();
+    const PREVIEW_WIDTH: f64 = 480.0;
+    let scale = PREVIEW_WIDTH / native_w;
+    let preview_height = (PREVIEW_WIDTH * native_h / native_w).round();
+
+    // Which slide the phones are on, counted in their own division — the whole
+    // point of showing this is that it is not the projection's number.
+    let position = rp.stream_position();
+    let counter = position.and_then(|(chapter, slide)| {
+        let chapter = rp.presentation.get(chapter)?;
+        Some(format!("{} / {}", slide + 1, chapter.slides_for_stream().len()))
+    });
+
+    rsx! {
+        h4 { style: "margin-top: 1rem;", {t!("presenter.stream_preview").to_string()} }
+        div {
+            class: "presentation-preview slide-scale",
+            style: "width: {PREVIEW_WIDTH}px; height: {preview_height}px; border-radius: 4px;",
+            div {
+                class: "slide-scale-inner",
+                style: "width: {native_w}px; height: {native_h}px; transform: scale({scale});",
+                StaticSlideRendererComponent { slide, presentation_design: design }
+            }
+            if let Some(counter) = counter {
+                div { style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.9rem; z-index: 100;",
+                    { counter }
+                }
+            }
         }
     }
 }
