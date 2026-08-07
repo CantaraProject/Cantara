@@ -29,6 +29,15 @@ use super::protocol::StreamState;
 /// network should need nothing but the one address.
 const VIEWER_PAGE: &str = include_str!("../../../assets/stream_viewer.html");
 
+/// The engraver, for the slides that carry a staff.
+///
+/// Served rather than inlined — half a megabyte of library in front of the
+/// first slide would be paid for by every viewer of every service, and most
+/// services have no notation in them at all. Served *by Cantara* rather than
+/// fetched from a CDN, because the network this runs on frequently has no way
+/// out: the same reason the presentation window loads it from `node_modules`.
+const ABCJS_LIB: &[u8] = include_bytes!("../../../node_modules/abcjs/dist/abcjs-basic-min.js");
+
 /// The name of the cookie a viewer is given once they have proved they know
 /// the password.
 const SESSION_COOKIE: &str = "cantara_stream";
@@ -282,6 +291,7 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/", get(page))
         .route("/state", get(state))
         .route("/events", get(events))
+        .route("/abcjs.js", get(abcjs))
         .route("/media/{id}", get(media))
         .route("/login", post(login))
         .with_state(shared)
@@ -291,6 +301,24 @@ async fn page() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
         VIEWER_PAGE,
+    )
+}
+
+/// The engraver, asked for the first time a slide carries a staff.
+///
+/// Not behind the password: it is a public library, the same bytes anyone can
+/// download from npm, and nothing about the service is in it. Behind the
+/// password it would also have to be fetched again by every viewer who has not
+/// logged in yet, which is the one case where the half megabyte hurts.
+async fn abcjs() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            // The bytes only change when Cantara does, and a viewer's browser
+            // should not fetch half a megabyte once per slide.
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        ABCJS_LIB,
     )
 }
 
@@ -773,6 +801,40 @@ mod tests {
             "image/png"
         );
         assert_eq!(found.bytes().expect("bytes"), b"not really a png".as_slice());
+    }
+
+    /// A slide with a staff on it needs the engraver, and the network Cantara
+    /// runs on frequently has no way out to a CDN — so it comes from here.
+    #[test]
+    fn the_engraver_is_served_by_cantara_itself() {
+        let server = serving("");
+
+        let response = client().get(at(&server, "/abcjs.js")).send().expect("answers");
+
+        assert!(response.status().is_success());
+        assert!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .contains("javascript"),
+            "a browser is told it is a script"
+        );
+        let body = response.text().expect("a script");
+        assert!(body.contains("ABCJS"), "and it is the engraver");
+    }
+
+    /// The engraver is a public library and nothing about the service is in it,
+    /// so it is not behind the password — which also spares a viewer who has
+    /// not logged in yet from fetching half a megabyte twice.
+    #[test]
+    fn the_engraver_is_not_behind_the_password() {
+        let server = serving("open sesame");
+
+        let response = client().get(at(&server, "/abcjs.js")).send().expect("answers");
+
+        assert!(response.status().is_success());
     }
 
     /// With a password set, nothing is given away until it has been typed.

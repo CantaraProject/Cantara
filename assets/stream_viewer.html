@@ -38,6 +38,14 @@
     background: var(--background);
   }
 
+  /* A blank screen is black, not "the design's background with nothing on it".
+     The moderator pressed the button to take the room's attention off the
+     screens, and a phone still glowing in the design's colour — or worse, still
+     showing the churchyard photograph the design uses — has not done that. */
+  html[data-blank="yes"] {
+    background: #000;
+  }
+
   html, body {
     margin: 0;
     height: 100%;
@@ -104,6 +112,47 @@
   .meta {
     margin: 0;
     font-size: calc(var(--size) * var(--meta-scale, 0.4));
+    white-space: pre-line;
+  }
+
+  /* Everywhere but a title slide the meta line keeps out of the way in the
+     bottom corner, as it does on the projection. In the flow it pushed the
+     words up and read as another line of the song.
+     Its own element outside `main`, because `main` is replaced wholesale on
+     every slide change and this is not part of a slide. */
+  #meta {
+    position: fixed;
+    right: calc(env(safe-area-inset-right) + 1.5em);
+    bottom: calc(env(safe-area-inset-bottom) + 1em);
+    z-index: 2;
+    max-width: 45%;
+    text-align: right;
+    display: none;
+  }
+
+  #meta[data-shown="yes"] { display: block; }
+
+  /* The staff. abcjs draws an SVG sized to the width it finds, so the box it
+     is given is what decides how large it comes out — and that box is the
+     design's, set inline from `notation.block_css`. */
+  .notation {
+    width: 100%;
+    color: inherit;
+  }
+
+  .notation svg {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  /* Drawn in `currentColor`, so the staff follows the design's text colour
+     rather than abcjs's black — which on a dark design is invisible. */
+  .notation svg path,
+  .notation svg rect,
+  .notation svg text,
+  .notation svg tspan {
+    fill: currentColor;
   }
 
   /* The distance the design puts between the words and the lines shown ahead.
@@ -185,6 +234,7 @@
 <body>
 <div id="backdrop"></div>
 <main id="stage"><p class="quiet">…</p></main>
+<div id="meta" class="meta"></div>
 <div id="connection"></div>
 
 <script>
@@ -194,6 +244,7 @@
   var stage = document.getElementById('stage');
   var backdrop = document.getElementById('backdrop');
   var connection = document.getElementById('connection');
+  var metaLine = document.getElementById('meta');
 
   // The last state drawn, so an update saying the same thing is ignored rather
   // than redrawing the page under someone's eyes.
@@ -203,6 +254,9 @@
   // What the design says each kind of block should look like, kept from one
   // update to the next so a block can be dressed as it is built.
   var role_css = { spoiler: '', meta: '', title: '' };
+
+  // How the design engraves a staff, likewise.
+  var notation_design = { vocal_font: '', staff_separation: null, block_css: '' };
 
   function dressed(element, css) {
     if (css) element.style.cssText = css;
@@ -218,6 +272,98 @@
 
   function show(nodes) {
     stage.replaceChildren.apply(stage, nodes);
+  }
+
+  // ── The staff ────────────────────────────────────────────────────────────
+  //
+  // The engraver is fetched from Cantara itself, not from the internet: the
+  // network this page arrives on frequently has no way out. It is fetched the
+  // first time a slide has a staff on it and never again — most services have
+  // no notation at all, and half a megabyte in front of the first slide would
+  // be paid for by all of them.
+
+  var abcjsLoading = null;
+
+  function engraver() {
+    if (window.ABCJS) return Promise.resolve(window.ABCJS);
+    if (!abcjsLoading) {
+      abcjsLoading = new Promise(function (resolve, reject) {
+        var script = document.createElement('script');
+        script.src = 'abcjs.js';
+        script.onload = function () { resolve(window.ABCJS); };
+        script.onerror = function () {
+          // Let the next slide try again rather than remembering the failure.
+          abcjsLoading = null;
+          reject(new Error('the engraver could not be fetched'));
+        };
+        document.head.appendChild(script);
+      });
+    }
+    return abcjsLoading;
+  }
+
+  // The tune, with the line spacing the design asks for. abcjs only honours
+  // `%%staffsep` in the source; passed as a render option it is ignored — the
+  // same trap the presentation window fell into.
+  function spaced(abc) {
+    if (notation_design.staff_separation === null ||
+        notation_design.staff_separation === undefined) {
+      return abc;
+    }
+    return '%%staffsep ' + notation_design.staff_separation + '\n' + abc;
+  }
+
+  function notationBlock(abc) {
+    var block = document.createElement('div');
+    block.className = 'notation';
+    // The design's own box: how wide the staff is drawn and where it sits.
+    if (notation_design.block_css) block.style.cssText = notation_design.block_css;
+
+    engraver().then(function (ABCJS) {
+      // Two frames, so the browser has laid the block out: abcjs sizes the
+      // staff to the width it finds, and a width of nothing gives a staff drawn
+      // to a fallback size that has nothing to do with the screen.
+      return new Promise(function (resolve) {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () { resolve(ABCJS); });
+        });
+      });
+    }).then(function (ABCJS) {
+      // The slide may have moved on while the engraver was being fetched.
+      if (!block.isConnected) return;
+      ABCJS.renderAbc(block, spaced(abc), {
+        responsive: 'resize',
+        paddingtop: 0,
+        paddingbottom: 0,
+        paddingleft: 0,
+        paddingright: 0,
+        staffwidth: block.clientWidth > 0 ? block.clientWidth : 700,
+        format: {
+          // abcjs only honours this as a "family size" string; an object is
+          // silently ignored and the words stay at its unreadable default.
+          vocalfont: notation_design.vocal_font,
+          // Engraving convention leaves the last system short. On a slide that
+          // reads as a mistake, so it is stretched like the others.
+          stretchlast: 1
+        }
+      });
+      // abcjs writes black into the SVG; the design may well be light on dark.
+      block.querySelectorAll('path, rect, text, tspan').forEach(function (node) {
+        if (node.getAttribute('fill') !== 'none') {
+          node.setAttribute('fill', 'currentColor');
+        }
+        if (node.getAttribute('stroke') && node.getAttribute('stroke') !== 'none') {
+          node.setAttribute('stroke', 'currentColor');
+        }
+      });
+    }).catch(function (error) {
+      // An empty staff is less disruptive than a wall of raw ABC source, and
+      // the words are on the slide either way — either in a lyrics row or, on
+      // a notation-only slide, in the spoiler of the one before it.
+      block.setAttribute('data-notation-error', String(error && error.message));
+    });
+
+    return block;
   }
 
   // ── The password, when there is one ──────────────────────────────────────
@@ -277,6 +423,7 @@
     role_css.spoiler = design.spoiler_css || '';
     role_css.meta = design.meta_css || '';
     role_css.title = design.title_css || '';
+    notation_design = design.notation || notation_design;
 
     // The proportions the design sets up between the blocks. The size itself
     // belongs to the screen; the ratios belong to the design.
@@ -311,10 +458,26 @@
     return chapter.slides[state.position.slide] || null;
   }
 
+  // The meta line, in the corner it keeps on every slide but a title.
+  function showMeta(value) {
+    if (!value) {
+      metaLine.dataset.shown = 'no';
+      metaLine.textContent = '';
+      return;
+    }
+    metaLine.textContent = value;
+    // The design's own dressing; the corner itself is this file's, and stays in
+    // the stylesheet so replacing the inline style cannot lose it.
+    metaLine.style.cssText = role_css.meta || '';
+    metaLine.dataset.shown = 'yes';
+  }
+
   function draw(state) {
     applyDesign(state.design);
+    document.documentElement.dataset.blank = state.blacked_out ? 'yes' : 'no';
 
     if (!state.running) {
+      showMeta(null);
       show([text('p', 'quiet', 'Waiting for the presentation to begin…')]);
       return;
     }
@@ -325,20 +488,24 @@
     // screen showing a photograph of a churchyard amounted to.
     if (state.blacked_out) {
       backdrop.style.display = 'none';
+      showMeta(null);
       show([]);
       return;
     }
 
     var slide = currentSlide(state);
     if (!slide) {
+      showMeta(null);
       show([text('p', 'quiet', '…')]);
       return;
     }
 
     if (slide.kind === 'title') {
+      // A title's meta line sits right under it, in the flow, as on the
+      // projection — it reads as part of the title rather than as a footnote.
+      showMeta(null);
       var titleNodes = [dressed(text('h1', 'title', slide.text), role_css.title)];
       if (slide.meta) {
-        // A title's meta line sits right under it, as on the projection.
         titleNodes.push(dressed(text('p', 'meta', slide.meta), role_css.meta));
       }
       show(titleNodes);
@@ -346,8 +513,15 @@
     }
 
     if (slide.kind === 'text') {
-      var nodes = slide.lines.map(function (line) {
-        return text('p', 'line', line);
+      var nodes = [];
+      slide.rows.forEach(function (row) {
+        if (row.row === 'notation') {
+          nodes.push(notationBlock(row.abc));
+          return;
+        }
+        row.lines.forEach(function (line) {
+          nodes.push(text('p', 'line', line));
+        });
       });
       if (slide.spoiler.length) {
         // The design's own distance between the two blocks of a slide.
@@ -358,10 +532,12 @@
           nodes.push(dressed(text('p', 'line spoiler', line), role_css.spoiler));
         });
       }
-      if (slide.meta) nodes.push(dressed(text('p', 'meta', slide.meta), role_css.meta));
+      showMeta(slide.meta);
       show(nodes.length ? nodes : [text('p', 'quiet', '…')]);
       return;
     }
+
+    showMeta(null);
 
     if (slide.kind === 'picture') {
       var picture = document.createElement('img');
