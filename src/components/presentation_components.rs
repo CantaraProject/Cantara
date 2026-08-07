@@ -376,7 +376,10 @@ pub fn PresentationPage() -> Element {
 
                                     if let Ok(files) = serde_json::from_str::<HashMap<String, String>>(&files_json) {
                                         for (path, b64) in &files {
-                                            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64) {
+                                            if let Ok(bytes) = base64::Engine::decode(
+                                                &base64::engine::general_purpose::STANDARD,
+                                                b64,
+                                            ) {
                                                 RepositoryType::store_web_file(path, bytes);
                                             }
                                         }
@@ -1380,12 +1383,13 @@ fn EmptySlideComponent() -> Element {
 fn slide_container_style(slide_content: &SlideContent) -> &'static str {
     match slide_content {
         SlideContent::SimplePicture(_) => "height: 100%;",
-        SlideContent::SingleLanguageMainContent(main_slide) => {
-            if get_markdown_html(&main_slide.clone().main_text()).is_some() {
-                "height: 100%;"
-            } else {
-                ""
-            }
+        // A markdown slide scrolls, so it needs the whole cell to scroll
+        // inside; the same slide holding plain lyrics is laid out by the
+        // design and must not be stretched.
+        SlideContent::SingleLanguageMainContent(main_slide)
+            if get_markdown_html(&main_slide.clone().main_text()).is_some() =>
+        {
+            "height: 100%;"
         }
         _ => "",
     }
@@ -1401,7 +1405,7 @@ fn slide_container_style(slide_content: &SlideContent) -> &'static str {
 /// `SingleLanguageMainContentSlide::meta_text` is private in the song library
 /// and has no accessor, so it is read through serde — the same workaround this
 /// module already uses for `SimplePictureSlide::picture_path`.
-fn meta_text_of(slide_content: &SlideContent) -> Option<String> {
+pub(crate) fn meta_text_of(slide_content: &SlideContent) -> Option<String> {
     let text = match slide_content {
         SlideContent::Title(title) => title.meta_text.clone(),
         SlideContent::MultiLanguageMainContent(multi) => multi.meta_text.clone(),

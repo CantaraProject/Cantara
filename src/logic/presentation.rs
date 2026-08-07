@@ -244,13 +244,10 @@ fn create_presentation_slides(
         }
 
         #[cfg(not(target_arch = "wasm32"))]
-        match cantara_songlib::create_presentation_from_file(
+        presentation.extend(cantara_songlib::create_presentation_from_file(
             selected_item.source_file.path.clone(),
             slide_settings,
-        ) {
-            Ok(slides) => presentation.extend(slides),
-            Err(err) => return Err(err),
-        }
+        )?);
     }
 
     if selected_item.source_file.file_type == SourceFileType::Image {

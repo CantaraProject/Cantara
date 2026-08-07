@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Cantara</title>
+<!--
+  The page a phone on the network is given.
+
+  Deliberately one file with nothing to fetch: a church hall's wi-fi is often
+  the only thing between this and the internet, and often there is no internet
+  at all. No framework, no fonts, no icons — the whole thing is what arrives in
+  the first response.
+
+  It renders the *words*, not a picture of the slide, so the text reflows to
+  whatever it is being read on and stays sharp at any size. Pictures and PDF
+  pages are the exception, and those are fetched from the server one at a time.
+
+  What it shows is decided entirely by the state described in
+  `src/logic/stream/protocol.rs`; adding the planned stage view and
+  running-order sheet is a matter of drawing that same state differently.
+-->
+<style>
+  :root {
+    --background: #000;
+    --foreground: #fff;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  /* The colour goes on `html` alone, and `body` stays clear.
+     With it on both, `body` painted an opaque rectangle over the backdrop
+     below — a background picture was fetched, drawn and then completely
+     covered, which looked exactly like it never arrived. */
+  html {
+    background: var(--background);
+  }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    color: var(--foreground);
+    font-family: var(--font);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    /* Clear of the notch and the home indicator. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  main {
+    /* Above the backdrop, which is what the stacking order below is for. */
+    position: relative;
+    z-index: 1;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    /* Stretched, not centred. Centring each block shrink-wrapped it around
+       its own text, which left the design's `text-align` with nothing to do —
+       a presentation set left-aligned came out centred on the phone. The
+       alignment is the design's to state, and it states it in `text_css`. */
+    align-items: stretch;
+    padding: 1.2rem;
+    overflow-y: auto;
+  }
+
+  /* The words. Sized against the viewport so one line fills a phone held
+     upright and a tablet held sideways, without either of them needing a
+     setting. */
+  /* One size, chosen for the screen this is being read on, and every other
+     block set as a fraction of it — the fractions being the design's. The
+     projection's point sizes mean nothing here, but the proportions between
+     them are exactly what makes a design look like itself. */
+  :root { --size: clamp(1.4rem, 5.2vw, 3rem); }
+
+  .line {
+    margin: 0;
+    font-size: var(--size);
+    font-family: var(--font);
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .title {
+    font-family: var(--font);
+    font-size: calc(var(--size) * var(--title-scale, 1.3));
+    line-height: 1.15;
+    margin: 0;
+  }
+
+  /* What is coming, where the design shows it ahead. How it looks is the
+     design's business, not this file's — see `applyDesign`. */
+  .spoiler {
+    font-size: calc(var(--size) * var(--spoiler-scale, 0.6));
+  }
+
+  .meta {
+    margin: 0;
+    font-size: calc(var(--size) * var(--meta-scale, 0.4));
+  }
+
+  /* The distance the design puts between the words and the lines shown ahead.
+     A minimum rather than a fixed height, as on the projection, so a long
+     verse still pushes them apart rather than overlapping. */
+  #gap {
+    min-height: var(--block-gap, 2em);
+  }
+
+  .picture {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  /* The design's background picture, behind everything.
+     Its own layer rather than a background on the body, because the design
+     fades it towards the background colour and only a separate layer can carry
+     that opacity without taking the words down with it — which is exactly how
+     the projection does it. */
+  #backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    display: none;
+  }
+
+  /* Nothing running, and nothing wrong. */
+  .quiet {
+    opacity: 0.55;
+    font-size: clamp(1rem, 3.4vw, 1.4rem);
+  }
+
+  /* Says when the connection has dropped, so a viewer knows the words are old
+     rather than the service having stopped. Nothing but that is ever put on
+     screen: the slide is what a viewer came for, and the projection carries no
+     chrome either. */
+  #connection {
+    position: fixed;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom) + 0.75rem);
+    transform: translateX(-50%);
+    padding: 0.35rem 0.9rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #ff8a80;
+    font-size: 0.8rem;
+    z-index: 2;
+    /* Out of the way until there is something wrong. */
+    display: none;
+  }
+
+  #connection[data-state="lost"] { display: block; }
+
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    width: min(20rem, 100%);
+  }
+
+  input, button {
+    font: inherit;
+    padding: 0.7rem 0.9rem;
+    border-radius: 0.5rem;
+    border: 1px solid currentColor;
+    background: transparent;
+    color: inherit;
+  }
+
+  button { cursor: pointer; font-weight: 600; }
+
+  #error { color: #ff8a80; min-height: 1.2em; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<div id="backdrop"></div>
+<main id="stage"><p class="quiet">…</p></main>
+<div id="connection"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var stage = document.getElementById('stage');
+  var backdrop = document.getElementById('backdrop');
+  var connection = document.getElementById('connection');
+
+  // The last state drawn, so an update saying the same thing is ignored rather
+  // than redrawing the page under someone's eyes.
+  var drawnRevision = -1;
+  var source = null;
+
+  // What the design says each kind of block should look like, kept from one
+  // update to the next so a block can be dressed as it is built.
+  var role_css = { spoiler: '', meta: '', title: '' };
+
+  function dressed(element, css) {
+    if (css) element.style.cssText = css;
+    return element;
+  }
+
+  function text(tag, className, value) {
+    var element = document.createElement(tag);
+    if (className) element.className = className;
+    element.textContent = value;
+    return element;
+  }
+
+  function show(nodes) {
+    stage.replaceChildren.apply(stage, nodes);
+  }
+
+  // ── The password, when there is one ──────────────────────────────────────
+
+  function askForPassword() {
+    var form = document.createElement('form');
+    var field = document.createElement('input');
+    field.type = 'password';
+    field.placeholder = 'Password';
+    field.autocomplete = 'current-password';
+    var submit = document.createElement('button');
+    submit.type = 'submit';
+    submit.textContent = 'Watch';
+    var error = text('p', '', '');
+    error.id = 'error';
+
+    form.append(field, submit, error);
+    show([text('p', 'quiet', 'This presentation is protected.'), form]);
+    field.focus();
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      submit.disabled = true;
+      error.textContent = '';
+      fetch('login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: field.value })
+      }).then(function (response) {
+        submit.disabled = false;
+        if (response.ok) {
+          start();
+        } else {
+          error.textContent = 'That is not the password.';
+          field.select();
+        }
+      }).catch(function () {
+        submit.disabled = false;
+        error.textContent = 'Cantara cannot be reached.';
+      });
+    });
+  }
+
+  // ── Drawing a state ──────────────────────────────────────────────────────
+
+  function applyDesign(design) {
+    if (!design) return;
+    var root = document.documentElement.style;
+    if (design.background) root.setProperty('--background', design.background);
+    if (design.foreground) root.setProperty('--foreground', design.foreground);
+    if (design.font_family) root.setProperty('--font', design.font_family);
+
+    // Every role wears what the design gives it. The main text is set on the
+    // stage so everything inherits from it; the quieter blocks are given their
+    // own, applied where they are built.
+    stage.style.cssText = design.text_css || '';
+    role_css.spoiler = design.spoiler_css || '';
+    role_css.meta = design.meta_css || '';
+    role_css.title = design.title_css || '';
+
+    // The proportions the design sets up between the blocks. The size itself
+    // belongs to the screen; the ratios belong to the design.
+    root.setProperty('--spoiler-scale', String(design.spoiler_scale || 0.6));
+    root.setProperty('--meta-scale', String(design.meta_scale || 0.4));
+    root.setProperty('--title-scale', String(design.title_scale || 1.3));
+    root.setProperty('--block-gap', design.block_gap || '2em');
+
+    if (design.background_image) {
+      var url = 'media/' + encodeURIComponent(design.background_image);
+      // Only when it changes: reassigning the same picture makes the browser
+      // fetch and repaint it on every slide.
+      if (backdrop.dataset.media !== design.background_image) {
+        backdrop.dataset.media = design.background_image;
+        backdrop.style.backgroundImage = 'url("' + url + '")';
+      }
+      // The same fade the projection applies, so the two match.
+      var transparency = design.background_transparency || 0;
+      backdrop.style.opacity = String(1 - Math.min(Math.max(transparency, 0), 100) / 100);
+      backdrop.style.display = 'block';
+    } else {
+      delete backdrop.dataset.media;
+      backdrop.style.backgroundImage = '';
+      backdrop.style.display = 'none';
+    }
+  }
+
+  function currentSlide(state) {
+    if (!state.position) return null;
+    var chapter = state.chapters[state.position.chapter];
+    if (!chapter) return null;
+    return chapter.slides[state.position.slide] || null;
+  }
+
+  function draw(state) {
+    applyDesign(state.design);
+
+    if (!state.running) {
+      show([text('p', 'quiet', 'Waiting for the presentation to begin…')]);
+      return;
+    }
+
+    // The moderator has blanked the projection. Blanking the wall and leaving
+    // the words up on fifty phones would defeat the point of the button — and
+    // so would leaving the background picture on them, which is what a blank
+    // screen showing a photograph of a churchyard amounted to.
+    if (state.blacked_out) {
+      backdrop.style.display = 'none';
+      show([]);
+      return;
+    }
+
+    var slide = currentSlide(state);
+    if (!slide) {
+      show([text('p', 'quiet', '…')]);
+      return;
+    }
+
+    if (slide.kind === 'title') {
+      var titleNodes = [dressed(text('h1', 'title', slide.text), role_css.title)];
+      if (slide.meta) {
+        // A title's meta line sits right under it, as on the projection.
+        titleNodes.push(dressed(text('p', 'meta', slide.meta), role_css.meta));
+      }
+      show(titleNodes);
+      return;
+    }
+
+    if (slide.kind === 'text') {
+      var nodes = slide.lines.map(function (line) {
+        return text('p', 'line', line);
+      });
+      if (slide.spoiler.length) {
+        // The design's own distance between the two blocks of a slide.
+        var gap = document.createElement('div');
+        gap.id = 'gap';
+        nodes.push(gap);
+        slide.spoiler.forEach(function (line) {
+          nodes.push(dressed(text('p', 'line spoiler', line), role_css.spoiler));
+        });
+      }
+      if (slide.meta) nodes.push(dressed(text('p', 'meta', slide.meta), role_css.meta));
+      show(nodes.length ? nodes : [text('p', 'quiet', '…')]);
+      return;
+    }
+
+    if (slide.kind === 'picture') {
+      var picture = document.createElement('img');
+      picture.className = 'picture';
+      picture.alt = '';
+      picture.src = 'media/' + encodeURIComponent(slide.media);
+      // A picture that has not been prepared yet says so rather than leaving a
+      // broken frame on the screen.
+      picture.addEventListener('error', function () {
+        show([text('p', 'quiet', 'This slide is a picture, which is still being prepared…')]);
+      });
+      show([picture]);
+      return;
+    }
+
+    // An empty slide is part of the service — the gap between two songs — so it
+    // is shown as one.
+    show([]);
+  }
+
+  // ── Staying connected ────────────────────────────────────────────────────
+
+  function setConnection(state) {
+    connection.dataset.state = state;
+    connection.textContent = state === 'lost' ? 'Reconnecting…' : '';
+  }
+
+  function start() {
+    if (source) source.close();
+    setConnection('opening');
+
+    source = new EventSource('events');
+
+    source.addEventListener('open', function () {
+      setConnection('open');
+    });
+
+    source.addEventListener('message', function (event) {
+      var state;
+      try {
+        state = JSON.parse(event.data);
+      } catch (e) {
+        return;
+      }
+      setConnection('open');
+      if (state.revision === drawnRevision) return;
+      drawnRevision = state.revision;
+      draw(state);
+    });
+
+    source.addEventListener('error', function () {
+      // `EventSource` reconnects by itself, so this only has to say so. The
+      // exception is a password: the stream is refused outright, and no amount
+      // of retrying will help.
+      setConnection('lost');
+      fetch('state').then(function (response) {
+        if (response.status === 401) {
+          source.close();
+          source = null;
+          setConnection('open');
+          askForPassword();
+        }
+      }).catch(function () { /* still offline; EventSource keeps trying */ });
+    });
+  }
+
+  // Find out whether a password is wanted before opening the stream, so a
+  // protected presentation asks once rather than flickering through an error.
+  fetch('state')
+    .then(function (response) {
+      if (response.status === 401) {
+        askForPassword();
+        return;
+      }
+      start();
+    })
+    .catch(function () {
+      show([text('p', 'quiet', 'Cantara cannot be reached.')]);
+    });
+})();
+</script>
+</body>
+</html>

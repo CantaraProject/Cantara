@@ -89,6 +89,48 @@ pub struct Settings {
     /// this only records the choice made where space is tight.
     #[serde(default = "default_show_design_preview")]
     pub show_design_preview: bool,
+
+    /// How a running presentation is offered to browsers on the network.
+    ///
+    /// Whether it *is* offered is not kept here: streaming is switched on for
+    /// the presentation at hand, next to the rest of its options, and is not
+    /// something the program should quietly start doing again next time it
+    /// opens. These are the settings that describe *how*, and they are worth
+    /// keeping.
+    #[serde(default)]
+    pub stream: StreamSettings,
+}
+
+/// What the streaming server is set up to do, when it is switched on.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct StreamSettings {
+    /// The port to listen on.
+    pub port: u16,
+
+    /// What a viewer has to type before they are shown anything.
+    ///
+    /// Empty means no password at all: anyone on the network who opens the
+    /// address can watch, which is usually the point in a hall full of people.
+    /// It travels in the clear either way — this is plain HTTP on a local
+    /// network, and a password here keeps the curious out, not an attacker.
+    pub password: String,
+}
+
+impl Default for StreamSettings {
+    fn default() -> Self {
+        StreamSettings {
+            port: default_stream_port(),
+            password: String::new(),
+        }
+    }
+}
+
+/// The port streaming listens on unless it is changed.
+///
+/// High enough to need no privileges, and not one of the ports something else
+/// on a church laptop is likely to have taken.
+pub const fn default_stream_port() -> u16 {
+    8420
 }
 
 /// The design preview starts docked: seeing the effect of a setting is the
@@ -188,6 +230,7 @@ impl Default for Settings {
             show_presenter_console: default_show_presenter_console(),
             presenter_console_in_main_window: default_presenter_console_in_main_window(),
             presenter_console_view: PresenterConsoleView::default(),
+            stream: StreamSettings::default(),
             presenter_console_grid_size: default_presenter_console_grid_size(),
             sidebar_order: default_sidebar_order(),
             show_design_preview: default_show_design_preview(),
@@ -1859,6 +1902,28 @@ mod tests {
         }
 
         serde_json::to_string(&document).unwrap()
+    }
+
+    /// A settings file written before streaming existed has no `stream`
+    /// section, and must still load with everything else in it intact — the
+    /// alternative is a user losing their repositories to an upgrade.
+    #[test]
+    fn test_settings_without_a_stream_section_still_load() {
+        let mut document = serde_json::to_value(Settings::default()).expect("serialises");
+        document
+            .as_object_mut()
+            .expect("an object")
+            .remove("stream")
+            .expect("the section is written");
+
+        let settings: Settings = serde_json::from_value(document).expect("loads without it");
+
+        assert_eq!(settings.stream, StreamSettings::default());
+        assert_eq!(settings.stream.port, default_stream_port());
+        assert!(
+            settings.stream.password.is_empty(),
+            "no password means anyone on the network can watch, which is the default"
+        );
     }
 
     /// Settings written by Cantara 0.3 and earlier stored

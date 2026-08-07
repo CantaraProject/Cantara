@@ -1057,3 +1057,33 @@ div.inline-div {
     margin: 0;
     padding: 0.05rem 0.4rem;
 }
+
+/* The streaming address is a thing to be taken elsewhere — onto a phone, into
+   a chat message — so it invites a click that copies it, and still allows the
+   selection of anyone who would rather do it by hand. */
+.stream-address {
+    user-select: all;
+    font-size: 1.1em;
+    cursor: pointer;
+    padding: 0.15em 0.4em;
+    border-radius: 0.25em;
+}
+
+.stream-address:hover {
+    background: var(--pico-primary-focus, rgba(0, 115, 230, 0.15));
+}
+
+.stream-copied,
+.stream-copy-failed {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.85em;
+}
+
+.stream-copied {
+    color: var(--pico-ins-color, #1a7f37);
+}
+
+.stream-copy-failed {
+    color: var(--pico-del-color, #b3261e);
+}

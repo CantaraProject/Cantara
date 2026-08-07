@@ -62,6 +62,20 @@ base64 = "0.23.0"
 
 # Non-WASM dependencies (blocking HTTP client, TLS, and filesystem helpers not available on WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The server that offers a running presentation to browsers on the local
+# network. Both are already in the tree — Dioxus builds on them — so this adds
+# no compilation and no licence beyond what is here (MIT, as is tokio).
+# There is no server inside a browser, hence non-WASM only.
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "macros"] }
+# One stream adaptor, for turning "the state changed" into server-sent events.
+# Also already in the tree, and dual MIT/Apache-2.0.
+futures-util = { version = "0.3", default-features = false }
+# Lists this machine's network addresses, so the address shown for streaming is
+# one another device can actually reach. Asking the routing table alone is not
+# enough: a hall network with no route to the internet answers "nowhere", and
+# what was then shown was `localhost`. MIT OR Apache-2.0.
+local-ip-address = "0.6"
 # Enumerates the installed system fonts so they can be offered in the settings.
 # `fs` is enough — the font data itself is never needed, only the family names.
 fontdb = { version = "0.24", default-features = false, features = ["fs"] }

@@ -3,6 +3,30 @@ selection:
   start_presentation:
     en: Start Presentation...
     de: Präsentation starten...
+  stream_headline:
+    en: Stream to the network
+    de: Ins Netzwerk übertragen
+  stream_description:
+    en: "Show the running presentation on any phone or tablet on the same network."
+    de: "Die laufende Präsentation auf jedem Handy oder Tablet im selben Netzwerk anzeigen."
+  stream_enable:
+    en: Stream this presentation
+    de: Diese Präsentation übertragen
+  stream_address_hint:
+    en: "Open this address in a browser on the same network:"
+    de: "Diese Adresse in einem Browser im selben Netzwerk öffnen:"
+  stream_failed:
+    en: "Streaming could not be started: %{reason}"
+    de: "Die Übertragung konnte nicht gestartet werden: %{reason}"
+  stream_copy_hint:
+    en: Click to copy
+    de: Zum Kopieren klicken
+  stream_copied:
+    en: Copied
+    de: Kopiert
+  stream_copy_failed:
+    en: Could not copy — please select the address by hand.
+    de: Konnte nicht kopiert werden — bitte die Adresse von Hand markieren.
   move_up:
     en: Move up
     de: Nach oben verschieben
@@ -373,6 +397,21 @@ settings:
   presentation_description:
     en: Setup how the presentation should look like. Click on one of the presentation designs below to adjust its settings, or create a new one.
     de: Hier kann eingestellt werden, wie die Präsentation aussehen soll. Klicken Sie dazu auf eines der Präsentationsdesigns oder legen Sie ein neues an.
+  stream_headline:
+    en: Network streaming
+    de: Netzwerk-Übertragung
+  stream_description:
+    en: "How the running presentation is offered to browsers on the local network. Switching it on happens per presentation, in the selection window."
+    de: "Wie die laufende Präsentation Browsern im lokalen Netzwerk angeboten wird. Eingeschaltet wird sie pro Präsentation im Auswahlfenster."
+  stream_port:
+    en: Port
+    de: Port
+  stream_password:
+    en: Password (empty means anyone on the network can watch)
+    de: Passwort (leer heißt, jeder im Netzwerk kann zusehen)
+  stream_plain_http_note:
+    en: "This is unencrypted HTTP on your local network. The password keeps the curious out; it is not protection from someone who is trying."
+    de: "Dies ist unverschlüsseltes HTTP im lokalen Netzwerk. Das Passwort hält Neugierige ab, es schützt aber nicht vor gezielten Zugriffen."
   screen_headline:
     en: Screen Settings
     de: Bildschirmeinstellungen
