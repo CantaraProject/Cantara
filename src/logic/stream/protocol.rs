@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::components::presentation_components::meta_text_of;
 use crate::logic::presentation::{get_markdown_html, get_picture_path, html_to_plain_text};
 use crate::logic::css::CssString;
-use crate::logic::settings::{PresentationDesign, PresentationDesignSettings};
+use crate::logic::settings::{CssSize, PresentationDesign, PresentationDesignSettings};
 use crate::logic::states::RunningPresentation;
 use cantara_songlib::slides::{Slide, SlideContent};
 
@@ -121,6 +121,44 @@ pub struct StreamDesign {
     #[serde(default)]
     pub text_css: String,
 
+    /// The same, for the lines a design shows ahead. A design gives the
+    /// spoiler a font of its own — usually the same face, smaller and quieter
+    /// — and a page that invents its own instead is not showing the design.
+    #[serde(default)]
+    pub spoiler_css: String,
+
+    /// The same, for the meta line in the corner.
+    #[serde(default)]
+    pub meta_css: String,
+
+    /// The same, for the headline of a title slide.
+    #[serde(default)]
+    pub title_css: String,
+
+    /// How much smaller the spoiler is than the words being sung, as a
+    /// fraction of them.
+    ///
+    /// A ratio rather than a size, because the size itself is the page's to
+    /// choose: what has to survive the trip is the *relationship* the design
+    /// sets up between the two, so that a spoiler stays quieter than the line
+    /// above it on a phone exactly as it does on the wall.
+    #[serde(default = "one")]
+    pub spoiler_scale: f32,
+
+    /// The same, for the meta line.
+    #[serde(default = "one")]
+    pub meta_scale: f32,
+
+    /// The same, for a headline.
+    #[serde(default = "one")]
+    pub title_scale: f32,
+
+    /// The gap a design puts between the words and the lines shown ahead, as
+    /// CSS. The design states one distance for both blocks of a slide, and
+    /// this is it.
+    #[serde(default)]
+    pub block_gap: String,
+
     /// The design's background picture, named the way slide pictures are —
     /// the page fetches it once rather than having it pushed with every
     /// update. `None` when the design is a plain colour.
@@ -141,6 +179,13 @@ impl Default for StreamDesign {
             foreground: "#ffffff".to_string(),
             font_family: "system-ui, sans-serif".to_string(),
             text_css: String::new(),
+            spoiler_css: String::new(),
+            meta_css: String::new(),
+            title_css: String::new(),
+            spoiler_scale: 1.0,
+            meta_scale: 1.0,
+            title_scale: 1.0,
+            block_gap: "2em".to_string(),
             background_image: None,
             background_transparency: 0,
         }
@@ -248,15 +293,29 @@ impl StreamDesign {
             return StreamDesign::default();
         };
 
-        let font = template.fonts.first().cloned().unwrap_or_default();
-        // The projection's own font CSS, less the two things a viewer has to
-        // decide for itself.
-        let text_css = without_properties(
-            &crate::logic::css::CssHandler::from(font.clone()).to_string(),
-            &["font-family", "font-size"],
-        );
+        // Every role a slide has, taken from the design the same way the
+        // projection takes them — one font for the words, another for the
+        // lines shown ahead, another for the meta line, another for a
+        // headline. A page that dresses them all alike is not showing the
+        // design, which is what a spoiler in the wrong face and the wrong
+        // size looked like.
+        let font = template.get_default_font();
+        let spoiler = template.get_default_spoiler_font();
+        let meta = template.get_default_meta_font();
+        let title = template.get_default_headline_font();
+
+        let main_size = relative_size(&font.font_size);
         StreamDesign {
-            text_css,
+            text_css: font_css(&font),
+            spoiler_css: font_css(&spoiler),
+            meta_css: font_css(&meta),
+            title_css: font_css(&title),
+            spoiler_scale: scale_against(&spoiler.font_size, main_size),
+            meta_scale: scale_against(&meta.font_size, main_size),
+            title_scale: scale_against(&title.font_size, main_size),
+            block_gap: template
+                .main_content_spoiler_content_padding
+                .to_css_string(),
             background_image: template
                 .background_image
                 .as_ref()
@@ -349,6 +408,66 @@ impl StreamSlide {
             SlideContent::Empty(_) => StreamSlide::Empty,
         }
     }
+}
+
+/// One is the ratio of a thing to itself, and the sensible thing to assume
+/// when two sizes cannot be compared.
+fn one() -> f32 {
+    1.0
+}
+
+/// A role's font, as the CSS a page can wear.
+///
+/// A shadow and an outline are turned explicitly *off* where the font has
+/// neither, because both inherit: the words of a slide are dressed on the
+/// element every block sits inside, so a spoiler the design gave no shadow
+/// would quietly wear the one belonging to the line above it. The projection
+/// has no such problem — there, each block is given its own complete style.
+fn font_css(font: &crate::logic::settings::FontRepresentation) -> String {
+    let mut css = without_properties(
+        &crate::logic::css::CssHandler::from(font.clone()).to_string(),
+        &["font-family", "font-size"],
+    );
+    if !font.shadow {
+        css.push_str("text-shadow: none;");
+    }
+    if font.outline.is_none() {
+        css.push_str("-webkit-text-stroke: 0;");
+    }
+    css
+}
+
+/// A size as a bare number, for comparing one against another.
+///
+/// Only ever used as the two halves of a ratio, so the unit cancels — which is
+/// why mixing units is answered with nothing rather than with a conversion
+/// that would need to know how large a viewer's screen is.
+fn relative_size(size: &CssSize) -> Option<(f32, &'static str)> {
+    match size {
+        CssSize::Px(value) => Some((*value, "px")),
+        CssSize::Pt(value) => Some((*value, "pt")),
+        CssSize::Em(value) => Some((*value, "em")),
+        CssSize::Percentage(value) => Some((*value, "%")),
+        CssSize::Null => None,
+    }
+}
+
+/// How large one size is against another, as a fraction.
+///
+/// Falls back to "the same" when the two cannot be compared — two sizes in
+/// different units, or one the design never set. Showing a spoiler at the size
+/// of the words is wrong, but it is a great deal less wrong than showing it at
+/// some number arrived at by guessing what a point is worth on a phone.
+fn scale_against(size: &CssSize, against: Option<(f32, &'static str)>) -> f32 {
+    let (Some((value, unit)), Some((base, base_unit))) = (relative_size(size), against) else {
+        return 1.0;
+    };
+    if unit != base_unit || base <= 0.0 || value <= 0.0 {
+        return 1.0;
+    }
+    // Kept within reason: a design with an absurd ratio should not be able to
+    // make a line invisible or push it off the screen.
+    (value / base).clamp(0.2, 3.0)
 }
 
 /// Drops whole declarations from a run of CSS.
@@ -710,5 +829,99 @@ mod tests {
         let kept = without_properties(css, &["font-family", "font-size"]);
 
         assert_eq!(kept, "font-weight: 700;text-shadow: 1px 1px 2px black;");
+    }
+
+    /// The design gives the lines shown ahead a font of their own. A page that
+    /// dresses them like the words being sung is not showing the design — and
+    /// the *relationship* between the two sizes is what has to survive, since
+    /// the sizes themselves mean nothing on a phone.
+    #[test]
+    fn a_spoiler_keeps_its_own_look_and_its_proportion() {
+        use crate::logic::settings::{
+            FontRepresentation, PresentationDesign, PresentationDesignSettings,
+            PresentationDesignTemplate,
+        };
+
+        let mut main = FontRepresentation::default();
+        main.font_size = CssSize::Pt(60.0);
+        let mut spoiler = FontRepresentation::default();
+        spoiler.font_size = CssSize::Pt(30.0);
+        spoiler.shadow = false;
+
+        let mut template = PresentationDesignTemplate::default();
+        template.fonts = vec![main, spoiler];
+        template.spoiler_index = Some(1);
+
+        let design = PresentationDesign {
+            presentation_design_settings: PresentationDesignSettings::Template(template),
+            ..PresentationDesign::default()
+        };
+        let mut presentation = RunningPresentation::new(vec![chapter(
+            "Amazing Grace",
+            vec![Slide::new_content_slide("Amazing grace".to_string(), None, None)],
+        )]);
+        presentation.presentation[0].presentation_design_option = Some(design);
+
+        let sent = StreamState::of(&presentation, 1).design;
+
+        assert_eq!(sent.spoiler_scale, 0.5, "half the size, as the design says");
+        assert!(!sent.spoiler_css.is_empty(), "and dressed in its own right");
+    }
+
+    /// Sizes that cannot be compared are not guessed at: a ratio between a
+    /// point and an em would need to know how large the viewer's screen is.
+    #[test]
+    fn sizes_that_cannot_be_compared_are_left_alone() {
+        assert_eq!(scale_against(&CssSize::Em(2.0), relative_size(&CssSize::Pt(60.0))), 1.0);
+        assert_eq!(scale_against(&CssSize::Null, relative_size(&CssSize::Pt(60.0))), 1.0);
+        assert_eq!(scale_against(&CssSize::Pt(30.0), None), 1.0);
+    }
+
+    /// A design cannot make a line invisible or push it off the screen.
+    #[test]
+    fn an_absurd_proportion_is_reined_in() {
+        let base = relative_size(&CssSize::Pt(10.0));
+
+        assert_eq!(scale_against(&CssSize::Pt(1.0), base), 0.2);
+        assert_eq!(scale_against(&CssSize::Pt(1000.0), base), 3.0);
+    }
+
+    /// The gap a design puts between the two blocks of a slide travels with
+    /// it, so the page does not invent a spacing of its own.
+    #[test]
+    fn the_gap_between_the_blocks_is_the_designs() {
+        use crate::logic::settings::{
+            PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate,
+        };
+
+        let mut template = PresentationDesignTemplate::default();
+        template.main_content_spoiler_content_padding = CssSize::Em(4.0);
+        let design = PresentationDesign {
+            presentation_design_settings: PresentationDesignSettings::Template(template),
+            ..PresentationDesign::default()
+        };
+        let mut presentation = RunningPresentation::new(vec![chapter(
+            "Amazing Grace",
+            vec![Slide::new_content_slide("Amazing grace".to_string(), None, None)],
+        )]);
+        presentation.presentation[0].presentation_design_option = Some(design);
+
+        assert_eq!(StreamState::of(&presentation, 1).design.block_gap, "4em");
+    }
+
+    /// A block the design gave no shadow must not inherit one from the block
+    /// above it. Everything a slide shows sits inside the element carrying the
+    /// main text's style, and `text-shadow` inherits.
+    #[test]
+    fn a_block_without_a_shadow_says_so() {
+        use crate::logic::settings::FontRepresentation;
+
+        let plain = FontRepresentation::default();
+        assert!(!plain.shadow, "the fixture has no shadow to begin with");
+
+        let css = font_css(&plain);
+
+        assert!(css.contains("text-shadow: none"), "got: {css}");
+        assert!(css.contains("-webkit-text-stroke: 0"), "got: {css}");
     }
 }

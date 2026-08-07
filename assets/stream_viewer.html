@@ -62,22 +62,27 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
-    align-items: center;
-    text-align: center;
+    /* Stretched, not centred. Centring each block shrink-wrapped it around
+       its own text, which left the design's `text-align` with nothing to do —
+       a presentation set left-aligned came out centred on the phone. The
+       alignment is the design's to state, and it states it in `text_css`. */
+    align-items: stretch;
     padding: 1.2rem;
     overflow-y: auto;
-    gap: 0.6em;
   }
 
   /* The words. Sized against the viewport so one line fills a phone held
      upright and a tablet held sideways, without either of them needing a
      setting. */
+  /* One size, chosen for the screen this is being read on, and every other
+     block set as a fraction of it — the fractions being the design's. The
+     projection's point sizes mean nothing here, but the proportions between
+     them are exactly what makes a design look like itself. */
+  :root { --size: clamp(1.4rem, 5.2vw, 3rem); }
+
   .line {
     margin: 0;
-    /* Sized and set for the screen it is on, whatever the design says: the
-       projection's point size means nothing on a phone, and its font is not
-       installed there. Everything else about the text comes from the design. */
-    font-size: clamp(1.4rem, 5.2vw, 3rem);
+    font-size: var(--size);
     font-family: var(--font);
     line-height: 1.25;
     overflow-wrap: anywhere;
@@ -85,23 +90,27 @@
 
   .title {
     font-family: var(--font);
-    font-size: clamp(1.8rem, 7vw, 4rem);
-    font-weight: 700;
+    font-size: calc(var(--size) * var(--title-scale, 1.3));
     line-height: 1.15;
     margin: 0;
   }
 
-  /* What is coming, where the design shows it ahead. Quieter than the words
-     being sung, so the two are not confused at a glance. */
+  /* What is coming, where the design shows it ahead. How it looks is the
+     design's business, not this file's — see `applyDesign`. */
   .spoiler {
-    opacity: 0.55;
-    font-size: clamp(1.1rem, 4vw, 2.2rem);
+    font-size: calc(var(--size) * var(--spoiler-scale, 0.6));
   }
 
   .meta {
-    opacity: 0.6;
-    font-size: clamp(0.75rem, 2.6vw, 1rem);
     margin: 0;
+    font-size: calc(var(--size) * var(--meta-scale, 0.4));
+  }
+
+  /* The distance the design puts between the words and the lines shown ahead.
+     A minimum rather than a fixed height, as on the projection, so a long
+     verse still pushes them apart rather than overlapping. */
+  #gap {
+    min-height: var(--block-gap, 2em);
   }
 
   .picture {
@@ -191,6 +200,15 @@
   var drawnRevision = -1;
   var source = null;
 
+  // What the design says each kind of block should look like, kept from one
+  // update to the next so a block can be dressed as it is built.
+  var role_css = { spoiler: '', meta: '', title: '' };
+
+  function dressed(element, css) {
+    if (css) element.style.cssText = css;
+    return element;
+  }
+
   function text(tag, className, value) {
     var element = document.createElement(tag);
     if (className) element.className = className;
@@ -252,10 +270,20 @@
     if (design.foreground) root.setProperty('--foreground', design.foreground);
     if (design.font_family) root.setProperty('--font', design.font_family);
 
-    // Everything else the design says about its text — weight, alignment,
-    // shadow, outline. Set on the stage rather than on each line, so the
-    // responsive size and family below still win where they are set.
+    // Every role wears what the design gives it. The main text is set on the
+    // stage so everything inherits from it; the quieter blocks are given their
+    // own, applied where they are built.
     stage.style.cssText = design.text_css || '';
+    role_css.spoiler = design.spoiler_css || '';
+    role_css.meta = design.meta_css || '';
+    role_css.title = design.title_css || '';
+
+    // The proportions the design sets up between the blocks. The size itself
+    // belongs to the screen; the ratios belong to the design.
+    root.setProperty('--spoiler-scale', String(design.spoiler_scale || 0.6));
+    root.setProperty('--meta-scale', String(design.meta_scale || 0.4));
+    root.setProperty('--title-scale', String(design.title_scale || 1.3));
+    root.setProperty('--block-gap', design.block_gap || '2em');
 
     if (design.background_image) {
       var url = 'media/' + encodeURIComponent(design.background_image);
@@ -292,8 +320,11 @@
     }
 
     // The moderator has blanked the projection. Blanking the wall and leaving
-    // the words up on fifty phones would defeat the point of the button.
+    // the words up on fifty phones would defeat the point of the button — and
+    // so would leaving the background picture on them, which is what a blank
+    // screen showing a photograph of a churchyard amounted to.
     if (state.blacked_out) {
+      backdrop.style.display = 'none';
       show([]);
       return;
     }
@@ -305,8 +336,11 @@
     }
 
     if (slide.kind === 'title') {
-      var titleNodes = [text('h1', 'title', slide.text)];
-      if (slide.meta) titleNodes.push(text('p', 'meta', slide.meta));
+      var titleNodes = [dressed(text('h1', 'title', slide.text), role_css.title)];
+      if (slide.meta) {
+        // A title's meta line sits right under it, as on the projection.
+        titleNodes.push(dressed(text('p', 'meta', slide.meta), role_css.meta));
+      }
       show(titleNodes);
       return;
     }
@@ -315,10 +349,16 @@
       var nodes = slide.lines.map(function (line) {
         return text('p', 'line', line);
       });
-      slide.spoiler.forEach(function (line) {
-        nodes.push(text('p', 'line spoiler', line));
-      });
-      if (slide.meta) nodes.push(text('p', 'meta', slide.meta));
+      if (slide.spoiler.length) {
+        // The design's own distance between the two blocks of a slide.
+        var gap = document.createElement('div');
+        gap.id = 'gap';
+        nodes.push(gap);
+        slide.spoiler.forEach(function (line) {
+          nodes.push(dressed(text('p', 'line spoiler', line), role_css.spoiler));
+        });
+      }
+      if (slide.meta) nodes.push(dressed(text('p', 'meta', slide.meta), role_css.meta));
       show(nodes.length ? nodes : [text('p', 'quiet', '…')]);
       return;
     }
