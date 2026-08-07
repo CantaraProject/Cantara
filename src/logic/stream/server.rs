@@ -38,6 +38,10 @@ const SESSION_COOKIE: &str = "cantara_stream";
 pub struct Media {
     pub bytes: Vec<u8>,
     pub content_type: &'static str,
+    /// What these particular bytes are, so a viewer can be told "still the
+    /// same" without them being sent again — and, more importantly, told that
+    /// they are *not* the same when the picture behind them has changed.
+    pub etag: String,
 }
 
 /// What the server and the program both reach into.
@@ -206,8 +210,16 @@ impl StreamServer {
     /// Hands over a picture a slide refers to, under the name the state gives
     /// it.
     pub fn publish_media(&self, id: String, bytes: Vec<u8>, content_type: &'static str) {
+        let etag = format!("\"{:x}\"", md5::compute(&bytes));
         if let Ok(mut media) = self.shared.media.write() {
-            media.insert(id, Media { bytes, content_type });
+            media.insert(
+                id,
+                Media {
+                    bytes,
+                    content_type,
+                    etag,
+                },
+            );
         }
     }
 
@@ -313,18 +325,38 @@ async fn media(
         .ok()
         .and_then(|media| media.get(&id).cloned());
 
-    match found {
-        Some(picture) => (
-            [
-                (header::CONTENT_TYPE, picture.content_type),
-                // Named after its contents, so it can be kept for good.
-                (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
-            ],
-            picture.bytes,
-        )
-            .into_response(),
-        None => (StatusCode::NOT_FOUND, "no such picture").into_response(),
+    let Some(picture) = found else {
+        return (StatusCode::NOT_FOUND, "no such picture").into_response();
+    };
+
+    // A picture is named after where it came from, not after what is in it —
+    // so the same name can come to mean different bytes, when someone edits
+    // their background between two services. Telling a browser to keep it for
+    // good, as this used to, meant it never saw the new one. It is kept, but
+    // checked: an unchanged picture costs one small answer, and a changed one
+    // is fetched again.
+    let unchanged = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|given| given.split(',').any(|tag| tag.trim() == picture.etag));
+
+    let Ok(etag) = HeaderValue::from_str(&picture.etag) else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "bad picture name").into_response();
+    };
+    let caching = [
+        (header::CACHE_CONTROL, HeaderValue::from_static("no-cache")),
+        (header::ETAG, etag),
+    ];
+
+    if unchanged {
+        return (StatusCode::NOT_MODIFIED, caching).into_response();
     }
+    (
+        caching,
+        [(header::CONTENT_TYPE, picture.content_type)],
+        picture.bytes,
+    )
+        .into_response()
 }
 
 #[derive(serde::Deserialize)]
@@ -831,5 +863,46 @@ mod tests {
             let candidates = vec![IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V4(private)];
             assert_eq!(best_address(&candidates), Some(IpAddr::V4(private)));
         }
+    }
+
+    /// A picture is named after where it came from, not after what is in it.
+    /// So a browser may keep it, but has to check: a background edited between
+    /// two services must reach the viewers who saw the old one.
+    #[test]
+    fn a_changed_picture_reaches_a_viewer_who_has_the_old_one() {
+        let server = serving("");
+        let client = client();
+        server.publish_media("a-page".to_string(), b"the first one".to_vec(), "image/png");
+
+        let first = client.get(at(&server, "/media/a-page")).send().expect("answers");
+        assert!(first.status().is_success());
+        let tag = first
+            .headers()
+            .get(header::ETAG)
+            .and_then(|value| value.to_str().ok())
+            .expect("a picture says what it is")
+            .to_string();
+
+        // Asking again with what it already has: nothing to send.
+        let again = client
+            .get(at(&server, "/media/a-page"))
+            .header(header::IF_NONE_MATCH, &tag)
+            .send()
+            .expect("answers");
+        assert_eq!(again.status(), reqwest::StatusCode::NOT_MODIFIED);
+
+        // The picture behind the name changes; the old answer must not stand.
+        server.publish_media("a-page".to_string(), b"a different one".to_vec(), "image/png");
+        let changed = client
+            .get(at(&server, "/media/a-page"))
+            .header(header::IF_NONE_MATCH, &tag)
+            .send()
+            .expect("answers");
+
+        assert!(changed.status().is_success(), "the new picture is sent");
+        assert_eq!(
+            changed.bytes().expect("bytes"),
+            b"a different one".as_slice()
+        );
     }
 }

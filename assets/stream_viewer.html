@@ -30,10 +30,17 @@
 
   * { box-sizing: border-box; }
 
+  /* The colour goes on `html` alone, and `body` stays clear.
+     With it on both, `body` painted an opaque rectangle over the backdrop
+     below — a background picture was fetched, drawn and then completely
+     covered, which looked exactly like it never arrived. */
+  html {
+    background: var(--background);
+  }
+
   html, body {
     margin: 0;
     height: 100%;
-    background: var(--background);
     color: var(--foreground);
     font-family: var(--font);
     -webkit-text-size-adjust: 100%;
@@ -48,6 +55,9 @@
   }
 
   main {
+    /* Above the backdrop, which is what the stacking order below is for. */
+    position: relative;
+    z-index: 1;
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
@@ -64,12 +74,17 @@
      setting. */
   .line {
     margin: 0;
+    /* Sized and set for the screen it is on, whatever the design says: the
+       projection's point size means nothing on a phone, and its font is not
+       installed there. Everything else about the text comes from the design. */
     font-size: clamp(1.4rem, 5.2vw, 3rem);
+    font-family: var(--font);
     line-height: 1.25;
     overflow-wrap: anywhere;
   }
 
   .title {
+    font-family: var(--font);
     font-size: clamp(1.8rem, 7vw, 4rem);
     font-weight: 700;
     line-height: 1.15;
@@ -103,7 +118,7 @@
   #backdrop {
     position: fixed;
     inset: 0;
-    z-index: -1;
+    z-index: 0;
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
@@ -130,6 +145,7 @@
     background: rgba(0, 0, 0, 0.55);
     color: #ff8a80;
     font-size: 0.8rem;
+    z-index: 2;
     /* Out of the way until there is something wrong. */
     display: none;
   }
@@ -235,6 +251,11 @@
     if (design.background) root.setProperty('--background', design.background);
     if (design.foreground) root.setProperty('--foreground', design.foreground);
     if (design.font_family) root.setProperty('--font', design.font_family);
+
+    // Everything else the design says about its text — weight, alignment,
+    // shadow, outline. Set on the stage rather than on each line, so the
+    // responsive size and family below still win where they are set.
+    stage.style.cssText = design.text_css || '';
 
     if (design.background_image) {
       var url = 'media/' + encodeURIComponent(design.background_image);
