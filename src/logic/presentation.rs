@@ -364,6 +364,15 @@ fn stream_view_of(
         .or_else(|| stream_defaults.design.clone())
         .filter(|design| design != projection_design);
 
+    // Only a song can be divided into slides two ways. A picture is one slide,
+    // a document is its pages, a markdown text is its `---` sections — no slide
+    // setting moves any of those, and reading the file a second time to be told
+    // so again costs a PDF its page count on every rebuild of the running
+    // order.
+    if selected_item.source_file.file_type != SourceFileType::Song {
+        return (design, None, Vec::new());
+    }
+
     let wanted = selected_item
         .stream_slide_settings_option
         .clone()

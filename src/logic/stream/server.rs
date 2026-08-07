@@ -837,6 +837,90 @@ mod tests {
         assert!(response.status().is_success());
     }
 
+    /// The whole path, from a song on disk to what a browser is handed: a
+    /// service that divides the song two lines at a time on the wall and four
+    /// on the phones, published, and fetched back over HTTP.
+    ///
+    /// Everything below this is tested in pieces elsewhere. This is the one
+    /// that would catch the pieces being wired together wrongly — a viewer sent
+    /// the projection's slides with the stream's position, say, which each half
+    /// would pass on its own.
+    #[test]
+    fn a_viewer_is_served_the_streams_own_division_of_the_song() {
+        use crate::logic::presentation::build_presentation;
+        use crate::logic::settings::PresentationDesign;
+        use crate::logic::sourcefiles::{SourceFile, SourceFileType};
+        use crate::logic::states::SelectedItemRepresentation;
+        use crate::logic::stream_view::StreamDefaults;
+        use cantara_songlib::slides::SlideSettings;
+
+        let item = SelectedItemRepresentation::new_with_sourcefile(SourceFile {
+            name: "Amazing Grace".to_string(),
+            path: std::path::PathBuf::from("testfiles/Amazing Grace.song"),
+            file_type: SourceFileType::Song,
+            md5_hash: None,
+            relative_path: None,
+        });
+
+        let mut presentation = build_presentation(
+            &vec![item],
+            &PresentationDesign::default(),
+            &SlideSettings {
+                max_lines: Some(2),
+                ..SlideSettings::default()
+            },
+            &StreamDefaults {
+                design: None,
+                slide_settings: Some(SlideSettings {
+                    max_lines: Some(4),
+                    ..SlideSettings::default()
+                }),
+            },
+        )
+        .expect("a presentation");
+
+        // Two slide changes on the wall, which is one on the phones.
+        presentation.next_slide();
+        presentation.next_slide();
+        let projection_slide = presentation
+            .position
+            .as_ref()
+            .expect("a position")
+            .chapter_slide();
+        let (_, stream_slide) = presentation.stream_position().expect("a mapped position");
+
+        let mut server = serving("");
+        server.publish(StreamState::of(&presentation, 0));
+
+        let served: StreamState = client()
+            .get(at(&server, "/state"))
+            .send()
+            .expect("answers")
+            .json()
+            .expect("with a state");
+
+        let projection_count = presentation.presentation[0].slides.len();
+        assert!(
+            served.chapters[0].slides.len() < projection_count,
+            "the phones were sent their own, shorter division: {} against {projection_count}",
+            served.chapters[0].slides.len()
+        );
+        assert_eq!(
+            served.position.expect("a position").slide,
+            stream_slide,
+            "and the position that came with it is the mapped one"
+        );
+        assert!(
+            stream_slide < projection_slide,
+            "which on the third slide of the wall is not the wall's own number: \
+             {stream_slide} against {projection_slide}"
+        );
+        assert!(
+            served.current_slide().is_some(),
+            "and it points at a slide that exists"
+        );
+    }
+
     /// With a password set, nothing is given away until it has been typed.
     #[test]
     fn a_password_is_asked_for_and_then_remembered() {
@@ -1096,5 +1180,52 @@ mod tests {
         assert!(cookie.contains("HttpOnly"), "got: {cookie}");
         assert!(cookie.contains("SameSite=Lax"), "got: {cookie}");
         assert!(cookie.starts_with("cantara_stream=s3cret-session;"), "got: {cookie}");
+    }
+}
+
+#[cfg(test)]
+mod dump {
+    /// Writes out what a viewer would be served for a two-against-four
+    /// division, so the page can be driven against real data.
+    ///
+    /// `cargo test dump_stream_state -- --ignored --nocapture`
+    #[test]
+    #[ignore = "diagnostic output, not an assertion"]
+    fn dump_stream_state() {
+        use crate::logic::presentation::build_presentation;
+        use crate::logic::settings::PresentationDesign;
+        use crate::logic::sourcefiles::{SourceFile, SourceFileType};
+        use crate::logic::states::SelectedItemRepresentation;
+        use crate::logic::stream::protocol::StreamState;
+        use crate::logic::stream_view::StreamDefaults;
+        use cantara_songlib::slides::SlideSettings;
+
+        let item = SelectedItemRepresentation::new_with_sourcefile(SourceFile {
+            name: "Amazing Grace".to_string(),
+            path: std::path::PathBuf::from("testfiles/Amazing Grace.song"),
+            file_type: SourceFileType::Song,
+            md5_hash: None,
+            relative_path: None,
+        });
+        let mut presentation = build_presentation(
+            &vec![item],
+            &PresentationDesign::default(),
+            &SlideSettings { max_lines: Some(2), ..SlideSettings::default() },
+            &StreamDefaults {
+                design: None,
+                slide_settings: Some(SlideSettings {
+                    max_lines: Some(4),
+                    ..SlideSettings::default()
+                }),
+            },
+        )
+        .expect("a presentation");
+        presentation.next_slide();
+        presentation.next_slide();
+
+        println!(
+            "{}",
+            serde_json::to_string(&StreamState::of(&presentation, 1)).unwrap()
+        );
     }
 }
