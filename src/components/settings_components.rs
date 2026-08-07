@@ -87,7 +87,6 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
         RepositorySettings {}
         hr {}
         StreamSettingsSection {}
-        hr {}
         ScreenSettings {}
         hr {}
         PresentationSettings {
@@ -106,6 +105,11 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
 /// switched on beside its other options in the selection window, so that a
 /// program which was streaming once does not quietly start doing it again the
 /// next time it opens.
+///
+/// Absent from the web build, along with the server it configures. A page
+/// cannot listen on a port, and settings for something that can never happen
+/// are worse than no settings at all.
+#[cfg(not(target_arch = "wasm32"))]
 #[component]
 fn StreamSettingsSection() -> Element {
     let mut settings = use_settings();
@@ -155,7 +159,15 @@ fn StreamSettingsSection() -> Element {
                 { t!("settings.stream_plain_http_note").to_string() }
             }
         }
+        hr {}
     }
+}
+
+/// There is no server inside a browser, so the web build has nothing to set up.
+#[cfg(target_arch = "wasm32")]
+#[component]
+fn StreamSettingsSection() -> Element {
+    rsx! {}
 }
 
 /// Implements logic for adding, editing, and deleting repositories.

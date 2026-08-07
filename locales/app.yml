@@ -18,6 +18,15 @@ selection:
   stream_failed:
     en: "Streaming could not be started: %{reason}"
     de: "Die Übertragung konnte nicht gestartet werden: %{reason}"
+  stream_copy_hint:
+    en: Click to copy
+    de: Zum Kopieren klicken
+  stream_copied:
+    en: Copied
+    de: Kopiert
+  stream_copy_failed:
+    en: Could not copy — please select the address by hand.
+    de: Konnte nicht kopiert werden — bitte die Adresse von Hand markieren.
   move_up:
     en: Move up
     de: Nach oben verschieben

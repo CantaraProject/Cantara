@@ -277,12 +277,6 @@ fn App() -> Element {
     // The running presentations given as a global signal
     let _: Signal<Vec<RunningPresentation>> = use_context_provider(|| Signal::new(vec![]));
 
-    // Counts up when streaming is switched on or off. Turning the switch is
-    // not a change to the presentation, so without something for the publisher
-    // below to watch, enabling streaming in the middle of a service would
-    // publish nothing until the next slide change.
-    let stream_generation: Signal<u64> = use_context_provider(|| Signal::new(0));
-
     // Keeps every browser watching over the network in step with the
     // presentation.
     //
@@ -295,6 +289,11 @@ fn App() -> Element {
     // this may follow every change without asking first.
     #[cfg(not(target_arch = "wasm32"))]
     {
+        // Counts up when streaming is switched on or off. Turning the switch is
+        // not a change to the presentation, so without something for the
+        // publisher below to watch, enabling streaming in the middle of a
+        // service would publish nothing until the next slide change.
+        let stream_generation: Signal<u64> = use_context_provider(|| Signal::new(0));
         let running_presentations: Signal<Vec<RunningPresentation>> = use_context();
         use_effect(move || {
             use logic::stream::protocol::StreamState;

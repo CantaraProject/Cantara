@@ -55,6 +55,14 @@ struct Shared {
     password: String,
     /// Handed out when the password is given correctly.
     session: String,
+    /// Goes true once, when the server should stop.
+    ///
+    /// The accept loop is not the only thing that has to hear about this. A
+    /// viewer's event stream never ends by itself — that is what makes it a
+    /// live stream — so a graceful shutdown that only stops accepting waits
+    /// for every open browser tab, which from the presenter's side looks
+    /// exactly like the program hanging.
+    stopping: watch::Sender<bool>,
 }
 
 impl Shared {
@@ -79,8 +87,6 @@ impl Shared {
 /// A running server. Dropping it stops it.
 pub struct StreamServer {
     shared: Arc<Shared>,
-    /// Told once, when the server should stop.
-    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
     /// The thread the runtime lives on, so that stopping can be waited for.
     thread: Option<std::thread::JoinHandle<()>>,
     /// Counts the states published, so a viewer can tell one from the next.
@@ -100,9 +106,9 @@ impl StreamServer {
             media: RwLock::new(HashMap::new()),
             password,
             session: new_session_token(),
+            stopping: watch::channel(false).0,
         });
 
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<u16, String>>();
 
         let thread_shared = Arc::clone(&shared);
@@ -122,7 +128,7 @@ impl StreamServer {
                 };
 
                 runtime.block_on(async move {
-                    let address = SocketAddr::from(([0, 0, 0, 0], port));
+                    let address = SocketAddr::new(bind_address(), port);
                     let listener = match tokio::net::TcpListener::bind(address).await {
                         Ok(listener) => listener,
                         Err(error) => {
@@ -142,14 +148,39 @@ impl StreamServer {
                     };
                     let _ = ready_tx.send(Ok(bound));
 
+                    // Politely first: stop accepting, let what is in flight
+                    // finish.
+                    let graceful = {
+                        let mut stopping = thread_shared.stopping.subscribe();
+                        async move {
+                            let _ = stopping.wait_for(|stopping| *stopping).await;
+                        }
+                    };
+                    // And then, shortly after, regardless. A viewer who leaves
+                    // a tab open must not be able to hold the program still,
+                    // and the alternative to a deadline here is a switch that
+                    // sometimes never comes back.
+                    let deadline = {
+                        let mut stopping = thread_shared.stopping.subscribe();
+                        async move {
+                            let _ = stopping.wait_for(|stopping| *stopping).await;
+                            tokio::time::sleep(STOP_DEADLINE).await;
+                        }
+                    };
+
                     let app = router(thread_shared);
-                    let served = axum::serve(listener, app)
-                        .with_graceful_shutdown(async {
-                            let _ = shutdown_rx.await;
-                        })
-                        .await;
-                    if let Err(error) = served {
-                        log::error!("the streaming server stopped: {error}");
+                    tokio::select! {
+                        served = axum::serve(listener, app)
+                            .with_graceful_shutdown(graceful) => {
+                            if let Err(error) = served {
+                                log::error!("the streaming server stopped: {error}");
+                            }
+                        }
+                        _ = deadline => {
+                            log::warn!(
+                                "a viewer was still connected when streaming was                                  switched off; stopping without waiting for it"
+                            );
+                        }
                     }
                 });
             })
@@ -171,7 +202,6 @@ impl StreamServer {
 
         Ok(StreamServer {
             shared,
-            shutdown: Some(shutdown_tx),
             thread: Some(thread),
             revision: 0,
             port,
@@ -236,9 +266,11 @@ impl StreamServer {
 
 impl Drop for StreamServer {
     fn drop(&mut self) {
-        if let Some(shutdown) = self.shutdown.take() {
-            let _ = shutdown.send(());
-        }
+        // `send_replace` rather than `send`: a `watch` sender reports failure
+        // and throws the value away when nobody is listening, and whether the
+        // runtime happens to be subscribed yet is not something stopping
+        // should depend on.
+        self.shared.stopping.send_replace(true);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -277,7 +309,7 @@ async fn state(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Respons
 /// hundred sleeping tasks rather than a hundred requests a second.
 async fn events(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Response {
     use axum::response::sse::{Event, KeepAlive, Sse};
-    use futures_util::stream;
+    use futures_util::{StreamExt, stream};
 
     if !shared.may_watch(&headers) {
         return locked();
@@ -293,6 +325,15 @@ async fn events(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Respon
     // its loading placeholder until the next one — which, in the middle of a
     // reading, is minutes. So the state is yielded first and the wait comes
     // after.
+    // Ends the stream when the server is stopping, so that closing down does
+    // not have to wait for a viewer to close their tab.
+    let stop = {
+        let mut stopping = shared.stopping.subscribe();
+        async move {
+            let _ = stopping.wait_for(|stopping| *stopping).await;
+        }
+    };
+
     let updates = stream::unfold((receiver, true), |(mut receiver, first)| async move {
         if !first && receiver.changed().await.is_err() {
             // The program has gone; the stream ends and the page reconnects.
@@ -304,7 +345,8 @@ async fn events(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Respon
             Ok::<Event, std::convert::Infallible>(event),
             (receiver, false),
         ))
-    });
+    })
+    .take_until(Box::pin(stop));
 
     Sse::new(updates)
         .keep_alive(KeepAlive::default())
@@ -393,6 +435,23 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
         .zip(right)
         .fold(0u8, |differences, (a, b)| differences | (a ^ b))
         == 0
+}
+
+/// How long a viewer's connection is given to finish after streaming has been
+/// switched off, before it is cut.
+///
+/// Long enough that an ordinary request in flight completes, short enough that
+/// nobody reads it as the program having hung.
+const STOP_DEADLINE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// The address the server listens on: every interface this machine has.
+///
+/// Deliberately *not* loopback. Loopback would work perfectly on the machine
+/// running Cantara and be invisible to every other device on the network,
+/// which is the entire point of the feature — so the difference is worth a
+/// name and a test rather than four digits buried in a call.
+fn bind_address() -> IpAddr {
+    IpAddr::V4(Ipv4Addr::UNSPECIFIED)
 }
 
 /// A token nobody can guess, for the session cookie.
@@ -487,6 +546,7 @@ mod tests {
             media: RwLock::new(HashMap::new()),
             password: password.to_string(),
             session: "s3cret-session".to_string(),
+            stopping: watch::channel(false).0,
         }
     }
 
@@ -903,6 +963,54 @@ mod tests {
         assert_eq!(
             changed.bytes().expect("bytes"),
             b"a different one".as_slice()
+        );
+    }
+
+    /// The one that would silently reduce this feature to "works on my
+    /// machine": listening on loopback only.
+    #[test]
+    fn the_server_listens_on_every_interface() {
+        let address = bind_address();
+
+        assert!(address.is_unspecified(), "got: {address}");
+        assert!(!address.is_loopback(), "loopback would hide it from the network");
+    }
+
+    /// Switching streaming off while somebody is watching must return at once.
+    ///
+    /// This is the shape of a real freeze: the presenter turns the switch off
+    /// and the whole interface stands still until every browser tab pointed at
+    /// Cantara is closed — because a graceful shutdown waits for connections,
+    /// and an event stream has no end of its own.
+    #[test]
+    fn stopping_does_not_wait_for_viewers() {
+        use std::io::{Read, Write};
+        use std::time::{Duration, Instant};
+
+        let server = StreamServer::start(0, String::new()).expect("started");
+        let port = server.port();
+
+        let mut viewer = std::net::TcpStream::connect(("127.0.0.1", port)).expect("connected");
+        viewer
+            .write_all(b"GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .expect("asked for the events");
+        viewer
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("set a timeout");
+
+        // Read the opening state, so the stream is known to be live and not
+        // merely connected.
+        let mut opening = [0u8; 512];
+        let read = viewer.read(&mut opening).expect("got the opening state");
+        assert!(read > 0, "the viewer is watching");
+
+        let started = Instant::now();
+        drop(server);
+        let took = started.elapsed();
+
+        assert!(
+            took < Duration::from_secs(2),
+            "stopping waited {took:?} for a viewer who never went away"
         );
     }
 }

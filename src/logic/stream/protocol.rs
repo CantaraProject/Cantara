@@ -507,6 +507,10 @@ fn non_empty(text: Option<String>) -> Option<String> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::field_reassign_with_default,
+    reason = "these design structs keep private fields, so `..Default::default()`               is not available outside the module that defines them"
+)]
 mod tests {
     use super::*;
     use crate::logic::sourcefiles::{SourceFile, SourceFileType};

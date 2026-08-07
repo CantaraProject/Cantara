@@ -376,7 +376,10 @@ pub fn PresentationPage() -> Element {
 
                                     if let Ok(files) = serde_json::from_str::<HashMap<String, String>>(&files_json) {
                                         for (path, b64) in &files {
-                                            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64) {
+                                            if let Ok(bytes) = base64::Engine::decode(
+                                                &base64::engine::general_purpose::STANDARD,
+                                                b64,
+                                            ) {
                                                 RepositoryType::store_web_file(path, bytes);
                                             }
                                         }
