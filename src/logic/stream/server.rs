@@ -412,7 +412,7 @@ async fn login(State(shared): State<Arc<Shared>>, Json(given): Json<Login>) -> R
         return (StatusCode::UNAUTHORIZED, "wrong password").into_response();
     }
 
-    let cookie = format!("{SESSION_COOKIE}={}; Path=/; SameSite=Lax", shared.session);
+    let cookie = session_cookie(&shared.session);
     match HeaderValue::from_str(&cookie) {
         Ok(cookie) => ([(header::SET_COOKIE, cookie)], "welcome").into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
@@ -435,6 +435,16 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
         .zip(right)
         .fold(0u8, |differences, (a, b)| differences | (a ^ b))
         == 0
+}
+
+/// The cookie that says a viewer has given the password.
+///
+/// `HttpOnly` because nothing on the viewer's page has any business reading
+/// it: the cookie is set by the server and sent back by the browser, and no
+/// script is part of that. It costs nothing and takes the cookie out of reach
+/// of anything that might one day manage to run on the page.
+fn session_cookie(session: &str) -> String {
+    format!("{SESSION_COOKIE}={session}; Path=/; SameSite=Lax; HttpOnly")
 }
 
 /// How long a viewer's connection is given to finish after streaming has been
@@ -1012,5 +1022,17 @@ mod tests {
             took < Duration::from_secs(2),
             "stopping waited {took:?} for a viewer who never went away"
         );
+    }
+
+    /// Nothing on the page reads the session cookie, so nothing should be able
+    /// to. Cheap to keep, and awkward to add back after a page has grown a
+    /// script that someone else can influence.
+    #[test]
+    fn the_session_cookie_is_out_of_reach_of_scripts() {
+        let cookie = session_cookie("s3cret-session");
+
+        assert!(cookie.contains("HttpOnly"), "got: {cookie}");
+        assert!(cookie.contains("SameSite=Lax"), "got: {cookie}");
+        assert!(cookie.starts_with("cantara_stream=s3cret-session;"), "got: {cookie}");
     }
 }

@@ -135,6 +135,13 @@ pub(crate) fn ImageSourceItems(
         });
     });
 
+    // Read here, while rendering, because that is the only thing that
+    // subscribes this list to it. The task above sets it as pictures arrive,
+    // but a signal written that nobody read during a render notifies nobody —
+    // the thumbnails would then appear only when something *else* happened to
+    // redraw the list.
+    let _ = thumbnails_ready();
+
     rsx! {
         div {
             class: "scrollable-container",
