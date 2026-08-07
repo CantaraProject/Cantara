@@ -7,14 +7,14 @@ selection:
     en: Stream to the network
     de: Ins Netzwerk übertragen
   stream_description:
-    en: "Show the running presentation on any phone or tablet on the same network."
-    de: "Die laufende Präsentation auf jedem Handy oder Tablet im selben Netzwerk anzeigen."
+    en: "Stream the running presentation over the local network"
+    de: "Die laufende Präsentation über das lokale Netzwerk übertragen"
   stream_enable:
     en: Stream this presentation
     de: Diese Präsentation übertragen
   stream_address_hint:
-    en: "Open this address in a browser on the same network:"
-    de: "Diese Adresse in einem Browser im selben Netzwerk öffnen:"
+    en: "Open this address in a browser on the local network:"
+    de: "Diese Adresse in einem Browser im lokalen Netzwerk öffnen:"
   stream_failed:
     en: "Streaming could not be started: %{reason}"
     de: "Die Übertragung konnte nicht gestartet werden: %{reason}"

@@ -1220,25 +1220,36 @@ fn row_language(row: &SlideRow) -> Option<String> {
     }
 }
 
-/// Prefixes the tune with a `%%staffsep` directive for the wanted line height.
+/// The `%%staffsep` value a design's staff line height asks for, if it asks for
+/// anything.
 ///
 /// `staff_line_height` is a multiple of the engraver's own spacing, so 1.0
-/// changes nothing and the directive is left out entirely.
-fn with_staff_separation(abc: &str, staff_line_height: f64) -> String {
+/// changes nothing and there is no directive to give.
+///
+/// Shared with [`crate::logic::stream`], which sends the number to a viewer's
+/// browser to prepend there: a phone engraves the same tune as the projection,
+/// so it has to be told the same spacing.
+pub(crate) fn staff_separation(staff_line_height: f64) -> Option<f64> {
     let factor = staff_line_height.clamp(0.2, 5.0);
     if (factor - 1.0).abs() < f64::EPSILON {
-        return abc.to_string();
+        return None;
     }
+    Some((ABCJS_NEUTRAL_STAFF_SEPARATION * factor).round())
+}
 
-    let separation = (ABCJS_NEUTRAL_STAFF_SEPARATION * factor).round();
-    format!("%%staffsep {separation}\n{abc}")
+/// Prefixes the tune with a `%%staffsep` directive for the wanted line height.
+fn with_staff_separation(abc: &str, staff_line_height: f64) -> String {
+    match staff_separation(staff_line_height) {
+        Some(separation) => format!("%%staffsep {separation}\n{abc}"),
+        None => abc.to_string(),
+    }
 }
 
 /// The box the staff is drawn in: how wide it is and where it sits.
 ///
 /// At 100% it is exactly the box the text rows use, so the staff and the words
 /// line up on both edges — the notation block gets no padding of its own.
-fn notation_block_style(notation: &NotationSettings) -> String {
+pub(crate) fn notation_block_style(notation: &NotationSettings) -> String {
     let width = notation.width_percent.clamp(10.0, 100.0);
 
     let margin = match notation.horizontal_alignment {
@@ -1261,7 +1272,7 @@ fn notation_block_style(notation: &NotationSettings) -> String {
 ///
 /// The size follows the configured spoiler text, so the words under the notes
 /// are never smaller than the preview line on the same slide.
-fn abcjs_vocal_font(font: &FontRepresentation, size: &CssSize) -> String {
+pub(crate) fn abcjs_vocal_font(font: &FontRepresentation, size: &CssSize) -> String {
     let points = match size {
         CssSize::Px(value) => value * 0.75,
         CssSize::Pt(value) => *value,
