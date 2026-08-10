@@ -91,6 +91,14 @@ High-level structure:
 - `src/logic/states.rs`: in-memory runtime state for selections and running presentations
 - `src/logic/presentation.rs`: presentation assembly and content transformation helpers
 - `src/logic/sourcefiles.rs`: source-file discovery and type classification
+- `src/logic/selection_io.rs`: saving a running order to a file and opening one
+
+File formats:
+
+- [`docs/formats/cantara-zip.md`](docs/formats/cantara-zip.md): the `.cantara.zip`
+  selection file — what is in the archive, what the manifest says, and what the
+  two Cantara 2 formats (`.songtex` and Cantara 2's selection JSON) can and
+  cannot carry.
 
 ## Implementation Status
 

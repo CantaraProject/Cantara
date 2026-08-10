@@ -80,6 +80,9 @@ pub mod pdf;
 pub mod stream;
 pub mod export;
 pub mod fonts;
+/// Writing the running order to a file and reading one back — Cantara 3's own
+/// archive and the two formats Cantara 2 wrote.
+pub mod selection_io;
 pub mod pptx;
 pub mod presentation;
 

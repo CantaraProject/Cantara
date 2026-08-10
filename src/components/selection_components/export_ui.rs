@@ -11,6 +11,9 @@
 
 use super::{ExportError, ExportFormat, ExportedFile, SelectedItemRepresentation, Song, SourceFile, SourceFileType, song_from_content};
 use crate::logic::pptx::{PptxConversion, PptxDeck, deck_from_slides};
+use crate::logic::selection_io::{
+    SelectionFile, SelectionFormat, SelectionIoError, write_selection,
+};
 use crate::logic::settings::use_settings;
 use dioxus::prelude::*;
 use rust_i18n::t;
@@ -59,6 +62,20 @@ fn read_source_file_content(source_file: &SourceFile) -> Result<String, ExportEr
             reason,
         }
     })
+}
+
+/// The same for an error from [`crate::logic::selection_io`].
+///
+/// Its errors carry their parameters rather than their sentence, so that the
+/// module stays free of anything to do with views; putting them in is this
+/// side's job.
+fn selection_error_message(error: &SelectionIoError) -> String {
+    let (key, parameters) = error.message_key();
+    let mut message = t!(key).to_string();
+    for (name, value) in parameters {
+        message = message.replace(&format!("%{{{name}}}"), &value);
+    }
+    message
 }
 
 /// Turn an [`ExportError`] into a message in the user's language.
@@ -299,6 +316,54 @@ fn write_pptx_file(base64_data: &str, path: &std::path::Path) -> Result<String, 
     Ok(path.display().to_string())
 }
 
+/// Writes a selection file wherever the platform puts files.
+///
+/// The same split as [`save_exported_files`], and for the same reason — but
+/// these files are bytes rather than text, since one of them is a ZIP archive.
+#[cfg(feature = "desktop")]
+fn save_selection_file(file: &SelectionFile) -> Result<SaveOutcome, String> {
+    let Some(path) = rfd::FileDialog::new().set_file_name(&file.name).save_file() else {
+        return Ok(SaveOutcome::Cancelled);
+    };
+    std::fs::write(&path, &file.bytes).map_err(|error| error.to_string())?;
+    Ok(SaveOutcome::Written(1))
+}
+
+/// Without a file dialog the archive is handed to the platform as a download.
+/// It travels as base64 because a `Blob` is built from text here.
+#[cfg(not(feature = "desktop"))]
+fn save_selection_file(file: &SelectionFile) -> Result<SaveOutcome, String> {
+    use base64::Engine as _;
+
+    let name = serde_json::to_string(&file.name).map_err(|error| error.to_string())?;
+    let data = serde_json::to_string(&base64::engine::general_purpose::STANDARD.encode(&file.bytes))
+        .map_err(|error| error.to_string())?;
+
+    spawn(async move {
+        let js = format!(
+            r#"
+            (function() {{
+                const raw = atob({data});
+                const bytes = new Uint8Array(raw.length);
+                for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+                const blob = new Blob([bytes], {{ type: 'application/octet-stream' }});
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = {name};
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }})();
+            "#
+        );
+        let _ = document::eval(&js).await;
+    });
+
+    Ok(SaveOutcome::Written(1))
+}
+
 /// Where PptxGenJS is loaded from.
 fn pptxgen_url() -> String {
     #[cfg(not(target_arch = "wasm32"))]
@@ -522,6 +587,36 @@ pub(crate) fn ExportMenu(
     // reason instead of quietly doing nothing.
     let mut save_error: Signal<Option<String>> = use_signal(|| None);
 
+    // The running order as a file, which is a different thing from the songs
+    // as a document — see [`crate::logic::selection_io`].
+    let mut selection_format: Signal<SelectionFormat> =
+        use_signal(|| SelectionFormat::CantaraZip);
+
+    let save_selection = move |_| {
+        save_error.set(None);
+
+        let written = write_selection(
+            &selected_items.read(),
+            *selection_format.read(),
+            t!("selection.save_selection_file_name").as_ref(),
+            &|file: &SourceFile| crate::logic::sourcefiles::read_source_file_bytes(file),
+        );
+
+        let outcome = match written {
+            Ok(file) => save_selection_file(&file),
+            Err(error) => Err(selection_error_message(&error)),
+        };
+
+        match outcome {
+            Ok(SaveOutcome::Written(_)) => show_export_menu.set(false),
+            Ok(SaveOutcome::Cancelled) => {}
+            Err(message) => {
+                log::warn!("the selection could not be saved: {message}");
+                save_error.set(Some(message));
+            }
+        }
+    };
+
     let handle_save = move |_| {
         let format = *export_format.read();
         save_error.set(None);
@@ -618,6 +713,46 @@ pub(crate) fn ExportMenu(
                                     }
                                 }
                             }
+                        }
+
+                        hr {}
+
+                        // Saving the *running order* rather than its songs:
+                        // a different thing from the formats above, which
+                        // render what the songs say. Here in the same dialog
+                        // because "put this somewhere" is one thought, and
+                        // told apart by its own heading.
+                        h6 { {t!("selection.save_selection_title").to_string()} }
+                        p { {t!("selection.save_selection_description").to_string()} }
+
+                        label {
+                            {t!("selection.export_format").to_string()}
+                            select {
+                                value: selection_format.read().id(),
+                                onchange: move |event| {
+                                    if let Some(format) = SelectionFormat::of_id(&event.value()) {
+                                        selection_format.set(format);
+                                    }
+                                },
+                                for format in SelectionFormat::ALL {
+                                    option {
+                                        value: format.id(),
+                                        {t!(format.label_key()).to_string()}
+                                    }
+                                }
+                            }
+                        }
+
+                        if selection_format.read().holds_only_songs() {
+                            small { {t!("selection.save_selection_songs_only").to_string()} }
+                        }
+
+                        button {
+                            r#type: "button",
+                            class: "outline",
+                            disabled: selected_items.read().is_empty(),
+                            onclick: save_selection,
+                            {t!("selection.save_selection_button").to_string()}
                         }
                     }
 

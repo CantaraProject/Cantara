@@ -181,6 +181,90 @@ selection:
   export_error_no_songs:
     en: "No song files are selected. Pictures, PDFs and Markdown documents cannot be exported."
     de: "Es sind keine Lied-Dateien ausgewählt. Bilder, PDFs und Markdown-Dokumente können nicht exportiert werden."
+
+  # Saving and opening the running order itself, rather than the songs in it.
+  save_selection_title:
+    en: Save the selection
+    de: Auswahl speichern
+  save_selection_description:
+    en: "The running order with everything that belongs to it, as a file — to open again later or to pass on."
+    de: "Die Ablaufreihenfolge mit allem, was dazugehört, als Datei — zum späteren Öffnen oder Weitergeben."
+  save_selection_button:
+    en: Save the selection...
+    de: Auswahl speichern...
+  save_selection_file_name:
+    en: Selection
+    de: Auswahl
+  save_selection_songs_only:
+    en: "This format is Cantara 2's and holds songs only: pictures, PDFs and Markdown documents are left out, as are the slide division and the stream settings."
+    de: "Dieses Format stammt aus Cantara 2 und kennt nur Lieder: Bilder, PDFs und Markdown-Dokumente entfallen, ebenso die Folienaufteilung und die Übertragungs-Einstellungen."
+  selection_format_cantara_zip:
+    en: "Cantara selection (.cantara.zip) — everything"
+    de: "Cantara-Auswahl (.cantara.zip) — alles"
+  selection_format_songtex:
+    en: "SongTeX (.songtex) — Cantara 2, songs only"
+    de: "SongTeX (.songtex) — Cantara 2, nur Lieder"
+  selection_format_cantara_json:
+    en: "Cantara 2 selection (.json) — songs only"
+    de: "Cantara-2-Auswahl (.json) — nur Lieder"
+
+  import_title:
+    en: Open a selection
+    de: Auswahl öffnen
+  import_choose_file:
+    en: Choose a selection file (.cantara.zip, .songtex or .json).
+    de: Wählen Sie eine Auswahl-Datei (.cantara.zip, .songtex oder .json).
+  import_file_filter:
+    en: Cantara selections
+    de: Cantara-Auswahlen
+  import_confirm:
+    en: Open
+    de: Öffnen
+  import_summary_items:
+    en: "%{count} element(s) in the running order"
+    de: "%{count} Element(e) in der Ablaufreihenfolge"
+  import_summary_known:
+    en: "%{count} of them are already in your repositories"
+    de: "%{count} davon sind bereits in Ihren Quellen vorhanden"
+  import_summary_new:
+    en: "%{count} come with the file and can be added to your repositories"
+    de: "%{count} bringt die Datei mit und können in Ihre Quellen übernommen werden"
+  import_summary_missing:
+    en: "%{count} cannot be shown: they are neither in your repositories nor in the file"
+    de: "%{count} können nicht angezeigt werden: Sie sind weder in Ihren Quellen noch in der Datei enthalten"
+  import_summary_designs:
+    en: "The file brings %{designs} presentation design(s) and %{slide_settings} slide setting(s) you do not have yet"
+    de: "Die Datei bringt %{designs} Präsentationsdesign(s) und %{slide_settings} Folien-Einstellung(en) mit, die Sie noch nicht haben"
+  import_assets:
+    en: Add the missing elements to my repositories
+    de: Fehlende Elemente in meine Quellen übernehmen
+  import_target:
+    en: Add them to
+    de: Übernehmen nach
+  import_target_session:
+    en: "Only for this session (nothing is written to your repositories)"
+    de: "Nur für diese Sitzung (es wird nichts in Ihre Quellen geschrieben)"
+  import_designs:
+    en: Add the presentation designs and slide settings as well
+    de: Präsentationsdesigns und Folien-Einstellungen ebenfalls übernehmen
+  import_designs_hint:
+    en: "The selection looks the way its author made it either way; this puts the designs into your settings, where you can pick and edit them."
+    de: "Die Auswahl sieht ohnehin so aus, wie ihr Autor sie erstellt hat; dies fügt die Designs Ihren Einstellungen hinzu, wo Sie sie auswählen und bearbeiten können."
+  import_error_empty:
+    en: "There is nothing this format can hold in the selection."
+    de: "Die Auswahl enthält nichts, was dieses Format aufnehmen kann."
+  import_error_malformed:
+    en: "The file is not a Cantara selection: %{reason}"
+    de: "Die Datei ist keine Cantara-Auswahl: %{reason}"
+  import_error_too_new:
+    en: "The file was written by a newer version of Cantara (format %{found}, this version reads up to %{supported})."
+    de: "Die Datei wurde von einer neueren Cantara-Version geschrieben (Format %{found}, diese Version liest bis %{supported})."
+  import_error_archive:
+    en: "The archive could not be read: %{reason}"
+    de: "Das Archiv konnte nicht gelesen werden: %{reason}"
+  import_error_no_target:
+    en: "There is nowhere to put the missing elements: add a local folder as a repository in the settings."
+    de: "Es gibt keinen Ort für die fehlenden Elemente: Fügen Sie in den Einstellungen einen lokalen Ordner als Quelle hinzu."
   export_error_unreadable:
     en: "'%{name}' could not be read: %{reason}"
     de: "„%{name}“ konnte nicht gelesen werden: %{reason}"
@@ -767,6 +851,9 @@ general:
   delete:
     en: Delete
     de: Löschen
+  cancel:
+    en: Cancel
+    de: Abbrechen
   meta_information:
     en: Meta Information
     de: Metainformationen

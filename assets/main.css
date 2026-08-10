@@ -1206,6 +1206,21 @@ div.inline-div {
     color: var(--pico-muted-color);
 }
 
+/* Opening a selection: what the file holds, before anything is written. */
+.import-modal {
+    max-width: 34rem;
+}
+
+.import-summary {
+    margin: 0.5rem 0 1rem;
+    padding-left: 1.2rem;
+}
+
+/* What cannot be shown is the one line worth looking at twice. */
+.import-summary-missing {
+    color: var(--pico-del-color, var(--pico-color));
+}
+
 /* Stands in for the options of an element while none is picked, so the panel
    says what to do instead of being empty. */
 .presentation-options-hint {

@@ -67,6 +67,15 @@ pub struct Settings {
     #[serde(default)]
     pub default_slide_settings_index: usize,
 
+    /// Which repository an imported selection puts songs into that the
+    /// library does not have yet.
+    ///
+    /// Only a local folder can be written to, so a position naming any other
+    /// kind of repository is read as "the first local one" — see
+    /// [`Self::import_repository_path`].
+    #[serde(default)]
+    pub import_repository_index: usize,
+
     /// A boolean variable which determines if presentations should start in fullscreen mode by default.
     #[serde(default = "default_always_start_fullscreen")]
     pub always_start_fullscreen: bool,
@@ -264,6 +273,7 @@ impl Default for Settings {
             song_slide_settings: default_song_slide_vec(),
             default_design_index: 0,
             default_slide_settings_index: 0,
+            import_repository_index: 0,
             always_start_fullscreen: default_always_start_fullscreen(),
             presentation_screen: None,
             presenter_screen: None,
@@ -551,6 +561,37 @@ impl Settings {
             .or_else(|| self.song_slide_settings.first())
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// Which repositories an import could be written into.
+    ///
+    /// A downloaded one is a copy of somebody else's library that is unpacked
+    /// again on every start, so writing a song into it would lose the song.
+    /// Only a folder on this computer is offered.
+    pub fn writable_repositories(&self) -> Vec<(usize, &Repository)> {
+        self.repositories
+            .iter()
+            .enumerate()
+            .filter(|(_, repository)| {
+                matches!(repository.repository_type, RepositoryType::LocaleFilePath(_))
+                    && repository.writing_permissions
+            })
+            .collect()
+    }
+
+    /// The folder a repository is, where it is one on this computer.
+    ///
+    /// `None` for a downloaded repository, which is unpacked afresh on every
+    /// start — a song written into one would be gone by the next.
+    pub fn repository_folder(&self, index: usize) -> Option<PathBuf> {
+        match self
+            .repositories
+            .get(index)
+            .map(|repository| &repository.repository_type)
+        {
+            Some(RepositoryType::LocaleFilePath(path)) => Some(PathBuf::from(path)),
+            _ => None,
+        }
     }
 
     /// Ensures that there are at least as many slide settings as presentation designs.
@@ -1425,7 +1466,7 @@ fn get_android_files_dir() -> Option<PathBuf> {
 }
 
 /// A configured Presentation Design which is used both for creating the presentation slides as well as for rendering them.
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct PresentationDesign {
     /// A name which helps to identify the design
     pub name: String,
@@ -1455,7 +1496,7 @@ impl Default for PresentationDesign {
 /// collection worth the indirection — and the template is read on every frame
 /// the presentation renders.
 #[allow(clippy::large_enum_variant)]
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub enum PresentationDesignSettings {
     /// Describe the design via a template set up in Cantara
     Template(PresentationDesignTemplate),
@@ -1470,7 +1511,7 @@ impl Default for PresentationDesignSettings {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct PresentationDesignTemplate {
     /// The font configuration for all kinds of contents
     pub fonts: Vec<FontRepresentation>,
@@ -1684,7 +1725,7 @@ impl Default for PresentationDesignTemplate {
 }
 
 /// Represents a font representation for an element in the presentation
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct FontRepresentation {
     /// The font family. If 'None', the web default will be displayed.
     pub font_family: Option<CssFontFamily>,
@@ -1857,7 +1898,7 @@ fn default_padding() -> TopBottomLeftRight {
 }
 
 /// Represens for distance values (top, bottom, left, right)
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct TopBottomLeftRight {
     pub top: CssSize,
     pub bottom: CssSize,
@@ -2218,6 +2259,33 @@ mod tests {
             settings.default_song_slide_settings(),
             settings.song_slide_settings[0]
         );
+    }
+
+    /// An import has to go into a folder on this computer. A downloaded
+    /// repository is unpacked afresh on every start, so a song written into
+    /// one would be gone by the next — it is not offered.
+    #[test]
+    fn only_a_folder_on_this_computer_can_be_imported_into() {
+        let settings = Settings {
+            repositories: vec![
+                Repository::new_remote_zip(
+                    "Shared".to_string(),
+                    "https://example.org/songs.zip".to_string(),
+                ),
+                Repository::new_local_folder("Mine".to_string(), "/songs".to_string()),
+            ],
+            ..Default::default()
+        };
+
+        let writable: Vec<usize> = settings
+            .writable_repositories()
+            .iter()
+            .map(|(index, _)| *index)
+            .collect();
+        assert_eq!(writable, vec![1]);
+        assert_eq!(settings.repository_folder(1), Some(PathBuf::from("/songs")));
+        assert_eq!(settings.repository_folder(0), None);
+        assert_eq!(settings.repository_folder(9), None);
     }
 
     /// A settings file written before the choice existed reads as the first
