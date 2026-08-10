@@ -1770,7 +1770,7 @@ impl CssString for HorizontalAlign {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Default)]
 pub enum VerticalAlign {
     Top,
 

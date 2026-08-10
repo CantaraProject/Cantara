@@ -28,15 +28,32 @@ pub fn PresentationDesignSettingsPage(
     let nav = navigator();
     let mut settings = use_settings();
 
-    let selected_presentation_design_option: Signal<Option<PresentationDesign>> =
-        use_signal(|| {
-            settings
-                .read()
-                .presentation_designs
-                .clone()
-                .get(index as usize)
-                .cloned()
-        });
+    // Read from the settings on every render rather than copied once: the
+    // settings are what the preview draws, so an editor working on a copy of
+    // its own would show one thing and preview another — which is why the
+    // preview did not follow a change of font or background picture.
+    let selected_presentation_design_option: Memo<Option<PresentationDesign>> =
+        use_memo(move || settings.read().presentation_designs.get(index as usize).cloned());
+
+    // Whether the preview is docked. Only consulted on narrow screens: the
+    // stylesheet keeps it beside the settings whenever there is room.
+    let show_preview = use_memo(move || settings.read().show_design_preview);
+
+    // The edits land in the settings as they are made and are written out when
+    // the editor is left — by its own button, or by anything else that
+    // navigates away. `try_read`, because a program that is closing may have
+    // taken the settings down before this runs.
+    use_drop(move || {
+        if let Ok(settings) = settings.try_read() {
+            settings.save();
+        }
+    });
+
+    // Every hook is claimed before the way out below: a design that is deleted
+    // while its editor is open would otherwise leave this render with fewer
+    // hooks than the last one.
+    let selected_presentation_design =
+        use_memo(move || selected_presentation_design_option().unwrap_or_default());
 
     if selected_presentation_design_option.read().is_none() {
         // If no selected design is available, redirect to the settings page
@@ -45,13 +62,6 @@ pub fn PresentationDesignSettingsPage(
     }
 
     // From here on, the selected_presentation_design is guaranteed to be Some
-
-    let selected_presentation_design =
-        use_memo(move || selected_presentation_design_option.read().clone().unwrap_or_default());
-
-    // Whether the preview is docked. Only consulted on narrow screens: the
-    // stylesheet keeps it beside the settings whenever there is room.
-    let show_preview = use_memo(move || settings.read().show_design_preview);
 
     rsx! {
         div { class: "wrapper",
@@ -116,6 +126,10 @@ pub fn PresentationDesignSettingsPage(
             footer { class: "bottom-bar",
                 button {
                     onclick: move |_| {
+                        // Written out here rather than on every keystroke: the
+                        // edits go into the settings as they are made, and a
+                        // file write per slider step is not worth its cost.
+                        settings.read().save();
                         nav.replace(crate::Route::SettingsPage {});
                     },
                     {t!("settings.close").to_string()}
@@ -152,8 +166,9 @@ fn MetaSettings(
     /// A closure which is called each time when the presentation design has been changed
     on_pd_changed: EventHandler<PresentationDesign>,
 ) -> Element {
-    let mut pd = use_signal(|| presentation_design);
-
+    // Driven by the prop rather than by a copy taken on the first render: the
+    // design belongs to the settings, and a copy here would go stale as soon as
+    // anything else touched it.
     rsx! {
         h3 { {t!("general.meta_information").to_string()} }
         form {
@@ -161,10 +176,14 @@ fn MetaSettings(
                 label {
                     {t!("general.name").to_string()}
                     input {
-                        value: pd().name,
-                        onchange: move |event| {
-                            pd.write().name = event.value().clone();
-                            on_pd_changed.call(pd());
+                        value: presentation_design.name.clone(),
+                        onchange: {
+                            let base = presentation_design.clone();
+                            move |event: Event<FormData>| {
+                                let mut updated = base.clone();
+                                updated.name = event.value();
+                                on_pd_changed.call(updated);
+                            }
                         },
                     }
                 }
@@ -172,10 +191,14 @@ fn MetaSettings(
                 label {
                     {t!("general.description").to_string()}
                     input {
-                        value: pd().description,
-                        onchange: move |event| {
-                            pd.write().description = event.value().clone();
-                            on_pd_changed.call(pd());
+                        value: presentation_design.description.clone(),
+                        onchange: {
+                            let base = presentation_design.clone();
+                            move |event: Event<FormData>| {
+                                let mut updated = base.clone();
+                                updated.description = event.value();
+                                on_pd_changed.call(updated);
+                            }
                         },
                     }
                 }
@@ -196,8 +219,13 @@ fn DesignTemplateSettings(
     /// by the component
     onchange: EventHandler<PresentationDesignTemplate>,
 ) -> Element {
-    let mut pdt = use_signal(|| presentation_design_template);
-    let mut use_background_image: Signal<bool> = use_signal(|| pdt().background_image.is_some());
+    // Driven by the prop, like the font blocks below it and for the same
+    // reason: the design lives in the settings, and an edited copy kept here
+    // would be a second truth the preview knows nothing about. Every handler
+    // therefore clones the design it edits — one shared copy could only be
+    // moved into a single closure.
+    let pdt = presentation_design_template;
+    let mut use_background_image: Signal<bool> = use_signal(|| pdt.background_image.is_some());
 
     rsx!(
         h3 { {t!("settings.presentation_design_configuration").to_string()} }
@@ -210,10 +238,18 @@ fn DesignTemplateSettings(
                     {t!("settings.color").to_string()}
                     input {
                         r#type: "color",
-                        value: pdt().get_background_color_as_hex_string(),
-                        onchange: move |event| {
-                            _ = pdt.write().set_background_color_from_hex_str(&event.value());
-                            onchange.call(pdt());
+                        value: pdt.get_background_color_as_hex_string(),
+                        // `oninput` rather than `onchange`, as with the font
+                        // colours: the picker only commits when it is closed,
+                        // and the preview should follow while a colour is
+                        // being chosen.
+                        oninput: {
+                            let base = pdt.clone();
+                            move |event: Event<FormData>| {
+                                let mut updated = base.clone();
+                                _ = updated.set_background_color_from_hex_str(&event.value());
+                                onchange.call(updated);
+                            }
                         },
                     }
                 }
@@ -224,31 +260,33 @@ fn DesignTemplateSettings(
                         r#type: "checkbox",
                         role: "switch",
                         checked: use_background_image,
-                        onchange: move |event| {
-                            use_background_image.set(event.checked());
-                            pdt.write().background_image = None;
-                            onchange.call(pdt());
+                        onchange: {
+                            let base = pdt.clone();
+                            move |event: Event<FormData>| {
+                                use_background_image.set(event.checked());
+                                let mut updated = base.clone();
+                                updated.background_image = None;
+                                onchange.call(updated);
+                            }
                         },
                     }
                     {t!("settings.use_background_image").to_string()}
                 }
 
                 if use_background_image() {
-                    if let Some(background_image) = pdt().background_image {
-                        PictureSelector {
-                            onchange: move |background_image| {
-                                pdt.write().background_image = Some(background_image);
-                                onchange.call(pdt());
-                            },
-                            already_selected_image_path: background_image.into_inner().path,
-                        }
-                    } else {
-                        PictureSelector {
-                            onchange: move |background_image| {
-                                pdt.write().background_image = Some(background_image);
-                                onchange.call(pdt());
-                            },
-                        }
+                    PictureSelector {
+                        onchange: {
+                            let base = pdt.clone();
+                            move |background_image| {
+                                let mut updated = base.clone();
+                                updated.background_image = Some(background_image);
+                                onchange.call(updated);
+                            }
+                        },
+                        already_selected_image_path: pdt
+                            .background_image
+                            .clone()
+                            .map(|image| image.into_inner().path),
                     }
 
                     // Adjust the background image transparency over a range input
@@ -258,7 +296,7 @@ fn DesignTemplateSettings(
                                 format!(
                                     "{}: {}%",
                                     t!("settings.background_image_transparency"),
-                                    pdt.read().background_transparency,
+                                    pdt.background_transparency,
                                 )
                             }
                         }
@@ -266,13 +304,17 @@ fn DesignTemplateSettings(
                             r#type: "range",
                             min: 0,
                             max: 100,
-                            value: pdt.read().background_transparency,
-                            oninput: move |event| {
-                                pdt.write().background_transparency = event.value().parse().unwrap_or(0);
-                                onchange.call(pdt());
+                            value: pdt.background_transparency,
+                            oninput: {
+                                let base = pdt.clone();
+                                move |event: Event<FormData>| {
+                                    let mut updated = base.clone();
+                                    updated.background_transparency = event.value().parse().unwrap_or(0);
+                                    onchange.call(updated);
+                                }
                             },
                         }
-                    
+
                     }
                 }
             }
@@ -281,10 +323,14 @@ fn DesignTemplateSettings(
         // Padding
         h4 { {t!("settings.padding").to_string()} }
         PaddingInput {
-            default_padding: pdt().padding,
-            onchange: move |data| {
-                pdt.write().padding = data;
-                onchange.call(pdt());
+            default_padding: pdt.padding.clone(),
+            onchange: {
+                let base = pdt.clone();
+                move |data| {
+                    let mut updated = base.clone();
+                    updated.padding = data;
+                    onchange.call(updated);
+                }
             },
         }
 
@@ -292,11 +338,15 @@ fn DesignTemplateSettings(
         h4 { {t!("settings.main_spoiler_content_distance").to_string()} }
         fieldset { role: "group",
             NumberedValidatedLengthInput {
-                value: pdt().main_content_spoiler_content_padding,
+                value: pdt.main_content_spoiler_content_padding.clone(),
                 placeholder: "".to_string(),
-                onchange: move |new_value| {
-                    pdt.write().main_content_spoiler_content_padding = new_value;
-                    onchange.call(pdt());
+                onchange: {
+                    let base = pdt.clone();
+                    move |new_value| {
+                        let mut updated = base.clone();
+                        updated.main_content_spoiler_content_padding = new_value;
+                        onchange.call(updated);
+                    }
                 },
             }
         }
@@ -304,10 +354,14 @@ fn DesignTemplateSettings(
         // Here the settings for the vertical alignment of the content are included
         h5 { {t!("settings.vertical_alignment.title").to_string()} }
         VerticalAlignmentSelector {
-            default: pdt().vertical_alignment,
-            onchange: move |data| {
-                pdt.write().vertical_alignment = data;
-                onchange.call(pdt());
+            default: pdt.vertical_alignment,
+            onchange: {
+                let base = pdt.clone();
+                move |data| {
+                    let mut updated = base.clone();
+                    updated.vertical_alignment = data;
+                    onchange.call(updated);
+                }
             },
         }
 
@@ -321,10 +375,14 @@ fn DesignTemplateSettings(
                     input {
                         r#type: "checkbox",
                         role: "switch",
-                        checked: pdt().title_bold,
-                        onchange: move |event| {
-                            pdt.write().title_bold = event.checked();
-                            onchange.call(pdt());
+                        checked: pdt.title_bold,
+                        onchange: {
+                            let base = pdt.clone();
+                            move |event: Event<FormData>| {
+                                let mut updated = base.clone();
+                                updated.title_bold = event.checked();
+                                onchange.call(updated);
+                            }
                         },
                     }
                     {t!("settings.title_slide.bold").to_string()}
@@ -341,7 +399,7 @@ fn DesignTemplateSettings(
                         format!(
                             "{}: {} %",
                             t!("settings.notation.width"),
-                            pdt().notation.width_percent,
+                            pdt.notation.width_percent,
                         )
                     }
                     input {
@@ -349,11 +407,14 @@ fn DesignTemplateSettings(
                         min: "10",
                         max: "100",
                         step: "5",
-                        value: "{pdt().notation.width_percent}",
-                        oninput: move |event| {
-                            let value = event.value().parse::<f64>().unwrap_or(100.0);
-                            pdt.write().notation.width_percent = value;
-                            onchange.call(pdt());
+                        value: "{pdt.notation.width_percent}",
+                        oninput: {
+                            let base = pdt.clone();
+                            move |event: Event<FormData>| {
+                                let mut updated = base.clone();
+                                updated.notation.width_percent = event.value().parse::<f64>().unwrap_or(100.0);
+                                onchange.call(updated);
+                            }
                         },
                     }
                 }
@@ -363,7 +424,7 @@ fn DesignTemplateSettings(
                         format!(
                             "{}: {}",
                             t!("settings.notation.staff_line_height"),
-                            pdt().notation.staff_line_height,
+                            pdt.notation.staff_line_height,
                         )
                     }
                     input {
@@ -371,11 +432,14 @@ fn DesignTemplateSettings(
                         min: "0.5",
                         max: "3",
                         step: "0.1",
-                        value: "{pdt().notation.staff_line_height}",
-                        oninput: move |event| {
-                            let value = event.value().parse::<f64>().unwrap_or(1.0);
-                            pdt.write().notation.staff_line_height = value;
-                            onchange.call(pdt());
+                        value: "{pdt.notation.staff_line_height}",
+                        oninput: {
+                            let base = pdt.clone();
+                            move |event: Event<FormData>| {
+                                let mut updated = base.clone();
+                                updated.notation.staff_line_height = event.value().parse::<f64>().unwrap_or(1.0);
+                                onchange.call(updated);
+                            }
                         },
                     }
                 }
@@ -383,20 +447,28 @@ fn DesignTemplateSettings(
                 label {
                     {t!("settings.notation.font_size").to_string()}
                     NumberedValidatedLengthInput {
-                        value: pdt().notation.font_size,
+                        value: pdt.notation.font_size.clone(),
                         placeholder: "",
-                        onchange: move |value: CssSize| {
-                            pdt.write().notation.font_size = value;
-                            onchange.call(pdt());
+                        onchange: {
+                            let base = pdt.clone();
+                            move |value: CssSize| {
+                                let mut updated = base.clone();
+                                updated.notation.font_size = value;
+                                onchange.call(updated);
+                            }
                         },
                     }
                 }
 
                 NotationAlignmentSelector {
-                    default: pdt().notation.horizontal_alignment,
-                    onchange: move |value: HorizontalAlign| {
-                        pdt.write().notation.horizontal_alignment = value;
-                        onchange.call(pdt());
+                    default: pdt.notation.horizontal_alignment,
+                    onchange: {
+                        let base = pdt.clone();
+                        move |value: HorizontalAlign| {
+                            let mut updated = base.clone();
+                            updated.notation.horizontal_alignment = value;
+                            onchange.call(updated);
+                        }
                     },
                 }
             }
@@ -406,12 +478,16 @@ fn DesignTemplateSettings(
         h3 { {t!("settings.fonts.title").to_string()} }
 
         FontRepresentationsComponent {
-            fonts: pdt().fonts,
-            spoiler_index: pdt().spoiler_index(),
-            meta_index: pdt().meta_index,
-            onchange: move |data| {
-                pdt.write().fonts = data;
-                onchange.call(pdt());
+            fonts: pdt.fonts.clone(),
+            spoiler_index: pdt.spoiler_index(),
+            meta_index: pdt.meta_index,
+            onchange: {
+                let base = pdt.clone();
+                move |data| {
+                    let mut updated = base.clone();
+                    updated.fonts = data;
+                    onchange.call(updated);
+                }
             },
         }
     )
@@ -437,10 +513,47 @@ fn PictureSelector(
     });
     let mut selection_index = use_signal(|| default_selection_index);
 
+    // The pictures are scaled down on background threads and drawn as they
+    // arrive. Reading and encoding every picture of the library here, while
+    // this renders, is what made opening a design take seconds with the window
+    // frozen — see [`crate::logic::images`].
+    let mut thumbnails_ready: Signal<u64> = use_signal(crate::logic::images::thumbnail_generation);
+
+    use_effect(move || {
+        let paths: Vec<PathBuf> = image_source_files()
+            .iter()
+            .map(|image| image.clone().into_inner().path)
+            .collect();
+        crate::logic::images::prepare_thumbnails(paths);
+
+        // A thread cannot write to a signal, so the list looks for what has
+        // landed instead and stops as soon as they are all in.
+        spawn(async move {
+            loop {
+                let generation = crate::logic::images::thumbnail_generation();
+                if generation != *thumbnails_ready.peek() {
+                    thumbnails_ready.set(generation);
+                }
+                if !crate::logic::images::thumbnails_in_progress() {
+                    return;
+                }
+                let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
+            }
+        });
+    });
+
+    // Read while rendering, because that is the only thing that subscribes
+    // this list to it: a signal written that nobody read notifies nobody.
+    let _ = thumbnails_ready();
+
     rsx! {
+        // Looked up here and handed down, so that an item is redrawn when its
+        // own thumbnail turns up rather than when any of them does.
         for (idx , source_file) in image_source_files().iter().enumerate() {
             PictureSelectorItem {
+                key: "{idx}",
                 source_file: source_file.clone(),
+                thumbnail: crate::logic::images::thumbnail(&source_file.clone().into_inner().path),
                 height: "130px",
                 max_width: "200px",
                 // Until the user has picked one, the picture the design
@@ -466,15 +579,18 @@ fn PictureSelectorItem(
     max_width: String,
     height: String,
     source_file: ImageSourceFile,
+    /// A scaled-down copy of the picture, inlined into the page. `None` until
+    /// it has been made on a background thread; see [`crate::logic::images`].
+    thumbnail: Option<String>,
     onclick: EventHandler<ImageSourceFile>,
     active: bool,
 ) -> Element {
     // We need a source file signal here due to the use in the closure
-    let sourcefile_signal = use_signal(|| source_file);
-    // Inlined rather than referenced by path, like every other picture — see
-    // [`crate::logic::images`].
-    let preview =
-        crate::logic::images::image_data_url(&sourcefile_signal().into_inner().path);
+    let mut sourcefile_signal = use_signal(|| source_file.clone());
+    if *sourcefile_signal.peek() != source_file {
+        sourcefile_signal.set(source_file);
+    }
+    let preview = thumbnail;
 
     rsx! {
         button {
@@ -505,7 +621,9 @@ fn PaddingInput(
     default_padding: TopBottomLeftRight,
     onchange: EventHandler<TopBottomLeftRight>,
 ) -> Element {
-    let mut padding: Signal<TopBottomLeftRight> = use_signal(|| default_padding);
+    // Prop-driven, like everything else in the editor: the padding belongs to
+    // the design in the settings and is only ever read back from there.
+    let padding = default_padding;
 
     rsx!(
         div { class: "grid",
@@ -514,11 +632,15 @@ fn PaddingInput(
                     "Left"
                     fieldset { role: "group",
                         NumberedValidatedLengthInput {
-                            value: padding().left,
+                            value: padding.left.clone(),
                             placeholder: "left",
-                            onchange: move |value| {
-                                padding.write().left = get_nullified_css_size(value);
-                                onchange.call(padding());
+                            onchange: {
+                                let base = padding.clone();
+                                move |value| {
+                                    let mut updated = base.clone();
+                                    updated.left = get_nullified_css_size(value);
+                                    onchange.call(updated);
+                                }
                             },
                         }
                     }
@@ -529,11 +651,15 @@ fn PaddingInput(
                     "Right"
                     fieldset { role: "group",
                         NumberedValidatedLengthInput {
-                            value: padding().right,
+                            value: padding.right.clone(),
                             placeholder: "right",
-                            onchange: move |value| {
-                                padding.write().right = get_nullified_css_size(value);
-                                onchange.call(padding());
+                            onchange: {
+                                let base = padding.clone();
+                                move |value| {
+                                    let mut updated = base.clone();
+                                    updated.right = get_nullified_css_size(value);
+                                    onchange.call(updated);
+                                }
                             },
                         }
                     }
@@ -546,11 +672,15 @@ fn PaddingInput(
                     "Top"
                     fieldset { role: "group",
                         NumberedValidatedLengthInput {
-                            value: padding().top,
+                            value: padding.top.clone(),
                             placeholder: "top",
-                            onchange: move |value: CssSize| {
-                                padding.write().top = get_nullified_css_size(value);
-                                onchange.call(padding());
+                            onchange: {
+                                let base = padding.clone();
+                                move |value: CssSize| {
+                                    let mut updated = base.clone();
+                                    updated.top = get_nullified_css_size(value);
+                                    onchange.call(updated);
+                                }
                             },
                         }
                     }
@@ -561,12 +691,16 @@ fn PaddingInput(
                     "Bottom"
                     fieldset { role: "group",
                         NumberedValidatedLengthInput {
-                            value: padding().bottom,
+                            value: padding.bottom.clone(),
                             placeholder: "bottom",
-                            onchange: move |value: CssSize| {
+                            onchange: {
+                                let base = padding.clone();
                                 // If the content is null, we will set it accordingly
-                                padding.write().bottom = get_nullified_css_size(value);
-                                onchange.call(padding());
+                                move |value: CssSize| {
+                                    let mut updated = base.clone();
+                                    updated.bottom = get_nullified_css_size(value);
+                                    onchange.call(updated);
+                                }
                             },
                         }
                     }
@@ -590,37 +724,39 @@ fn VerticalAlignmentSelector(
     default: VerticalAlign,
     onchange: EventHandler<VerticalAlign>,
 ) -> Element {
-    let mut value_signal = use_signal(|| default);
     rsx!(
         select {
             name: "vertical_align",
             required: true,
             aria_label: t!("settings.vertical_alignment.description").to_string(),
             onchange: move |event| {
-                match event.value().as_str() {
-                    "top" => value_signal.set(VerticalAlign::Top),
-                    "middle" => value_signal.set(VerticalAlign::Middle),
-                    "bottom" => value_signal.set(VerticalAlign::Bottom),
+                // An unknown value leaves the alignment as it is rather than
+                // reporting one nobody picked.
+                let chosen = match event.value().as_str() {
+                    "top" => VerticalAlign::Top,
+                    "middle" => VerticalAlign::Middle,
+                    "bottom" => VerticalAlign::Bottom,
                     other => {
                         tracing::error!(
                             "Invalid option for vertical alignment selected, the value is: {}",
                             other
-                        )
+                        );
+                        default
                     }
                 };
-                onchange.call(value_signal());
+                onchange.call(chosen);
             },
-            option { value: "top", selected: value_signal() == VerticalAlign::Top,
+            option { value: "top", selected: default == VerticalAlign::Top,
                 {t!("settings.vertical_alignment.top").to_string()}
             }
             option {
                 value: "middle",
-                selected: value_signal() == VerticalAlign::Middle,
+                selected: default == VerticalAlign::Middle,
                 {t!("settings.vertical_alignment.middle").to_string()}
             }
             option {
                 value: "bottom",
-                selected: value_signal() == VerticalAlign::Bottom,
+                selected: default == VerticalAlign::Bottom,
                 {t!("settings.vertical_alignment.bottom").to_string()}
             }
         }

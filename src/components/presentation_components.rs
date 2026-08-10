@@ -4,6 +4,7 @@ use cantara_songlib::slides::*;
 use dioxus::prelude::*;
 use regex::Regex;
 use rust_i18n::t;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::logic::css::{CssHandler, PlaceItems};
@@ -1938,6 +1939,57 @@ pub(crate) fn PdfScrollView(pdf_path: String, pages: u32) -> Element {
 }
 
 
+/// The inline copy of a picture, made on a background thread.
+///
+/// For the views that can live without it for a moment — a thumbnail, the
+/// design preview. Reading and encoding a background photograph while
+/// rendering blocks the window, and a design with a large picture took seconds
+/// to open because of it. Here nothing is read on the render: the picture is
+/// asked for, `None` is drawn until it lands, and the view is redrawn when it
+/// does. See [`crate::logic::images`].
+fn use_inlined_picture(path: Option<PathBuf>) -> Option<String> {
+    // The path arrives as a prop, which is not something an effect can watch,
+    // so it is mirrored into a signal — as [`PresentationViewer`] does with
+    // its presentation.
+    let mut wanted: Signal<Option<PathBuf>> = use_signal(|| path.clone());
+    if *wanted.peek() != path {
+        wanted.set(path.clone());
+    }
+
+    // Counts up as pictures arrive. Read below, while rendering, because that
+    // is what subscribes this view to it.
+    let mut images_ready: Signal<u64> = use_signal(crate::logic::images::image_generation);
+
+    use_effect(move || {
+        let Some(path) = wanted() else {
+            return;
+        };
+        if crate::logic::images::cached_image_data_url(&path).is_some() {
+            return;
+        }
+        crate::logic::images::prepare_image_data_urls(vec![path]);
+
+        // The encoding happens on a thread, which cannot write to a signal, so
+        // the view looks for the result instead and stops as soon as it is in.
+        spawn(async move {
+            loop {
+                let generation = crate::logic::images::image_generation();
+                if generation != *images_ready.peek() {
+                    images_ready.set(generation);
+                }
+                if !crate::logic::images::images_in_progress() {
+                    return;
+                }
+                let _ = document::eval("await new Promise(r => setTimeout(r, 100))").await;
+            }
+        });
+    });
+
+    let _ = images_ready();
+
+    path.and_then(|path| crate::logic::images::cached_image_data_url(&path))
+}
+
 /// A static (non-interactive) slide renderer that renders a single slide with its
 /// presentation design. Used for grid overview thumbnails. It reuses the same
 /// sub-components as `PresentationRendererComponent` but without any interactivity
@@ -1951,6 +2003,14 @@ pub fn StaticSlideRendererComponent(
         PresentationDesignSettings::Template(ref template) => template.clone(),
         _ => PresentationDesignTemplate::default(),
     };
+
+    // Asked for before anything is drawn, and drawn without it until it is
+    // there — this view must never wait for a file.
+    let background_source = use_inlined_picture(
+        pds.background_image
+            .as_ref()
+            .map(|image| image.as_source().path.clone()),
+    );
 
     let css_text_align = pds
         .fonts
@@ -1987,12 +2047,8 @@ pub fn StaticSlideRendererComponent(
     let background_css = {
         let mut css = CssHandler::new();
         css.set_important(true);
-        if let Some(source) = pds
-            .background_image
-            .as_ref()
-            .and_then(|image| crate::logic::images::image_data_url(&image.as_source().path))
-        {
-            css.background_image(&source);
+        if let Some(source) = background_source.as_ref() {
+            css.background_image(source);
             css.background_size("cover");
             css.background_position("center");
             css.background_repeat("no-repeat");

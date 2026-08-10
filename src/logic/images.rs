@@ -102,6 +102,82 @@ pub fn image_data_url_str(path: &str) -> Option<String> {
     Some(url)
 }
 
+// ── Inlining a picture off the render ────────────────────────────────────────
+//
+// [`image_data_url`] reads and encodes the file when it is not in the cache
+// yet, and a view that calls it while rendering waits for that — which is what
+// made opening a design freeze the window for as long as its background
+// photograph took. A view that can do without the picture for a moment asks
+// [`prepare_image_data_urls`] to have it made on a background thread and reads
+// [`cached_image_data_url`], which never touches a file.
+
+/// Counts up every time a picture has been inlined, so a view that remembers
+/// the last value it saw knows there is something new to draw. Same reasoning
+/// as [`THUMBNAIL_GENERATION`]: a background thread cannot write to a signal.
+static IMAGE_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// How many pictures are still being encoded.
+static IMAGES_OUTSTANDING: AtomicUsize = AtomicUsize::new(0);
+
+/// The inline copy of a picture, but only if it has already been made.
+///
+/// Never reads a file — that is the whole point. `None` means "not there yet",
+/// which a view draws as nothing rather than as a stall.
+pub fn cached_image_data_url(path: &Path) -> Option<String> {
+    let path = path.to_string_lossy();
+    if path.is_empty() {
+        return None;
+    }
+    if path.starts_with("data:") || path.starts_with("http://") || path.starts_with("https://") {
+        return Some(path.to_string());
+    }
+    cache().lock().ok()?.get(path.as_ref()).cloned()
+}
+
+/// Counts up as inlined pictures arrive.
+pub fn image_generation() -> u64 {
+    IMAGE_GENERATION.load(Ordering::Relaxed)
+}
+
+/// Whether any picture is still being encoded.
+pub fn images_in_progress() -> bool {
+    IMAGES_OUTSTANDING.load(Ordering::Relaxed) > 0
+}
+
+/// Inlines `paths` that are not in the cache yet, off the calling thread.
+///
+/// Returns at once. Calling it again for a picture that is already there does
+/// nothing, so a view may call it on every render.
+pub fn prepare_image_data_urls(paths: Vec<PathBuf>) {
+    let todo: Vec<PathBuf> = paths
+        .into_iter()
+        .filter(|path| cached_image_data_url(path).is_none())
+        .collect();
+
+    if todo.is_empty() {
+        return;
+    }
+    IMAGES_OUTSTANDING.fetch_add(todo.len(), Ordering::Relaxed);
+
+    // Encoding a picture the caller asked for twice is harmless: it lands in
+    // the cache under the same key with the same content.
+    let encode = |todo: Vec<PathBuf>| {
+        for path in todo {
+            let _ = image_data_url(&path);
+            IMAGES_OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
+            IMAGE_GENERATION.fetch_add(1, Ordering::Relaxed);
+        }
+    };
+
+    // The web build has no threads; there the file is already in memory and
+    // only the encoding is paid, here and now.
+    #[cfg(target_arch = "wasm32")]
+    encode(todo);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(move || encode(todo));
+}
+
 // ── Thumbnails for the list of pictures ──────────────────────────────────────
 //
 // The list is a different problem from a single picture on a slide. It shows
@@ -393,6 +469,42 @@ mod tests {
             Some(small.len()),
             "asking a second time threw the thumbnail away"
         );
+    }
+
+    /// The whole point of asking for a picture ahead of time: what has not
+    /// been made yet must be answered without touching the file, because the
+    /// caller is a view in the middle of rendering.
+    #[test]
+    fn a_picture_that_has_not_been_inlined_yet_is_not_read() {
+        assert_eq!(cached_image_data_url(Path::new("testfiles/not-inlined.png")), None);
+        // An address the page can follow needs nothing made at all.
+        assert_eq!(
+            cached_image_data_url(Path::new("https://example.org/logo.png")).as_deref(),
+            Some("https://example.org/logo.png")
+        );
+    }
+
+    /// A picture asked for ahead of time is made off the caller's thread and
+    /// is afterwards there for the render that needs it.
+    #[test]
+    fn a_picture_can_be_inlined_in_the_background() {
+        let icon = PathBuf::from("assets/favicon.png");
+
+        prepare_image_data_urls(vec![icon.clone()]);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while images_in_progress() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        let url = cached_image_data_url(&icon).expect("the bundled icon was inlined");
+        assert!(url.starts_with("data:image/png;base64,"), "got: {}", &url[..30.min(url.len())]);
+
+        // Asking again for something that is already there is not work.
+        let generation = image_generation();
+        prepare_image_data_urls(vec![icon]);
+        assert!(!images_in_progress());
+        assert_eq!(image_generation(), generation);
     }
 
     /// What the page gets is a `data:` URL carrying the file, and the second

@@ -46,7 +46,9 @@ pub fn MarkdownIcon(width: Option<u32>) -> Element {
 /// A component displaying multiple presentation designs in an "Amazing Grace" presentation.
 #[component]
 pub fn PresentationDesignSelector(
-    presentation_designs: Signal<Vec<PresentationDesign>>,
+    /// Read-only, so that the list may be handed a memo over the settings
+    /// rather than a copy that has to be written back.
+    presentation_designs: ReadSignal<Vec<PresentationDesign>>,
     song_slide_settings: Option<SlideSettings>,
     viewer_width: usize,
     active_item: Signal<Option<usize>>,
