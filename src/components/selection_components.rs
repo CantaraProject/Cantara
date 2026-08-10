@@ -458,7 +458,7 @@ pub fn Selection() -> Element {
 }
 
 /// Helper function to start a presentation from the selection page.
-/// Supports multi-screen placement and optional presenter console.
+/// Supports multiscreen placement and optional presenter console.
 #[cfg(feature = "desktop")]
 fn start_presentation(
     selected_items: &Vec<SelectedItemRepresentation>,

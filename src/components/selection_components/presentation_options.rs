@@ -147,6 +147,26 @@ pub(crate) fn PresentationOptions(
                             }
                         }
                     }
+
+                    div { style: "margin-top: 20px; display: flex; flex-direction: column; align-items: center;",
+                        SelectedItemPreview {
+                            selected_item: item.clone(),
+                            default_presentation_design: settings
+                                                                                        .read()
+                                                                                        .presentation_designs
+                                                                                        .first()
+                                                                                        .cloned()
+                                                                                        .unwrap_or_default(),
+                            default_slide_settings: settings
+                                                                                        .read()
+                                                                                        .song_slide_settings
+                                                                                        .first()
+                                                                                        .cloned()
+                                                                                        .unwrap_or_default(),
+                            width: 400,
+                        }
+                    }
+
                     // What the phones are shown for *this* element, overriding
                     // whatever the service chose generally. "Same as the
                     // presentation" here means exactly that and not "fall back
@@ -368,24 +388,7 @@ pub(crate) fn PresentationOptions(
                             }
                         }
                     }
-                    div { style: "margin-top: 20px; display: flex; flex-direction: column; align-items: center;",
-                        SelectedItemPreview {
-                            selected_item: item.clone(),
-                            default_presentation_design: settings
-                                                                                        .read()
-                                                                                        .presentation_designs
-                                                                                        .first()
-                                                                                        .cloned()
-                                                                                        .unwrap_or_default(),
-                            default_slide_settings: settings
-                                                                                        .read()
-                                                                                        .song_slide_settings
-                                                                                        .first()
-                                                                                        .cloned()
-                                                                                        .unwrap_or_default(),
-                            width: 400,
-                        }
-                    }
+
                 }
             }
         }
@@ -425,7 +428,6 @@ fn StreamViewSettings() -> Element {
     rsx! {
         hgroup { style: "margin-top: 1.5rem;",
             h6 { {t!("selection.presentation_options.stream_view.headline").to_string()} }
-            p { {t!("selection.presentation_options.stream_view.description").to_string()} }
         }
         div { class: "grid",
             div {

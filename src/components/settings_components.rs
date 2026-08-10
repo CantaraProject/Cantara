@@ -91,10 +91,10 @@ fn SettingsContent() -> Element {
         }
     });
 
+    // Here the element order of the settings can be defined
     rsx! {
         RepositorySettings {}
         hr {}
-        StreamSettingsSection {}
         ScreenSettings {}
         hr {}
         PresentationSettings {}
@@ -102,6 +102,7 @@ fn SettingsContent() -> Element {
         SongSlideSettings {
             song_slide_settings
         }
+        StreamSettingsSection {}
     }
 }
 
