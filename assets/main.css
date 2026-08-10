@@ -1205,3 +1205,11 @@ div.inline-div {
     font-size: 0.85em;
     color: var(--pico-muted-color);
 }
+
+/* Stands in for the options of an element while none is picked, so the panel
+   says what to do instead of being empty. */
+.presentation-options-hint {
+    margin-top: 1rem;
+    color: var(--pico-muted-color);
+    font-style: italic;
+}

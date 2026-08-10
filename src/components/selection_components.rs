@@ -89,20 +89,13 @@ pub fn Selection() -> Element {
         }
     });
 
+    // Which of the configured designs and divisions that is, is the service's
+    // choice — made in the general half of the presentation options.
     let default_presentation_design_memo =
-        use_memo(move || match settings.read().presentation_designs.first() {
-            Some(design) => design.clone(),
-            None => PresentationDesign::default(),
-        });
+        use_memo(move || settings.read().default_presentation_design());
 
-    let default_song_slide_settings_memo = use_memo(move || {
-        settings
-            .read()
-            .song_slide_settings
-            .first()
-            .unwrap_or(&SlideSettings::default())
-            .clone()
-    });
+    let default_song_slide_settings_memo =
+        use_memo(move || settings.read().default_song_slide_settings());
 
     // What the phones are shown, generally: the service's choice, resolved
     // from the design and slide-settings lists the user maintains.

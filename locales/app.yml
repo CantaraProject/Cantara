@@ -68,6 +68,9 @@ selection:
     default:
       en: Default
       de: Standard
+    select_item_first:
+      en: Please select an item first.
+      de: Bitte wählen Sie zuerst ein Element aus.
     stream_view:
       headline:
         en: Network stream
