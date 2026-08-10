@@ -584,6 +584,121 @@ div.inline-div {
     font-size: 0.9em;
 }
 
+/* --- Picking the background picture ---
+
+   A library holds as many pictures as it holds, and stacked one under the
+   other they buried the rest of the design editor. They lie in two rows that
+   scroll sideways instead: every frame is the same size whether its thumbnail
+   has been made yet or not, so the strip does not change height while the
+   pictures come in. */
+
+/* A `fieldset` never becomes narrower than its content — that is in the
+   browser's own stylesheet, and it is why the strip used to push the whole
+   settings column out from under the preview and off the page. Its content is
+   a scroller and is allowed to be narrower than what is in it. */
+.design-editor-settings form,
+.design-editor-settings fieldset {
+    min-inline-size: 0;
+    min-width: 0;
+}
+
+.picture-selector {
+    /* Two rows, filled column by column: a library of a few hundred pictures
+       is half as far to scroll through, and the row of frames does not leave
+       the space beside it empty. */
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(2, auto);
+    grid-auto-columns: 11rem;
+    gap: 0.75rem;
+    /* Whatever is in it, it is as wide as the column it sits in. */
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* Room for the scrollbar, so it does not sit on top of the names. */
+    padding-bottom: 0.5rem;
+    /* A drag or a flick comes to rest on a picture rather than between two. */
+    scroll-snap-type: x proximity;
+    scroll-padding-left: 0.25rem;
+}
+
+.picture-selector-item {
+    /* The track decides the width; the frame never stretches beyond it. */
+    min-width: 0;
+    margin: 0;
+    padding: 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    scroll-snap-align: center;
+    background: transparent;
+    color: inherit;
+    border: 2px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    cursor: pointer;
+}
+
+.picture-selector-item:hover {
+    border-color: var(--pico-primary-border);
+}
+
+.picture-selector-item-active {
+    border-color: var(--pico-primary);
+    background-color: var(--pico-primary-focus);
+}
+
+/* Fixed, so an arriving thumbnail changes nothing about the layout. */
+.picture-selector-preview {
+    position: relative;
+    width: 100%;
+    height: 6.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: calc(var(--pico-border-radius) / 2);
+    /* Shows the frame while the thumbnail is still being made. */
+    background-color: var(--pico-form-element-background-color);
+}
+
+.picture-selector-preview img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.picture-selector-check {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    padding: 0 0.35rem;
+    border-radius: 1rem;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    background-color: var(--pico-primary);
+    color: var(--pico-primary-inverse);
+}
+
+.picture-selector-name {
+    font-size: 0.75rem;
+    line-height: 1.2;
+    /* One line: a long file name must not make its frame taller than the
+       others. The whole name is in the tooltip. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+    color: var(--pico-muted-color);
+}
+
+.picture-selector-hint,
+.picture-selector-empty {
+    display: block;
+    color: var(--pico-muted-color);
+}
+
 /* --- Presentation design editor: settings beside a live preview --- */
 
 /* One column by default. The preview follows the settings, and on a narrow

@@ -136,13 +136,28 @@ fn main() {
 
         use dioxus::desktop::tao;
 
+        // The program is perfectly usable without its icon in the task bar, so
+        // a picture that cannot be decoded is written to the log and the
+        // window opens with the system's default icon instead of not at all.
         let icon = {
             let icon_bytes = include_bytes!("../assets/favicon.png");
-            let icon_image = image::load_from_memory(icon_bytes).expect("Failed to load icon");
-            let icon_rgba = icon_image.to_rgba8();
-            let (width, height) = icon_rgba.dimensions();
-            tao::window::Icon::from_rgba(icon_rgba.into_raw(), width, height)
-                .expect("Failed to create window icon")
+            match image::load_from_memory(icon_bytes) {
+                Ok(icon_image) => {
+                    let icon_rgba = icon_image.to_rgba8();
+                    let (width, height) = icon_rgba.dimensions();
+                    match tao::window::Icon::from_rgba(icon_rgba.into_raw(), width, height) {
+                        Ok(icon) => Some(icon),
+                        Err(error) => {
+                            dioxus::logger::tracing::warn!("the window icon could not be built: {error}");
+                            None
+                        }
+                    }
+                }
+                Err(error) => {
+                    dioxus::logger::tracing::warn!("the window icon could not be read: {error}");
+                    None
+                }
+            }
         };
 
         let mut window = tao::window::WindowBuilder::new()
@@ -150,7 +165,7 @@ fn main() {
             .with_title("Cantara")
             .with_decorations(true)
             .with_visible(true)
-            .with_window_icon(Some(icon));
+            .with_window_icon(icon);
 
         // The size the window was left at last time, if there was a last time.
         // Only the size: where the window *stood* is not restored, because a
@@ -258,6 +273,12 @@ fn App() -> Element {
     // Initialize settings and provide them as a context to all components
     let settings: Signal<Settings> = use_signal(Settings::load);
     use_context_provider(|| settings);
+
+    // The installed fonts are read on a thread of their own, started here so
+    // that they are usually there by the time anyone opens a design — the
+    // settings show what is available without ever waiting for them. See
+    // [`logic::fonts`].
+    use_hook(logic::fonts::prepare_system_fonts);
 
     // The source files and selected items should live here because they should stay persistent in the different routes.
     let mut source_files: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));

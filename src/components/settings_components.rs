@@ -1,7 +1,9 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
 use super::directory_browser::DirectoryBrowserModal;
-use super::shared_components::{DeleteIcon, EditIcon, PresentationDesignSelector, js_yes_no_box};
+use super::shared_components::{
+    DeleteIcon, EditIcon, PresentationDesignSelector, js_message_box, js_yes_no_box,
+};
 use super::song_slide_settings_components::SongSlideSettings;
 #[cfg(feature = "desktop")]
 use crate::logic::screens::{MonitorInfo, enumerate_monitors};
@@ -37,7 +39,11 @@ pub fn SettingsPage() -> Element {
                 class: "bottom-bar",
                 button {
                     onclick: move |_| {
-                        settings.read().save();
+                        // Leaving the settings is the moment they have to be on
+                        // disk, so a failure here is told rather than logged:
+                        // everything the user just configured is otherwise lost
+                        // when the program ends, without a word.
+                        let save_error = settings.read().try_save().err();
 
                         // The unpacked copies of the remote repositories are
                         // deliberately kept. Throwing them away here meant
@@ -48,7 +54,14 @@ pub fn SettingsPage() -> Element {
                         // program's lifetime and are removed when it ends; a
                         // repository the user actually deletes is cleaned up
                         // where that happens.
-                        nav.replace(Route::Selection {});
+                        async move {
+                            if let Some(error) = save_error {
+                                let message = t!("dialogs.settings_not_saved", error = error)
+                                    .to_string();
+                                let _ = document::eval(&js_message_box(message)).await;
+                            }
+                            nav.replace(Route::Selection {});
+                        }
                     },
                     { t!("settings.close").to_string() }
                 }

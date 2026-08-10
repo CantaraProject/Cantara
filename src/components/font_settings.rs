@@ -474,6 +474,47 @@ fn WeightSelector(weight: u16, onchange: EventHandler<u16>) -> Element {
     }
 }
 
+/// The families that can be offered, without waiting for them.
+///
+/// Reading the installed fonts opens every font file on the computer. Doing
+/// that here, while the page renders, is what made the design editor take
+/// seconds to open: it happened once per font block, and again when the page
+/// change had settled and the page was built a second time. Now the list is
+/// read once per run on a background thread; until it is there the selector
+/// offers the bundled and web-safe families and gains the rest when they
+/// arrive. See [`crate::logic::fonts`].
+fn use_font_families() -> Vec<FontFamily> {
+    // Counts up when the installed families land. Read below, while
+    // rendering, because that is what subscribes this selector to it.
+    let mut families_ready: Signal<u64> = use_signal(fonts::system_generation);
+
+    use_effect(move || {
+        fonts::prepare_system_fonts();
+        if !fonts::system_fonts_pending() {
+            return;
+        }
+
+        // A thread cannot write to a signal, so the selector looks instead,
+        // and stops as soon as the families are in.
+        spawn(async move {
+            loop {
+                let generation = fonts::system_generation();
+                if generation != *families_ready.peek() {
+                    families_ready.set(generation);
+                }
+                if !fonts::system_fonts_pending() {
+                    return;
+                }
+                let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
+            }
+        });
+    });
+
+    let _ = families_ready();
+
+    fonts::available_now()
+}
+
 /// Picks the font family for one text section of a presentation.
 ///
 /// The families are grouped by where they come from, because the distinction
@@ -488,9 +529,7 @@ fn FontFamilySelector(
     /// Called with the new family whenever the selection changes.
     onchange: EventHandler<Option<CssFontFamily>>,
 ) -> Element {
-    // Enumerating the installed fonts touches the file system, so it is done
-    // once and kept for as long as the settings page lives.
-    let families = use_hook(fonts::available);
+    let families = use_font_families();
 
     let current = selected
         .as_ref()

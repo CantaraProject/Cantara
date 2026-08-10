@@ -2,7 +2,7 @@
 
 use crate::components::font_settings::FontRepresentationsComponent;
 use crate::components::presentation_components::StaticSlideRendererComponent;
-use crate::components::shared_components::NumberedValidatedLengthInput;
+use crate::components::shared_components::{NumberedValidatedLengthInput, js_message_box};
 use cantara_songlib::slides::{Slide, SlideSettings};
 use crate::logic::settings::{
     CssSize, HorizontalAlign, PresentationDesign, PresentationDesignSettings,
@@ -129,8 +129,17 @@ pub fn PresentationDesignSettingsPage(
                         // Written out here rather than on every keystroke: the
                         // edits go into the settings as they are made, and a
                         // file write per slider step is not worth its cost.
-                        settings.read().save();
-                        nav.replace(crate::Route::SettingsPage {});
+                        // A design that could not be written is worth saying,
+                        // since it is gone when the program ends.
+                        let save_error = settings.read().try_save().err();
+                        async move {
+                            if let Some(error) = save_error {
+                                let message = t!("dialogs.settings_not_saved", error = error)
+                                    .to_string();
+                                let _ = document::eval(&js_message_box(message)).await;
+                            }
+                            nav.replace(crate::Route::SettingsPage {});
+                        }
                     },
                     {t!("settings.close").to_string()}
                 }
@@ -546,29 +555,65 @@ fn PictureSelector(
     // this list to it: a signal written that nobody read notifies nobody.
     let _ = thumbnails_ready();
 
-    rsx! {
-        // Looked up here and handed down, so that an item is redrawn when its
-        // own thumbnail turns up rather than when any of them does.
-        for (idx , source_file) in image_source_files().iter().enumerate() {
-            PictureSelectorItem {
-                key: "{idx}",
-                source_file: source_file.clone(),
-                thumbnail: crate::logic::images::thumbnail(&source_file.clone().into_inner().path),
-                height: "130px",
-                max_width: "200px",
-                // Until the user has picked one, the picture the design
-                // already uses is the one that is shown as active.
-                active: match selection_index() {
-                    Some(selected) => selected == idx,
-                    None => Some(source_file.clone().into_inner().path) == already_selected_image_path,
-                },
-                onclick: move |image_source_file| {
-                    selection_index.set(Some(idx));
-                    if let Some(onchange_event) = onchange {
-                        onchange_event.call(image_source_file);
-                    }
-                },
+    let count = image_source_files().len();
+
+    if count == 0 {
+        return rsx! {
+            p { class: "picture-selector-empty",
+                {t!("settings.background_image_none_available").to_string()}
             }
+        };
+    }
+
+    rsx! {
+        // A strip that scrolls sideways rather than a wall of pictures: the
+        // library holds however many it holds, and stacked full-width they
+        // pushed everything else in the design editor off the screen. The row
+        // keeps the pictures at a size worth looking at and costs one line.
+        div {
+            class: "picture-selector",
+            role: "listbox",
+            aria_label: t!("settings.use_background_image").to_string(),
+            // The picture the design already uses is usually not the first
+            // one, so the strip starts where the answer is. Only `scrollLeft`
+            // of the strip is touched — `scrollIntoView` would take the page
+            // along with it.
+            onmounted: move |_| async move {
+                let _ = document::eval(
+                    "const strip = document.querySelector('.picture-selector');
+                     const active = strip && strip.querySelector('.picture-selector-item-active');
+                     if (strip && active) {
+                         strip.scrollLeft = active.offsetLeft
+                             - (strip.clientWidth - active.clientWidth) / 2;
+                     }",
+                )
+                .await;
+            },
+
+            // Looked up here and handed down, so that an item is redrawn when
+            // its own thumbnail turns up rather than when any of them does.
+            for (idx , source_file) in image_source_files().iter().enumerate() {
+                PictureSelectorItem {
+                    key: "{idx}",
+                    source_file: source_file.clone(),
+                    thumbnail: crate::logic::images::thumbnail(&source_file.clone().into_inner().path),
+                    // Until the user has picked one, the picture the design
+                    // already uses is the one that is shown as active.
+                    active: match selection_index() {
+                        Some(selected) => selected == idx,
+                        None => Some(source_file.clone().into_inner().path) == already_selected_image_path,
+                    },
+                    onclick: move |image_source_file| {
+                        selection_index.set(Some(idx));
+                        if let Some(onchange_event) = onchange {
+                            onchange_event.call(image_source_file);
+                        }
+                    },
+                }
+            }
+        }
+        small { class: "picture-selector-hint",
+            {t!("settings.background_image_count", count = count).to_string()}
         }
     }
 }
@@ -576,8 +621,6 @@ fn PictureSelector(
 /// A component representing a single item (picture) in the [PictureSelector] component
 #[component]
 fn PictureSelectorItem(
-    max_width: String,
-    height: String,
     source_file: ImageSourceFile,
     /// A scaled-down copy of the picture, inlined into the page. `None` until
     /// it has been made on a background thread; see [`crate::logic::images`].
@@ -592,25 +635,51 @@ fn PictureSelectorItem(
     }
     let preview = thumbnail;
 
+    let name = sourcefile_signal().into_inner().name;
+
     rsx! {
         button {
-            role: "button",
-            class: if active { "outline" } else { "outline secondary" },
-            "data-tooltip": sourcefile_signal().into_inner().name,
+            r#type: "button",
+            role: "option",
+            aria_selected: active.to_string(),
+            class: if active {
+                "picture-selector-item picture-selector-item-active"
+            } else {
+                "picture-selector-item"
+            },
+            title: "{name}",
             onclick: move |event| {
                 onclick.call(sourcefile_signal());
                 event.prevent_default();
             },
-            if let Some(preview) = preview {
-                img {
-                    max_width: "180px",
-                    height: "100px",
-                    src: "{preview}",
-                    alt: sourcefile_signal().into_inner().name,
+            // The frame is the same size whether the picture is there or not.
+            // The thumbnails are made on background threads and arrive one by
+            // one; without this, every arrival changed the size of the strip
+            // under the reader.
+            div { class: "picture-selector-preview",
+                if let Some(preview) = preview {
+                    // The whole library's thumbnails arrive as inline data, and
+                    // a web view decodes a picture before it can draw it. As in
+                    // the library list: `lazy` leaves what is scrolled out of
+                    // sight alone, `async` keeps the decoding of the rest off
+                    // the thread that draws.
+                    img {
+                        loading: "lazy",
+                        decoding: "async",
+                        src: "{preview}",
+                        alt: "{name}",
+                    }
                 }
-            } else {
-                span { {sourcefile_signal().into_inner().name} }
+                // Says which picture is in use even where the strip is too
+                // narrow to show more than one frame.
+                if active {
+                    span { class: "picture-selector-check", aria_hidden: "true", "✓" }
+                }
             }
+            // The name under the picture rather than only in a tooltip: two
+            // photographs of the same hall are told apart by their file name,
+            // and a tooltip has to be hunted for.
+            span { class: "picture-selector-name", "{name}" }
         }
     }
 }
@@ -986,6 +1055,51 @@ mod tests {
                     );
                     dom.rebuild_in_place();
                 }
+            }
+        }
+    }
+
+    /// A frame is drawn whether its thumbnail has been made or not — the
+    /// pictures arrive one by one, and a strip that only had frames for the
+    /// ones that are in would change size under the reader.
+    #[test]
+    fn test_a_picture_frame_renders_with_and_without_its_thumbnail() {
+        use crate::logic::sourcefiles::SourceFileType;
+
+        let source_file = ImageSourceFile::new(SourceFile {
+            name: "Hall".to_string(),
+            path: PathBuf::from("assets/favicon.png"),
+            file_type: SourceFileType::Image,
+            md5_hash: None,
+            relative_path: None,
+        })
+        .expect("a picture is a picture source file");
+
+        // Rendered from inside a component, because an event handler belongs
+        // to a scope and cannot be built outside of one.
+        #[component]
+        fn Harness(source_file: ImageSourceFile, thumbnail: Option<String>, active: bool) -> Element {
+            rsx! {
+                PictureSelectorItem {
+                    source_file,
+                    thumbnail,
+                    active,
+                    onclick: move |_| {},
+                }
+            }
+        }
+
+        for thumbnail in [None, Some("data:image/png;base64,AAAA".to_string())] {
+            for active in [false, true] {
+                let mut dom = dioxus::prelude::VirtualDom::new_with_props(
+                    Harness,
+                    HarnessProps {
+                        source_file: source_file.clone(),
+                        thumbnail: thumbnail.clone(),
+                        active,
+                    },
+                );
+                dom.rebuild_in_place();
             }
         }
     }

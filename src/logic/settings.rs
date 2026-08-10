@@ -377,26 +377,51 @@ impl Settings {
     }
 
     /// Save the current settings to storage.
+    ///
+    /// A failure is written to the log and otherwise passed over: most of the
+    /// places that save do so as a side effect of an edit, and a dialog there
+    /// would interrupt what the user is doing for something they can do
+    /// nothing about. Where losing the settings is the point — leaving the
+    /// settings page — [`Settings::try_save`] says what went wrong instead.
     pub fn save(&self) {
+        if let Err(error) = self.try_save() {
+            dioxus::logger::tracing::error!("the settings could not be saved: {error}");
+        }
+    }
+
+    /// Save the current settings to storage, and say why if that did not work.
+    ///
+    /// The message is meant to be shown: it names the file or the storage that
+    /// could not be written, so that a settings directory that is read-only or
+    /// full is something the user can act on rather than guess at.
+    pub fn try_save(&self) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|error| format!("the settings could not be encoded: {error}"))?;
+
         #[cfg(target_arch = "wasm32")]
         {
-            if let Ok(json) = serde_json::to_string_pretty(self) {
-                let _ = web_sys::window()
-                    .and_then(|w| w.local_storage().ok().flatten())
-                    .map(|s| s.set_item("cantara-settings", &json));
-            }
+            let storage = web_sys::window()
+                .and_then(|window| window.local_storage().ok().flatten())
+                .ok_or_else(|| "this browser offers no local storage".to_string())?;
+            storage
+                .set_item("cantara-settings", &json)
+                .map_err(|_| "the browser refused to store the settings".to_string())?;
+            Ok(())
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            if let Some(file) = get_settings_file() {
-                if let Some(folder) = get_settings_folder() {
-                    let _ = fs::create_dir_all(folder);
-                }
-                if let Ok(json) = serde_json::to_string_pretty(self) {
-                    let _ = std::fs::write(file, json);
-                }
+            let file = get_settings_file()
+                .ok_or_else(|| "no settings file location could be determined".to_string())?;
+
+            if let Some(folder) = get_settings_folder()
+                && let Err(error) = fs::create_dir_all(&folder)
+            {
+                return Err(format!("{} could not be created: {error}", folder.display()));
             }
+
+            std::fs::write(&file, json)
+                .map_err(|error| format!("{} could not be written: {error}", file.display()))
         }
     }
 

@@ -500,6 +500,12 @@ settings:
   background_image_transparency:
     en: Background Image Transparency
     de: Transparenz des Hintergrundbilds
+  background_image_count:
+    en: "%{count} pictures"
+    de: "%{count} Bilder"
+  background_image_none_available:
+    en: There is no picture in your repositories yet. Add a folder holding pictures in the settings, and it can be used as a background here.
+    de: In Ihren Quellen ist noch kein Bild vorhanden. Fügen Sie in den Einstellungen einen Ordner mit Bildern hinzu, dann kann eines davon hier als Hintergrund dienen.
   padding:
     en: Padding
     de: Randabstand des Inhalts
@@ -775,6 +781,9 @@ dialogs:
   confirm_deletion:
     en: Are you sure that you would like to delete this element?
     de: Sind Sie sicher, dass Sie das Element löschen möchten?
+  settings_not_saved:
+    en: "The settings could not be saved, so your changes are only kept until Cantara is closed. Reason: %{error}"
+    de: "Die Einstellungen konnten nicht gespeichert werden. Ihre Änderungen bleiben daher nur erhalten, bis Cantara beendet wird. Grund: %{error}"
 
 # Configuration of what a song slide shows: one language, several languages,
 # or the complex layout that stacks notation and languages.
