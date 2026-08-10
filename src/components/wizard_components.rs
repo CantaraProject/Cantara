@@ -127,7 +127,7 @@ fn FirstStep() -> Element {
         div {
             class: "wizard-step",
             div {
-                class: "grid fade-in",
+                class: "grid",
                 div {
                     dangerous_inner_html: explanation_html
                 }
@@ -187,7 +187,7 @@ fn SecondStep() -> Element {
             class: "wizard-step",
             h3 { { t!("wizard.second_step.title").to_string() } }
             div {
-                class: "grid fade-in",
+                class: "grid",
                 div {
                     dangerous_inner_html: t!("wizard.second_step.explanation").to_string()
                 }

@@ -26,11 +26,10 @@ use crate::components::presentation_components::{
     BundledFontFaces, MORPH_JS, PRESENTATION_CSS, PRESENTATION_JS,
 };
 use crate::components::presenter_console_components::PRESENTER_CONSOLE_CSS;
-use crate::components::route_transitions::AnimatedLayout;
+use crate::components::route_transitions::RouteFadeLayout;
 use crate::components::song_slide_settings_components::SongSlideSettingsPage;
 use crate::components::wizard_components::Wizard;
 use dioxus::prelude::*;
-use dioxus_motion::prelude::*;
 use logic::settings::*;
 use logic::sourcefiles::SourceFile;
 use logic::states::{self, RunningPresentation, SelectedItemRepresentation};
@@ -55,18 +54,17 @@ const FAVICON: Asset = asset!("/assets/favicon.png");
 
 /// The routes of the application.
 ///
-/// All of them live inside [`AnimatedLayout`], which renders an animated outlet
-/// instead of a plain one, so that a page change is a short cross-fade instead
-/// of a jump. Every route uses the same `Fade` — see
+/// All of them live inside [`RouteFadeLayout`], which renders the outlet and
+/// lets the page arriving in it fade in, so that a page change is a short fade
+/// rather than a jump. Every page fades the same way — see
 /// [`route_transitions`](components::route_transitions) for why there is no
-/// route-specific effect.
-#[derive(Routable, PartialEq, Clone, MotionTransitions)]
+/// route-specific effect, and why the fade is not an animated outlet.
+#[derive(Routable, PartialEq, Clone)]
 #[rustfmt::skip]
 pub enum Route {
-    #[layout(AnimatedLayout)]
+    #[layout(RouteFadeLayout)]
     /// The selection route allows the user to select songs or other elements for the presentation
     #[route("/")]
-    #[transition(Fade)]
     Selection {},
 
 
@@ -79,38 +77,31 @@ pub enum Route {
     /// stays where it belongs, between the views.
     /// Everything about that identifier is in [`logic::element_id`].
     #[route("/detail/:..element")]
-    #[transition(Fade)]
     Detail { element: Vec<String> },
 
     /// The wizard is shown when the program is run for the first time (no configuration file exists)
     #[route("/wizard")]
-    #[transition(Fade)]
     Wizard {},
 
     /// The settings page is shown when explicitly called
     #[route("/settings")]
-    #[transition(Fade)]
     SettingsPage {},
 
     /// The presentation design settings page with a dynamic index
     #[route("/settings/design/:index")]
-    #[transition(Fade)]
     PresentationDesignSettingsPage { index: u16 },
 
     /// The song slide settings page with a dynamic index
     #[route("/settings/slide/:index")]
-    #[transition(Fade)]
     SongSlideSettingsPage { index: u16 },
 
     /// The presenter console shown in the main window during a presentation
     #[route("/presenter")]
-    #[transition(Fade)]
     PresenterConsolePage {},
 
     /// The presentation view shown in the same tab (when presenter console is disabled)
     /// or opened in a new tab (when presenter console is enabled, on web).
     #[route("/presentation")]
-    #[transition(Fade)]
     PresentationPage {},
 }
 

@@ -75,12 +75,28 @@ body {
     padding: 0 !important;
 }
 
-/* Fade in Animation */
-.fade-in {
-    animation: fadeIn 0.5s ease-in-out;
+/* There was a `.fade-in` here — a half-second fade of its own on two of the
+   wizard's steps. It ran on top of the fade the route change already does, and
+   started over each time the page was built, so the step appeared to be loaded
+   twice. The route transition is the only fade a page gets. */
+
+/* Route transitions
+ *
+ * The page that arrives fades in; the one being left is simply gone. Only its
+ * opacity is animated, deliberately: `transform` would make this element the
+ * containing block for everything positioned inside it, and the presentation
+ * fills the window by being absolutely positioned against the viewport.
+ *
+ * There used to be a `.route-container` / `.route-content` pair here, holding
+ * both pages on top of each other while dioxus-motion cross-faded them. See
+ * `components::route_transitions` for why the page is no longer built twice
+ * for the sake of that.
+ */
+.route-fade {
+    animation: route-fade-in 140ms ease-out;
 }
 
-@keyframes fadeIn {
+@keyframes route-fade-in {
     from {
         opacity: 0;
     }
@@ -89,34 +105,12 @@ body {
     }
 }
 
-/* Route transitions
- *
- * While a navigation is running, dioxus-motion renders the page being left and
- * the page being entered next to each other inside `.route-container` and
- * cross-fades their opacity. Without positioning the two would be stacked
- * vertically and the outgoing page would push the incoming one down, so both
- * are taken out of the flow and laid on top of each other. As soon as the fade
- * has finished the container disappears again and the current page is rendered
- * directly.
- */
-.route-container {
-    position: relative;
-    width: 100%;
-    height: 100vh;
-}
-
-.route-content {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-}
-
-/* The outgoing page is only a visual leftover — clicks belong to the page that
-   is arriving. */
-.route-content.from {
-    pointer-events: none;
+/* A fade is decoration; anyone who has asked for less movement gets the page
+   at once. */
+@media (prefers-reduced-motion: reduce) {
+    .route-fade {
+        animation: none;
+    }
 }
 
 /* A logo with a rounded corner */
