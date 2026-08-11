@@ -484,54 +484,60 @@ fn PresentationSettings() -> Element {
             }
         }
 
+        // The designs lie beside each other and wrap onto the next line — see
+        // `.presentation-design-selector`. What can be done with the chosen
+        // one stands to the right of them where the window is wide enough for
+        // a tile and a column of buttons, and underneath them where it is not.
         div {
-            class: "grid",
-            div {
-                PresentationDesignSelector {
-                    presentation_designs,
-                    viewer_width: 400,
-                    active_item: selected_presentation_design_index
-                }
+            class: "presentation-design-layout",
+            PresentationDesignSelector {
+                presentation_designs,
+                viewer_width: 400,
+                active_item: selected_presentation_design_index
             }
-            div {
-                if let Some(selected_presentation) = selected_presentation_design() {
-                    PresentationDesignCard {
-                        presentation_design: selected_presentation,
-                        index: selected_presentation_design_index(),
-                        onclone: move |_| {
-                            if let Some(design) = selected_presentation_design() {
-                                {
-                                    let mut settings_write = settings.write();
-                                    settings_write.presentation_designs.push(design);
-                                    // Ensure there are enough slide settings for all presentation designs
-                                    settings_write.ensure_slide_settings_for_designs();
-                                }
-                                let new_len = presentation_designs.read().len();
-                                tracing::debug!("Cloned design. New length: {}", new_len);
 
-                                // Written out at once: the editor the user is
-                                // about to open reads the design from the
-                                // settings, and a design that only exists in
-                                // memory is one it cannot show.
-                                settings.read().save();
-                            }
-                        },
-                        ondelete: move |_| {
-                            if let Some(index) = selected_presentation_design_index()
-                                && index < presentation_designs.read().len() {
+            div {
+                class: "presentation-design-actions",
+                div {
+                    if let Some(selected_presentation) = selected_presentation_design() {
+                        PresentationDesignCard {
+                            presentation_design: selected_presentation,
+                            index: selected_presentation_design_index(),
+                            onclone: move |_| {
+                                if let Some(design) = selected_presentation_design() {
                                     {
                                         let mut settings_write = settings.write();
-                                        // Also remove the corresponding slide setting if it exists
-                                        if index < settings_write.song_slide_settings.len() {
-                                            settings_write.song_slide_settings.remove(index);
-                                        }
-                                        settings_write.presentation_designs.remove(index);
-                                        // Ensure slide settings and presentation designs stay in sync
+                                        settings_write.presentation_designs.push(design);
+                                        // Ensure there are enough slide settings for all presentation designs
                                         settings_write.ensure_slide_settings_for_designs();
                                     }
-                                    selected_presentation_design_index.set((!presentation_designs.read().is_empty()).then_some(0));
+                                    let new_len = presentation_designs.read().len();
+                                    tracing::debug!("Cloned design. New length: {}", new_len);
+
+                                    // Written out at once: the editor the user is
+                                    // about to open reads the design from the
+                                    // settings, and a design that only exists in
+                                    // memory is one it cannot show.
                                     settings.read().save();
                                 }
+                            },
+                            ondelete: move |_| {
+                                if let Some(index) = selected_presentation_design_index()
+                                    && index < presentation_designs.read().len() {
+                                        {
+                                            let mut settings_write = settings.write();
+                                            // Also remove the corresponding slide setting if it exists
+                                            if index < settings_write.song_slide_settings.len() {
+                                                settings_write.song_slide_settings.remove(index);
+                                            }
+                                            settings_write.presentation_designs.remove(index);
+                                            // Ensure slide settings and presentation designs stay in sync
+                                            settings_write.ensure_slide_settings_for_designs();
+                                        }
+                                        selected_presentation_design_index.set((!presentation_designs.read().is_empty()).then_some(0));
+                                        settings.read().save();
+                                    }
+                            }
                         }
                     }
                 }

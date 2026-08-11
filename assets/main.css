@@ -290,6 +290,110 @@ div.inline-div {
     margin-bottom: 0;
 }
 
+/* --- The designs to choose from ---
+
+   Tiles beside each other and wrapping onto the next line, rather than one
+   under the other: the point of the list is comparing them, and a design three
+   screens down is not being compared with anything. */
+.presentation-design-selector {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: flex-start;
+}
+
+.presentation-design-selector-item {
+    /* Each tile is exactly as wide as the preview inside it — the preview is
+       laid out at presentation size and scaled by `zoom`, so it brings its own
+       width and must not be stretched. */
+    display: inline-block;
+    line-height: 0;
+    border-radius: 0.5rem;
+    outline-offset: 4px;
+}
+
+.presentation-design-selector-item:focus-visible {
+    outline: 2px solid var(--pico-primary);
+}
+
+/* What can be done with the chosen design stands beside the tiles, and only
+   goes under them where there is not room for a tile and the buttons next to
+   each other. The threshold is a width, not a guess: a tile is 400 px plus its
+   frame and the column of buttons wants some 18 rem, which together need about
+   this much once the page's own margins are paid for. */
+.presentation-design-actions {
+    margin-top: 1.5rem;
+}
+
+@media (min-width: 62rem) {
+    .presentation-design-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(14rem, 18rem);
+        gap: 1.5rem;
+        align-items: start;
+    }
+
+    .presentation-design-actions {
+        margin-top: 0;
+        /* Stays in view while a long list of designs is scrolled past. */
+        position: sticky;
+        top: 1rem;
+    }
+}
+
+/* Paging through a preview: across its lower third, and out of the way until
+   the pointer is on the preview. Sizes are in the presentation's own pixels,
+   because the preview as a whole is scaled down by `zoom` — see
+   `PresentationViewer`. */
+.preview-navigation {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 66.6%;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 40px;
+    z-index: 98;
+    opacity: 0;
+    transition: opacity 120ms ease-out;
+    /* Only the buttons take clicks; the rest of the strip still selects the
+       design underneath it. */
+    pointer-events: none;
+}
+
+.presentation-preview:hover .preview-navigation,
+.presentation-preview:focus-within .preview-navigation {
+    opacity: 1;
+}
+
+/* Anyone who has asked for less movement gets them without the fade. */
+@media (prefers-reduced-motion: reduce) {
+    .preview-navigation {
+        transition: none;
+    }
+}
+
+.preview-navigation .preview-navigation-button {
+    pointer-events: auto;
+    width: 160px;
+    height: 160px;
+    padding: 0;
+    margin: 0;
+    border: 4px solid rgba(255, 255, 255, 0.85);
+    border-radius: 50%;
+    background-color: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font-size: 100pt;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.preview-navigation .preview-navigation-button:hover {
+    background-color: rgba(0, 0, 0, 0.8);
+}
+
 .rounded-corners-inactive {
     border-radius: 2em;
     box-shadow: 0 0 1em 1em rgba(0, 0, 0, 0.3);
