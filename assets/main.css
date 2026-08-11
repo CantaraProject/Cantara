@@ -509,31 +509,93 @@ div.inline-div {
 
 @media (min-width: 48rem) {
     .export-menu-body {
-        grid-template-columns: minmax(14rem, 20rem) 1fr;
+        /* The list of what can be exported is as wide as its longest label
+           and no wider; the settings for it get the rest. */
+        grid-template-columns: minmax(10rem, auto) minmax(0, 1fr);
     }
 }
 
 /* The body scrolls at every width, and both columns may be shorter than what
-   is in them. It used to be `overflow-y: visible` here, which let the column
-   of options grow out of the dialog once it held more than a screenful: the
-   dialog clips, so the last of them was cut off — and the part still visible
-   sat underneath the row of buttons, which is painted after it. The button
-   for saving the selection was there, drawn and unreachable. */
-.export-menu-options,
+   is in them. It used to be `overflow-y: visible` here, which let a column
+   grow out of the dialog once it held more than a screenful: the dialog clips,
+   so the last of it was cut off — and the part still visible sat underneath
+   the row of buttons, which is painted after it. */
+.export-category-list,
+.export-category-pane,
 .export-menu-preview {
     min-width: 0;
     min-height: 0;
 }
 
-.export-menu-options small {
+/* What is being exported: one item per line, the chosen one marked. A list
+   rather than a dropdown because the choice decides what the rest of the
+   dialog is, and that should be visible without opening anything. */
+.export-category-list {
+    display: flex;
+    flex-direction: column;
+    align-self: start;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    overflow: hidden;
+}
+
+.export-category-list .export-category {
+    width: 100%;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    border-bottom: 1px solid var(--pico-muted-border-color);
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.export-category-list .export-category:last-child {
+    border-bottom: none;
+}
+
+.export-category-list .export-category:hover {
+    background-color: var(--pico-secondary-focus);
+}
+
+.export-category-list .export-category-active {
+    background-color: var(--pico-primary);
+    color: var(--pico-primary-inverse);
+    font-weight: 700;
+}
+
+/* The settings that belong to what was picked. */
+.export-category-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    overflow-y: auto;
+}
+
+.export-category-description {
+    margin-bottom: 0.5rem;
+    color: var(--pico-muted-color);
+}
+
+.export-category-summary {
+    margin-top: 0.75rem;
+    color: var(--pico-muted-color);
+}
+
+.export-category-pane small {
     display: block;
     margin-top: 0.5rem;
     opacity: 0.8;
 }
 
+/* Inside the pane now, under the settings the format needs. */
 .export-menu-preview {
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
+    margin-top: 0.75rem;
 }
 
 .export-preview-text {

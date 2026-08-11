@@ -154,12 +154,34 @@ selection:
     spontaneous_name:
       en: Markdown Text
       de: Markdown-Text
-  export_title:
-    en: Export Songs
-    de: Lieder exportieren
-  export_description:
-    en: "Export %{count} selected song(s) in your preferred format:"
-    de: "%{count} ausgewählte(s) Lied(er) im gewünschten Format exportieren:"
+  export_dialog_title:
+    en: Export
+    de: Exportieren
+  # What is being exported, which the dialog asks before it asks for a format.
+  export_category_selection:
+    en: Cantara selection
+    de: Cantara-Folien
+  export_category_selection_description:
+    en: "The running order with everything that belongs to it, as a file — to open again later or to pass on."
+    de: "Die Ablaufreihenfolge mit allem, was dazugehört, als Datei — zum späteren Öffnen oder Weitergeben."
+  export_category_markup:
+    en: Markup text
+    de: Markup-Text
+  export_category_markup_description:
+    en: "The words of the songs as text — for a service sheet, a message or a document."
+    de: "Die Liedtexte als Text — für einen Ablaufzettel, eine Nachricht oder ein Dokument."
+  export_category_notation:
+    en: Notation
+    de: Notation
+  export_category_notation_description:
+    en: "The music as something an engraver reads. One file per song."
+    de: "Die Musik in einem Notensatzformat. Eine Datei je Lied."
+  export_category_powerpoint:
+    en: PowerPoint
+    de: Powerpoint
+  export_category_powerpoint_description:
+    en: "The slides as a PowerPoint deck, laid out the way the presentation would show them."
+    de: "Die Folien als PowerPoint-Präsentation, so gestaltet wie in der Präsentation."
   export_format:
     en: Export Format
     de: Export-Format
@@ -183,18 +205,12 @@ selection:
     de: "Es sind keine Lied-Dateien ausgewählt. Bilder, PDFs und Markdown-Dokumente können nicht exportiert werden."
 
   # Saving and opening the running order itself, rather than the songs in it.
-  save_selection_title:
-    en: Save the selection
-    de: Auswahl speichern
-  save_selection_description:
-    en: "The running order with everything that belongs to it, as a file — to open again later or to pass on."
-    de: "Die Ablaufreihenfolge mit allem, was dazugehört, als Datei — zum späteren Öffnen oder Weitergeben."
   save_selection_format:
     en: Selection format
     de: Format der Auswahl
-  save_selection_button:
-    en: Save the selection...
-    de: Auswahl speichern...
+  save_selection_summary:
+    en: "%{count} element(s) in the running order, %{songs} of them songs."
+    de: "%{count} Element(e) in der Ablaufreihenfolge, davon %{songs} Lieder."
   save_selection_file_name:
     en: Selection
     de: Auswahl

@@ -23,6 +23,106 @@ use cantara_songlib::exporter::text::{TextFormat, TextSettings, text_from_song, 
 use cantara_songlib::importer::{ccli, classic_song, cssf, song_yml};
 use cantara_songlib::song::Song;
 
+/// What the user is exporting, before they say in which format.
+///
+/// The dialog asks this first, because it is the question the user actually
+/// has: sheet music and a running order have nothing to do with each other,
+/// and offering LilyPond next to `.cantara.zip` in one list only invites the
+/// wrong one to be picked. Every [`ExportFormat`] belongs to exactly one of
+/// these — [`ExportCategory::of`] is what says which, and a test holds the two
+/// lists to each other.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ExportCategory {
+    /// The running order itself, as a file that can be opened again. Not an
+    /// [`ExportFormat`] at all — see [`crate::logic::selection_io`].
+    Selection,
+    /// The words of the songs, as text.
+    Markup,
+    /// The music, as something an engraver reads.
+    Notation,
+    /// A PowerPoint deck.
+    Powerpoint,
+}
+
+impl ExportCategory {
+    /// Every category, in the order the dialog lists them.
+    pub const ALL: &'static [ExportCategory] = &[
+        ExportCategory::Selection,
+        ExportCategory::Markup,
+        ExportCategory::Notation,
+        ExportCategory::Powerpoint,
+    ];
+
+    /// The translation key of the category's label.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            ExportCategory::Selection => "selection.export_category_selection",
+            ExportCategory::Markup => "selection.export_category_markup",
+            ExportCategory::Notation => "selection.export_category_notation",
+            ExportCategory::Powerpoint => "selection.export_category_powerpoint",
+        }
+    }
+
+    /// A sentence saying what this category produces.
+    pub fn description_key(self) -> &'static str {
+        match self {
+            ExportCategory::Selection => "selection.export_category_selection_description",
+            ExportCategory::Markup => "selection.export_category_markup_description",
+            ExportCategory::Notation => "selection.export_category_notation_description",
+            ExportCategory::Powerpoint => "selection.export_category_powerpoint_description",
+        }
+    }
+
+    /// The formats this category offers, in the order the menu offers them.
+    ///
+    /// Empty for [`ExportCategory::Selection`], whose formats are not document
+    /// formats and live in [`crate::logic::selection_io`].
+    pub fn formats(self) -> &'static [ExportFormat] {
+        match self {
+            ExportCategory::Selection => &[],
+            ExportCategory::Markup => &[
+                ExportFormat::PlainText,
+                ExportFormat::Telegram,
+                ExportFormat::Markdown,
+                ExportFormat::Handlebars,
+            ],
+            ExportCategory::Notation => &[ExportFormat::LilyPond, ExportFormat::Abc],
+            ExportCategory::Powerpoint => &[ExportFormat::Pptx],
+        }
+    }
+
+    /// The one this format belongs to.
+    ///
+    /// The dialog never asks — it offers the formats of the category the user
+    /// picked, so it knows the answer already. What this is for is the test
+    /// that holds the two lists to each other: a format added to
+    /// [`ExportFormat::ALL`] and forgotten here cannot be reached from the
+    /// dialog at all, and that is what fails the build rather than shipping.
+    #[cfg(test)]
+    pub fn of(format: ExportFormat) -> ExportCategory {
+        match format {
+            ExportFormat::PlainText
+            | ExportFormat::Telegram
+            | ExportFormat::Markdown
+            | ExportFormat::Handlebars => ExportCategory::Markup,
+            ExportFormat::LilyPond | ExportFormat::Abc => ExportCategory::Notation,
+            ExportFormat::Pptx => ExportCategory::Powerpoint,
+        }
+    }
+
+    /// The format this category starts on.
+    pub fn first_format(self) -> Option<ExportFormat> {
+        self.formats().first().copied()
+    }
+
+    /// Whether the category offers a choice of format at all.
+    ///
+    /// PowerPoint is one thing, so its list would be a list of one.
+    pub fn has_format_choice(self) -> bool {
+        self.formats().len() > 1
+    }
+}
+
 /// A format the selection can be exported to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ExportFormat {
@@ -331,6 +431,44 @@ fn file_stem(title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The dialog lists categories and offers what is in them, so a format
+    /// that is in none of them cannot be reached at all — and one in two would
+    /// be offered twice.
+    #[test]
+    fn every_format_is_in_exactly_one_category() {
+        for format in ExportFormat::ALL {
+            let categories: Vec<ExportCategory> = ExportCategory::ALL
+                .iter()
+                .copied()
+                .filter(|category| category.formats().contains(format))
+                .collect();
+
+            assert_eq!(
+                categories.len(),
+                1,
+                "{} is in {:?}",
+                format.id(),
+                categories
+            );
+            assert_eq!(categories[0], ExportCategory::of(*format));
+        }
+    }
+
+    /// Every category the dialog lists has to lead somewhere: either to a
+    /// document format or, for the running order, to its own formats.
+    #[test]
+    fn every_category_leads_somewhere() {
+        for category in ExportCategory::ALL {
+            match category {
+                ExportCategory::Selection => assert!(category.formats().is_empty()),
+                _ => assert!(
+                    category.first_format().is_some(),
+                    "{category:?} offers nothing"
+                ),
+            }
+        }
+    }
 
     fn song(title: &str) -> Song {
         let mut song = Song::new(title);
