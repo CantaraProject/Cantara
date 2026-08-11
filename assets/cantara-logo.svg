@@ -3,17 +3,15 @@
   <!-- The treble clef is File:Treble_clef.svg from Wikimedia Commons,
        released into the public domain by its author (Tlusťa). -->
   <rect width="800" height="800" fill="#f2efeb"/>
-  <g fill="none" stroke="#1c3d55" stroke-width="21" stroke-linecap="round" stroke-linejoin="round">
+  <g fill="none" stroke="#1c3d55" stroke-width="21" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="6">
     <path d="M193 655L607 655"/>
     <path d="M220 443L220 655"/>
     <path d="M580 443L580 655"/>
-    <path d="M190 462L330 358"/>
-    <path d="M610 462L470 358"/>
-    <path d="M330 268L330 372"/>
-    <path d="M470 268L470 372"/>
-    <path d="M312 268L488 268"/>
+    <path d="M330 268L330 358L190 462"/>
+    <path d="M470 268L470 358L610 462"/>
+    <path d="M308 268L492 268"/>
     <path d="M312 268L400 180L488 268"/>
-    <path d="M400 91L400 196"/>
+    <path d="M400 91L400 180"/>
     <path d="M362 125L438 125"/>
   </g>
   <g fill="#1c3d55">
