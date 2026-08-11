@@ -26,11 +26,10 @@ use crate::components::presentation_components::{
     BundledFontFaces, MORPH_JS, PRESENTATION_CSS, PRESENTATION_JS,
 };
 use crate::components::presenter_console_components::PRESENTER_CONSOLE_CSS;
-use crate::components::route_transitions::AnimatedLayout;
+use crate::components::route_transitions::RouteFadeLayout;
 use crate::components::song_slide_settings_components::SongSlideSettingsPage;
 use crate::components::wizard_components::Wizard;
 use dioxus::prelude::*;
-use dioxus_motion::prelude::*;
 use logic::settings::*;
 use logic::sourcefiles::SourceFile;
 use logic::states::{self, RunningPresentation, SelectedItemRepresentation};
@@ -55,18 +54,17 @@ const FAVICON: Asset = asset!("/assets/favicon.png");
 
 /// The routes of the application.
 ///
-/// All of them live inside [`AnimatedLayout`], which renders an animated outlet
-/// instead of a plain one, so that a page change is a short cross-fade instead
-/// of a jump. Every route uses the same `Fade` — see
+/// All of them live inside [`RouteFadeLayout`], which renders the outlet and
+/// lets the page arriving in it fade in, so that a page change is a short fade
+/// rather than a jump. Every page fades the same way — see
 /// [`route_transitions`](components::route_transitions) for why there is no
-/// route-specific effect.
-#[derive(Routable, PartialEq, Clone, MotionTransitions)]
+/// route-specific effect, and why the fade is not an animated outlet.
+#[derive(Routable, PartialEq, Clone)]
 #[rustfmt::skip]
 pub enum Route {
-    #[layout(AnimatedLayout)]
+    #[layout(RouteFadeLayout)]
     /// The selection route allows the user to select songs or other elements for the presentation
     #[route("/")]
-    #[transition(Fade)]
     Selection {},
 
 
@@ -79,38 +77,31 @@ pub enum Route {
     /// stays where it belongs, between the views.
     /// Everything about that identifier is in [`logic::element_id`].
     #[route("/detail/:..element")]
-    #[transition(Fade)]
     Detail { element: Vec<String> },
 
     /// The wizard is shown when the program is run for the first time (no configuration file exists)
     #[route("/wizard")]
-    #[transition(Fade)]
     Wizard {},
 
     /// The settings page is shown when explicitly called
     #[route("/settings")]
-    #[transition(Fade)]
     SettingsPage {},
 
     /// The presentation design settings page with a dynamic index
     #[route("/settings/design/:index")]
-    #[transition(Fade)]
     PresentationDesignSettingsPage { index: u16 },
 
     /// The song slide settings page with a dynamic index
     #[route("/settings/slide/:index")]
-    #[transition(Fade)]
     SongSlideSettingsPage { index: u16 },
 
     /// The presenter console shown in the main window during a presentation
     #[route("/presenter")]
-    #[transition(Fade)]
     PresenterConsolePage {},
 
     /// The presentation view shown in the same tab (when presenter console is disabled)
     /// or opened in a new tab (when presenter console is enabled, on web).
     #[route("/presentation")]
-    #[transition(Fade)]
     PresentationPage {},
 }
 
@@ -136,13 +127,28 @@ fn main() {
 
         use dioxus::desktop::tao;
 
+        // The program is perfectly usable without its icon in the task bar, so
+        // a picture that cannot be decoded is written to the log and the
+        // window opens with the system's default icon instead of not at all.
         let icon = {
             let icon_bytes = include_bytes!("../assets/favicon.png");
-            let icon_image = image::load_from_memory(icon_bytes).expect("Failed to load icon");
-            let icon_rgba = icon_image.to_rgba8();
-            let (width, height) = icon_rgba.dimensions();
-            tao::window::Icon::from_rgba(icon_rgba.into_raw(), width, height)
-                .expect("Failed to create window icon")
+            match image::load_from_memory(icon_bytes) {
+                Ok(icon_image) => {
+                    let icon_rgba = icon_image.to_rgba8();
+                    let (width, height) = icon_rgba.dimensions();
+                    match tao::window::Icon::from_rgba(icon_rgba.into_raw(), width, height) {
+                        Ok(icon) => Some(icon),
+                        Err(error) => {
+                            dioxus::logger::tracing::warn!("the window icon could not be built: {error}");
+                            None
+                        }
+                    }
+                }
+                Err(error) => {
+                    dioxus::logger::tracing::warn!("the window icon could not be read: {error}");
+                    None
+                }
+            }
         };
 
         let mut window = tao::window::WindowBuilder::new()
@@ -150,7 +156,7 @@ fn main() {
             .with_title("Cantara")
             .with_decorations(true)
             .with_visible(true)
-            .with_window_icon(Some(icon));
+            .with_window_icon(icon);
 
         // The size the window was left at last time, if there was a last time.
         // Only the size: where the window *stood* is not restored, because a
@@ -258,6 +264,12 @@ fn App() -> Element {
     // Initialize settings and provide them as a context to all components
     let settings: Signal<Settings> = use_signal(Settings::load);
     use_context_provider(|| settings);
+
+    // The installed fonts are read on a thread of their own, started here so
+    // that they are usually there by the time anyone opens a design — the
+    // settings show what is available without ever waiting for them. See
+    // [`logic::fonts`].
+    use_hook(logic::fonts::prepare_system_fonts);
 
     // The source files and selected items should live here because they should stay persistent in the different routes.
     let mut source_files: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));
@@ -474,8 +486,9 @@ fn picture_sources(
     for presentation in running {
         for chapter in &presentation.presentation {
             // The design's background picture, which is as much a part of what
-            // a viewer sees as any slide.
-            if let Some(design) = &chapter.presentation_design_option
+            // a viewer sees as any slide. The design the *stream* uses, which
+            // is the projection's unless the service asked for another.
+            if let Some(design) = chapter.design_for_stream()
                 && let logic::settings::PresentationDesignSettings::Template(template) =
                     &design.presentation_design_settings
                 && let Some(picture) = &template.background_image
@@ -484,7 +497,9 @@ fn picture_sources(
                 sources.insert(media_id(&path), path);
             }
 
-            for slide in &chapter.slides {
+            // Likewise the slides: where the stream has a division of its own,
+            // those are the pictures a viewer will ask for.
+            for slide in chapter.slides_for_stream() {
                 let source = match &slide.slide_content {
                     SlideContent::SimplePicture(picture) => {
                         logic::presentation::get_picture_path(picture)

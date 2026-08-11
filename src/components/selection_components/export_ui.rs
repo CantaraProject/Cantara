@@ -383,22 +383,17 @@ pub(crate) fn ExportMenu(
         if *export_format.read() != ExportFormat::Pptx {
             return Vec::new();
         }
-        let design = settings
-            .read()
-            .presentation_designs
-            .first()
-            .cloned()
-            .unwrap_or_default();
-        let slide_settings = settings
-            .read()
-            .song_slide_settings
-            .first()
-            .cloned()
-            .unwrap_or_default();
+        // The same design and division a presentation would use, so what is
+        // exported is what the audience would have seen.
+        let design = settings.read().default_presentation_design();
+        let slide_settings = settings.read().default_song_slide_settings();
         crate::logic::presentation::build_presentation(
             &selected_items.read(),
             &design,
             &slide_settings,
+            // An export is the projection on paper. What the phones were shown
+            // has no bearing on it.
+            &crate::logic::stream_view::StreamDefaults::default(),
         )
         .map(|presentation| {
             let slides: Vec<_> = presentation
@@ -443,23 +438,18 @@ pub(crate) fn ExportMenu(
         if *export_format.read() != ExportFormat::Pptx {
             return None;
         }
-        let design = settings
-            .read()
-            .presentation_designs
-            .first()
-            .cloned()
-            .unwrap_or_default();
-        let slide_settings = settings
-            .read()
-            .song_slide_settings
-            .first()
-            .cloned()
-            .unwrap_or_default();
+        // The same design and division a presentation would use, so what is
+        // exported is what the audience would have seen.
+        let design = settings.read().default_presentation_design();
+        let slide_settings = settings.read().default_song_slide_settings();
 
         crate::logic::presentation::build_presentation(
             &selected_items.read(),
             &design,
             &slide_settings,
+            // An export is the projection on paper. What the phones were shown
+            // has no bearing on it.
+            &crate::logic::stream_view::StreamDefaults::default(),
         )
         .map(|presentation| {
             let slides: Vec<_> = presentation

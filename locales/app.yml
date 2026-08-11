@@ -68,6 +68,31 @@ selection:
     default:
       en: Default
       de: Standard
+    select_item_first:
+      en: Please select an item first.
+      de: Bitte wählen Sie zuerst ein Element aus.
+    stream_view:
+      headline:
+        en: Network stream
+        de: Netzwerk-Übertragung
+      description:
+        en: "A phone is not a projector. The stream may use a design and a slide division of its own; leave both as they are to show what the projection shows."
+        de: "Ein Handy ist kein Beamer. Die Übertragung kann ein eigenes Design und eine eigene Folienaufteilung verwenden; unverändert zeigt sie, was auch projiziert wird."
+      design:
+        en: Design for the stream
+        de: Design für die Übertragung
+      slide_settings:
+        en: Slide settings for the stream
+        de: Folien-Einstellungen für die Übertragung
+      same_as_presentation:
+        en: Same as the presentation
+        de: Wie die Präsentation
+      max_lines_note:
+        en: "The line wrap follows the presentation: a slide on a phone holds a whole number of the projected ones. %{chosen} becomes %{used} lines."
+        de: "Der Zeilenumbruch richtet sich nach der Präsentation: Eine Folie auf dem Handy enthält ein ganzes Vielfaches der projizierten. Aus %{chosen} werden %{used} Zeilen."
+      max_lines_dropped:
+        en: "The presentation shows whole verses, so the stream does too — there is nothing for its line wrap to be a multiple of."
+        de: "Die Präsentation zeigt ganze Strophen, daher tut es die Übertragung auch — es gibt nichts, wovon ihr Zeilenumbruch ein Vielfaches sein könnte."
     timer:
       label:
         en: Auto-Advance Timer (seconds)
@@ -478,6 +503,12 @@ settings:
   background_image_transparency:
     en: Background Image Transparency
     de: Transparenz des Hintergrundbilds
+  background_image_count:
+    en: "%{count} pictures"
+    de: "%{count} Bilder"
+  background_image_none_available:
+    en: There is no picture in your repositories yet. Add a folder holding pictures in the settings, and it can be used as a background here.
+    de: In Ihren Quellen ist noch kein Bild vorhanden. Fügen Sie in den Einstellungen einen Ordner mit Bildern hinzu, dann kann eines davon hier als Hintergrund dienen.
   padding:
     en: Padding
     de: Randabstand des Inhalts
@@ -665,6 +696,9 @@ presenter:
   preview:
     en: Live Preview
     de: Live-Vorschau
+  stream_preview:
+    en: Network stream
+    de: Netzwerk-Übertragung
   previous:
     en: Previous
     de: Zurück
@@ -750,6 +784,9 @@ dialogs:
   confirm_deletion:
     en: Are you sure that you would like to delete this element?
     de: Sind Sie sicher, dass Sie das Element löschen möchten?
+  settings_not_saved:
+    en: "The settings could not be saved, so your changes are only kept until Cantara is closed. Reason: %{error}"
+    de: "Die Einstellungen konnten nicht gespeichert werden. Ihre Änderungen bleiben daher nur erhalten, bis Cantara beendet wird. Grund: %{error}"
 
 # Configuration of what a song slide shows: one language, several languages,
 # or the complex layout that stacks notation and languages.

@@ -177,9 +177,16 @@
         canvas.style.visibility = 'visible';
     }
 
+    /** The slide a canvas sits in, which is what decides how big its page is
+     *  drawn. Only a real slide: falling back to the parent would mean
+     *  measuring a box that is itself sized by the canvas. */
+    function slideOf(canvas) {
+        return canvas.closest('.presentation');
+    }
+
     /** The space a canvas has, from the slide it sits in. */
     function spaceFor(canvas) {
-        var box = canvas.closest('.presentation') || canvas.parentElement;
+        var box = slideOf(canvas) || canvas.parentElement;
         var width = box ? box.clientWidth : 0;
         var height = box ? box.clientHeight : 0;
         if (box && width > 0 && height > 0) {
@@ -190,6 +197,59 @@
         if (width <= 0) width = window.innerWidth || 800;
         if (height <= 0) height = window.innerHeight || 600;
         return { width: width, height: height };
+    }
+
+    /** Draws the page again when the slide it is in changes size.
+     *
+     *  A page is drawn for the room it has, and that room is not always known
+     *  when the drawing is asked for: the presenter console's overview builds
+     *  its thumbnails before the stylesheet that lays the grid out has
+     *  arrived, so the slide is still a fraction of its final size and the
+     *  page came out as a stamp in the middle of it. It stayed that way until
+     *  something asked for the page again — paging on, or reopening the view.
+     *
+     *  Only the slide is watched, never the canvas's own parent: the canvas is
+     *  sized from what is measured here, so measuring a box that the canvas
+     *  sizes would be a loop. The size the last drawing was made for is kept,
+     *  so the answer the observer gives on its very first call — the size that
+     *  was just used — draws nothing a second time. */
+    function redrawWhenResized(canvas, space, redraw) {
+        canvas.__cantaraRedraw = redraw;
+        canvas.__cantaraDrawnFor = space;
+
+        if (canvas.__cantaraResizeWatched) return;
+
+        var slide = slideOf(canvas);
+        if (!slide || typeof ResizeObserver === 'undefined') return;
+        canvas.__cantaraResizeWatched = true;
+
+        var pending = null;
+        var observer = new ResizeObserver(function () {
+            if (!canvas.isConnected) {
+                observer.disconnect();
+                canvas.__cantaraResizeWatched = false;
+                if (pending) clearTimeout(pending);
+                return;
+            }
+            var now = spaceFor(canvas);
+            var was = canvas.__cantaraDrawnFor || { width: 0, height: 0 };
+            // A pixel either way is not worth redrawing a page for; a slide
+            // that has just been laid out differs by far more than that.
+            if (Math.abs(now.width - was.width) < 2 && Math.abs(now.height - was.height) < 2) {
+                return;
+            }
+            // Drawn once the size has come to rest. The overview's thumbnail
+            // slider changes it continuously, and a page drawn for every step
+            // of it would be a dozen renderings nobody sees.
+            if (pending) clearTimeout(pending);
+            pending = setTimeout(function () {
+                pending = null;
+                if (!canvas.isConnected) return;
+                canvas.__cantaraDrawnFor = spaceFor(canvas);
+                if (canvas.__cantaraRedraw) canvas.__cantaraRedraw();
+            }, 120);
+        });
+        observer.observe(slide);
     }
 
     // ── The API ──────────────────────────────────────────────────────────────
@@ -258,6 +318,17 @@
                 var target = document.getElementById(canvasId);
                 if (!target) return { drawn: false };
                 present(target, drawn);
+
+                // What was just drawn fits the slide as it is *now*. Should
+                // the slide turn out to be a different size a moment later —
+                // the overview's grid settling, a window being resized, the
+                // thumbnail slider being moved — the page is drawn again for
+                // the size it then has. Without a transition: it is the same
+                // page, only sharper, and replaying the effect would look like
+                // a slide change that did not happen.
+                redrawWhenResized(target, space, function () {
+                    window.cantaraPdf.show(canvasId, key, page, '');
+                });
 
                 // The canvas is not rebuilt between the pages of one document
                 // — that is what keeps the page that is up there until the next

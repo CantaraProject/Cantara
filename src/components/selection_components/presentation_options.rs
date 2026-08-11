@@ -1,5 +1,6 @@
 use crate::components::shared_components::SelectedItemPreview;
 use crate::logic::settings::{use_settings, AfterLastSlide, SlideTimerSettings, SlideTransition};
+use crate::logic::stream_view::reconcile_max_lines;
 use crate::logic::states::SelectedItemRepresentation;
 use dioxus::prelude::*;
 use rust_i18n::t;
@@ -17,7 +18,6 @@ pub(crate) fn PresentationOptions(
 ) -> Element {
     let mut tab_state: Signal<PresentationOptionTabState> =
         use_signal(|| PresentationOptionTabState::General);
-    let settings = use_settings();
 
     use_effect(move || {
         if active_selected_item_id.read().is_some() {
@@ -50,242 +50,545 @@ pub(crate) fn PresentationOptions(
 
         match *tab_state.read() {
             PresentationOptionTabState::General => {
-                rsx! { StreamSwitch {} }
+                rsx! {
+                    DefaultDesignSettings {}
+                    StreamSwitch {}
+                    StreamViewSettings {}
+                }
             }
             PresentationOptionTabState::Specific => {
-                let items = selected_items.read();
-                let Some(item) = selected_index.and_then(|index| items.get(index).cloned()) else {
-                    return rsx! {};
-                };
-                let item_index = selected_index.unwrap_or(0);
-
-                let timer_enabled = item.timer_settings_option.is_some();
-                let default_timer_settings = SlideTimerSettings::default();
-                let timer_seconds = item
-                    .timer_settings_option
-                    .as_ref()
-                    .map(|t| t.timer_seconds)
-                    .unwrap_or(default_timer_settings.timer_seconds);
-                let after_last = item
-                    .timer_settings_option
-                    .as_ref()
-                    .map(|t| t.after_last_slide)
-                    .unwrap_or_default();
-                let current_transition = item.transition_effect;
-
                 rsx! {
-                    div { class: "grid",
-                        div {
-                            label { {t!("selection.presentation_options.design").to_string()} }
-                            select {
-                                onchange: move |evt| {
-                                    let val = evt.value();
-                                    let mut items = selected_items.write();
-                                    if val == "default" {
-                                        items[item_index].presentation_design_option = None;
-                                    } else if let Ok(idx) = val.parse::<usize>() {
-                                        items[item_index].presentation_design_option = Some(
-                                            settings.read().presentation_designs[idx].clone(),
-                                        );
-                                    }
-                                },
-                                option {
-                                    value: "default",
-                                    selected: item.presentation_design_option.is_none(),
-                                    {t!("selection.presentation_options.default").to_string()}
-                                }
-                                for (idx , pd) in settings.read().presentation_designs.iter().enumerate() {
-                                    option {
-                                        value: "{idx}",
-                                        selected: item
-                                                                                    .presentation_design_option
-                                                                                    .as_ref()
-                                                                                    .is_some_and(|p| p.name == pd.name),
-                                        "{pd.name}"
-                                    }
-                                }
+                    SpecificOptions { selected_items, selected_index }
+                }
+            }
+        }
+    }
+}
+
+/// The half of the options that belongs to one selected element.
+///
+/// A component of its own, because everything here needs an element to work
+/// on: without one it says so and stops, and that has to leave the two tabs
+/// above it standing.
+#[component]
+fn SpecificOptions(
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    /// Which element is open, if any.
+    selected_index: Option<usize>,
+) -> Element {
+    let settings = use_settings();
+
+    let items = selected_items.read();
+    let Some(item) = selected_index.and_then(|index| items.get(index).cloned()) else {
+        // Everything on this half belongs to one element, so
+        // without one there is nothing to set — and saying so is
+        // better than the empty panel that used to be here.
+        return rsx! {
+            p { class: "presentation-options-hint",
+                {t!("selection.presentation_options.select_item_first").to_string()}
+            }
+        };
+    };
+    let item_index = selected_index.unwrap_or(0);
+
+    let timer_enabled = item.timer_settings_option.is_some();
+    let default_timer_settings = SlideTimerSettings::default();
+    let timer_seconds = item
+        .timer_settings_option
+        .as_ref()
+        .map(|t| t.timer_seconds)
+        .unwrap_or(default_timer_settings.timer_seconds);
+    let after_last = item
+        .timer_settings_option
+        .as_ref()
+        .map(|t| t.after_last_slide)
+        .unwrap_or_default();
+    let current_transition = item.transition_effect;
+
+    rsx! {
+        div { class: "grid",
+            div {
+                label { {t!("selection.presentation_options.design").to_string()} }
+                select {
+                    onchange: move |evt| {
+                        let val = evt.value();
+                        let mut items = selected_items.write();
+                        if val == "default" {
+                            items[item_index].presentation_design_option = None;
+                        } else if let Ok(idx) = val.parse::<usize>() {
+                            items[item_index].presentation_design_option = Some(
+                                settings.read().presentation_designs[idx].clone(),
+                            );
+                        }
+                    },
+                    option {
+                        value: "default",
+                        selected: item.presentation_design_option.is_none(),
+                        {t!("selection.presentation_options.default").to_string()}
+                    }
+                    for (idx , pd) in settings.read().presentation_designs.iter().enumerate() {
+                        option {
+                            value: "{idx}",
+                            selected: item
+                                                                        .presentation_design_option
+                                                                        .as_ref()
+                                                                        .is_some_and(|p| p.name == pd.name),
+                            "{pd.name}"
+                        }
+                    }
+                }
+            }
+            div {
+                label { {t!("selection.presentation_options.slide_settings").to_string()} }
+                select {
+                    onchange: move |evt| {
+                        let val = evt.value();
+                        let mut items = selected_items.write();
+                        if val == "default" {
+                            items[item_index].slide_settings_option = None;
+                        } else if let Ok(idx) = val.parse::<usize>() {
+                            items[item_index].slide_settings_option = Some(
+                                settings.read().song_slide_settings[idx].clone(),
+                            );
+                        }
+                    },
+                    option {
+                        value: "default",
+                        selected: item.slide_settings_option.is_none(),
+                        {t!("selection.presentation_options.default").to_string()}
+                    }
+                    for (idx , _) in settings.read().song_slide_settings.iter().enumerate() {
+                        option {
+                            value: "{idx}",
+                            selected: item.slide_settings_option
+                                .as_ref()
+                                .is_some_and(|s| { s == &settings.read().song_slide_settings[idx] }),
+                            {
+                                format!(
+                                    "{} {}",
+                                    t!("selection.presentation_options.slide_settings"),
+                                    idx + 1,
+                                )
                             }
                         }
-                        div {
-                            label { {t!("selection.presentation_options.slide_settings").to_string()} }
-                            select {
-                                onchange: move |evt| {
-                                    let val = evt.value();
+                    }
+                }
+            }
+        }
+
+        div { style: "margin-top: 20px; display: flex; flex-direction: column; align-items: center;",
+            SelectedItemPreview {
+                selected_item: item.clone(),
+                // "Default" here means what the general half was set
+                // to, so the preview shows what this element will
+                // actually look like.
+                default_presentation_design: settings.read().default_presentation_design(),
+                default_slide_settings: settings.read().default_song_slide_settings(),
+                width: 400,
+            }
+        }
+
+        // What the phones are shown for *this* element, overriding
+        // whatever the service chose generally. "Same as the
+        // presentation" here means exactly that and not "fall back
+        // to the general choice": an element singled out to look
+        // like the projection has to be able to say so even when
+        // the service as a whole does not.
+        hgroup { style: "margin-top: 1rem;",
+            h6 { {t!("selection.presentation_options.stream_view.headline").to_string()} }
+        }
+        div { class: "grid",
+            div {
+                label { {t!("selection.presentation_options.stream_view.design").to_string()} }
+                select {
+                    onchange: move |evt| {
+                        let val = evt.value();
+                        let mut items = selected_items.write();
+                        if val == "default" {
+                            items[item_index].stream_design_option = None;
+                        } else if let Ok(idx) = val.parse::<usize>() {
+                            items[item_index].stream_design_option = Some(
+                                settings.read().presentation_designs[idx].clone(),
+                            );
+                        }
+                    },
+                    option {
+                        value: "default",
+                        selected: item.stream_design_option.is_none(),
+                        {t!("selection.presentation_options.default").to_string()}
+                    }
+                    for (idx , pd) in settings.read().presentation_designs.iter().enumerate() {
+                        option {
+                            value: "{idx}",
+                            selected: item
+                                .stream_design_option
+                                .as_ref()
+                                .is_some_and(|p| p.name == pd.name),
+                            "{pd.name}"
+                        }
+                    }
+                }
+            }
+            div {
+                label { {t!("selection.presentation_options.stream_view.slide_settings").to_string()} }
+                select {
+                    onchange: move |evt| {
+                        let val = evt.value();
+                        let mut items = selected_items.write();
+                        if val == "default" {
+                            items[item_index].stream_slide_settings_option = None;
+                        } else if let Ok(idx) = val.parse::<usize>() {
+                            items[item_index].stream_slide_settings_option = Some(
+                                settings.read().song_slide_settings[idx].clone(),
+                            );
+                        }
+                    },
+                    option {
+                        value: "default",
+                        selected: item.stream_slide_settings_option.is_none(),
+                        {t!("selection.presentation_options.default").to_string()}
+                    }
+                    for (idx , _) in settings.read().song_slide_settings.iter().enumerate() {
+                        option {
+                            value: "{idx}",
+                            selected: item.stream_slide_settings_option
+                                .as_ref()
+                                .is_some_and(|s| { s == &settings.read().song_slide_settings[idx] }),
+                            {
+                                format!(
+                                    "{} {}",
+                                    t!("selection.presentation_options.slide_settings"),
+                                    idx + 1,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        {
+            // Reconciled against *this* element's own wrap, which
+            // is the reference the mapping is built on.
+            let projection_wrap = item
+                .slide_settings_option
+                .clone()
+                .or_else(|| Some(settings.read().default_song_slide_settings()))
+                .and_then(|slide_settings| slide_settings.max_lines);
+            let chosen_wrap = item
+                .stream_slide_settings_option
+                .as_ref()
+                .and_then(|slide_settings| slide_settings.max_lines);
+            wrap_note(chosen_wrap, reconcile_max_lines(projection_wrap, chosen_wrap))
+        }
+
+        div { class: "grid",
+            div {
+                label { {t!("selection.presentation_options.transition.label").to_string()} }
+                select {
+                    onchange: move |evt| {
+                        let val = evt.value();
+                        let transition = match val.as_str() {
+                            "none" => SlideTransition::None,
+                            "fade" => SlideTransition::Fade,
+                            "slide_from_right" => SlideTransition::SlideFromRight,
+                            "slide_from_left" => SlideTransition::SlideFromLeft,
+                            "zoom_in" => SlideTransition::ZoomIn,
+                            "morph" => SlideTransition::Morph,
+                            _ => SlideTransition::Fade,
+                        };
+                        selected_items.write()[item_index].transition_effect = transition;
+                    },
+                    option {
+                        value: "none",
+                        selected: current_transition == SlideTransition::None,
+                        {t!("selection.presentation_options.transition.none").to_string()}
+                    }
+                    option {
+                        value: "fade",
+                        selected: current_transition == SlideTransition::Fade,
+                        {t!("selection.presentation_options.transition.fade").to_string()}
+                    }
+                    option {
+                        value: "slide_from_right",
+                        selected: current_transition == SlideTransition::SlideFromRight,
+                        {t!("selection.presentation_options.transition.slide_from_right").to_string()}
+                    }
+                    option {
+                        value: "slide_from_left",
+                        selected: current_transition == SlideTransition::SlideFromLeft,
+                        {t!("selection.presentation_options.transition.slide_from_left").to_string()}
+                    }
+                    option {
+                        value: "zoom_in",
+                        selected: current_transition == SlideTransition::ZoomIn,
+                        {t!("selection.presentation_options.transition.zoom_in").to_string()}
+                    }
+                    option {
+                        value: "morph",
+                        selected: current_transition == SlideTransition::Morph,
+                        {t!("selection.presentation_options.transition.morph").to_string()}
+                    }
+                }
+            }
+            div {
+                label { {t!("selection.presentation_options.timer.label").to_string()} }
+                div { role: "group",
+                    input {
+                        r#type: "checkbox",
+                        role: "switch",
+                        id: "timer-enabled-{item_index}",
+                        checked: timer_enabled,
+                        onchange: move |evt| {
+                            let checked = evt.checked();
+                            let mut items = selected_items.write();
+                            if checked {
+                                items[item_index].timer_settings_option = Some(
+                                    SlideTimerSettings::default(),
+                                );
+                            } else {
+                                items[item_index].timer_settings_option = None;
+                            }
+                        },
+                    }
+                    label {
+                        r#for: "timer-enabled-{item_index}",
+                        style: "margin-left: 4px;",
+                        {t!("selection.presentation_options.timer.label").to_string()}
+                    }
+                }
+                if timer_enabled {
+                    input {
+                        r#type: "number",
+                        min: "1",
+                        max: "3600",
+                        value: "{timer_seconds}",
+                        style: "margin-top: 8px;",
+                        onchange: move |evt| {
+                            if let Ok(secs) = evt.value().parse::<u32>()
+                                && secs > 0 {
                                     let mut items = selected_items.write();
-                                    if val == "default" {
-                                        items[item_index].slide_settings_option = None;
-                                    } else if let Ok(idx) = val.parse::<usize>() {
-                                        items[item_index].slide_settings_option = Some(
-                                            settings.read().song_slide_settings[idx].clone(),
-                                        );
+                                    if let Some(ref mut ts) = items[item_index].timer_settings_option {
+                                        ts.timer_seconds = secs;
                                     }
-                                },
-                                option {
-                                    value: "default",
-                                    selected: item.slide_settings_option.is_none(),
-                                    {t!("selection.presentation_options.default").to_string()}
                                 }
-                                for (idx , _) in settings.read().song_slide_settings.iter().enumerate() {
-                                    option {
-                                        value: "{idx}",
-                                        selected: item.slide_settings_option
-                                            .as_ref()
-                                            .is_some_and(|s| { s == &settings.read().song_slide_settings[idx] }),
-                                        {
-                                            format!(
-                                                "{} {}",
-                                                t!("selection.presentation_options.slide_settings"),
-                                                idx + 1,
-                                            )
-                                        }
-                                    }
+                        },
+                    }
+                    div { style: "margin-top: 8px;",
+                        label { {t!("selection.presentation_options.timer.after_last_slide.label").to_string()} }
+                        select {
+                            onchange: move |evt| {
+                                let val = evt.value();
+                                let behavior = match val.as_str() {
+                                    "restart" => AfterLastSlide::RestartCurrentChapter,
+                                    _ => AfterLastSlide::GoToNextChapter,
+                                };
+                                let mut items = selected_items.write();
+                                if let Some(ref mut ts) = items[item_index].timer_settings_option {
+                                    ts.after_last_slide = behavior;
+                                }
+                            },
+                            option {
+                                value: "next",
+                                selected: after_last == AfterLastSlide::GoToNextChapter,
+                                {
+                                    t!("selection.presentation_options.timer.after_last_slide.go_to_next")
+                                        .to_string()
+                                }
+                            }
+                            option {
+                                value: "restart",
+                                selected: after_last == AfterLastSlide::RestartCurrentChapter,
+                                {
+                                    t!("selection.presentation_options.timer.after_last_slide.restart_chapter")
+                                        .to_string()
                                 }
                             }
                         }
                     }
-                    div { class: "grid",
-                        div {
-                            label { {t!("selection.presentation_options.transition.label").to_string()} }
-                            select {
-                                onchange: move |evt| {
-                                    let val = evt.value();
-                                    let transition = match val.as_str() {
-                                        "none" => SlideTransition::None,
-                                        "fade" => SlideTransition::Fade,
-                                        "slide_from_right" => SlideTransition::SlideFromRight,
-                                        "slide_from_left" => SlideTransition::SlideFromLeft,
-                                        "zoom_in" => SlideTransition::ZoomIn,
-                                        "morph" => SlideTransition::Morph,
-                                        _ => SlideTransition::Fade,
-                                    };
-                                    selected_items.write()[item_index].transition_effect = transition;
-                                },
-                                option {
-                                    value: "none",
-                                    selected: current_transition == SlideTransition::None,
-                                    {t!("selection.presentation_options.transition.none").to_string()}
-                                }
-                                option {
-                                    value: "fade",
-                                    selected: current_transition == SlideTransition::Fade,
-                                    {t!("selection.presentation_options.transition.fade").to_string()}
-                                }
-                                option {
-                                    value: "slide_from_right",
-                                    selected: current_transition == SlideTransition::SlideFromRight,
-                                    {t!("selection.presentation_options.transition.slide_from_right").to_string()}
-                                }
-                                option {
-                                    value: "slide_from_left",
-                                    selected: current_transition == SlideTransition::SlideFromLeft,
-                                    {t!("selection.presentation_options.transition.slide_from_left").to_string()}
-                                }
-                                option {
-                                    value: "zoom_in",
-                                    selected: current_transition == SlideTransition::ZoomIn,
-                                    {t!("selection.presentation_options.transition.zoom_in").to_string()}
-                                }
-                                option {
-                                    value: "morph",
-                                    selected: current_transition == SlideTransition::Morph,
-                                    {t!("selection.presentation_options.transition.morph").to_string()}
-                                }
-                            }
+                }
+            }
+        }
+    }
+}
+
+/// What the phones are shown, for the service as a whole.
+///
+/// Beside the switch rather than in the settings, and for the same reason: how
+/// streaming works is a setting, but what a given service sends is a decision
+/// for that service. This one is kept, though — it is a choice between designs
+/// the user has already built, and rebuilding it every Sunday would be a chore
+/// rather than a safeguard.
+#[component]
+fn StreamViewSettings() -> Element {
+    let mut settings = use_settings();
+
+    // The projection's own general choice, which is what "the same" means here
+    // and what the line wrap is reconciled against.
+    let projection_wrap = settings
+        .read()
+        .default_song_slide_settings()
+        .max_lines;
+
+    let design_index = settings.read().stream.design_index;
+    let slide_settings_index = settings.read().stream.slide_settings_index;
+
+    // What the chosen wrap will actually come to. Said out loud rather than
+    // silently applied: a user who asks for five lines and gets six should be
+    // told why, next to the control that did it.
+    let chosen_wrap = slide_settings_index
+        .and_then(|index| settings.read().song_slide_settings.get(index).cloned())
+        .and_then(|slide_settings| slide_settings.max_lines);
+    let used_wrap = reconcile_max_lines(projection_wrap, chosen_wrap);
+
+    rsx! {
+        hgroup { style: "margin-top: 1.5rem;",
+            h6 { {t!("selection.presentation_options.stream_view.headline").to_string()} }
+        }
+        div { class: "grid",
+            div {
+                label { {t!("selection.presentation_options.stream_view.design").to_string()} }
+                select {
+                    onchange: move |event| {
+                        let chosen = event.value().parse::<usize>().ok();
+                        settings.write().stream.design_index = chosen;
+                        settings.read().save();
+                    },
+                    option {
+                        value: "",
+                        selected: design_index.is_none(),
+                        {t!("selection.presentation_options.stream_view.same_as_presentation").to_string()}
+                    }
+                    for (index , design) in settings.read().presentation_designs.iter().enumerate() {
+                        option {
+                            value: "{index}",
+                            selected: design_index == Some(index),
+                            "{design.name}"
                         }
-                        div {
-                            label { {t!("selection.presentation_options.timer.label").to_string()} }
-                            div { role: "group",
-                                input {
-                                    r#type: "checkbox",
-                                    role: "switch",
-                                    id: "timer-enabled-{item_index}",
-                                    checked: timer_enabled,
-                                    onchange: move |evt| {
-                                        let checked = evt.checked();
-                                        let mut items = selected_items.write();
-                                        if checked {
-                                            items[item_index].timer_settings_option = Some(
-                                                SlideTimerSettings::default(),
-                                            );
-                                        } else {
-                                            items[item_index].timer_settings_option = None;
-                                        }
-                                    },
-                                }
-                                label {
-                                    r#for: "timer-enabled-{item_index}",
-                                    style: "margin-left: 4px;",
-                                    {t!("selection.presentation_options.timer.label").to_string()}
-                                }
-                            }
-                            if timer_enabled {
-                                input {
-                                    r#type: "number",
-                                    min: "1",
-                                    max: "3600",
-                                    value: "{timer_seconds}",
-                                    style: "margin-top: 8px;",
-                                    onchange: move |evt| {
-                                        if let Ok(secs) = evt.value().parse::<u32>()
-                                            && secs > 0 {
-                                                let mut items = selected_items.write();
-                                                if let Some(ref mut ts) = items[item_index].timer_settings_option {
-                                                    ts.timer_seconds = secs;
-                                                }
-                                            }
-                                    },
-                                }
-                                div { style: "margin-top: 8px;",
-                                    label { {t!("selection.presentation_options.timer.after_last_slide.label").to_string()} }
-                                    select {
-                                        onchange: move |evt| {
-                                            let val = evt.value();
-                                            let behavior = match val.as_str() {
-                                                "restart" => AfterLastSlide::RestartCurrentChapter,
-                                                _ => AfterLastSlide::GoToNextChapter,
-                                            };
-                                            let mut items = selected_items.write();
-                                            if let Some(ref mut ts) = items[item_index].timer_settings_option {
-                                                ts.after_last_slide = behavior;
-                                            }
-                                        },
-                                        option {
-                                            value: "next",
-                                            selected: after_last == AfterLastSlide::GoToNextChapter,
-                                            {
-                                                t!("selection.presentation_options.timer.after_last_slide.go_to_next")
-                                                    .to_string()
-                                            }
-                                        }
-                                        option {
-                                            value: "restart",
-                                            selected: after_last == AfterLastSlide::RestartCurrentChapter,
-                                            {
-                                                t!("selection.presentation_options.timer.after_last_slide.restart_chapter")
-                                                    .to_string()
-                                            }
-                                        }
-                                    }
-                                }
+                    }
+                }
+            }
+            div {
+                label { {t!("selection.presentation_options.stream_view.slide_settings").to_string()} }
+                select {
+                    onchange: move |event| {
+                        let chosen = event.value().parse::<usize>().ok();
+                        settings.write().stream.slide_settings_index = chosen;
+                        settings.read().save();
+                    },
+                    option {
+                        value: "",
+                        selected: slide_settings_index.is_none(),
+                        {t!("selection.presentation_options.stream_view.same_as_presentation").to_string()}
+                    }
+                    for (index , _) in settings.read().song_slide_settings.iter().enumerate() {
+                        option {
+                            value: "{index}",
+                            selected: slide_settings_index == Some(index),
+                            {
+                                format!(
+                                    "{} {}",
+                                    t!("selection.presentation_options.slide_settings"),
+                                    index + 1,
+                                )
                             }
                         }
                     }
-                    div { style: "margin-top: 20px; display: flex; flex-direction: column; align-items: center;",
-                        SelectedItemPreview {
-                            selected_item: item.clone(),
-                            default_presentation_design: settings
-                                                                                        .read()
-                                                                                        .presentation_designs
-                                                                                        .first()
-                                                                                        .cloned()
-                                                                                        .unwrap_or_default(),
-                            default_slide_settings: settings
-                                                                                        .read()
-                                                                                        .song_slide_settings
-                                                                                        .first()
-                                                                                        .cloned()
-                                                                                        .unwrap_or_default(),
-                            width: 400,
+                }
+            }
+        }
+
+        {wrap_note(chosen_wrap, used_wrap)}
+    }
+}
+
+/// Says what a chosen line wrap will actually come to, where that is not what
+/// was asked for.
+///
+/// Silence where the two agree: a note that only ever says "yes, that one" is
+/// noise, and the user stops reading it before the one time it matters.
+fn wrap_note(chosen: Option<usize>, used: Option<usize>) -> Element {
+    if chosen == used {
+        return rsx! {};
+    }
+
+    let text = match (chosen, used) {
+        (Some(chosen), Some(used)) => t!(
+            "selection.presentation_options.stream_view.max_lines_note",
+            chosen = chosen,
+            used = used
+        )
+        .to_string(),
+        // Asked for a wrap under a projection that has none.
+        _ => t!("selection.presentation_options.stream_view.max_lines_dropped").to_string(),
+    };
+
+    rsx! {
+        p { class: "stream-wrap-note", { text } }
+    }
+}
+
+/// The design and the slide division everything is shown with unless the
+/// element says otherwise.
+///
+/// The same two choices the specific half offers, one level up: what is picked
+/// here is what "Standard" means down there. Kept in the settings rather than
+/// with the service, because it is a choice between designs the user has
+/// already built and is not worth making again every Sunday — the same
+/// reasoning as for the stream's own defaults below.
+///
+/// Both are stored as a position in their list, so that editing the chosen
+/// design reaches every presentation built from it. See
+/// [`Settings::default_presentation_design`](crate::logic::settings::Settings::default_presentation_design).
+#[component]
+fn DefaultDesignSettings() -> Element {
+    let mut settings = use_settings();
+
+    let design_index = use_memo(move || settings.read().default_design_index);
+    let slide_settings_index = use_memo(move || settings.read().default_slide_settings_index);
+    let designs = use_memo(move || settings.read().presentation_designs.clone());
+    let slide_settings = use_memo(move || settings.read().song_slide_settings.clone());
+
+    rsx! {
+        div { class: "grid",
+            div {
+                label { {t!("selection.presentation_options.design").to_string()} }
+                select {
+                    onchange: move |evt| {
+                        if let Ok(index) = evt.value().parse::<usize>() {
+                            settings.write().default_design_index = index;
+                            settings.read().save();
+                        }
+                    },
+                    for (index , design) in designs().iter().enumerate() {
+                        option {
+                            value: "{index}",
+                            selected: index == design_index(),
+                            "{design.name}"
+                        }
+                    }
+                }
+            }
+            div {
+                label { {t!("selection.presentation_options.slide_settings").to_string()} }
+                select {
+                    onchange: move |evt| {
+                        if let Ok(index) = evt.value().parse::<usize>() {
+                            settings.write().default_slide_settings_index = index;
+                            settings.read().save();
+                        }
+                    },
+                    for (index , _) in slide_settings().iter().enumerate() {
+                        option {
+                            value: "{index}",
+                            selected: index == slide_settings_index(),
+                            {
+                                format!(
+                                    "{} {}",
+                                    t!("selection.presentation_options.slide_settings"),
+                                    index + 1,
+                                )
+                            }
                         }
                     }
                 }

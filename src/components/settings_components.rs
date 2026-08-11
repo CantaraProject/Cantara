@@ -1,7 +1,9 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
 use super::directory_browser::DirectoryBrowserModal;
-use super::shared_components::{DeleteIcon, EditIcon, PresentationDesignSelector, js_yes_no_box};
+use super::shared_components::{
+    DeleteIcon, EditIcon, PresentationDesignSelector, js_message_box, js_yes_no_box,
+};
 use super::song_slide_settings_components::SongSlideSettings;
 #[cfg(feature = "desktop")]
 use crate::logic::screens::{MonitorInfo, enumerate_monitors};
@@ -20,9 +22,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 #[component]
 pub fn SettingsPage() -> Element {
     let nav = use_navigator();
-    let mut settings = use_settings();
-    let presentation_designs: Signal<Vec<PresentationDesign>> =
-        use_signal(|| settings.read().presentation_designs.clone());
+    let settings = use_settings();
 
     rsx! {
         div {
@@ -33,16 +33,17 @@ pub fn SettingsPage() -> Element {
             }
             main {
                 class: "container-fluid content height-100",
-                SettingsContent {
-                    presentation_designs
-                }
+                SettingsContent {}
             }
             footer {
                 class: "bottom-bar",
                 button {
                     onclick: move |_| {
-                        settings.write().presentation_designs = presentation_designs.read().clone();
-                        settings.read().save();
+                        // Leaving the settings is the moment they have to be on
+                        // disk, so a failure here is told rather than logged:
+                        // everything the user just configured is otherwise lost
+                        // when the program ends, without a word.
+                        let save_error = settings.read().try_save().err();
 
                         // The unpacked copies of the remote repositories are
                         // deliberately kept. Throwing them away here meant
@@ -53,7 +54,14 @@ pub fn SettingsPage() -> Element {
                         // program's lifetime and are removed when it ends; a
                         // repository the user actually deletes is cleaned up
                         // where that happens.
-                        nav.replace(Route::Selection {});
+                        async move {
+                            if let Some(error) = save_error {
+                                let message = t!("dialogs.settings_not_saved", error = error)
+                                    .to_string();
+                                let _ = document::eval(&js_message_box(message)).await;
+                            }
+                            nav.replace(Route::Selection {});
+                        }
                     },
                     { t!("settings.close").to_string() }
                 }
@@ -64,7 +72,7 @@ pub fn SettingsPage() -> Element {
 
 /// Middleware component between SettingsPage and its children.
 #[component]
-fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Element {
+fn SettingsContent() -> Element {
     let mut settings = use_settings();
     let song_slide_settings: Signal<Vec<SlideSettings>> =
         use_signal(|| settings.read().song_slide_settings.clone());
@@ -83,19 +91,18 @@ fn SettingsContent(presentation_designs: Signal<Vec<PresentationDesign>>) -> Ele
         }
     });
 
+    // Here the element order of the settings can be defined
     rsx! {
         RepositorySettings {}
         hr {}
-        StreamSettingsSection {}
         ScreenSettings {}
         hr {}
-        PresentationSettings {
-            presentation_designs
-        }
+        PresentationSettings {}
         hr {}
         SongSlideSettings {
             song_slide_settings
         }
+        StreamSettingsSection {}
     }
 }
 
@@ -428,15 +435,22 @@ fn RepositorySettings() -> Element {
 
 /// Component for modifying presentation design settings.
 #[component]
-fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -> Element {
+fn PresentationSettings() -> Element {
     let mut selected_presentation_design_index = use_signal(|| Some(0));
-    let mut selected_presentation_design = use_signal(|| None::<PresentationDesign>);
     let mut settings = use_settings();
 
-    use_effect(move || {
-        let new_value = selected_presentation_design_index()
-            .and_then(|index| presentation_designs.read().get(index).cloned());
-        selected_presentation_design.set(new_value);
+    // The designs are read from — and written straight back to — the settings.
+    // They used to be edited in a copy that was only handed over when the
+    // settings page was closed, which meant a design that had just been
+    // created did not exist yet for the editor the "edit" button opens: it
+    // looks the design up by its position in the settings and found nothing
+    // there.
+    let presentation_designs =
+        use_memo(move || settings.read().presentation_designs.clone());
+
+    let selected_presentation_design = use_memo(move || {
+        selected_presentation_design_index()
+            .and_then(|index| presentation_designs.read().get(index).cloned())
     });
 
     rsx! {
@@ -486,27 +500,37 @@ fn PresentationSettings(presentation_designs: Signal<Vec<PresentationDesign>>) -
                         index: selected_presentation_design_index(),
                         onclone: move |_| {
                             if let Some(design) = selected_presentation_design() {
-                                presentation_designs.write().push(design);
+                                {
+                                    let mut settings_write = settings.write();
+                                    settings_write.presentation_designs.push(design);
+                                    // Ensure there are enough slide settings for all presentation designs
+                                    settings_write.ensure_slide_settings_for_designs();
+                                }
                                 let new_len = presentation_designs.read().len();
                                 tracing::debug!("Cloned design. New length: {}", new_len);
-                                
-                                // Ensure there are enough slide settings for all presentation designs
-                                settings.write().ensure_slide_settings_for_designs();
+
+                                // Written out at once: the editor the user is
+                                // about to open reads the design from the
+                                // settings, and a design that only exists in
+                                // memory is one it cannot show.
+                                settings.read().save();
                             }
                         },
                         ondelete: move |_| {
                             if let Some(index) = selected_presentation_design_index()
                                 && index < presentation_designs.read().len() {
-                                    // Also remove the corresponding slide setting if it exists
-                                    if index < settings.read().song_slide_settings.len() {
-                                        settings.write().song_slide_settings.remove(index);
+                                    {
+                                        let mut settings_write = settings.write();
+                                        // Also remove the corresponding slide setting if it exists
+                                        if index < settings_write.song_slide_settings.len() {
+                                            settings_write.song_slide_settings.remove(index);
+                                        }
+                                        settings_write.presentation_designs.remove(index);
+                                        // Ensure slide settings and presentation designs stay in sync
+                                        settings_write.ensure_slide_settings_for_designs();
                                     }
-                                    
-                                    presentation_designs.write().remove(index);
                                     selected_presentation_design_index.set((!presentation_designs.read().is_empty()).then_some(0));
-                                    
-                                    // Ensure slide settings and presentation designs stay in sync
-                                    settings.write().ensure_slide_settings_for_designs();
+                                    settings.read().save();
                                 }
                         }
                     }

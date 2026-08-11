@@ -51,6 +51,22 @@ pub struct Settings {
     #[serde(default = "default_song_slide_vec")]
     pub song_slide_settings: Vec<SlideSettings>,
 
+    /// Which of the [`presentation_designs`](Self::presentation_designs) an
+    /// element is shown with when it does not name one of its own.
+    ///
+    /// Kept as a position in the list rather than as a copy of the design, so
+    /// that editing that design reaches every presentation built from it.
+    /// Zero — the first design — is what a settings file written before this
+    /// existed reads as, which is the behaviour it had.
+    #[serde(default)]
+    pub default_design_index: usize,
+
+    /// Which of the [`song_slide_settings`](Self::song_slide_settings) an
+    /// element is divided into slides by when it does not name its own. See
+    /// [`default_design_index`](Self::default_design_index).
+    #[serde(default)]
+    pub default_slide_settings_index: usize,
+
     /// A boolean variable which determines if presentations should start in fullscreen mode by default.
     #[serde(default = "default_always_start_fullscreen")]
     pub always_start_fullscreen: bool,
@@ -114,6 +130,26 @@ pub struct StreamSettings {
     /// It travels in the clear either way — this is plain HTTP on a local
     /// network, and a password here keeps the curious out, not an attacker.
     pub password: String,
+
+    /// Which of [`Settings::presentation_designs`] the phones are shown, as an
+    /// index into that list. `None` — the ordinary case — means they are shown
+    /// the same design as the projection.
+    ///
+    /// An index rather than a copy, so that editing a design reaches the
+    /// stream as it reaches the wall. The two lists a user maintains are
+    /// exactly the choice on offer here: a stream design is a presentation
+    /// design, built and previewed in the same editor.
+    #[serde(default)]
+    pub design_index: Option<usize>,
+
+    /// The same, for [`Settings::song_slide_settings`] — how a song is divided
+    /// into slides for a phone.
+    ///
+    /// What is chosen here is not always what is used: the projection is the
+    /// reference, and the line wrap is reconciled against it by
+    /// [`crate::logic::stream_view::stream_slide_settings`].
+    #[serde(default)]
+    pub slide_settings_index: Option<usize>,
 }
 
 impl Default for StreamSettings {
@@ -121,6 +157,8 @@ impl Default for StreamSettings {
         StreamSettings {
             port: default_stream_port(),
             password: String::new(),
+            design_index: None,
+            slide_settings_index: None,
         }
     }
 }
@@ -224,6 +262,8 @@ impl Default for Settings {
             wizard_completed: false,
             presentation_designs: default_presentation_design_vec(),
             song_slide_settings: default_song_slide_vec(),
+            default_design_index: 0,
+            default_slide_settings_index: 0,
             always_start_fullscreen: default_always_start_fullscreen(),
             presentation_screen: None,
             presenter_screen: None,
@@ -355,26 +395,51 @@ impl Settings {
     }
 
     /// Save the current settings to storage.
+    ///
+    /// A failure is written to the log and otherwise passed over: most of the
+    /// places that save do so as a side effect of an edit, and a dialog there
+    /// would interrupt what the user is doing for something they can do
+    /// nothing about. Where losing the settings is the point — leaving the
+    /// settings page — [`Settings::try_save`] says what went wrong instead.
     pub fn save(&self) {
+        if let Err(error) = self.try_save() {
+            dioxus::logger::tracing::error!("the settings could not be saved: {error}");
+        }
+    }
+
+    /// Save the current settings to storage, and say why if that did not work.
+    ///
+    /// The message is meant to be shown: it names the file or the storage that
+    /// could not be written, so that a settings directory that is read-only or
+    /// full is something the user can act on rather than guess at.
+    pub fn try_save(&self) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|error| format!("the settings could not be encoded: {error}"))?;
+
         #[cfg(target_arch = "wasm32")]
         {
-            if let Ok(json) = serde_json::to_string_pretty(self) {
-                let _ = web_sys::window()
-                    .and_then(|w| w.local_storage().ok().flatten())
-                    .map(|s| s.set_item("cantara-settings", &json));
-            }
+            let storage = web_sys::window()
+                .and_then(|window| window.local_storage().ok().flatten())
+                .ok_or_else(|| "this browser offers no local storage".to_string())?;
+            storage
+                .set_item("cantara-settings", &json)
+                .map_err(|_| "the browser refused to store the settings".to_string())?;
+            Ok(())
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            if let Some(file) = get_settings_file() {
-                if let Some(folder) = get_settings_folder() {
-                    let _ = fs::create_dir_all(folder);
-                }
-                if let Ok(json) = serde_json::to_string_pretty(self) {
-                    let _ = std::fs::write(file, json);
-                }
+            let file = get_settings_file()
+                .ok_or_else(|| "no settings file location could be determined".to_string())?;
+
+            if let Some(folder) = get_settings_folder()
+                && let Err(error) = fs::create_dir_all(&folder)
+            {
+                return Err(format!("{} could not be created: {error}", folder.display()));
             }
+
+            std::fs::write(&file, json)
+                .map_err(|error| format!("{} could not be written: {error}", file.display()))
         }
     }
 
@@ -463,6 +528,29 @@ impl Settings {
         if self.presentation_designs.is_empty() {
             self.presentation_designs.push(PresentationDesign::default());
         }
+    }
+
+    /// The design an element is shown with when it does not name one itself.
+    ///
+    /// A position that no longer has a design behind it — the chosen one was
+    /// deleted since — falls back to the first rather than leaving the
+    /// presentation without a design in the middle of a service.
+    pub fn default_presentation_design(&self) -> PresentationDesign {
+        self.presentation_designs
+            .get(self.default_design_index)
+            .or_else(|| self.presentation_designs.first())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// The slide division an element is given when it does not name one
+    /// itself. Falls back like [`Self::default_presentation_design`].
+    pub fn default_song_slide_settings(&self) -> SlideSettings {
+        self.song_slide_settings
+            .get(self.default_slide_settings_index)
+            .or_else(|| self.song_slide_settings.first())
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Ensures that there are at least as many slide settings as presentation designs.
@@ -1748,7 +1836,7 @@ impl CssString for HorizontalAlign {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Default)]
 pub enum VerticalAlign {
     Top,
 
@@ -2091,6 +2179,57 @@ mod tests {
         settings.ensure_default_presentation_design();
         assert_eq!(settings.presentation_designs.len(), 1);
         assert_eq!(settings.presentation_designs[0].name, "Default");
+    }
+
+    /// The general half of the presentation options picks which of the
+    /// configured designs "Default" means, and that is what everything
+    /// showing an element without one of its own has to use.
+    #[test]
+    fn the_chosen_design_is_what_default_means() {
+        let second = PresentationDesign {
+            name: "Dark".to_string(),
+            ..PresentationDesign::default()
+        };
+        let settings = Settings {
+            presentation_designs: vec![PresentationDesign::default(), second],
+            default_design_index: 1,
+            ..Default::default()
+        };
+
+        assert_eq!(settings.default_presentation_design().name, "Dark");
+    }
+
+    /// A design deleted since it was chosen must not leave a service without
+    /// one in the middle of it.
+    #[test]
+    fn a_default_that_is_no_longer_there_falls_back_to_the_first() {
+        let settings = Settings {
+            presentation_designs: vec![PresentationDesign::default()],
+            default_design_index: 7,
+            default_slide_settings_index: 7,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            settings.default_presentation_design().name,
+            settings.presentation_designs[0].name
+        );
+        assert_eq!(
+            settings.default_song_slide_settings(),
+            settings.song_slide_settings[0]
+        );
+    }
+
+    /// A settings file written before the choice existed reads as the first
+    /// entry, which is what it did back then.
+    #[test]
+    fn an_older_settings_file_keeps_the_first_entry_as_its_default() {
+        let json = r#"{"repositories":[],"wizard_completed":true}"#;
+        let settings: Settings =
+            serde_json::from_str(json).expect("an older settings file still reads");
+
+        assert_eq!(settings.default_design_index, 0);
+        assert_eq!(settings.default_slide_settings_index, 0);
     }
 
     #[test]

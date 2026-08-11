@@ -157,7 +157,11 @@
     border: 1px solid var(--pico-muted-border-color);
     border-radius: var(--pico-border-radius);
     background-color: var(--pico-card-background-color);
-    overflow: hidden;
+    /* Scrolls rather than clips: once a service gives the phones a design of
+       their own the panel holds two previews, and on a short console window
+       the second one would otherwise be cut off with nothing to say so. */
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .presenter-preview-panel h4 {

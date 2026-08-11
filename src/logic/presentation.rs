@@ -4,6 +4,7 @@ use super::{
     settings::PresentationDesign,
     sourcefiles::{SourceFile, SourceFileType},
     states::{RunningPresentation, RunningPresentationPosition, SelectedItemRepresentation, SlideChapter},
+    stream_view::{StreamDefaults, map_slides, stream_slide_settings},
 };
 
 use cantara_songlib::exporter::slides::slides_from_song;
@@ -338,6 +339,69 @@ fn create_presentation_slides(
     Ok(presentation)
 }
 
+/// What the network stream is given for one element of the service: a design
+/// of its own where it has one, a second division of the song where it has one,
+/// and the map from the projection's slides to that division.
+///
+/// Nothing at all in the ordinary case. Where the stream is shown the same
+/// design and the same division there is no second set to build, no second set
+/// to keep in step, and no second reading of the file — the chapter says so by
+/// leaving all three empty, and everything downstream falls back to the
+/// projection's own slides.
+fn stream_view_of(
+    selected_item: &SelectedItemRepresentation,
+    stream_defaults: &StreamDefaults,
+    projection_design: &PresentationDesign,
+    projection_slides: &[Slide],
+    projection_settings: &SlideSettings,
+) -> (Option<PresentationDesign>, Option<Vec<Slide>>, Vec<usize>) {
+    // A design that happens to be the projection's is not a difference, and
+    // recording it as one would put a second preview in the presenter console
+    // showing exactly what the first one shows.
+    let design = selected_item
+        .stream_design_option
+        .clone()
+        .or_else(|| stream_defaults.design.clone())
+        .filter(|design| design != projection_design);
+
+    // Only a song can be divided into slides two ways. A picture is one slide,
+    // a document is its pages, a markdown text is its `---` sections — no slide
+    // setting moves any of those, and reading the file a second time to be told
+    // so again costs a PDF its page count on every rebuild of the running
+    // order.
+    if selected_item.source_file.file_type != SourceFileType::Song {
+        return (design, None, Vec::new());
+    }
+
+    let wanted = selected_item
+        .stream_slide_settings_option
+        .clone()
+        .or_else(|| stream_defaults.slide_settings.clone());
+
+    let Some(wanted) = wanted else {
+        return (design, None, Vec::new());
+    };
+
+    // The line wrap is not the user's alone to choose — see
+    // [`crate::logic::stream_view`] for why.
+    let settings = stream_slide_settings(projection_settings, &wanted);
+    if settings == *projection_settings {
+        return (design, None, Vec::new());
+    }
+
+    match create_presentation_slides(selected_item, &settings) {
+        Ok(slides) if !slides.is_empty() => {
+            let map = map_slides(projection_slides, &slides);
+            (design, Some(slides), map)
+        }
+        // A second reading that fails is not a reason to lose the
+        // presentation. The phones fall back to the projection's slides, which
+        // is worse than what was asked for and a great deal better than
+        // nothing at all.
+        _ => (design, None, Vec::new()),
+    }
+}
+
 /// Adds a presentation to the global running presentations signal
 /// Returns the number (id) of the created presentation
 /// Builds a [RunningPresentation] from the selected items without writing to
@@ -348,6 +412,7 @@ pub fn build_presentation(
     selected_items: &Vec<SelectedItemRepresentation>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
+    stream_defaults: &StreamDefaults,
 ) -> Option<RunningPresentation> {
     let mut presentation: Vec<SlideChapter> = vec![];
 
@@ -363,16 +428,28 @@ pub fn build_presentation(
             .unwrap_or(default_slide_settings.clone());
 
         match create_presentation_slides(selected_item, &used_slide_settings) {
-            Ok(slides) => presentation.push(SlideChapter {
-                id: Uuid::new_v4(),
-                slides,
-                source_file: selected_item.source_file.clone(),
-                presentation_design_option: Some(used_presentation_design),
-                slide_settings_option: Some(used_slide_settings),
-                timer_settings_option: selected_item.timer_settings_option.clone(),
-                transition_option: selected_item.transition_effect,
-                inline_markdown: selected_item.inline_markdown.clone(),
-            }),
+            Ok(slides) => {
+                let (stream_design, stream_slides, stream_slide_map) = stream_view_of(
+                    selected_item,
+                    stream_defaults,
+                    &used_presentation_design,
+                    &slides,
+                    &used_slide_settings,
+                );
+                presentation.push(SlideChapter {
+                    id: Uuid::new_v4(),
+                    slides,
+                    source_file: selected_item.source_file.clone(),
+                    presentation_design_option: Some(used_presentation_design),
+                    slide_settings_option: Some(used_slide_settings),
+                    stream_design_option: stream_design,
+                    stream_slides,
+                    stream_slide_map,
+                    timer_settings_option: selected_item.timer_settings_option.clone(),
+                    transition_option: selected_item.transition_effect,
+                    inline_markdown: selected_item.inline_markdown.clone(),
+                })
+            }
             Err(_) => {
                 // TODO: Implement error handling, the user should get a message if an error occurs...
             }
@@ -392,6 +469,7 @@ pub fn add_presentation(
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
+    stream_defaults: &StreamDefaults,
 ) -> Option<usize> {
     // Right now, we only allow one running presentation at the same time.
     // Later, Cantara is going to support multiple presentations.
@@ -399,7 +477,12 @@ pub fn add_presentation(
         running_presentations.write().clear();
     }
 
-    if let Some(rp) = build_presentation(selected_items, default_presentation_design, default_slide_settings) {
+    if let Some(rp) = build_presentation(
+        selected_items,
+        default_presentation_design,
+        default_slide_settings,
+        stream_defaults,
+    ) {
         running_presentations
             .write()
             .push(rp);
@@ -435,6 +518,12 @@ pub fn create_single_item_presentation(
         source_file: selected_item.source_file.clone(),
         presentation_design_option: Some(used_presentation_design),
         slide_settings_option: Some(used_slide_settings),
+        // A preview of one element, shown beside the settings that made it.
+        // What the network stream would do with the same element is previewed
+        // in the presenter console, next to the slide it would differ from.
+        stream_design_option: None,
+        stream_slides: None,
+        stream_slide_map: Vec::new(),
         timer_settings_option: selected_item.timer_settings_option.clone(),
         transition_option: selected_item.transition_effect,
         inline_markdown: selected_item.inline_markdown.clone(),
@@ -489,6 +578,7 @@ fn apply_presentation_update(
     selected_items: &[SelectedItemRepresentation],
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
+    stream_defaults: &StreamDefaults,
 ) -> RunningPresentation {
     // Remember current position for restoration
     let old_position = old_rp.position.clone();
@@ -552,6 +642,14 @@ fn apply_presentation_update(
                 );
                 let carried_id = old_key_ids.get_mut(&key).and_then(|q| q.pop_front());
 
+                let (stream_design, stream_slides, stream_slide_map) = stream_view_of(
+                    selected_item,
+                    stream_defaults,
+                    &used_presentation_design,
+                    &slides,
+                    &used_slide_settings,
+                );
+
                 new_chapters.push(SlideChapter {
                     // Temporarily use the carried old UUID so we can find this
                     // chapter in the position-restore step below. A fresh UUID is
@@ -561,6 +659,9 @@ fn apply_presentation_update(
                     source_file: selected_item.source_file.clone(),
                     presentation_design_option: Some(used_presentation_design),
                     slide_settings_option: Some(used_slide_settings),
+                    stream_design_option: stream_design,
+                    stream_slides,
+                    stream_slide_map,
                     timer_settings_option: selected_item.timer_settings_option.clone(),
                     transition_option: selected_item.transition_effect,
                     inline_markdown: selected_item.inline_markdown.clone(),
@@ -623,6 +724,7 @@ pub fn update_presentation(
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
+    stream_defaults: &StreamDefaults,
 ) {
     // Must have a running presentation to update
     let Some(old_rp) = running_presentations.peek().first().cloned() else {
@@ -634,6 +736,7 @@ pub fn update_presentation(
         selected_items,
         default_presentation_design,
         default_slide_settings,
+        stream_defaults,
     );
 
     // Update the running presentation in-place (preserves window state)
@@ -850,11 +953,210 @@ mod tests {
             },
             presentation_design_option: None,
             slide_settings_option: None,
+            stream_design_option: None,
+            stream_slide_settings_option: None,
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: Default::default(),
         };
         assert!(create_presentation_slides(&select_item, &SlideSettings::default()).is_ok());
+    }
+
+    /// A song the projection divides two lines at a time and the stream four.
+    /// Both sets are generated, and every projection slide is mapped to the
+    /// stream slide that holds it — that mapping is what keeps a phone in step
+    /// with a wall the two do not change together with.
+    #[test]
+    fn a_stream_division_is_built_and_mapped() {
+        let item = amazing_grace();
+        let projection = SlideSettings {
+            max_lines: Some(2),
+            ..SlideSettings::default()
+        };
+        let stream = SlideSettings {
+            max_lines: Some(4),
+            ..SlideSettings::default()
+        };
+
+        let rp = build_presentation(
+            &vec![item],
+            &PresentationDesign::default(),
+            &projection,
+            &StreamDefaults {
+                design: None,
+                slide_settings: Some(stream),
+            },
+        )
+        .expect("a presentation");
+        let chapter = &rp.presentation[0];
+
+        let stream_slides = chapter
+            .stream_slides
+            .as_ref()
+            .expect("the stream was given a division of its own");
+        assert!(
+            stream_slides.len() < chapter.slides.len(),
+            "four lines at a time is fewer slides than two: {} against {}",
+            stream_slides.len(),
+            chapter.slides.len()
+        );
+        assert_eq!(
+            chapter.stream_slide_map.len(),
+            chapter.slides.len(),
+            "every slide of the projection is mapped"
+        );
+        assert!(
+            chapter
+                .stream_slide_map
+                .iter()
+                .all(|&index| index < stream_slides.len()),
+            "and mapped to a slide that exists: {:?}",
+            chapter.stream_slide_map
+        );
+        assert!(
+            chapter
+                .stream_slide_map
+                .windows(2)
+                .all(|pair| pair[0] <= pair[1]),
+            "and never backwards: {:?}",
+            chapter.stream_slide_map
+        );
+        assert!(chapter.stream_differs());
+    }
+
+    /// A service that asks for the same division gets no second set of slides
+    /// — and, more to the point, the song is not read and converted twice to
+    /// arrive at the same answer.
+    #[test]
+    fn the_same_division_builds_no_second_set() {
+        let settings = SlideSettings {
+            max_lines: Some(2),
+            ..SlideSettings::default()
+        };
+
+        let rp = build_presentation(
+            &vec![amazing_grace()],
+            &PresentationDesign::default(),
+            &settings,
+            &StreamDefaults {
+                design: None,
+                slide_settings: Some(settings.clone()),
+            },
+        )
+        .expect("a presentation");
+
+        assert!(rp.presentation[0].stream_slides.is_none());
+        assert!(!rp.presentation[0].stream_differs());
+    }
+
+    /// An element may single itself out, and what it says wins over the
+    /// service's general choice.
+    #[test]
+    fn an_elements_own_choice_beats_the_general_one() {
+        let mut item = amazing_grace();
+        item.stream_slide_settings_option = Some(SlideSettings {
+            max_lines: None,
+            ..SlideSettings::default()
+        });
+
+        let rp = build_presentation(
+            &vec![item],
+            &PresentationDesign::default(),
+            &SlideSettings {
+                max_lines: Some(2),
+                ..SlideSettings::default()
+            },
+            &StreamDefaults {
+                design: None,
+                slide_settings: Some(SlideSettings {
+                    max_lines: Some(4),
+                    ..SlideSettings::default()
+                }),
+            },
+        )
+        .expect("a presentation");
+
+        let chapter = &rp.presentation[0];
+        let stream_slides = chapter.stream_slides.as_ref().expect("a division of its own");
+        assert!(
+            stream_slides.len() < chapter.slides.len(),
+            "whole verses, not four lines at a time"
+        );
+        assert_eq!(chapter.stream_slide_map.len(), chapter.slides.len());
+    }
+
+    /// The wrap the service asked for is reconciled against the projection's on
+    /// the way in, so a stream slide can never hold part of a projected one.
+    #[test]
+    fn a_wrap_that_does_not_divide_is_reconciled_before_it_is_used() {
+        let three_lines_at_a_time = SlideSettings {
+            max_lines: Some(3),
+            ..SlideSettings::default()
+        };
+
+        let rp = build_presentation(
+            &vec![amazing_grace()],
+            &PresentationDesign::default(),
+            &SlideSettings {
+                max_lines: Some(2),
+                ..SlideSettings::default()
+            },
+            &StreamDefaults {
+                design: None,
+                slide_settings: Some(three_lines_at_a_time),
+            },
+        )
+        .expect("a presentation");
+        let chapter = &rp.presentation[0];
+
+        // Three is not a multiple of two, so four is what was used — and the
+        // proof is that every projection slide still lands inside exactly one
+        // stream slide, which is what a straddle would break.
+        let stream_slides = chapter.stream_slides.as_ref().expect("a division of its own");
+        for (slide, &mapped) in chapter.slides.iter().zip(&chapter.stream_slide_map) {
+            let shown = slide_text(slide);
+            if shown.is_empty() {
+                continue;
+            }
+            let holding = slide_text(&stream_slides[mapped]);
+            assert!(
+                shown.iter().all(|line| holding.contains(line)),
+                "the projection showed {shown:?}, the phones {holding:?}"
+            );
+        }
+    }
+
+    fn amazing_grace() -> SelectedItemRepresentation {
+        SelectedItemRepresentation {
+            source_file: SourceFile {
+                name: "Amazing Grace".to_string(),
+                path: PathBuf::from_str("testfiles/Amazing Grace.song").unwrap(),
+                file_type: SourceFileType::Song,
+                md5_hash: None,
+                relative_path: None,
+            },
+            presentation_design_option: None,
+            slide_settings_option: None,
+            stream_design_option: None,
+            stream_slide_settings_option: None,
+            inline_markdown: None,
+            timer_settings_option: None,
+            transition_effect: Default::default(),
+        }
+    }
+
+    /// The words a slide shows, for comparing one against another.
+    fn slide_text(slide: &Slide) -> Vec<String> {
+        let text = match &slide.slide_content {
+            SlideContent::SingleLanguageMainContent(main) => main.clone().main_text(),
+            SlideContent::Title(title) => title.title_text.clone(),
+            _ => String::new(),
+        };
+        text.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect()
     }
 
     #[test]
@@ -869,6 +1171,8 @@ mod tests {
             },
             presentation_design_option: None,
             slide_settings_option: None,
+            stream_design_option: None,
+            stream_slide_settings_option: None,
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: Default::default(),
@@ -901,6 +1205,8 @@ mod tests {
             },
             presentation_design_option: None,
             slide_settings_option: None,
+            stream_design_option: None,
+            stream_slide_settings_option: None,
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: Default::default(),
@@ -931,6 +1237,8 @@ mod tests {
             },
             presentation_design_option: None,
             slide_settings_option: None,
+            stream_design_option: None,
+            stream_slide_settings_option: None,
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: Default::default(),
@@ -957,6 +1265,8 @@ mod tests {
             },
             presentation_design_option: None,
             slide_settings_option: None,
+            stream_design_option: None,
+            stream_slide_settings_option: None,
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: Default::default(),
@@ -1059,6 +1369,8 @@ mod tests {
             },
             presentation_design_option: None,
             slide_settings_option: None,
+            stream_design_option: None,
+            stream_slide_settings_option: None,
             inline_markdown: Some(markdown.to_string()),
             timer_settings_option: None,
             transition_effect: Default::default(),
@@ -1069,7 +1381,12 @@ mod tests {
     fn build_rp(items: &[SelectedItemRepresentation]) -> RunningPresentation {
         let design = PresentationDesign::default();
         let settings = SlideSettings::default();
-        let rp = build_presentation(&items.to_vec(), &design, &settings);
+        let rp = build_presentation(
+            &items.to_vec(),
+            &design,
+            &settings,
+            &StreamDefaults::default(),
+        );
         rp.expect("build_presentation should succeed for inline markdown items")
     }
 
@@ -1097,6 +1414,7 @@ mod tests {
             &items,
             &PresentationDesign::default(),
             &SlideSettings::default(),
+            &StreamDefaults::default(),
         );
 
         let pos = updated.position.expect("position should survive regeneration");
@@ -1127,6 +1445,7 @@ mod tests {
             &items_updated,
             &PresentationDesign::default(),
             &SlideSettings::default(),
+            &StreamDefaults::default(),
         );
 
         let pos = updated.position.expect("position should still exist");
@@ -1158,6 +1477,7 @@ mod tests {
             &items_swapped,
             &PresentationDesign::default(),
             &SlideSettings::default(),
+            &StreamDefaults::default(),
         );
 
         let pos = updated.position.expect("position should survive reorder");
@@ -1188,6 +1508,7 @@ mod tests {
             &items_updated,
             &PresentationDesign::default(),
             &SlideSettings::default(),
+            &StreamDefaults::default(),
         );
 
         let pos = updated.position.expect("position should fall back, not be None");

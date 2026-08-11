@@ -89,19 +89,18 @@ pub fn Selection() -> Element {
         }
     });
 
+    // Which of the configured designs and divisions that is, is the service's
+    // choice — made in the general half of the presentation options.
     let default_presentation_design_memo =
-        use_memo(move || match settings.read().presentation_designs.first() {
-            Some(design) => design.clone(),
-            None => PresentationDesign::default(),
-        });
+        use_memo(move || settings.read().default_presentation_design());
 
-    let default_song_slide_settings_memo = use_memo(move || {
-        settings
-            .read()
-            .song_slide_settings
-            .first()
-            .unwrap_or(&SlideSettings::default())
-            .clone()
+    let default_song_slide_settings_memo =
+        use_memo(move || settings.read().default_song_slide_settings());
+
+    // What the phones are shown, generally: the service's choice, resolved
+    // from the design and slide-settings lists the user maintains.
+    let stream_defaults_memo = use_memo(move || {
+        crate::logic::stream_view::StreamDefaults::of(&settings.read())
     });
 
     let wizard_completed = use_memo(move || settings.read().wizard_completed);
@@ -206,6 +205,7 @@ pub fn Selection() -> Element {
                                 &mut running_presentations,
                                 &default_presentation_design_memo(),
                                 &default_song_slide_settings_memo(),
+                                &stream_defaults_memo(),
                             );
                         },
                         {t!("selection.update_presentation").to_string()}
@@ -221,6 +221,7 @@ pub fn Selection() -> Element {
                                     &mut running_presentations,
                                     &default_presentation_design_memo(),
                                     &default_song_slide_settings_memo(),
+                                    &stream_defaults_memo(),
                                 );
                                 nav.push(crate::Route::PresenterConsolePage {});
                             },
@@ -405,6 +406,7 @@ pub fn Selection() -> Element {
                                     &mut running_presentations,
                                     &default_presentation_design_memo(),
                                     &default_song_slide_settings_memo(),
+                                    &stream_defaults_memo(),
                                     &settings.read(),
                                 );
                             } else {
@@ -413,6 +415,7 @@ pub fn Selection() -> Element {
                                     &mut running_presentations,
                                     &default_presentation_design_memo(),
                                     &default_song_slide_settings_memo(),
+                                    &stream_defaults_memo(),
                                 );
                                 if settings.read().presenter_console_in_main_window
                                     && settings.read().show_presenter_console
@@ -448,13 +451,14 @@ pub fn Selection() -> Element {
 }
 
 /// Helper function to start a presentation from the selection page.
-/// Supports multi-screen placement and optional presenter console.
+/// Supports multiscreen placement and optional presenter console.
 #[cfg(feature = "desktop")]
 fn start_presentation(
     selected_items: &Vec<SelectedItemRepresentation>,
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
+    stream_defaults: &crate::logic::stream_view::StreamDefaults,
     settings_read: &Settings,
 ) {
     use super::presentation_components::PresentationPage;
@@ -467,6 +471,7 @@ fn start_presentation(
         running_presentations,
         default_presentation_design,
         default_slide_settings,
+        stream_defaults,
     )
     .is_some()
     {
@@ -569,6 +574,7 @@ fn start_presentation(
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
+    stream_defaults: &crate::logic::stream_view::StreamDefaults,
     settings_read: &Settings,
 ) {
     // Build the presentation data without writing to any signal yet.
@@ -582,6 +588,7 @@ fn start_presentation(
         selected_items,
         default_presentation_design,
         default_slide_settings,
+        stream_defaults,
     ) else {
         return;
     };

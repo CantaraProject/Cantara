@@ -46,7 +46,9 @@ pub fn MarkdownIcon(width: Option<u32>) -> Element {
 /// A component displaying multiple presentation designs in an "Amazing Grace" presentation.
 #[component]
 pub fn PresentationDesignSelector(
-    presentation_designs: Signal<Vec<PresentationDesign>>,
+    /// Read-only, so that the list may be handed a memo over the settings
+    /// rather than a copy that has to be written back.
+    presentation_designs: ReadSignal<Vec<PresentationDesign>>,
     song_slide_settings: Option<SlideSettings>,
     viewer_width: usize,
     active_item: Signal<Option<usize>>,
@@ -248,6 +250,18 @@ pub fn SelectedItemPreview(
 /// Generates JavaScript for a yes/no dialog box.
 pub fn js_yes_no_box(prompt: String) -> String {
     format!("return confirm('{}');", prompt)
+}
+
+/// Generates JavaScript for a message the user only has to acknowledge.
+///
+/// The text is handed over as JSON rather than pasted between quotes: a
+/// message that carries an error from the operating system may contain
+/// quotation marks, backslashes or line breaks, and any of them would
+/// otherwise turn the script into one that does not run — which is how a
+/// program ends up saying nothing precisely when it has something to say.
+pub fn js_message_box(message: String) -> String {
+    let encoded = serde_json::to_string(&message).unwrap_or_else(|_| "\"\"".to_string());
+    format!("alert({});", encoded)
 }
 
 #[component]
