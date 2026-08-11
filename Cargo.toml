@@ -41,7 +41,7 @@ log = "0.4.28"
 # reqwest without default TLS on all targets; TLS and blocking added for non-WASM below
 # On WASM, the browser's native fetch API handles HTTP/TLS natively
 reqwest = { version = "0.13.2", default-features = false, features = ["json"] }
-zip = { version = "8.1.0", default-features = false, features = ["deflate"] }
+zip = "8.1.0"
 regex = "1.12.3"
 md5 = "0.8.0"
 fuzzy-matcher = "0.3.7"
