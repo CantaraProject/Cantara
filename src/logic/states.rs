@@ -64,7 +64,7 @@ pub fn first_sidebar_type(order: &[SelectionSidebarType]) -> SelectionSidebarTyp
 }
 
 /// This struct represents a selected item
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct SelectedItemRepresentation {
     /// The source file of the selected item
     pub source_file: SourceFile,

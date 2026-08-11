@@ -414,6 +414,26 @@ impl SourceFile {
 ///
 /// The desktop reads from the file system; the web build has none and reads
 /// from the in-memory VFS its repositories were unpacked into.
+/// The bytes of a source file, wherever the build keeps them.
+///
+/// What [`read_source_file`] is for text, this is for everything: a picture or
+/// a PDF put into a selection file is not text and must not be read as if it
+/// were.
+pub fn read_source_file_bytes(file: &SourceFile) -> Result<Vec<u8>, String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use crate::logic::settings::RepositoryType;
+
+        let path = file.path.to_string_lossy().to_string();
+        RepositoryType::web_read_file(&path).ok_or_else(|| "not found in the web storage".to_string())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        fs::read(&file.path).map_err(|error| error.to_string())
+    }
+}
+
 pub fn read_source_file(file: &SourceFile) -> Result<String, String> {
     #[cfg(target_arch = "wasm32")]
     {

@@ -290,6 +290,110 @@ div.inline-div {
     margin-bottom: 0;
 }
 
+/* --- The designs to choose from ---
+
+   Tiles beside each other and wrapping onto the next line, rather than one
+   under the other: the point of the list is comparing them, and a design three
+   screens down is not being compared with anything. */
+.presentation-design-selector {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: flex-start;
+}
+
+.presentation-design-selector-item {
+    /* Each tile is exactly as wide as the preview inside it — the preview is
+       laid out at presentation size and scaled by `zoom`, so it brings its own
+       width and must not be stretched. */
+    display: inline-block;
+    line-height: 0;
+    border-radius: 0.5rem;
+    outline-offset: 4px;
+}
+
+.presentation-design-selector-item:focus-visible {
+    outline: 2px solid var(--pico-primary);
+}
+
+/* What can be done with the chosen design stands beside the tiles, and only
+   goes under them where there is not room for a tile and the buttons next to
+   each other. The threshold is a width, not a guess: a tile is 400 px plus its
+   frame and the column of buttons wants some 18 rem, which together need about
+   this much once the page's own margins are paid for. */
+.presentation-design-actions {
+    margin-top: 1.5rem;
+}
+
+@media (min-width: 62rem) {
+    .presentation-design-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(14rem, 18rem);
+        gap: 1.5rem;
+        align-items: start;
+    }
+
+    .presentation-design-actions {
+        margin-top: 0;
+        /* Stays in view while a long list of designs is scrolled past. */
+        position: sticky;
+        top: 1rem;
+    }
+}
+
+/* Paging through a preview: across its lower third, and out of the way until
+   the pointer is on the preview. Sizes are in the presentation's own pixels,
+   because the preview as a whole is scaled down by `zoom` — see
+   `PresentationViewer`. */
+.preview-navigation {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 66.6%;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 40px;
+    z-index: 98;
+    opacity: 0;
+    transition: opacity 120ms ease-out;
+    /* Only the buttons take clicks; the rest of the strip still selects the
+       design underneath it. */
+    pointer-events: none;
+}
+
+.presentation-preview:hover .preview-navigation,
+.presentation-preview:focus-within .preview-navigation {
+    opacity: 1;
+}
+
+/* Anyone who has asked for less movement gets them without the fade. */
+@media (prefers-reduced-motion: reduce) {
+    .preview-navigation {
+        transition: none;
+    }
+}
+
+.preview-navigation .preview-navigation-button {
+    pointer-events: auto;
+    width: 160px;
+    height: 160px;
+    padding: 0;
+    margin: 0;
+    border: 4px solid rgba(255, 255, 255, 0.85);
+    border-radius: 50%;
+    background-color: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font-size: 100pt;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.preview-navigation .preview-navigation-button:hover {
+    background-color: rgba(0, 0, 0, 0.8);
+}
+
 .rounded-corners-inactive {
     border-radius: 2em;
     box-shadow: 0 0 1em 1em rgba(0, 0, 0, 0.3);
@@ -509,26 +613,93 @@ div.inline-div {
 
 @media (min-width: 48rem) {
     .export-menu-body {
-        grid-template-columns: minmax(14rem, 20rem) 1fr;
-        overflow-y: visible;
+        /* The list of what can be exported is as wide as its longest label
+           and no wider; the settings for it get the rest. */
+        grid-template-columns: minmax(10rem, auto) minmax(0, 1fr);
     }
 }
 
-.export-menu-options {
+/* The body scrolls at every width, and both columns may be shorter than what
+   is in them. It used to be `overflow-y: visible` here, which let a column
+   grow out of the dialog once it held more than a screenful: the dialog clips,
+   so the last of it was cut off — and the part still visible sat underneath
+   the row of buttons, which is painted after it. */
+.export-category-list,
+.export-category-pane,
+.export-menu-preview {
     min-width: 0;
+    min-height: 0;
 }
 
-.export-menu-options small {
+/* What is being exported: one item per line, the chosen one marked. A list
+   rather than a dropdown because the choice decides what the rest of the
+   dialog is, and that should be visible without opening anything. */
+.export-category-list {
+    display: flex;
+    flex-direction: column;
+    align-self: start;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    overflow: hidden;
+}
+
+.export-category-list .export-category {
+    width: 100%;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    border-bottom: 1px solid var(--pico-muted-border-color);
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.export-category-list .export-category:last-child {
+    border-bottom: none;
+}
+
+.export-category-list .export-category:hover {
+    background-color: var(--pico-secondary-focus);
+}
+
+.export-category-list .export-category-active {
+    background-color: var(--pico-primary);
+    color: var(--pico-primary-inverse);
+    font-weight: 700;
+}
+
+/* The settings that belong to what was picked. */
+.export-category-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    overflow-y: auto;
+}
+
+.export-category-description {
+    margin-bottom: 0.5rem;
+    color: var(--pico-muted-color);
+}
+
+.export-category-summary {
+    margin-top: 0.75rem;
+    color: var(--pico-muted-color);
+}
+
+.export-category-pane small {
     display: block;
     margin-top: 0.5rem;
     opacity: 0.8;
 }
 
+/* Inside the pane now, under the settings the format needs. */
 .export-menu-preview {
     display: flex;
     flex-direction: column;
-    min-width: 0;
-    min-height: 0;
+    flex: 1 1 auto;
+    margin-top: 0.75rem;
 }
 
 .export-preview-text {
@@ -1204,6 +1375,21 @@ div.inline-div {
     margin-top: 0.35rem;
     font-size: 0.85em;
     color: var(--pico-muted-color);
+}
+
+/* Opening a selection: what the file holds, before anything is written. */
+.import-modal {
+    max-width: 34rem;
+}
+
+.import-summary {
+    margin: 0.5rem 0 1rem;
+    padding-left: 1.2rem;
+}
+
+/* What cannot be shown is the one line worth looking at twice. */
+.import-summary-missing {
+    color: var(--pico-del-color, var(--pico-color));
 }
 
 /* Stands in for the options of an element while none is picked, so the panel

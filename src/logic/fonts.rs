@@ -18,6 +18,12 @@
 //! `.ttf`, `.otf`, `.woff` and `.woff2` there and generates the list this
 //! module reads; nothing else has to be registered.
 
+// Installing a font means writing a file, which the web build does not do. It
+// keeps the stubs so that the rest of the program can call into this module
+// without asking which target it is on — and the price of that symmetry is a
+// handful of items nothing reaches there.
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
+
 use std::collections::HashSet;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -33,6 +39,21 @@ pub enum FontSource {
     System,
     /// Present on virtually every system, so safe to use anywhere.
     WebSafe,
+    /// Came with an imported design and was kept, so that the design looks
+    /// here the way it looked where it was made. See [`imported`].
+    Imported,
+}
+
+impl FontSource {
+    /// Whether a design using this family can be handed to another Cantara
+    /// without the font going with it.
+    ///
+    /// A bundled family is in every copy of the program and a web-safe one is
+    /// on every computer. Anything else has to travel with the design, which
+    /// is what a design archive is for.
+    pub fn travels_with_cantara(self) -> bool {
+        matches!(self, FontSource::Bundled | FontSource::WebSafe)
+    }
 }
 
 /// One font family a user can pick.
@@ -193,6 +214,178 @@ pub fn system() -> Vec<FontFamily> {
     Vec::new()
 }
 
+// ── Fonts that came with a design ────────────────────────────────────────────
+//
+// A design made on a computer with a font that this one does not have would
+// otherwise be shown in something else entirely — which is the one thing a
+// design is supposed to pin down. So a design archive carries its font files,
+// and they are kept here: in a folder of Cantara's own, beside the settings,
+// and declared to the page as `@font-face` so that the family works by name
+// exactly as a bundled one does.
+//
+// Nothing is installed into the operating system. The files belong to Cantara
+// and can be deleted with its settings.
+
+/// Where imported font files are kept.
+///
+/// `None` where there is no settings folder to put them beside — the web
+/// build, which has no file system at all.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn imported_folder() -> Option<std::path::PathBuf> {
+    crate::logic::settings::get_settings_folder().map(|folder| folder.join("fonts"))
+}
+
+/// The web build keeps no files, so it has no folder for them either.
+#[cfg(target_arch = "wasm32")]
+pub fn imported_folder() -> Option<std::path::PathBuf> {
+    None
+}
+
+/// The suffixes a font file may have, which is also what is offered to a
+/// browser as a `@font-face` format.
+const FONT_SUFFIXES: &[(&str, &str)] = &[
+    (".ttf", "truetype"),
+    (".otf", "opentype"),
+    (".woff2", "woff2"),
+    (".woff", "woff"),
+];
+
+/// The families that came with an imported design.
+///
+/// The family is the file's own name, as it is for a bundled font: what the
+/// user sees in the settings is what the file is called.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn imported() -> Vec<FontFamily> {
+    let Some(folder) = imported_folder() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return Vec::new();
+    };
+
+    let mut families: Vec<FontFamily> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            font_format(&name)?;
+            Some(FontFamily {
+                name: family_of_file(&name),
+                source: FontSource::Imported,
+            })
+        })
+        .collect();
+    families.sort_by_key(|family| family.name.to_lowercase());
+    families.dedup_by(|one, other| one.name == other.name);
+    families
+}
+
+/// The web build has nowhere to keep them.
+#[cfg(target_arch = "wasm32")]
+pub fn imported() -> Vec<FontFamily> {
+    Vec::new()
+}
+
+/// The family a font file stands for: its name without the suffix, which is
+/// the same rule `build.rs` applies to the bundled ones.
+pub fn family_of_file(file_name: &str) -> String {
+    let lower = file_name.to_lowercase();
+    for (suffix, _) in FONT_SUFFIXES {
+        if lower.ends_with(suffix) {
+            return file_name[..file_name.len() - suffix.len()].to_string();
+        }
+    }
+    file_name.to_string()
+}
+
+/// What a browser has to be told a font file is, or `None` when the name does
+/// not promise a font at all.
+pub fn font_format(file_name: &str) -> Option<&'static str> {
+    let lower = file_name.to_lowercase();
+    FONT_SUFFIXES
+        .iter()
+        .find(|(suffix, _)| lower.ends_with(suffix))
+        .map(|(_, format)| *format)
+}
+
+/// Keeps a font file that came with a design.
+///
+/// A file that is already there is left alone: the same design imported twice
+/// must not write the font twice, and a file of that name holding something
+/// else is not overwritten either — it is the same family, and one copy of it
+/// is what is wanted.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn install(file_name: &str, bytes: &[u8]) -> Result<std::path::PathBuf, String> {
+    let Some(folder) = imported_folder() else {
+        return Err("there is no folder to keep fonts in".to_string());
+    };
+    if font_format(file_name).is_none() {
+        return Err(format!("{file_name} is not a font file"));
+    }
+
+    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
+    let path = folder.join(file_name);
+    if !path.exists() {
+        std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
+    }
+    Ok(path)
+}
+
+/// The web build cannot keep a font file.
+#[cfg(target_arch = "wasm32")]
+pub fn install(_file_name: &str, _bytes: &[u8]) -> Result<std::path::PathBuf, String> {
+    Err("this build keeps no files".to_string())
+}
+
+/// The file an installed family is in, and its bytes — what a design archive
+/// puts beside the design.
+///
+/// Looked for among the imported fonts first and among the system's second, so
+/// that a design that was imported once can be handed on again.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn file_of_family(family: &str) -> Option<(String, Vec<u8>)> {
+    if let Some(folder) = imported_folder()
+        && let Ok(entries) = std::fs::read_dir(&folder)
+    {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if font_format(&name).is_some()
+                && family_of_file(&name).eq_ignore_ascii_case(family)
+                && let Ok(bytes) = std::fs::read(entry.path())
+            {
+                return Some((name, bytes));
+            }
+        }
+    }
+
+    // Reading the system's fonts is expensive, which is why it is done here
+    // and not kept: this runs when a design is exported, once, and not while
+    // anything is being drawn.
+    let mut database = fontdb::Database::new();
+    database.load_system_fonts();
+
+    let face = database.faces().find(|face| {
+        face.families
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case(family))
+    })?;
+
+    let fontdb::Source::File(path) = &face.source else {
+        return None;
+    };
+    let file_name = path.file_name()?.to_string_lossy().to_string();
+    // A family may well come as a `.ttc` collection or something else the page
+    // cannot load; there is no point putting that into an archive.
+    font_format(&file_name)?;
+    let bytes = std::fs::read(path).ok()?;
+    Some((file_name, bytes))
+}
+
+/// The web build has no fonts of its own to hand out.
+#[cfg(target_arch = "wasm32")]
+pub fn file_of_family(_family: &str) -> Option<(String, Vec<u8>)> {
+    None
+}
+
 /// Every family a user can choose *right now*: bundled first, then web-safe,
 /// then whatever is installed on this computer and has been read.
 ///
@@ -208,7 +401,7 @@ pub fn available_now() -> Vec<FontFamily> {
     with_installed(system_ready().unwrap_or_default())
 }
 
-/// The three sources in their order, with each name kept only once.
+/// The sources in their order, with each name kept only once.
 fn with_installed(installed: Vec<FontFamily>) -> Vec<FontFamily> {
     let mut families = bundled();
 
@@ -216,6 +409,10 @@ fn with_installed(installed: Vec<FontFamily>) -> Vec<FontFamily> {
         name: (*name).to_string(),
         source: FontSource::WebSafe,
     }));
+
+    // Before the system's: a family that came with a design is the copy
+    // Cantara itself holds, and that is the one to draw with.
+    families.extend(imported());
 
     families.extend(installed);
 
@@ -250,6 +447,45 @@ pub fn bundled_font_face_css() -> String {
 /// the web; both resolve `/assets/fonts/…`.
 fn bundled_font_url(file_name: &str) -> String {
     format!("/assets/fonts/{file_name}")
+}
+
+/// `@font-face` rules for the fonts that came with imported designs.
+///
+/// The file is inlined rather than linked: it sits in Cantara's own folder,
+/// which nothing serves — the same reason a picture from the library travels
+/// into the page as a `data:` URL. See [`crate::logic::images`].
+#[cfg(not(target_arch = "wasm32"))]
+pub fn imported_font_face_css() -> String {
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
+    let Some(folder) = imported_folder() else {
+        return String::new();
+    };
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return String::new();
+    };
+
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            let format = font_format(&file_name)?;
+            let bytes = std::fs::read(entry.path()).ok()?;
+            Some(format!(
+                "@font-face {{\n  font-family: \"{}\";\n  src: url(\"data:font/{};base64,{}\") format(\"{}\");\n  font-display: block;\n}}\n",
+                family_of_file(&file_name),
+                format,
+                BASE64.encode(&bytes),
+                format,
+            ))
+        })
+        .collect()
+}
+
+/// The web build keeps no imported fonts, so it declares none.
+#[cfg(target_arch = "wasm32")]
+pub fn imported_font_face_css() -> String {
+    String::new()
 }
 
 #[cfg(test)]

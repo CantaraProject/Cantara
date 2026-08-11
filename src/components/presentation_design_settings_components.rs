@@ -894,12 +894,9 @@ fn PresentationDesignPreview(
     });
 
     let slides = use_memo(move || {
-        let slide_settings = settings
-            .read()
-            .song_slide_settings
-            .first()
-            .cloned()
-            .unwrap_or_default();
+        // The division the preview uses is the service's own choice, so
+        // the preview shows the slides the presentation would build.
+        let slide_settings = settings.read().default_song_slide_settings();
         preview_slides(&slide_settings)
     });
 

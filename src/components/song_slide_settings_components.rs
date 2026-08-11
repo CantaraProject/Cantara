@@ -1,6 +1,8 @@
 //! This module provides components for adjusting the song slide settings
 
-use crate::logic::settings::use_settings;
+use crate::components::shared_components::translate;
+use crate::logic::settings::{SongSlideSettings, use_settings};
+use crate::logic::slide_summary::{POSITION_SEPARATOR, summary_lines};
 use cantara_songlib::slides::{LanguageConfiguration, ShowMetaInformation, SlideElement, SlideSettings};
 use dioxus::core_macro::{component, rsx};
 use dioxus::dioxus_core::Element;
@@ -20,54 +22,78 @@ pub fn SongSlideSettingsPage(
     let nav = navigator();
     let mut settings = use_settings();
 
-    let selected_slide_settings_option: Signal<Option<SlideSettings>> =
-        use_signal(|| {
-            settings
-                .read()
-                .song_slide_settings
-                .clone()
-                .get(index as usize)
-                .cloned()
-        });
+    // Read from the settings on every render rather than copied once, for the
+    // reason the design editor learned the hard way: an editor working on a
+    // copy of its own shows one thing while the rest of the program uses
+    // another.
+    let selected: Memo<Option<SongSlideSettings>> =
+        use_memo(move || settings.read().song_slide_settings.get(index as usize).cloned());
 
-    if selected_slide_settings_option.read().is_none() {
+    // Every hook is claimed before the way out below.
+    let division = use_memo(move || selected().unwrap_or_default());
+
+    // The page has no save button: what is edited here goes into the settings
+    // as it is typed and is written out when the page is left.
+    use_drop(move || {
+        if let Ok(settings) = settings.try_read() {
+            settings.save();
+        }
+    });
+
+    if selected.read().is_none() {
         // If no selected settings are available, redirect to the settings page
         nav.replace(crate::Route::SettingsPage {});
         return rsx! {};
     }
 
-    // From here on, the selected_slide_settings is guaranteed to be Some
-    let selected_slide_settings =
-        use_memo(move || selected_slide_settings_option.read().clone().unwrap_or_default());
+    // Applies a change to the division in the settings, whatever it is.
+    let mut update = move |change: &dyn Fn(&mut SongSlideSettings)| {
+        let mut settings_write = settings.write();
+        if let Some(current) = settings_write.song_slide_settings.get_mut(index as usize) {
+            change(current);
+        }
+    };
 
     rsx! {
         div { class: "wrapper",
             header { class: "top-bar",
-                h2 { {t!("settings.song_slide_settings_edit_header", title = index + 1).to_string()} }
+                h2 {
+                    {
+                        t!(
+                            "settings.song_slide_settings_edit_header",
+                            title = division().display_name(index as usize),
+                        )
+                            .to_string()
+                    }
+                }
             }
             main { class: "container-fluid content height-100",
 
-                MetaSettings {
-                    slide_settings: selected_slide_settings(),
-                    on_settings_changed: move |updated_settings: SlideSettings| {
-                        {
-                            let mut settings_write = settings.write();
-                            if let Some(origin_settings) = settings_write
-                                .song_slide_settings
-                                .get_mut(index as usize)
-                            {
-                                *origin_settings = updated_settings;
-                            }
-                        }
-                        // Persist right away: the edit page has no save button,
-                        // so without this every change was lost on restart.
-                        settings.peek().save();
+                SlideSettingsMetadata {
+                    division: division(),
+                    on_changed: move |(name, description): (String, String)| {
+                        update(&|current: &mut SongSlideSettings| {
+                            current.name = name.clone();
+                            current.description = description.clone();
+                        });
+                    },
+                }
+
+                hr {}
+
+                DisplaySettings {
+                    slide_settings: division().settings,
+                    on_settings_changed: move |updated: SlideSettings| {
+                        update(&|current: &mut SongSlideSettings| {
+                            current.settings = updated.clone();
+                        });
                     },
                 }
             }
             footer { class: "bottom-bar",
                 button {
                     onclick: move |_| {
+                        settings.read().save();
                         nav.replace(crate::Route::SettingsPage {});
                     },
                     {t!("settings.close").to_string()}
@@ -77,16 +103,62 @@ pub fn SongSlideSettingsPage(
     }
 }
 
-/// Component for modifying song slide settings.
+/// What the division is called and what it is for.
+///
+/// The same two fields a presentation design has, and for the same reason: a
+/// list of "Slide Setting 1, 2, 3" tells nobody which one is the one with the
+/// notation in it.
 #[component]
-pub fn SongSlideSettings(song_slide_settings: Signal<Vec<SlideSettings>>) -> Element {
-    let mut selected_slide_settings_index = use_signal(|| Some(0));
-    let mut selected_slide_settings = use_signal(|| None::<SlideSettings>);
+fn SlideSettingsMetadata(
+    division: SongSlideSettings,
+    /// Called with the name and the description whenever either changes.
+    on_changed: EventHandler<(String, String)>,
+) -> Element {
+    rsx! {
+        h3 { {t!("general.meta_information").to_string()} }
+        form {
+            fieldset {
+                label {
+                    {t!("general.name").to_string()}
+                    input {
+                        value: division.name.clone(),
+                        placeholder: t!("settings.slide_settings_name_placeholder").to_string(),
+                        onchange: {
+                            let description = division.description.clone();
+                            move |event: Event<FormData>| {
+                                on_changed.call((event.value(), description.clone()));
+                            }
+                        },
+                    }
+                }
 
-    use_effect(move || {
-        let new_value = selected_slide_settings_index()
-            .and_then(|index| song_slide_settings.read().get(index).cloned());
-        selected_slide_settings.set(new_value);
+                label {
+                    {t!("general.description").to_string()}
+                    input {
+                        value: division.description.clone(),
+                        onchange: {
+                            let name = division.name.clone();
+                            move |event: Event<FormData>| {
+                                on_changed.call((name.clone(), event.value()));
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The section of the settings page that lists the slide divisions.
+#[component]
+pub fn SongSlideSettingsSection(
+    song_slide_settings: Signal<Vec<SongSlideSettings>>,
+) -> Element {
+    let mut selected_slide_settings_index = use_signal(|| Some(0));
+
+    let selected_slide_settings = use_memo(move || {
+        selected_slide_settings_index()
+            .and_then(|index| song_slide_settings.read().get(index).cloned())
     });
 
     rsx! {
@@ -97,30 +169,28 @@ pub fn SongSlideSettings(song_slide_settings: Signal<Vec<SlideSettings>>) -> Ele
 
         div { class: "grid",
             div {
-                // Here we would ideally have a SlideSettingsSelector component
-                // similar to PresentationDesignSelector, but for now we'll use a simple select
                 select {
                     onchange: move |event| {
                         let index = event.value().parse::<usize>().unwrap_or(0);
                         selected_slide_settings_index.set(Some(index));
                     },
-                    for (index , _) in song_slide_settings.read().iter().enumerate() {
+                    for (index , division) in song_slide_settings.read().iter().enumerate() {
                         option {
                             value: index.to_string(),
                             selected: selected_slide_settings_index() == Some(index),
-                            {format!("Slide Setting {}", index + 1)}
+                            {division.display_name(index)}
                         }
                     }
                 }
             }
             div {
-                if let Some(selected_settings) = selected_slide_settings() {
+                if let Some(selected) = selected_slide_settings() {
                     SongSlideSettingsCard {
-                        slide_settings: selected_settings,
+                        division: selected,
                         index: selected_slide_settings_index(),
                         onclone: move |_| {
-                            if let Some(settings) = selected_slide_settings() {
-                                song_slide_settings.write().push(settings);
+                            if let Some(division) = selected_slide_settings() {
+                                song_slide_settings.write().push(division);
                                 let new_len = song_slide_settings.read().len();
                                 tracing::debug!("Cloned slide settings. New length: {}", new_len);
                             }
@@ -143,16 +213,53 @@ pub fn SongSlideSettings(song_slide_settings: Signal<Vec<SlideSettings>>) -> Ele
 /// Displays an article with details and actions for song slide settings.
 #[component]
 fn SongSlideSettingsCard(
-    slide_settings: SlideSettings,
+    division: SongSlideSettings,
     index: Option<usize>,
     onclone: EventHandler<()>,
     ondelete: EventHandler<()>,
 ) -> Element {
     let nav = use_navigator();
+    let position = index.unwrap_or(0);
+    let mut export_error: Signal<Option<String>> = use_signal(|| None);
+
+    // A division is a handful of switches, so it travels as a JSON file a
+    // person can read — see [`crate::logic::settings_io`].
+    let division_to_export = division.clone();
+    let export = move |_| {
+        export_error.set(None);
+        let outcome =
+            match crate::logic::settings_io::write_slide_settings(&division_to_export, position) {
+                Ok((name, bytes)) => {
+                    crate::components::shared_components::save_file(&name, &bytes).map(|_| ())
+                }
+                Err(error) => {
+                    let (key, parameters) = error.message_key();
+                    Err(translate(key, &parameters))
+                }
+            };
+
+        if let Err(message) = outcome {
+            log::warn!("the slide settings could not be exported: {message}");
+            export_error.set(Some(message));
+        }
+    };
+
     rsx! {
         article {
-            h6 { {format!("Slide Setting {}", index.map_or(0, |i| i + 1))} }
-            p { {format!("{:?}", slide_settings)} }
+            h6 { {division.display_name(position)} }
+            if !division.description.trim().is_empty() {
+                p { {division.description.clone()} }
+            }
+
+            // What the division does, rather than the struct it is. This used
+            // to be `{:?}` of the settings — braces, field names and all —
+            // which said everything except what a reader wanted to know.
+            ul { class: "slide-settings-summary",
+                for (key , parameters) in summary_lines(&division.settings) {
+                    li { key: "{key}", {summary_sentence(key, &parameters)} }
+                }
+            }
+
             if let Some(index) = index {
                 button {
                     onclick: move |_| {
@@ -164,6 +271,9 @@ fn SongSlideSettingsCard(
                 }
                 button { class: "secondary", onclick: move |_| onclone.call(()),
                     {t!("general.duplicate").to_string()}
+                }
+                button { class: "secondary", onclick: export,
+                    {t!("settings.export_slide_settings").to_string()}
                 }
                 button {
                     class: "secondary",
@@ -187,8 +297,35 @@ fn SongSlideSettingsCard(
                     {t!("general.delete").to_string()}
                 }
             }
+            if let Some(message) = export_error() {
+                p { class: "export-save-error", role: "alert", {message} }
+            }
         }
     }
+}
+
+/// One line of the summary, in the reader's language.
+///
+/// The positions of the metadata line arrive as keys of their own so that a
+/// language may order and join them as it likes; here they become the list the
+/// sentence is built around.
+fn summary_sentence(key: &'static str, parameters: &[(&'static str, String)]) -> String {
+    let translated: Vec<(&str, String)> = parameters
+        .iter()
+        .map(|(name, value)| match *name {
+            "positions" => (
+                *name,
+                value
+                    .split(POSITION_SEPARATOR)
+                    .map(|position| t!(position).to_string())
+                    .collect::<Vec<String>>()
+                    .join(", "),
+            ),
+            _ => (*name, value.clone()),
+        })
+        .collect();
+
+    translate(key, &translated)
 }
 
 /// Which layout a song's slides use. Mirrors [`LanguageConfiguration`] without
@@ -359,7 +496,7 @@ fn ComplexRowEditor(
 /// Everything about what a song's slides show: the layout, the languages, the
 /// meta information line and how much text goes on one slide.
 #[component]
-fn MetaSettings(
+fn DisplaySettings(
     /// The slide settings which should be edited
     slide_settings: SlideSettings,
 

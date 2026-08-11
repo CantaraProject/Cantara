@@ -10,7 +10,11 @@
 //! to the platform as a download.
 
 use super::{ExportError, ExportFormat, ExportedFile, SelectedItemRepresentation, Song, SourceFile, SourceFileType, song_from_content};
+use crate::logic::export::ExportCategory;
 use crate::logic::pptx::{PptxConversion, PptxDeck, deck_from_slides};
+use crate::logic::selection_io::{
+    SelectionFile, SelectionFormat, SelectionIoError, write_selection,
+};
 use crate::logic::settings::use_settings;
 use dioxus::prelude::*;
 use rust_i18n::t;
@@ -59,6 +63,20 @@ fn read_source_file_content(source_file: &SourceFile) -> Result<String, ExportEr
             reason,
         }
     })
+}
+
+/// The same for an error from [`crate::logic::selection_io`].
+///
+/// Its errors carry their parameters rather than their sentence, so that the
+/// module stays free of anything to do with views; putting them in is this
+/// side's job.
+fn selection_error_message(error: &SelectionIoError) -> String {
+    let (key, parameters) = error.message_key();
+    let mut message = t!(key).to_string();
+    for (name, value) in parameters {
+        message = message.replace(&format!("%{{{name}}}"), &value);
+    }
+    message
 }
 
 /// Turn an [`ExportError`] into a message in the user's language.
@@ -299,6 +317,14 @@ fn write_pptx_file(base64_data: &str, path: &std::path::Path) -> Result<String, 
     Ok(path.display().to_string())
 }
 
+/// Writes a selection file wherever the platform puts files.
+fn save_selection_file(file: &SelectionFile) -> Result<SaveOutcome, String> {
+    match crate::components::shared_components::save_file(&file.name, &file.bytes)? {
+        true => Ok(SaveOutcome::Written(1)),
+        false => Ok(SaveOutcome::Cancelled),
+    }
+}
+
 /// Where PptxGenJS is loaded from.
 fn pptxgen_url() -> String {
     #[cfg(not(target_arch = "wasm32"))]
@@ -353,6 +379,10 @@ pub(crate) fn ExportMenu(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
 ) -> Element {
     let settings = use_settings();
+    // What is being exported. The dialog opens on the running order: it is
+    // what a service is put together for, and the one thing that can be
+    // opened again afterwards.
+    let mut category: Signal<ExportCategory> = use_signal(|| ExportCategory::Selection);
     let mut export_format: Signal<ExportFormat> = use_signal(|| ExportFormat::PlainText);
     let mut template: Signal<String> =
         use_signal(|| ExportFormat::default_template().to_string());
@@ -522,9 +552,42 @@ pub(crate) fn ExportMenu(
     // reason instead of quietly doing nothing.
     let mut save_error: Signal<Option<String>> = use_signal(|| None);
 
-    let handle_save = move |_| {
-        let format = *export_format.read();
+    // The running order as a file, which is a different thing from the songs
+    // as a document — see [`crate::logic::selection_io`].
+    let mut selection_format: Signal<SelectionFormat> =
+        use_signal(|| SelectionFormat::CantaraZip);
+
+    // One button exports, whatever the dialog is showing — see the mockup:
+    // the user says *what* on the left and confirms at the bottom right. What
+    // that means differs per category, and this is where it is decided.
+    let handle_export = move |_| {
         save_error.set(None);
+
+        if *category.read() == ExportCategory::Selection {
+            let written = write_selection(
+                &selected_items.read(),
+                *selection_format.read(),
+                t!("selection.save_selection_file_name").as_ref(),
+                &|file: &SourceFile| crate::logic::sourcefiles::read_source_file_bytes(file),
+            );
+
+            let outcome = match written {
+                Ok(file) => save_selection_file(&file),
+                Err(error) => Err(selection_error_message(&error)),
+            };
+
+            match outcome {
+                Ok(SaveOutcome::Written(_)) => show_export_menu.set(false),
+                Ok(SaveOutcome::Cancelled) => {}
+                Err(message) => {
+                    log::warn!("the selection could not be saved: {message}");
+                    save_error.set(Some(message));
+                }
+            }
+            return;
+        }
+
+        let format = *export_format.read();
 
         // The binary formats are written by the browser, not by Rust.
         if format.is_binary() {
@@ -560,6 +623,12 @@ pub(crate) fn ExportMenu(
         }
     };
 
+    // Whether the button at the bottom could do anything at all.
+    let can_export = move || match *category.read() {
+        ExportCategory::Selection => !selected_items.read().is_empty(),
+        _ => rendered.read().is_ok(),
+    };
+
     rsx! {
         div {
             class: "modal-overlay export-menu-overlay",
@@ -571,78 +640,158 @@ pub(crate) fn ExportMenu(
                 onclick: move |event: Event<MouseData>| {
                     event.stop_propagation();
                 },
-                h3 { {t!("selection.export_title").to_string()} }
+                h3 { {t!("selection.export_dialog_title").to_string()} }
 
                 div { class: "export-menu-body",
-                    div { class: "export-menu-options",
-                        p {
-                            {t!("selection.export_description", count = song_count()).to_string()}
-                        }
-
-                        label {
-                            {t!("selection.export_format").to_string()}
-                            select {
-                                value: export_format.read().id(),
-                                onchange: move |event| {
-                                    if let Some(format) = ExportFormat::from_id(&event.value()) {
-                                        export_format.set(format);
-                                        copied.set(false);
-                                    }
+                    // *What* is being exported, first: sheet music and a
+                    // running order are different errands, and the settings
+                    // that follow only make sense once that is decided.
+                    nav {
+                        class: "export-category-list",
+                        aria_label: t!("selection.export_dialog_title").to_string(),
+                        for option in ExportCategory::ALL {
+                            button {
+                                r#type: "button",
+                                key: "{option.label_key()}",
+                                class: if *category.read() == *option {
+                                    "export-category export-category-active"
+                                } else {
+                                    "export-category"
                                 },
-                                for format in ExportFormat::ALL {
-                                    option { value: format.id(), {t!(format.label_key()).to_string()} }
-                                }
-                            }
-                        }
-
-                        if export_format.read().needs_template() {
-                            label {
-                                {t!("selection.export_template").to_string()}
-                                textarea {
-                                    class: "export-template-input",
-                                    rows: "6",
-                                    spellcheck: false,
-                                    value: "{template}",
-                                    oninput: move |event| template.set(event.value()),
-                                }
-                                small { {t!("selection.export_template_hint").to_string()} }
-                            }
-                        }
-
-                        if let Ok(files) = &*rendered.read() {
-                            if files.len() > 1 {
-                                small {
-                                    {
-                                        t!("selection.export_files_note", count = files.len())
-                                            .to_string()
+                                aria_pressed: (*category.read() == *option).to_string(),
+                                onclick: move |_| {
+                                    category.set(*option);
+                                    // Each category starts on its own first
+                                    // format, so what is shown on the right
+                                    // always belongs to what is chosen on the
+                                    // left.
+                                    if let Some(format) = option.first_format() {
+                                        export_format.set(format);
                                     }
-                                }
+                                    copied.set(false);
+                                    save_error.set(None);
+                                },
+                                {t!(option.label_key()).to_string()}
                             }
                         }
                     }
 
-                    div { class: "export-menu-preview",
-                        label { {t!("selection.export_preview").to_string()} }
-                        textarea {
-                            class: if rendered.read().is_err() { "export-preview-text has-error" } else { "export-preview-text" },
-                            readonly: true,
-                            spellcheck: false,
-                            wrap: "off",
-                            value: "{preview_text}",
+                    div { class: "export-category-pane",
+                        p { class: "export-category-description",
+                            {t!(category.read().description_key()).to_string()}
                         }
-                        button {
-                            r#type: "button",
-                            class: "outline",
-                            disabled: rendered.read().is_err(),
-                            onclick: move |_| {
-                                copy_to_clipboard(&preview_text.read());
-                                copied.set(true);
+
+                        match *category.read() {
+                            ExportCategory::Selection => rsx! {
+                                label {
+                                    {t!("selection.save_selection_format").to_string()}
+                                    select {
+                                        value: selection_format.read().id(),
+                                        onchange: move |event| {
+                                            if let Some(format) = SelectionFormat::of_id(&event.value()) {
+                                                selection_format.set(format);
+                                            }
+                                        },
+                                        for format in SelectionFormat::ALL {
+                                            option {
+                                                value: format.id(),
+                                                {t!(format.label_key()).to_string()}
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if selection_format.read().holds_only_songs() {
+                                    small { {t!("selection.save_selection_songs_only").to_string()} }
+                                }
+
+                                p { class: "export-category-summary",
+                                    {
+                                        t!(
+                                            "selection.save_selection_summary",
+                                            count = selected_items.read().len(),
+                                            songs = song_count(),
+                                        )
+                                            .to_string()
+                                    }
+                                }
                             },
-                            if copied() {
-                                {t!("selection.export_copied").to_string()}
-                            } else {
-                                {t!("selection.export_copy").to_string()}
-                            }
+
+                            // Everything else renders a document, so the pane
+                            // is the format, whatever that format needs, and
+                            // what would come out of it.
+                            chosen => rsx! {
+                                if chosen.has_format_choice() {
+                                    label {
+                                        {t!("selection.export_format").to_string()}
+                                        select {
+                                            value: export_format.read().id(),
+                                            onchange: move |event| {
+                                                if let Some(format) = ExportFormat::from_id(&event.value()) {
+                                                    export_format.set(format);
+                                                    copied.set(false);
+                                                }
+                                            },
+                                            for format in chosen.formats() {
+                                                option {
+                                                    value: format.id(),
+                                                    {t!(format.label_key()).to_string()}
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if export_format.read().needs_template() {
+                                    label {
+                                        {t!("selection.export_template").to_string()}
+                                        textarea {
+                                            class: "export-template-input",
+                                            rows: "6",
+                                            spellcheck: false,
+                                            value: "{template}",
+                                            oninput: move |event| template.set(event.value()),
+                                        }
+                                        small { {t!("selection.export_template_hint").to_string()} }
+                                    }
+                                }
+
+                                if let Ok(files) = &*rendered.read() {
+                                    if files.len() > 1 {
+                                        small {
+                                            {
+                                                t!("selection.export_files_note", count = files.len())
+                                                    .to_string()
+                                            }
+                                        }
+                                    }
+                                }
+
+                                div { class: "export-menu-preview",
+                                    label { {t!("selection.export_preview").to_string()} }
+                                    textarea {
+                                        class: if rendered.read().is_err() { "export-preview-text has-error" } else { "export-preview-text" },
+                                        readonly: true,
+                                        spellcheck: false,
+                                        wrap: "off",
+                                        value: "{preview_text}",
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        class: "outline",
+                                        disabled: rendered.read().is_err(),
+                                        onclick: move |_| {
+                                            copy_to_clipboard(&preview_text.read());
+                                            copied.set(true);
+                                        },
+                                        if copied() {
+                                            {t!("selection.export_copied").to_string()}
+                                        } else {
+                                            {t!("selection.export_copy").to_string()}
+                                        }
+                                    }
+                                }
+                            },
                         }
                     }
                 }
@@ -657,12 +806,12 @@ pub(crate) fn ExportMenu(
                         onclick: move |_| {
                             show_export_menu.set(false);
                         },
-                        {t!("settings.close").to_string()}
+                        {t!("general.cancel").to_string()}
                     }
                     button {
                         class: "primary",
-                        disabled: rendered.read().is_err(),
-                        onclick: handle_save,
+                        disabled: !can_export(),
+                        onclick: handle_export,
                         {t!("selection.export_save").to_string()}
                     }
                 }

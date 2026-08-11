@@ -6,12 +6,16 @@ use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 // web build reads its repositories from an in-memory VFS instead.
 #[cfg(not(target_arch = "wasm32"))]
 use crate::logic::sourcefiles::{count_source_files, get_source_files};
+// `Path` goes with the directory scan above and so is desktop-only; `PathBuf`
+// is not — `repository_folder` hands one back on every target.
 #[cfg(not(target_arch = "wasm32"))]
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
 use reqwest::Client as AsyncClient;
 use rgb::*;
+use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use std::{
@@ -49,7 +53,7 @@ pub struct Settings {
     /// The configured song slide settings in Cantara
     /// There is a default added when none is found.
     #[serde(default = "default_song_slide_vec")]
-    pub song_slide_settings: Vec<SlideSettings>,
+    pub song_slide_settings: Vec<SongSlideSettings>,
 
     /// Which of the [`presentation_designs`](Self::presentation_designs) an
     /// element is shown with when it does not name one of its own.
@@ -66,6 +70,15 @@ pub struct Settings {
     /// [`default_design_index`](Self::default_design_index).
     #[serde(default)]
     pub default_slide_settings_index: usize,
+
+    /// Which repository an imported selection puts songs into that the
+    /// library does not have yet.
+    ///
+    /// Only a local folder can be written to, so a position naming any other
+    /// kind of repository is read as "the first local one" — see
+    /// [`Self::import_repository_path`].
+    #[serde(default)]
+    pub import_repository_index: usize,
 
     /// A boolean variable which determines if presentations should start in fullscreen mode by default.
     #[serde(default = "default_always_start_fullscreen")]
@@ -264,6 +277,7 @@ impl Default for Settings {
             song_slide_settings: default_song_slide_vec(),
             default_design_index: 0,
             default_slide_settings_index: 0,
+            import_repository_index: 0,
             always_start_fullscreen: default_always_start_fullscreen(),
             presentation_screen: None,
             presenter_screen: None,
@@ -288,8 +302,8 @@ fn default_presentation_design_vec() -> Vec<PresentationDesign> {
 }
 
 /// This creates the default slide settings
-fn default_song_slide_vec() -> Vec<SlideSettings> {
-    vec![SlideSettings::default()]
+fn default_song_slide_vec() -> Vec<SongSlideSettings> {
+    vec![SongSlideSettings::default()]
 }
 
 /// This returns the default value for always_start_fullscreen
@@ -356,6 +370,30 @@ fn migrate_settings_json(json: &str) -> String {
 
     upgrade(&mut document);
     serde_json::to_string(&document).unwrap_or_else(|_| json.to_string())
+}
+
+/// Moves a chosen position along after the entry at `removed` has been deleted.
+///
+/// The chosen entry itself becoming "no choice" is deliberate: the thing that
+/// was picked is gone, and the alternative — leaving the position and letting
+/// it point past the end — comes back to life the moment the list grows again,
+/// silently choosing something the user never picked.
+fn forget_choice(chosen: &mut Option<usize>, removed: usize) {
+    match *chosen {
+        Some(index) if index == removed => *chosen = None,
+        Some(index) if index > removed => *chosen = Some(index - 1),
+        _ => {}
+    }
+}
+
+/// The same, for a choice that has no "none" to fall back to and so falls back
+/// to the first.
+fn shift_default(chosen: &mut usize, removed: usize) {
+    if *chosen == removed {
+        *chosen = 0;
+    } else if *chosen > removed {
+        *chosen -= 1;
+    }
 }
 
 impl Settings {
@@ -549,8 +587,74 @@ impl Settings {
         self.song_slide_settings
             .get(self.default_slide_settings_index)
             .or_else(|| self.song_slide_settings.first())
-            .cloned()
+            .map(|named| named.settings.clone())
             .unwrap_or_default()
+    }
+
+    /// Which repositories an import could be written into.
+    ///
+    /// A downloaded one is a copy of somebody else's library that is unpacked
+    /// again on every start, so writing a song into it would lose the song.
+    /// Only a folder on this computer is offered.
+    pub fn writable_repositories(&self) -> Vec<(usize, &Repository)> {
+        self.repositories
+            .iter()
+            .enumerate()
+            .filter(|(_, repository)| {
+                matches!(repository.repository_type, RepositoryType::LocaleFilePath(_))
+                    && repository.writing_permissions
+            })
+            .collect()
+    }
+
+    /// The folder a repository is, where it is one on this computer.
+    ///
+    /// `None` for a downloaded repository, which is unpacked afresh on every
+    /// start — a song written into one would be gone by the next.
+    pub fn repository_folder(&self, index: usize) -> Option<PathBuf> {
+        match self
+            .repositories
+            .get(index)
+            .map(|repository| &repository.repository_type)
+        {
+            Some(RepositoryType::LocaleFilePath(path)) => Some(PathBuf::from(path)),
+            _ => None,
+        }
+    }
+
+    /// Deletes the design at `index`, along with the slide division that
+    /// belongs to it, and moves every stored choice along with them.
+    ///
+    /// The choices — the general default, and what the streamed view is set to
+    /// — are kept as positions in these lists, and `Vec::remove` shifts
+    /// everything after the hole down by one. Deleting a design therefore
+    /// silently re-points every choice that sat after it at its neighbour: a
+    /// service set up to project design 3 would quietly start projecting what
+    /// used to be design 4. Nothing catches this later, because the position
+    /// is perfectly valid — it simply means something else now.
+    ///
+    /// Doing the deletion here rather than at the button is the point. The
+    /// bookkeeping belongs with the lists it is about, where it cannot be left
+    /// out of a second caller.
+    pub fn delete_presentation_design(&mut self, index: usize) {
+        if index >= self.presentation_designs.len() {
+            return;
+        }
+
+        self.presentation_designs.remove(index);
+        forget_choice(&mut self.stream.design_index, index);
+        shift_default(&mut self.default_design_index, index);
+
+        // The two lists are kept in step, but only the design list is known to
+        // have had this position — so the slide divisions move only if one was
+        // actually removed.
+        if index < self.song_slide_settings.len() {
+            self.song_slide_settings.remove(index);
+            forget_choice(&mut self.stream.slide_settings_index, index);
+            shift_default(&mut self.default_slide_settings_index, index);
+        }
+
+        self.ensure_slide_settings_for_designs();
     }
 
     /// Ensures that there are at least as many slide settings as presentation designs.
@@ -562,7 +666,7 @@ impl Settings {
         if slide_count < design_count {
             // Add default slide settings until there are at least as many as presentation designs
             for _ in 0..(design_count - slide_count) {
-                self.song_slide_settings.push(SlideSettings::default());
+                self.song_slide_settings.push(SongSlideSettings::default());
             }
         }
     }
@@ -1320,7 +1424,7 @@ fn create_temp_dir() -> Result<TempDir, String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn get_settings_folder() -> Option<PathBuf> {
+pub fn get_settings_folder() -> Option<PathBuf> {
     // On Android, the `dirs` crate cannot resolve standard config/data directories
     // because the HOME and XDG_* environment variables are not set by the Android runtime.
     // Use JNI to query the app's private files directory instead.
@@ -1425,7 +1529,7 @@ fn get_android_files_dir() -> Option<PathBuf> {
 }
 
 /// A configured Presentation Design which is used both for creating the presentation slides as well as for rendering them.
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct PresentationDesign {
     /// A name which helps to identify the design
     pub name: String,
@@ -1447,6 +1551,55 @@ impl Default for PresentationDesign {
     }
 }
 
+/// A slide division the user maintains, under a name.
+///
+/// [`SlideSettings`] is the song library's, and says how a song is broken into
+/// slides. What it has no room for is what the *user* needs to tell one of
+/// them from another in a list — so the name and the description are added
+/// here rather than there.
+///
+/// The division itself is flattened into the same JSON object, which is what
+/// keeps a settings file written before this existed readable: the two new
+/// fields are simply absent and default to empty.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct SongSlideSettings {
+    /// What the user calls it. Empty for a division that has never been named
+    /// — the views then fall back to its position in the list.
+    #[serde(default)]
+    pub name: String,
+
+    /// What it is for, in the user's own words.
+    #[serde(default)]
+    pub description: String,
+
+    /// The division itself, as the song library understands it.
+    #[serde(flatten)]
+    pub settings: SlideSettings,
+}
+
+impl SongSlideSettings {
+    /// The name to show for the division at `index`.
+    ///
+    /// A division that has never been named is called by its position, which
+    /// is what the list showed before names existed.
+    pub fn display_name(&self, index: usize) -> String {
+        match self.name.trim().is_empty() {
+            true => format!("{} {}", t!("settings.slide_settings"), index + 1),
+            false => self.name.clone(),
+        }
+    }
+}
+
+impl From<SlideSettings> for SongSlideSettings {
+    fn from(settings: SlideSettings) -> Self {
+        SongSlideSettings {
+            name: String::new(),
+            description: String::new(),
+            settings,
+        }
+    }
+}
+
 /// This enum describes the general design of the presentation (background color, font-colors etc.).
 /// It can be configured via a Template or imputed by direct HTML/CSS
 ///
@@ -1455,7 +1608,7 @@ impl Default for PresentationDesign {
 /// collection worth the indirection — and the template is read on every frame
 /// the presentation renders.
 #[allow(clippy::large_enum_variant)]
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub enum PresentationDesignSettings {
     /// Describe the design via a template set up in Cantara
     Template(PresentationDesignTemplate),
@@ -1470,7 +1623,7 @@ impl Default for PresentationDesignSettings {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct PresentationDesignTemplate {
     /// The font configuration for all kinds of contents
     pub fonts: Vec<FontRepresentation>,
@@ -1684,7 +1837,7 @@ impl Default for PresentationDesignTemplate {
 }
 
 /// Represents a font representation for an element in the presentation
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct FontRepresentation {
     /// The font family. If 'None', the web default will be displayed.
     pub font_family: Option<CssFontFamily>,
@@ -1857,7 +2010,7 @@ fn default_padding() -> TopBottomLeftRight {
 }
 
 /// Represens for distance values (top, bottom, left, right)
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct TopBottomLeftRight {
     pub top: CssSize,
     pub bottom: CssSize,
@@ -2036,10 +2189,11 @@ mod tests {
         let settings: Settings =
             serde_json::from_str(&migrate_settings_json(&old)).expect("old settings should load");
 
-        let slide_settings = settings
+        let slide_settings = &settings
             .song_slide_settings
             .first()
-            .expect("the slide settings survived");
+            .expect("the slide settings survived")
+            .settings;
 
         assert!(slide_settings.show_meta_information.first_slide);
         assert!(slide_settings.show_meta_information.last_slide);
@@ -2061,7 +2215,7 @@ mod tests {
             let settings: Settings =
                 serde_json::from_str(&json).unwrap_or_else(|error| panic!("{name}: {error}"));
 
-            let show = settings.song_slide_settings[0].show_meta_information;
+            let show = settings.song_slide_settings[0].settings.show_meta_information;
             assert_eq!(
                 (show.title_slide, show.first_slide, show.last_slide),
                 expected,
@@ -2216,8 +2370,35 @@ mod tests {
         );
         assert_eq!(
             settings.default_song_slide_settings(),
-            settings.song_slide_settings[0]
+            settings.song_slide_settings[0].settings
         );
+    }
+
+    /// An import has to go into a folder on this computer. A downloaded
+    /// repository is unpacked afresh on every start, so a song written into
+    /// one would be gone by the next — it is not offered.
+    #[test]
+    fn only_a_folder_on_this_computer_can_be_imported_into() {
+        let settings = Settings {
+            repositories: vec![
+                Repository::new_remote_zip(
+                    "Shared".to_string(),
+                    "https://example.org/songs.zip".to_string(),
+                ),
+                Repository::new_local_folder("Mine".to_string(), "/songs".to_string()),
+            ],
+            ..Default::default()
+        };
+
+        let writable: Vec<usize> = settings
+            .writable_repositories()
+            .iter()
+            .map(|(index, _)| *index)
+            .collect();
+        assert_eq!(writable, vec![1]);
+        assert_eq!(settings.repository_folder(1), Some(PathBuf::from("/songs")));
+        assert_eq!(settings.repository_folder(0), None);
+        assert_eq!(settings.repository_folder(9), None);
     }
 
     /// A settings file written before the choice existed reads as the first
@@ -2468,6 +2649,10 @@ mod tests {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::field_reassign_with_default,
+    reason = "these design structs keep private fields, so `..Default::default()`               is not available outside the module that defines them"
+)]
 mod design_block_tests {
     use super::*;
 
@@ -2569,5 +2754,89 @@ mod design_block_tests {
 
         assert_eq!(loaded.notation.width_percent, 100.0);
         assert!(!loaded.title_bold);
+    }
+
+    /// A design deleted from the middle must not drag every later choice onto
+    /// its neighbour.
+    ///
+    /// This is the case that has no symptom until someone notices the wrong
+    /// design on the wall: the stored position stays perfectly valid, it just
+    /// means something else afterwards.
+    #[test]
+    fn deleting_a_design_keeps_the_later_choices_pointing_at_the_same_thing() {
+        let mut settings = Settings::default();
+        settings.presentation_designs = (0..4)
+            .map(|number| PresentationDesign {
+                name: format!("design {number}"),
+                ..PresentationDesign::default()
+            })
+            .collect();
+        settings.song_slide_settings = vec![SongSlideSettings::default(); 4];
+        // Everything points at the third design.
+        settings.stream.design_index = Some(2);
+        settings.stream.slide_settings_index = Some(2);
+        settings.default_design_index = 2;
+        settings.default_slide_settings_index = 2;
+
+        settings.delete_presentation_design(0);
+
+        assert_eq!(settings.presentation_designs[1].name, "design 2");
+        assert_eq!(settings.stream.design_index, Some(1), "still design 2");
+        assert_eq!(settings.stream.slide_settings_index, Some(1));
+        assert_eq!(settings.default_design_index, 1);
+        assert_eq!(settings.default_slide_settings_index, 1);
+    }
+
+    /// Deleting the very design a choice names leaves no choice — rather than a
+    /// position that springs back to life pointing at something else once the
+    /// list grows again.
+    #[test]
+    fn deleting_the_chosen_design_is_no_choice_and_stays_that_way() {
+        let mut settings = Settings::default();
+        settings.presentation_designs = vec![PresentationDesign::default(); 3];
+        settings.song_slide_settings = vec![SongSlideSettings::default(); 3];
+        settings.stream.design_index = Some(2);
+        settings.stream.slide_settings_index = Some(2);
+        settings.default_design_index = 2;
+
+        settings.delete_presentation_design(2);
+
+        assert_eq!(settings.stream.design_index, None);
+        assert_eq!(settings.stream.slide_settings_index, None);
+        assert_eq!(settings.default_design_index, 0, "falls back to the first");
+
+        // The list grows past where the old choice pointed. Nothing may come
+        // back.
+        settings.presentation_designs = vec![PresentationDesign::default(); 5];
+        assert_eq!(settings.stream.design_index, None);
+    }
+
+    /// A choice sitting before the deleted design is not affected by it.
+    #[test]
+    fn deleting_a_later_design_leaves_an_earlier_choice_alone() {
+        let mut settings = Settings::default();
+        settings.presentation_designs = vec![PresentationDesign::default(); 3];
+        settings.song_slide_settings = vec![SongSlideSettings::default(); 3];
+        settings.stream.design_index = Some(0);
+        settings.default_design_index = 0;
+
+        settings.delete_presentation_design(2);
+
+        assert_eq!(settings.stream.design_index, Some(0));
+        assert_eq!(settings.default_design_index, 0);
+    }
+
+    /// Asking to delete something that is not there changes nothing.
+    #[test]
+    fn deleting_past_the_end_does_nothing() {
+        let mut settings = Settings::default();
+        settings.presentation_designs = vec![PresentationDesign::default(); 2];
+        settings.song_slide_settings = vec![SongSlideSettings::default(); 2];
+        settings.stream.design_index = Some(1);
+
+        settings.delete_presentation_design(9);
+
+        assert_eq!(settings.presentation_designs.len(), 2);
+        assert_eq!(settings.stream.design_index, Some(1));
     }
 }

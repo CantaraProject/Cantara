@@ -9,6 +9,7 @@
 //! - `export_ui`: the export menu and where its files go
 
 mod export_ui;
+mod import_ui;
 mod presentation_options;
 pub(crate) mod search_ui;
 mod selected_list;
@@ -44,7 +45,7 @@ use cantara_songlib::slides::SlideSettings;
 #[cfg(feature = "desktop")]
 use dioxus::desktop::tao;
 use dioxus::prelude::*;
-use dioxus_free_icons::icons::fa_solid_icons::{FaFileExport, FaFileImport, FaGear, FaPlay};
+use dioxus_free_icons::icons::fa_solid_icons::{FaFileExport, FaGear, FaPlay};
 use dioxus_free_icons::Icon;
 use rust_i18n::t;
 use std::rc::Rc;
@@ -381,12 +382,7 @@ pub fn Selection() -> Element {
                         span { class: "desktop-only", {t!("settings.settings_button").to_string()} }
                     }
                     crate::components::detail_components::ViewModeToggle {}
-                    button { class: "outline secondary smaller-buttons",
-                        span { class: "mobile-only",
-                            Icon { icon: FaFileImport }
-                        }
-                        span { class: "desktop-only", {t!("selection.import").to_string()} }
-                    }
+                    import_ui::ImportButton { selected_items }
                     button {
                         class: "outline secondary smaller-buttons",
                         onclick: move |_| {
