@@ -99,6 +99,10 @@ File formats:
   selection file — what is in the archive, what the manifest says, and what the
   two Cantara 2 formats (`.songtex` and Cantara 2's selection JSON) can and
   cannot carry.
+- [`docs/formats/cantara-design.md`](docs/formats/cantara-design.md): handing a
+  single presentation design (`.cantara-design.zip`, with its background picture
+  and its fonts) or a single slide division (`.cantara-slides.json`) to somebody
+  else.
 
 ## Implementation Status
 

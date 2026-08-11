@@ -1446,7 +1446,16 @@ pub(crate) fn meta_text_of(slide_content: &SlideContent) -> Option<String> {
 /// inherited.
 #[component]
 pub fn BundledFontFaces() -> Element {
-    let css = use_hook(crate::logic::fonts::bundled_font_face_css);
+    // The fonts that came with an imported design are declared alongside the
+    // bundled ones: to everything that draws, both are simply families that
+    // exist. See [`crate::logic::fonts`].
+    let css = use_hook(|| {
+        format!(
+            "{}{}",
+            crate::logic::fonts::bundled_font_face_css(),
+            crate::logic::fonts::imported_font_face_css()
+        )
+    });
 
     if css.is_empty() {
         return rsx! {};

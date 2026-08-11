@@ -55,7 +55,12 @@ impl StreamDefaults {
             slide_settings: settings
                 .stream
                 .slide_settings_index
-                .and_then(|index| settings.song_slide_settings.get(index).cloned()),
+                .and_then(|index| {
+                    settings
+                        .song_slide_settings
+                        .get(index)
+                        .map(|named| named.settings.clone())
+                }),
         }
     }
 

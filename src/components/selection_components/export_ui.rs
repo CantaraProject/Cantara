@@ -318,51 +318,11 @@ fn write_pptx_file(base64_data: &str, path: &std::path::Path) -> Result<String, 
 }
 
 /// Writes a selection file wherever the platform puts files.
-///
-/// The same split as [`save_exported_files`], and for the same reason — but
-/// these files are bytes rather than text, since one of them is a ZIP archive.
-#[cfg(feature = "desktop")]
 fn save_selection_file(file: &SelectionFile) -> Result<SaveOutcome, String> {
-    let Some(path) = rfd::FileDialog::new().set_file_name(&file.name).save_file() else {
-        return Ok(SaveOutcome::Cancelled);
-    };
-    std::fs::write(&path, &file.bytes).map_err(|error| error.to_string())?;
-    Ok(SaveOutcome::Written(1))
-}
-
-/// Without a file dialog the archive is handed to the platform as a download.
-/// It travels as base64 because a `Blob` is built from text here.
-#[cfg(not(feature = "desktop"))]
-fn save_selection_file(file: &SelectionFile) -> Result<SaveOutcome, String> {
-    use base64::Engine as _;
-
-    let name = serde_json::to_string(&file.name).map_err(|error| error.to_string())?;
-    let data = serde_json::to_string(&base64::engine::general_purpose::STANDARD.encode(&file.bytes))
-        .map_err(|error| error.to_string())?;
-
-    spawn(async move {
-        let js = format!(
-            r#"
-            (function() {{
-                const raw = atob({data});
-                const bytes = new Uint8Array(raw.length);
-                for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-                const blob = new Blob([bytes], {{ type: 'application/octet-stream' }});
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = {name};
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(url);
-            }})();
-            "#
-        );
-        let _ = document::eval(&js).await;
-    });
-
-    Ok(SaveOutcome::Written(1))
+    match crate::components::shared_components::save_file(&file.name, &file.bytes)? {
+        true => Ok(SaveOutcome::Written(1)),
+        false => Ok(SaveOutcome::Cancelled),
+    }
 }
 
 /// Where PptxGenJS is loaded from.

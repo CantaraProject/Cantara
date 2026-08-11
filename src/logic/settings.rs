@@ -12,6 +12,7 @@ use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
 use reqwest::Client as AsyncClient;
 use rgb::*;
+use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use std::{
@@ -49,7 +50,7 @@ pub struct Settings {
     /// The configured song slide settings in Cantara
     /// There is a default added when none is found.
     #[serde(default = "default_song_slide_vec")]
-    pub song_slide_settings: Vec<SlideSettings>,
+    pub song_slide_settings: Vec<SongSlideSettings>,
 
     /// Which of the [`presentation_designs`](Self::presentation_designs) an
     /// element is shown with when it does not name one of its own.
@@ -298,8 +299,8 @@ fn default_presentation_design_vec() -> Vec<PresentationDesign> {
 }
 
 /// This creates the default slide settings
-fn default_song_slide_vec() -> Vec<SlideSettings> {
-    vec![SlideSettings::default()]
+fn default_song_slide_vec() -> Vec<SongSlideSettings> {
+    vec![SongSlideSettings::default()]
 }
 
 /// This returns the default value for always_start_fullscreen
@@ -559,7 +560,7 @@ impl Settings {
         self.song_slide_settings
             .get(self.default_slide_settings_index)
             .or_else(|| self.song_slide_settings.first())
-            .cloned()
+            .map(|named| named.settings.clone())
             .unwrap_or_default()
     }
 
@@ -603,7 +604,7 @@ impl Settings {
         if slide_count < design_count {
             // Add default slide settings until there are at least as many as presentation designs
             for _ in 0..(design_count - slide_count) {
-                self.song_slide_settings.push(SlideSettings::default());
+                self.song_slide_settings.push(SongSlideSettings::default());
             }
         }
     }
@@ -1361,7 +1362,7 @@ fn create_temp_dir() -> Result<TempDir, String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn get_settings_folder() -> Option<PathBuf> {
+pub fn get_settings_folder() -> Option<PathBuf> {
     // On Android, the `dirs` crate cannot resolve standard config/data directories
     // because the HOME and XDG_* environment variables are not set by the Android runtime.
     // Use JNI to query the app's private files directory instead.
@@ -1484,6 +1485,55 @@ impl Default for PresentationDesign {
             name: "Default".to_string(),
             description: "".to_string(),
             presentation_design_settings: PresentationDesignSettings::default(),
+        }
+    }
+}
+
+/// A slide division the user maintains, under a name.
+///
+/// [`SlideSettings`] is the song library's, and says how a song is broken into
+/// slides. What it has no room for is what the *user* needs to tell one of
+/// them from another in a list — so the name and the description are added
+/// here rather than there.
+///
+/// The division itself is flattened into the same JSON object, which is what
+/// keeps a settings file written before this existed readable: the two new
+/// fields are simply absent and default to empty.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct SongSlideSettings {
+    /// What the user calls it. Empty for a division that has never been named
+    /// — the views then fall back to its position in the list.
+    #[serde(default)]
+    pub name: String,
+
+    /// What it is for, in the user's own words.
+    #[serde(default)]
+    pub description: String,
+
+    /// The division itself, as the song library understands it.
+    #[serde(flatten)]
+    pub settings: SlideSettings,
+}
+
+impl SongSlideSettings {
+    /// The name to show for the division at `index`.
+    ///
+    /// A division that has never been named is called by its position, which
+    /// is what the list showed before names existed.
+    pub fn display_name(&self, index: usize) -> String {
+        match self.name.trim().is_empty() {
+            true => format!("{} {}", t!("settings.slide_settings"), index + 1),
+            false => self.name.clone(),
+        }
+    }
+}
+
+impl From<SlideSettings> for SongSlideSettings {
+    fn from(settings: SlideSettings) -> Self {
+        SongSlideSettings {
+            name: String::new(),
+            description: String::new(),
+            settings,
         }
     }
 }
@@ -2077,10 +2127,11 @@ mod tests {
         let settings: Settings =
             serde_json::from_str(&migrate_settings_json(&old)).expect("old settings should load");
 
-        let slide_settings = settings
+        let slide_settings = &settings
             .song_slide_settings
             .first()
-            .expect("the slide settings survived");
+            .expect("the slide settings survived")
+            .settings;
 
         assert!(slide_settings.show_meta_information.first_slide);
         assert!(slide_settings.show_meta_information.last_slide);
@@ -2102,7 +2153,7 @@ mod tests {
             let settings: Settings =
                 serde_json::from_str(&json).unwrap_or_else(|error| panic!("{name}: {error}"));
 
-            let show = settings.song_slide_settings[0].show_meta_information;
+            let show = settings.song_slide_settings[0].settings.show_meta_information;
             assert_eq!(
                 (show.title_slide, show.first_slide, show.last_slide),
                 expected,
@@ -2257,7 +2308,7 @@ mod tests {
         );
         assert_eq!(
             settings.default_song_slide_settings(),
-            settings.song_slide_settings[0]
+            settings.song_slide_settings[0].settings
         );
     }
 

@@ -2,13 +2,13 @@
 
 use super::directory_browser::DirectoryBrowserModal;
 use super::shared_components::{
-    DeleteIcon, EditIcon, PresentationDesignSelector, js_message_box, js_yes_no_box,
+    DeleteIcon, EditIcon, PresentationDesignSelector, js_message_box, js_yes_no_box, translate,
 };
-use super::song_slide_settings_components::SongSlideSettings;
+use crate::logic::sourcefiles::SourceFile;
+use super::song_slide_settings_components::SongSlideSettingsSection;
 #[cfg(feature = "desktop")]
 use crate::logic::screens::{MonitorInfo, enumerate_monitors};
 use crate::{Route, logic::settings::*};
-use cantara_songlib::slides::SlideSettings;
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
 #[cfg(feature = "desktop")]
@@ -74,7 +74,7 @@ pub fn SettingsPage() -> Element {
 #[component]
 fn SettingsContent() -> Element {
     let mut settings = use_settings();
-    let song_slide_settings: Signal<Vec<SlideSettings>> =
+    let song_slide_settings: Signal<Vec<SongSlideSettings>> =
         use_signal(|| settings.read().song_slide_settings.clone());
 
     // `SongSlideSettings` edits a copy. Without mirroring it back, adding or
@@ -99,7 +99,7 @@ fn SettingsContent() -> Element {
         hr {}
         PresentationSettings {}
         hr {}
-        SongSlideSettings {
+        SongSlideSettingsSection {
             song_slide_settings
         }
         StreamSettingsSection {}
@@ -784,10 +784,40 @@ fn PresentationDesignCard(
     ondelete: EventHandler<()>,
 ) -> Element {
     let nav = use_navigator();
+    let mut export_error: Signal<Option<String>> = use_signal(|| None);
+
+    // The design and everything it needs to look right, as one file to hand
+    // on — see [`crate::logic::settings_io`].
+    // Cloned for the closure: the card also renders the name and the
+    // description, and a closure that took the design would take those with it.
+    let design_to_export = presentation_design.clone();
+    let export = move |_| {
+        export_error.set(None);
+        let design = design_to_export.clone();
+        let written = crate::logic::settings_io::write_design(&design, &|file: &SourceFile| {
+            crate::logic::sourcefiles::read_source_file_bytes(file)
+        });
+
+        let outcome = match written {
+            Ok((name, bytes)) => {
+                crate::components::shared_components::save_file(&name, &bytes).map(|_| ())
+            }
+            Err(error) => {
+                let (key, parameters) = error.message_key();
+                Err(translate(key, &parameters))
+            }
+        };
+
+        if let Err(message) = outcome {
+            log::warn!("the design could not be exported: {message}");
+            export_error.set(Some(message));
+        }
+    };
+
     rsx! {
         article {
-            h6 { { presentation_design.name } }
-            p { { presentation_design.description } }
+            h6 { { presentation_design.name.clone() } }
+            p { { presentation_design.description.clone() } }
             if let Some(index) = index {
                 button {
                     onclick: move |_| {
@@ -799,6 +829,11 @@ fn PresentationDesignCard(
                     class: "secondary",
                     onclick: move |_| onclone.call(()),
                     { t!("general.duplicate").to_string() }
+                }
+                button {
+                    class: "secondary",
+                    onclick: export,
+                    { t!("settings.export_design").to_string() }
                 }
                 button {
                     class: "secondary",
@@ -817,6 +852,9 @@ fn PresentationDesignCard(
                     },
                     { t!("general.delete").to_string() }
                 }
+            }
+            if let Some(message) = export_error() {
+                p { class: "export-save-error", role: "alert", {message} }
             }
         }
     }

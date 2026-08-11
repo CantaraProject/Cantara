@@ -298,6 +298,73 @@ pub fn SelectedItemPreview(
     }
 }
 
+/// Puts a file wherever the platform puts files.
+///
+/// `Ok(true)` when it was written, `Ok(false)` when the user closed the file
+/// dialog — which is not a failure and needs no message.
+///
+/// The desktop asks where it should go and writes it itself; every other build
+/// hands it to the platform as a download. Bytes rather than text, because
+/// some of what Cantara writes is a ZIP archive.
+#[cfg(feature = "desktop")]
+pub fn save_file(name: &str, bytes: &[u8]) -> Result<bool, String> {
+    let Some(path) = rfd::FileDialog::new().set_file_name(name).save_file() else {
+        return Ok(false);
+    };
+    std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+/// Without a file dialog the file travels into the page as base64 and leaves
+/// it as a download.
+#[cfg(not(feature = "desktop"))]
+pub fn save_file(name: &str, bytes: &[u8]) -> Result<bool, String> {
+    use base64::Engine as _;
+
+    let name = serde_json::to_string(name).map_err(|error| error.to_string())?;
+    let data = serde_json::to_string(&base64::engine::general_purpose::STANDARD.encode(bytes))
+        .map_err(|error| error.to_string())?;
+
+    spawn(async move {
+        let js = format!(
+            r#"
+            (function() {{
+                const raw = atob({data});
+                const bytes = new Uint8Array(raw.length);
+                for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+                const blob = new Blob([bytes], {{ type: 'application/octet-stream' }});
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = {name};
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }})();
+            "#
+        );
+        let _ = document::eval(&js).await;
+    });
+
+    Ok(true)
+}
+
+/// A translated message whose parameters are only known at runtime.
+///
+/// `t!` needs its parameter names spelled out at compile time, which is fine
+/// for a message written next to the code that shows it — and no use at all
+/// for one built somewhere that has no business knowing about languages: an
+/// error from a file reader, a line of a summary. Those carry their parameters
+/// as data, and this is where the two meet.
+pub fn translate(key: &str, parameters: &[(&str, String)]) -> String {
+    let mut message = rust_i18n::t!(key).to_string();
+    for (name, value) in parameters {
+        message = message.replace(&format!("%{{{name}}}"), value);
+    }
+    message
+}
+
 /// Generates JavaScript for a yes/no dialog box.
 pub fn js_yes_no_box(prompt: String) -> String {
     format!("return confirm('{}');", prompt)

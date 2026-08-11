@@ -1092,8 +1092,17 @@ pub fn import_designs(
         }
     }
     for slide_settings in &resolved.new_slide_settings {
-        if !settings.song_slide_settings.contains(slide_settings) {
-            settings.song_slide_settings.push(slide_settings.clone());
+        // Compared by the division itself: what a selection file carries is
+        // the division, and the name beside it in the settings is this user's
+        // own — a second copy under a different name would help nobody.
+        if !settings
+            .song_slide_settings
+            .iter()
+            .any(|named| named.settings == *slide_settings)
+        {
+            settings
+                .song_slide_settings
+                .push(slide_settings.clone().into());
         }
     }
     settings.ensure_slide_settings_for_designs();

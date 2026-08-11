@@ -254,6 +254,19 @@ selection:
   import_summary_designs:
     en: "The file brings %{designs} presentation design(s) and %{slide_settings} slide setting(s) you do not have yet"
     de: "Die Datei bringt %{designs} Präsentationsdesign(s) und %{slide_settings} Folien-Einstellung(en) mit, die Sie noch nicht haben"
+  # A file may also hold a single design or a single slide division.
+  import_summary_design:
+    en: "The presentation design “%{name}”"
+    de: "Das Präsentationsdesign „%{name}“"
+  import_summary_background:
+    en: The background picture comes with it and is added to your repository
+    de: Das Hintergrundbild ist enthalten und wird in Ihre Quelle übernommen
+  import_summary_fonts:
+    en: "%{count} font(s) come with it and are kept so the design looks right here: %{families}"
+    de: "%{count} Schriftart(en) sind enthalten und werden übernommen, damit das Design hier richtig aussieht: %{families}"
+  import_summary_slide_settings:
+    en: "The slide settings “%{name}”"
+    de: "Die Folien-Einstellungen „%{name}“"
   import_assets:
     en: Add the missing elements to my repositories
     de: Fehlende Elemente in meine Quellen übernehmen
@@ -591,6 +604,28 @@ settings:
   presentation_designs_edit_header:
     en: Edit Presentation Design %{title}
     de: Präsentationsdesign %{title} bearbeiten
+  # How a song is broken into slides — the section, the list and its editor.
+  song_slide_headline:
+    en: Slide settings
+    de: Folien-Einstellungen
+  song_slide_description:
+    en: "How a song is divided into slides: which languages are shown, what is added around the lyrics, and how much goes on one slide."
+    de: "Wie ein Lied in Folien aufgeteilt wird: welche Sprachen gezeigt werden, was um den Liedtext herum ergänzt wird und wie viel auf eine Folie kommt."
+  song_slide_settings_edit_header:
+    en: Edit slide settings %{title}
+    de: Folien-Einstellungen %{title} bearbeiten
+  slide_settings:
+    en: Slide settings
+    de: Folien-Einstellungen
+  slide_settings_name_placeholder:
+    en: "For example: Two languages, four lines"
+    de: "Zum Beispiel: Zweisprachig, vier Zeilen"
+  export_design:
+    en: Export...
+    de: Exportieren...
+  export_slide_settings:
+    en: Export...
+    de: Exportieren...
   presentation_design_configuration:
     en: Design Configuration
     de: Konfiguration des Aussehens
@@ -900,6 +935,48 @@ display:
   section:
     en: Display
     de: Anzeige
+  # What a division does, said in words rather than shown as a struct. See
+  # `logic::slide_summary`.
+  summary:
+    layout_single_default:
+      en: One language, whichever the song is written in
+      de: Eine Sprache, so wie das Lied verfasst ist
+    layout_single_named:
+      en: "One language: %{language}"
+      de: "Eine Sprache: %{language}"
+    layout_multi:
+      en: "%{count} languages under each other: %{languages}"
+      de: "%{count} Sprachen untereinander: %{languages}"
+    layout_complex:
+      en: "Notation with %{count} language(s) under it: %{languages}"
+      de: "Noten mit %{count} Sprache(n) darunter: %{languages}"
+    title_slide:
+      en: Begins with a title slide
+      de: Beginnt mit einer Titelfolie
+    spoiler:
+      en: Shows the next lines as a spoiler
+      de: Zeigt die nächsten Zeilen als Vorschau
+    empty_last_slide:
+      en: Ends with an empty slide
+      de: Endet mit einer leeren Folie
+    meta:
+      en: "Metadata line on: %{positions}"
+      de: "Metadaten-Zeile auf: %{positions}"
+    meta_title:
+      en: the title slide
+      de: der Titelfolie
+    meta_first:
+      en: the first slide
+      de: der ersten Folie
+    meta_last:
+      en: the last slide
+      de: der letzten Folie
+    max_lines:
+      en: At most %{count} lines per slide
+      de: Höchstens %{count} Zeilen je Folie
+    whole_block:
+      en: A whole verse per slide
+      de: Eine ganze Strophe je Folie
   mode:
     en: Layout
     de: Layout

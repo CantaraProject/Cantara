@@ -83,6 +83,10 @@ pub mod fonts;
 /// Writing the running order to a file and reading one back — Cantara 3's own
 /// archive and the two formats Cantara 2 wrote.
 pub mod selection_io;
+/// Handing a single design or slide division to somebody else.
+pub mod settings_io;
+/// Saying in words what a slide division does.
+pub mod slide_summary;
 pub mod pptx;
 pub mod presentation;
 

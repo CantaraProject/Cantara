@@ -13,12 +13,17 @@
 //! Only the second step, the button, writes anything.
 
 use super::SelectedItemRepresentation;
+use crate::components::shared_components::translate;
 use crate::logic::selection_io::{
-    ImportOutcome, ResolvedSelection, SelectionIoError, import_designs, read_selection,
-    resolve_selection,
+    ImportOutcome, ResolvedSelection, SelectionIoError, import_designs, resolve_selection,
 };
+use crate::logic::settings_io::{
+    ImportedFile, import_design, import_slide_settings, read_import,
+};
+use crate::logic::slide_summary::{POSITION_SEPARATOR, summary_lines};
 use crate::logic::settings::use_settings;
 use crate::logic::sourcefiles::SourceFile;
+use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
 use rust_i18n::t;
 
@@ -148,7 +153,7 @@ fn ImportDialog(
     // written to; the first that can otherwise. A library of nothing but
     // downloaded repositories has none, and then the only offer is a folder
     // that lasts as long as the program does.
-    let mut target = use_signal(|| {
+    let target = use_signal(|| {
         let settings = settings.read();
         let writable = settings.writable_repositories();
         let chosen = writable
@@ -165,18 +170,34 @@ fn ImportDialog(
 
     // What is in the file, looked at but not acted on. Recomputed whenever
     // another file is opened, which is what makes the dialog usable twice.
+    //
+    // A running order, a design and a slide division all arrive through this
+    // one button, because a user has a file and should not have to know which
+    // of Cantara's kinds it is. See [`crate::logic::settings_io::read_import`].
     let document = use_memo(move || {
         let (name, bytes) = file.read().clone()?;
-        Some(read_selection(&bytes, &name))
+        Some(read_import(&bytes, &name))
     });
 
+    // Only a running order has to be looked up in the library; the other two
+    // kinds are settings and stand for themselves.
     let resolved: Memo<Option<ResolvedSelection>> = use_memo(move || {
-        let document = document()?.ok()?;
+        let ImportedFile::Selection(document) = document()?.ok()? else {
+            return None;
+        };
+        // A selection file carries divisions, not the names this user gave
+        // theirs, so they are compared against the divisions alone.
+        let known_divisions: Vec<SlideSettings> = settings
+            .read()
+            .song_slide_settings
+            .iter()
+            .map(|named| named.settings.clone())
+            .collect();
         Some(resolve_selection(
             &document,
             &source_files.read(),
             &settings.read().presentation_designs,
-            &settings.read().song_slide_settings,
+            &known_divisions,
         ))
     });
 
@@ -184,41 +205,82 @@ fn ImportDialog(
         opened.set(None);
     };
 
+    // Where a file that brings something along may put it: the repository the
+    // user picked, or a folder that lasts as long as the program does.
+    let target_directory = move || match (&*target.read(), import_assets()) {
+        (_, false) | (ImportTarget::ThisSessionOnly, _) => session_directory(),
+        (ImportTarget::Repository(index), _) => settings
+            .read()
+            .repository_folder(*index)
+            .or_else(session_directory),
+    };
+
     let keep = move |_| {
-        let Some(resolved) = resolved() else {
+        let Some(Ok(opened_file)) = document() else {
             return;
         };
 
-        // Where the elements the library lacks are written. "This session
-        // only" is a folder that is thrown away when the program ends, which
-        // is what makes trying somebody's selection out harmless.
-        let directory = match (&*target.read(), import_assets()) {
-            (_, false) | (ImportTarget::ThisSessionOnly, _) => session_directory(),
-            (ImportTarget::Repository(index), _) => settings
-                .read()
-                .repository_folder(*index)
-                .or_else(session_directory),
-        };
+        match opened_file {
+            ImportedFile::Selection(_) => {
+                let Some(resolved) = resolved() else {
+                    return;
+                };
+                let Some(directory) = target_directory() else {
+                    error.set(Some(t!("selection.import_error_no_target").to_string()));
+                    return;
+                };
 
-        let Some(directory) = directory else {
-            error.set(Some(t!("selection.import_error_no_target").to_string()));
-            return;
-        };
-
-        match crate::logic::selection_io::import_selection(&resolved, &directory) {
-            Ok(outcome) => {
-                if import_designs_too() {
-                    {
-                        let mut settings_write = settings.write();
-                        import_designs(&mut settings_write, &resolved);
+                match crate::logic::selection_io::import_selection(&resolved, &directory) {
+                    Ok(outcome) => {
+                        if import_designs_too() {
+                            {
+                                let mut settings_write = settings.write();
+                                import_designs(&mut settings_write, &resolved);
+                            }
+                            settings.read().save();
+                        }
+                        announce(&outcome);
+                        selected_items.set(outcome.items);
+                        opened.set(None);
                     }
-                    settings.read().save();
+                    Err(reason) => error.set(Some(message_of(&reason))),
                 }
-                announce(&outcome);
-                selected_items.set(outcome.items);
+            }
+
+            ImportedFile::Design(package) => {
+                // The background picture goes into a repository, so that it is
+                // also a picture the user can reach elsewhere.
+                let Some(directory) = target_directory() else {
+                    error.set(Some(t!("selection.import_error_no_target").to_string()));
+                    return;
+                };
+
+                let outcome = {
+                    let mut settings_write = settings.write();
+                    import_design(&mut settings_write, &package, &directory)
+                };
+                match outcome {
+                    Ok(outcome) => {
+                        settings.read().save();
+                        log::info!(
+                            "imported a design; kept {} font(s), added: {}",
+                            outcome.fonts_kept.len(),
+                            outcome.added
+                        );
+                        opened.set(None);
+                    }
+                    Err(reason) => error.set(Some(message_of(&reason))),
+                }
+            }
+
+            ImportedFile::SlideSettings(division) => {
+                {
+                    let mut settings_write = settings.write();
+                    import_slide_settings(&mut settings_write, &division);
+                }
+                settings.read().save();
                 opened.set(None);
             }
-            Err(reason) => error.set(Some(message_of(&reason))),
         }
     };
 
@@ -259,7 +321,66 @@ fn ImportDialog(
                     Some(Err(reason)) => rsx! {
                         p { class: "export-save-error", role: "alert", {message_of(&reason)} }
                     },
-                    Some(Ok(_)) => {
+
+                    // One design, with whatever it needs to look right.
+                    Some(Ok(ImportedFile::Design(package))) => {
+                        let fonts = package.fonts_to_keep();
+                        rsx! {
+                            ul { class: "import-summary",
+                                li {
+                                    {
+                                        t!(
+                                            "selection.import_summary_design",
+                                            name = package.design.name.clone(),
+                                        )
+                                            .to_string()
+                                    }
+                                }
+                                if package.background_image.is_some() {
+                                    li { {t!("selection.import_summary_background").to_string()} }
+                                }
+                                if !fonts.is_empty() {
+                                    li {
+                                        {
+                                            t!(
+                                                "selection.import_summary_fonts",
+                                                count = fonts.len(),
+                                                families = fonts.join(", "),
+                                            )
+                                                .to_string()
+                                        }
+                                    }
+                                }
+                            }
+                            if package.background_image.is_some() {
+                                label {
+                                    {t!("selection.import_target").to_string()}
+                                    ImportTargetSelect { target, settings }
+                                }
+                            }
+                        }
+                    }
+
+                    // One slide division: what it does, in the same words the
+                    // settings page uses for the ones the user already has.
+                    Some(Ok(ImportedFile::SlideSettings(division))) => rsx! {
+                        ul { class: "import-summary",
+                            li {
+                                {
+                                    t!(
+                                        "selection.import_summary_slide_settings",
+                                        name = division.display_name(0),
+                                    )
+                                        .to_string()
+                                }
+                            }
+                            for (key , parameters) in summary_lines(&division.settings) {
+                                li { key: "{key}", {summary_sentence(key, &parameters)} }
+                            }
+                        }
+                    },
+
+                    Some(Ok(ImportedFile::Selection(_))) => {
                         let resolved = resolved().unwrap_or_default();
                         let in_library = resolved.items.len()
                             - resolved.new_asset_count()
@@ -333,33 +454,7 @@ fn ImportDialog(
                                     if import_assets() {
                                         label {
                                             {t!("selection.import_target").to_string()}
-                                            select {
-                                                onchange: move |event: Event<FormData>| {
-                                                    match event.value().parse::<usize>() {
-                                                        Ok(index) => {
-                                                            target.set(ImportTarget::Repository(index));
-                                                            settings.write().import_repository_index = index;
-                                                            settings.read().save();
-                                                        }
-                                                        Err(_) => target.set(ImportTarget::ThisSessionOnly),
-                                                    }
-                                                },
-                                                for (index , repository) in settings
-                                                    .read()
-                                                    .writable_repositories()
-                                                {
-                                                    option {
-                                                        value: "{index}",
-                                                        selected: *target.read() == ImportTarget::Repository(index),
-                                                        "{repository.name}"
-                                                    }
-                                                }
-                                                option {
-                                                    value: "session",
-                                                    selected: *target.read() == ImportTarget::ThisSessionOnly,
-                                                    {t!("selection.import_target_session").to_string()}
-                                                }
-                                            }
+                                            ImportTargetSelect { target, settings }
                                         }
                                     }
                                 }
@@ -439,4 +534,67 @@ fn announce(outcome: &ImportOutcome) {
         outcome.written.len(),
         outcome.left_out
     );
+}
+
+/// One line of a slide-division summary, in the reader's language.
+///
+/// The same as on the settings page — see
+/// [`crate::components::song_slide_settings_components`] — because what the
+/// division does should read the same wherever it is shown.
+fn summary_sentence(key: &'static str, parameters: &[(&'static str, String)]) -> String {
+    let translated: Vec<(&str, String)> = parameters
+        .iter()
+        .map(|(name, value)| match *name {
+            "positions" => (
+                *name,
+                value
+                    .split(POSITION_SEPARATOR)
+                    .map(|position| t!(position).to_string())
+                    .collect::<Vec<String>>()
+                    .join(", "),
+            ),
+            _ => (*name, value.clone()),
+        })
+        .collect();
+
+    translate(key, &translated)
+}
+
+/// Where an import may put what it brings along.
+///
+/// Its own component because two kinds of file need it: a running order writes
+/// songs, a design writes its background picture, and both go wherever the
+/// user says.
+#[component]
+fn ImportTargetSelect(
+    target: Signal<ImportTarget>,
+    settings: Signal<crate::logic::settings::Settings>,
+) -> Element {
+    let mut settings = settings;
+    rsx! {
+        select {
+            onchange: move |event: Event<FormData>| {
+                match event.value().parse::<usize>() {
+                    Ok(index) => {
+                        target.set(ImportTarget::Repository(index));
+                        settings.write().import_repository_index = index;
+                        settings.read().save();
+                    }
+                    Err(_) => target.set(ImportTarget::ThisSessionOnly),
+                }
+            },
+            for (index , repository) in settings.read().writable_repositories() {
+                option {
+                    value: "{index}",
+                    selected: *target.read() == ImportTarget::Repository(index),
+                    "{repository.name}"
+                }
+            }
+            option {
+                value: "session",
+                selected: *target.read() == ImportTarget::ThisSessionOnly,
+                {t!("selection.import_target_session").to_string()}
+            }
+        }
+    }
 }

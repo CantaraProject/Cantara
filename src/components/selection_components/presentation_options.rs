@@ -148,7 +148,7 @@ fn SpecificOptions(
                             items[item_index].slide_settings_option = None;
                         } else if let Ok(idx) = val.parse::<usize>() {
                             items[item_index].slide_settings_option = Some(
-                                settings.read().song_slide_settings[idx].clone(),
+                                settings.read().song_slide_settings[idx].settings.clone(),
                             );
                         }
                     },
@@ -157,19 +157,15 @@ fn SpecificOptions(
                         selected: item.slide_settings_option.is_none(),
                         {t!("selection.presentation_options.default").to_string()}
                     }
-                    for (idx , _) in settings.read().song_slide_settings.iter().enumerate() {
+                    for (idx , named) in settings.read().song_slide_settings.iter().enumerate() {
                         option {
                             value: "{idx}",
                             selected: item.slide_settings_option
                                 .as_ref()
-                                .is_some_and(|s| { s == &settings.read().song_slide_settings[idx] }),
-                            {
-                                format!(
-                                    "{} {}",
-                                    t!("selection.presentation_options.slide_settings"),
-                                    idx + 1,
-                                )
-                            }
+                                .is_some_and(|s| {
+                                    *s == settings.read().song_slide_settings[idx].settings
+                                }),
+                            {named.display_name(idx)}
                         }
                     }
                 }
@@ -239,7 +235,7 @@ fn SpecificOptions(
                             items[item_index].stream_slide_settings_option = None;
                         } else if let Ok(idx) = val.parse::<usize>() {
                             items[item_index].stream_slide_settings_option = Some(
-                                settings.read().song_slide_settings[idx].clone(),
+                                settings.read().song_slide_settings[idx].settings.clone(),
                             );
                         }
                     },
@@ -248,19 +244,15 @@ fn SpecificOptions(
                         selected: item.stream_slide_settings_option.is_none(),
                         {t!("selection.presentation_options.default").to_string()}
                     }
-                    for (idx , _) in settings.read().song_slide_settings.iter().enumerate() {
+                    for (idx , named) in settings.read().song_slide_settings.iter().enumerate() {
                         option {
                             value: "{idx}",
                             selected: item.stream_slide_settings_option
                                 .as_ref()
-                                .is_some_and(|s| { s == &settings.read().song_slide_settings[idx] }),
-                            {
-                                format!(
-                                    "{} {}",
-                                    t!("selection.presentation_options.slide_settings"),
-                                    idx + 1,
-                                )
-                            }
+                                .is_some_and(|s| {
+                                    *s == settings.read().song_slide_settings[idx].settings
+                                }),
+                            {named.display_name(idx)}
                         }
                     }
                 }
@@ -437,7 +429,13 @@ fn StreamViewSettings() -> Element {
     // silently applied: a user who asks for five lines and gets six should be
     // told why, next to the control that did it.
     let chosen_wrap = slide_settings_index
-        .and_then(|index| settings.read().song_slide_settings.get(index).cloned())
+        .and_then(|index| {
+            settings
+                .read()
+                .song_slide_settings
+                .get(index)
+                .map(|named| named.settings.clone())
+        })
         .and_then(|slide_settings| slide_settings.max_lines);
     let used_wrap = reconcile_max_lines(projection_wrap, chosen_wrap);
 
@@ -481,17 +479,11 @@ fn StreamViewSettings() -> Element {
                         selected: slide_settings_index.is_none(),
                         {t!("selection.presentation_options.stream_view.same_as_presentation").to_string()}
                     }
-                    for (index , _) in settings.read().song_slide_settings.iter().enumerate() {
+                    for (index , named) in settings.read().song_slide_settings.iter().enumerate() {
                         option {
                             value: "{index}",
                             selected: slide_settings_index == Some(index),
-                            {
-                                format!(
-                                    "{} {}",
-                                    t!("selection.presentation_options.slide_settings"),
-                                    index + 1,
-                                )
-                            }
+                            {named.display_name(index)}
                         }
                     }
                 }
