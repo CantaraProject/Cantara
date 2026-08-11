@@ -726,7 +726,10 @@ pub(crate) fn ExportMenu(
                         p { {t!("selection.save_selection_description").to_string()} }
 
                         label {
-                            {t!("selection.export_format").to_string()}
+                            // Not "export format" a second time: the dialog
+                            // would then have two fields of the same name
+                            // doing different things.
+                            {t!("selection.save_selection_format").to_string()}
                             select {
                                 value: selection_format.read().id(),
                                 onchange: move |event| {

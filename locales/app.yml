@@ -189,6 +189,9 @@ selection:
   save_selection_description:
     en: "The running order with everything that belongs to it, as a file — to open again later or to pass on."
     de: "Die Ablaufreihenfolge mit allem, was dazugehört, als Datei — zum späteren Öffnen oder Weitergeben."
+  save_selection_format:
+    en: Selection format
+    de: Format der Auswahl
   save_selection_button:
     en: Save the selection...
     de: Auswahl speichern...

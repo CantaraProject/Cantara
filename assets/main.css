@@ -510,12 +510,19 @@ div.inline-div {
 @media (min-width: 48rem) {
     .export-menu-body {
         grid-template-columns: minmax(14rem, 20rem) 1fr;
-        overflow-y: visible;
     }
 }
 
-.export-menu-options {
+/* The body scrolls at every width, and both columns may be shorter than what
+   is in them. It used to be `overflow-y: visible` here, which let the column
+   of options grow out of the dialog once it held more than a screenful: the
+   dialog clips, so the last of them was cut off — and the part still visible
+   sat underneath the row of buttons, which is painted after it. The button
+   for saving the selection was there, drawn and unreachable. */
+.export-menu-options,
+.export-menu-preview {
     min-width: 0;
+    min-height: 0;
 }
 
 .export-menu-options small {
@@ -527,8 +534,6 @@ div.inline-div {
 .export-menu-preview {
     display: flex;
     flex-direction: column;
-    min-width: 0;
-    min-height: 0;
 }
 
 .export-preview-text {
