@@ -18,6 +18,12 @@
 //! `.ttf`, `.otf`, `.woff` and `.woff2` there and generates the list this
 //! module reads; nothing else has to be registered.
 
+// Installing a font means writing a file, which the web build does not do. It
+// keeps the stubs so that the rest of the program can call into this module
+// without asking which target it is on — and the price of that symmetry is a
+// handful of items nothing reaches there.
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
+
 use std::collections::HashSet;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};

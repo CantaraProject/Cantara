@@ -40,7 +40,10 @@ use crate::logic::selection_io::{SelectionDocument, SelectionIoError, read_selec
 use crate::logic::settings::{
     PresentationDesign, PresentationDesignSettings, Settings, SongSlideSettings,
 };
-use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, SourceFileType};
+use crate::logic::sourcefiles::SourceFile;
+// Used by `import_design`, which writes pictures to a folder, and by the tests.
+#[cfg(any(not(target_arch = "wasm32"), test))]
+use crate::logic::sourcefiles::{ImageSourceFile, SourceFileType};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -558,6 +561,10 @@ pub fn import_slide_settings(settings: &mut Settings, division: &SongSlideSettin
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::field_reassign_with_default,
+    reason = "these design structs keep private fields, so `..Default::default()`               is not available outside the module that defines them"
+)]
 mod tests {
     use super::*;
     use crate::logic::css::CssFontFamily;

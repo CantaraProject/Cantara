@@ -524,16 +524,11 @@ fn PresentationSettings() -> Element {
                             ondelete: move |_| {
                                 if let Some(index) = selected_presentation_design_index()
                                     && index < presentation_designs.read().len() {
-                                        {
-                                            let mut settings_write = settings.write();
-                                            // Also remove the corresponding slide setting if it exists
-                                            if index < settings_write.song_slide_settings.len() {
-                                                settings_write.song_slide_settings.remove(index);
-                                            }
-                                            settings_write.presentation_designs.remove(index);
-                                            // Ensure slide settings and presentation designs stay in sync
-                                            settings_write.ensure_slide_settings_for_designs();
-                                        }
+                                        // Deleting a design moves every stored
+                                        // choice that sat after it, so this is
+                                        // one operation on the settings rather
+                                        // than three calls here.
+                                        settings.write().delete_presentation_design(index);
                                         selected_presentation_design_index.set((!presentation_designs.read().is_empty()).then_some(0));
                                         settings.read().save();
                                     }

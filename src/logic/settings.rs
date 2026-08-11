@@ -6,8 +6,11 @@ use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 // web build reads its repositories from an in-memory VFS instead.
 #[cfg(not(target_arch = "wasm32"))]
 use crate::logic::sourcefiles::{count_source_files, get_source_files};
+// `Path` goes with the directory scan above and so is desktop-only; `PathBuf`
+// is not — `repository_folder` hands one back on every target.
 #[cfg(not(target_arch = "wasm32"))]
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
 use reqwest::Client as AsyncClient;
@@ -369,6 +372,30 @@ fn migrate_settings_json(json: &str) -> String {
     serde_json::to_string(&document).unwrap_or_else(|_| json.to_string())
 }
 
+/// Moves a chosen position along after the entry at `removed` has been deleted.
+///
+/// The chosen entry itself becoming "no choice" is deliberate: the thing that
+/// was picked is gone, and the alternative — leaving the position and letting
+/// it point past the end — comes back to life the moment the list grows again,
+/// silently choosing something the user never picked.
+fn forget_choice(chosen: &mut Option<usize>, removed: usize) {
+    match *chosen {
+        Some(index) if index == removed => *chosen = None,
+        Some(index) if index > removed => *chosen = Some(index - 1),
+        _ => {}
+    }
+}
+
+/// The same, for a choice that has no "none" to fall back to and so falls back
+/// to the first.
+fn shift_default(chosen: &mut usize, removed: usize) {
+    if *chosen == removed {
+        *chosen = 0;
+    } else if *chosen > removed {
+        *chosen -= 1;
+    }
+}
+
 impl Settings {
     /// Load settings from storage or creates a new default settings if
     /// the program is run for the first time.
@@ -593,6 +620,41 @@ impl Settings {
             Some(RepositoryType::LocaleFilePath(path)) => Some(PathBuf::from(path)),
             _ => None,
         }
+    }
+
+    /// Deletes the design at `index`, along with the slide division that
+    /// belongs to it, and moves every stored choice along with them.
+    ///
+    /// The choices — the general default, and what the streamed view is set to
+    /// — are kept as positions in these lists, and `Vec::remove` shifts
+    /// everything after the hole down by one. Deleting a design therefore
+    /// silently re-points every choice that sat after it at its neighbour: a
+    /// service set up to project design 3 would quietly start projecting what
+    /// used to be design 4. Nothing catches this later, because the position
+    /// is perfectly valid — it simply means something else now.
+    ///
+    /// Doing the deletion here rather than at the button is the point. The
+    /// bookkeeping belongs with the lists it is about, where it cannot be left
+    /// out of a second caller.
+    pub fn delete_presentation_design(&mut self, index: usize) {
+        if index >= self.presentation_designs.len() {
+            return;
+        }
+
+        self.presentation_designs.remove(index);
+        forget_choice(&mut self.stream.design_index, index);
+        shift_default(&mut self.default_design_index, index);
+
+        // The two lists are kept in step, but only the design list is known to
+        // have had this position — so the slide divisions move only if one was
+        // actually removed.
+        if index < self.song_slide_settings.len() {
+            self.song_slide_settings.remove(index);
+            forget_choice(&mut self.stream.slide_settings_index, index);
+            shift_default(&mut self.default_slide_settings_index, index);
+        }
+
+        self.ensure_slide_settings_for_designs();
     }
 
     /// Ensures that there are at least as many slide settings as presentation designs.
@@ -2587,6 +2649,10 @@ mod tests {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::field_reassign_with_default,
+    reason = "these design structs keep private fields, so `..Default::default()`               is not available outside the module that defines them"
+)]
 mod design_block_tests {
     use super::*;
 
@@ -2688,5 +2754,89 @@ mod design_block_tests {
 
         assert_eq!(loaded.notation.width_percent, 100.0);
         assert!(!loaded.title_bold);
+    }
+
+    /// A design deleted from the middle must not drag every later choice onto
+    /// its neighbour.
+    ///
+    /// This is the case that has no symptom until someone notices the wrong
+    /// design on the wall: the stored position stays perfectly valid, it just
+    /// means something else afterwards.
+    #[test]
+    fn deleting_a_design_keeps_the_later_choices_pointing_at_the_same_thing() {
+        let mut settings = Settings::default();
+        settings.presentation_designs = (0..4)
+            .map(|number| PresentationDesign {
+                name: format!("design {number}"),
+                ..PresentationDesign::default()
+            })
+            .collect();
+        settings.song_slide_settings = vec![SongSlideSettings::default(); 4];
+        // Everything points at the third design.
+        settings.stream.design_index = Some(2);
+        settings.stream.slide_settings_index = Some(2);
+        settings.default_design_index = 2;
+        settings.default_slide_settings_index = 2;
+
+        settings.delete_presentation_design(0);
+
+        assert_eq!(settings.presentation_designs[1].name, "design 2");
+        assert_eq!(settings.stream.design_index, Some(1), "still design 2");
+        assert_eq!(settings.stream.slide_settings_index, Some(1));
+        assert_eq!(settings.default_design_index, 1);
+        assert_eq!(settings.default_slide_settings_index, 1);
+    }
+
+    /// Deleting the very design a choice names leaves no choice — rather than a
+    /// position that springs back to life pointing at something else once the
+    /// list grows again.
+    #[test]
+    fn deleting_the_chosen_design_is_no_choice_and_stays_that_way() {
+        let mut settings = Settings::default();
+        settings.presentation_designs = vec![PresentationDesign::default(); 3];
+        settings.song_slide_settings = vec![SongSlideSettings::default(); 3];
+        settings.stream.design_index = Some(2);
+        settings.stream.slide_settings_index = Some(2);
+        settings.default_design_index = 2;
+
+        settings.delete_presentation_design(2);
+
+        assert_eq!(settings.stream.design_index, None);
+        assert_eq!(settings.stream.slide_settings_index, None);
+        assert_eq!(settings.default_design_index, 0, "falls back to the first");
+
+        // The list grows past where the old choice pointed. Nothing may come
+        // back.
+        settings.presentation_designs = vec![PresentationDesign::default(); 5];
+        assert_eq!(settings.stream.design_index, None);
+    }
+
+    /// A choice sitting before the deleted design is not affected by it.
+    #[test]
+    fn deleting_a_later_design_leaves_an_earlier_choice_alone() {
+        let mut settings = Settings::default();
+        settings.presentation_designs = vec![PresentationDesign::default(); 3];
+        settings.song_slide_settings = vec![SongSlideSettings::default(); 3];
+        settings.stream.design_index = Some(0);
+        settings.default_design_index = 0;
+
+        settings.delete_presentation_design(2);
+
+        assert_eq!(settings.stream.design_index, Some(0));
+        assert_eq!(settings.default_design_index, 0);
+    }
+
+    /// Asking to delete something that is not there changes nothing.
+    #[test]
+    fn deleting_past_the_end_does_nothing() {
+        let mut settings = Settings::default();
+        settings.presentation_designs = vec![PresentationDesign::default(); 2];
+        settings.song_slide_settings = vec![SongSlideSettings::default(); 2];
+        settings.stream.design_index = Some(1);
+
+        settings.delete_presentation_design(9);
+
+        assert_eq!(settings.presentation_designs.len(), 2);
+        assert_eq!(settings.stream.design_index, Some(1));
     }
 }
