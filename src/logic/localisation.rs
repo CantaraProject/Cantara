@@ -26,6 +26,11 @@
 ///
 /// `rust_i18n` answers a key it does not know with the key, which is what puts
 /// `settings.song_slide_headline` on the screen instead of a heading.
+///
+/// Only the tests ask this. The program itself never checks whether a text is
+/// there — it shows what it gets, which is exactly why the checking has to
+/// happen before it ever runs.
+#[cfg(test)]
 pub fn is_translated(key: &str) -> bool {
     rust_i18n::t!(key) != key
 }
@@ -265,8 +270,23 @@ mod tests {
     fn every_key_a_function_hands_out_exists() {
         use crate::logic::export::{ExportCategory, ExportFormat};
         use crate::logic::selection_io::{SelectionFormat, SelectionIoError};
+        use crate::logic::tag_mapping::TagMapping;
 
         let mut keys: Vec<String> = Vec::new();
+
+        // Why a tag mapping rule cannot be used. The settings page shows
+        // whatever this returns, so an unwritten message would appear as a key
+        // under the row the user is typing in.
+        for rule in [
+            TagMapping::new("", ""),
+            TagMapping::new("author", "author"),
+        ] {
+            keys.push(
+                rule.problem()
+                    .expect("these rules are not usable")
+                    .to_string(),
+            );
+        }
 
         keys.extend(ExportFormat::ALL.iter().map(|format| format.label_key().to_string()));
         for category in ExportCategory::ALL {
@@ -274,6 +294,14 @@ mod tests {
             keys.push(category.description_key().to_string());
         }
         keys.extend(SelectionFormat::ALL.iter().map(|format| format.label_key().to_string()));
+
+        // What the editor offers to create.
+        #[cfg(not(target_arch = "wasm32"))]
+        keys.extend(
+            crate::logic::repository_files::NewFileKind::ALL
+                .iter()
+                .map(|kind| kind.label_key().to_string()),
+        );
 
         for error in [
             SelectionIoError::Empty,

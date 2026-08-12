@@ -7,6 +7,7 @@ use super::{
     stream_view::{StreamDefaults, map_slides, stream_slide_settings},
 };
 
+use crate::logic::tag_mapping::TagMapping;
 use cantara_songlib::exporter::slides::slides_from_song;
 use cantara_songlib::importer::classic_song::slides_from_classic_song;
 use cantara_songlib::slides::{Slide, SlideContent, SimplePictureSlide, SingleLanguageMainContentSlide, SlideSettings};
@@ -183,9 +184,11 @@ pub fn html_to_plain_text(html: &str) -> String {
 /// Turn the contents of a song file into slides, choosing the importer from the
 /// file name.
 ///
-/// The desktop build hands the path to the song library, which does this for
-/// itself. On the web there is no path on disk — repositories live in an
-/// in-memory VFS — so the dispatch happens here instead.
+/// Both builds come through here. The song library can read a file by path and
+/// would arrive at the same slides, but it hands back finished slides — and a
+/// tag mapping has to reach the song while it is still a song. Reading the
+/// bytes here also gives the web build, which has no path on disk, the same
+/// converter as the desktop.
 ///
 /// The format dispatch itself lives in [`crate::logic::export::song_from_content`]
 /// so that the presentation and the export can never disagree about what a
@@ -194,11 +197,16 @@ pub fn html_to_plain_text(html: &str) -> String {
 /// Classic `.song` files keep their dedicated converter: that format encodes
 /// the presentation order in the file itself, including the `---` spoiler
 /// blocks, which cannot be recovered from a parsed `Song`.
+/// The `tag_mappings` are the installation's reading rules — see
+/// [`crate::logic::tag_mapping`]. They are applied to the parsed song on its
+/// way to the slides and never to the file. A classic `.song` has no tags to
+/// map, so they do not reach that branch.
 pub fn slides_from_song_content(
     content: &str,
     file_name: &str,
     slide_settings: &SlideSettings,
     backup_title: &str,
+    tag_mappings: &[TagMapping],
 ) -> Result<Vec<Slide>, Box<dyn Error>> {
     if file_name.to_lowercase().ends_with(".song") {
         return Ok(slides_from_classic_song(
@@ -210,12 +218,14 @@ pub fn slides_from_song_content(
 
     let song = crate::logic::export::song_from_content(file_name, content)
         .map_err(|error| format!("{error:?}"))?;
+    let song = crate::logic::tag_mapping::apply(&song, tag_mappings);
     Ok(slides_from_song(&song, slide_settings))
 }
 
 fn create_presentation_slides(
     selected_item: &SelectedItemRepresentation,
     default_song_slide_settings: &SlideSettings,
+    tag_mappings: &[TagMapping],
 ) -> Result<Vec<Slide>, Box<dyn Error>> {
     let mut presentation: Vec<Slide> = vec![];
 
@@ -238,17 +248,34 @@ fn create_presentation_slides(
                     path_str,
                     &slide_settings,
                     &selected_item.source_file.name,
+                    tag_mappings,
                 )?;
                 presentation.extend(slides);
             }
             return Ok(presentation);
         }
 
+        // The file is read here rather than handed to the song library as a
+        // path, so that both builds go through one converter. The library's
+        // own `slides_from_file` reads the same four formats and would do the
+        // same thing — but it hands back finished slides, and the tag mappings
+        // have to reach the song while it is still a song.
         #[cfg(not(target_arch = "wasm32"))]
-        presentation.extend(cantara_songlib::create_presentation_from_file(
-            selected_item.source_file.path.clone(),
-            slide_settings,
-        )?);
+        {
+            let path = &selected_item.source_file.path;
+            let file_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            let content = std::fs::read_to_string(path)?;
+            presentation.extend(slides_from_song_content(
+                &content,
+                file_name,
+                &slide_settings,
+                &selected_item.source_file.name,
+                tag_mappings,
+            )?);
+        }
     }
 
     if selected_item.source_file.file_type == SourceFileType::Image {
@@ -354,6 +381,7 @@ fn stream_view_of(
     projection_design: &PresentationDesign,
     projection_slides: &[Slide],
     projection_settings: &SlideSettings,
+    tag_mappings: &[TagMapping],
 ) -> (Option<PresentationDesign>, Option<Vec<Slide>>, Vec<usize>) {
     // A design that happens to be the projection's is not a difference, and
     // recording it as one would put a second preview in the presenter console
@@ -389,7 +417,7 @@ fn stream_view_of(
         return (design, None, Vec::new());
     }
 
-    match create_presentation_slides(selected_item, &settings) {
+    match create_presentation_slides(selected_item, &settings, tag_mappings) {
         Ok(slides) if !slides.is_empty() => {
             let map = map_slides(projection_slides, &slides);
             (design, Some(slides), map)
@@ -413,6 +441,7 @@ pub fn build_presentation(
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
     stream_defaults: &StreamDefaults,
+    tag_mappings: &[TagMapping],
 ) -> Option<RunningPresentation> {
     let mut presentation: Vec<SlideChapter> = vec![];
 
@@ -427,7 +456,7 @@ pub fn build_presentation(
             .clone()
             .unwrap_or(default_slide_settings.clone());
 
-        match create_presentation_slides(selected_item, &used_slide_settings) {
+        match create_presentation_slides(selected_item, &used_slide_settings, tag_mappings) {
             Ok(slides) => {
                 let (stream_design, stream_slides, stream_slide_map) = stream_view_of(
                     selected_item,
@@ -435,6 +464,7 @@ pub fn build_presentation(
                     &used_presentation_design,
                     &slides,
                     &used_slide_settings,
+                    tag_mappings,
                 );
                 presentation.push(SlideChapter {
                     id: Uuid::new_v4(),
@@ -470,6 +500,7 @@ pub fn add_presentation(
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
     stream_defaults: &StreamDefaults,
+    tag_mappings: &[TagMapping],
 ) -> Option<usize> {
     // Right now, we only allow one running presentation at the same time.
     // Later, Cantara is going to support multiple presentations.
@@ -482,6 +513,7 @@ pub fn add_presentation(
         default_presentation_design,
         default_slide_settings,
         stream_defaults,
+        tag_mappings,
     ) {
         running_presentations
             .write()
@@ -498,6 +530,7 @@ pub fn create_single_item_presentation(
     selected_item: &SelectedItemRepresentation,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
+    tag_mappings: &[TagMapping],
 ) -> RunningPresentation {
     let used_presentation_design = selected_item
         .presentation_design_option
@@ -509,7 +542,7 @@ pub fn create_single_item_presentation(
         .clone()
         .unwrap_or(default_slide_settings.clone());
 
-    let slides = create_presentation_slides(selected_item, &used_slide_settings)
+    let slides = create_presentation_slides(selected_item, &used_slide_settings, tag_mappings)
         .unwrap_or_default();
 
     let chapter = SlideChapter {
@@ -579,6 +612,7 @@ fn apply_presentation_update(
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
     stream_defaults: &StreamDefaults,
+    tag_mappings: &[TagMapping],
 ) -> RunningPresentation {
     // Remember current position for restoration
     let old_position = old_rp.position.clone();
@@ -631,7 +665,7 @@ fn apply_presentation_update(
             .clone()
             .unwrap_or(default_slide_settings.clone());
 
-        match create_presentation_slides(selected_item, &used_slide_settings) {
+        match create_presentation_slides(selected_item, &used_slide_settings, tag_mappings) {
             Ok(slides) => {
                 // Carry the old UUID for this content fingerprint (FIFO within
                 // identical fingerprints) so we can restore the viewing position.
@@ -648,6 +682,7 @@ fn apply_presentation_update(
                     &used_presentation_design,
                     &slides,
                     &used_slide_settings,
+                    tag_mappings,
                 );
 
                 new_chapters.push(SlideChapter {
@@ -725,6 +760,7 @@ pub fn update_presentation(
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
     stream_defaults: &StreamDefaults,
+    tag_mappings: &[TagMapping],
 ) {
     // Must have a running presentation to update
     let Some(old_rp) = running_presentations.peek().first().cloned() else {
@@ -737,6 +773,7 @@ pub fn update_presentation(
         default_presentation_design,
         default_slide_settings,
         stream_defaults,
+        tag_mappings,
     );
 
     // Update the running presentation in-place (preserves window state)
@@ -834,7 +871,7 @@ mod tests {
         };
 
         let slides =
-            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x").unwrap();
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x", &[]).unwrap();
 
         for (index, slide) in slides.iter().enumerate() {
             if let SlideContent::Complex(complex) = &slide.slide_content {
@@ -859,6 +896,52 @@ mod tests {
         }
     }
 
+    /// The point of the whole tag mapping: a template asking for a name this
+    /// collection does not use still fills.
+    ///
+    /// `Amazing Grace.song.yml` records `author` and has no `composer`, so
+    /// `{{composer}}` renders empty — until a mapping says the one may be read
+    /// as the other.
+    #[test]
+    fn a_tag_mapping_fills_a_template_the_song_cannot() {
+        use crate::logic::tag_mapping::TagMapping;
+        use cantara_songlib::slides::ShowMetaInformation;
+
+        let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
+        let settings = SlideSettings {
+            meta_syntax: "{{composer}}".to_string(),
+            show_meta_information: ShowMetaInformation::all(),
+            ..SlideSettings::default()
+        };
+
+        let without =
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x", &[])
+                .unwrap();
+        assert!(
+            !serde_json::to_string(&without).unwrap().contains("John Newton"),
+            "the song has no composer, so nothing should have been rendered"
+        );
+
+        let with = slides_from_song_content(
+            &content,
+            "Amazing Grace.song.yml",
+            &settings,
+            "x",
+            &[TagMapping::new("author", "composer")],
+        )
+        .unwrap();
+        assert!(
+            serde_json::to_string(&with).unwrap().contains("John Newton"),
+            "the mapping did not reach the slides"
+        );
+
+        // And the file it was read from says what it always said.
+        assert_eq!(
+            content,
+            std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap()
+        );
+    }
+
     /// The meta information template configured in the slide settings has to
     /// reach the finished slides — it was never rendered before, and the
     /// settings were never persisted either.
@@ -878,7 +961,7 @@ mod tests {
         };
 
         let slides =
-            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x").unwrap();
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x", &[]).unwrap();
 
         let carrying = slides.iter().filter(|slide| slide.has_meta_text()).count();
         assert!(carrying > 0, "no slide carries the meta information");
@@ -895,7 +978,7 @@ mod tests {
             ..settings
         };
         let slides =
-            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x").unwrap();
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x", &[]).unwrap();
         assert_eq!(slides.iter().filter(|slide| slide.has_meta_text()).count(), 0);
     }
 
@@ -917,7 +1000,7 @@ mod tests {
         };
 
         let simple =
-            slides_from_song_content(&content, "Amazing Grace.song.yml", &base, "x").unwrap();
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &base, "x", &[]).unwrap();
         assert!(simple.iter().all(|slide| !matches!(
             slide.slide_content,
             SlideContent::Complex(_)
@@ -931,7 +1014,7 @@ mod tests {
             ..base
         };
         let complex =
-            slides_from_song_content(&content, "Amazing Grace.song.yml", &complex_settings, "x")
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &complex_settings, "x", &[])
                 .unwrap();
         assert!(
             complex
@@ -959,7 +1042,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
         };
-        assert!(create_presentation_slides(&select_item, &SlideSettings::default()).is_ok());
+        assert!(create_presentation_slides(&select_item, &SlideSettings::default(), &[]).is_ok());
     }
 
     /// A song the projection divides two lines at a time and the stream four.
@@ -986,7 +1069,8 @@ mod tests {
                 design: None,
                 slide_settings: Some(stream),
             },
-        )
+                    &[],
+)
         .expect("a presentation");
         let chapter = &rp.presentation[0];
 
@@ -1042,7 +1126,8 @@ mod tests {
                 design: None,
                 slide_settings: Some(settings.clone()),
             },
-        )
+                    &[],
+)
         .expect("a presentation");
 
         assert!(rp.presentation[0].stream_slides.is_none());
@@ -1073,7 +1158,8 @@ mod tests {
                     ..SlideSettings::default()
                 }),
             },
-        )
+                    &[],
+)
         .expect("a presentation");
 
         let chapter = &rp.presentation[0];
@@ -1105,7 +1191,8 @@ mod tests {
                 design: None,
                 slide_settings: Some(three_lines_at_a_time),
             },
-        )
+                    &[],
+)
         .expect("a presentation");
         let chapter = &rp.presentation[0];
 
@@ -1177,7 +1264,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
         };
-        let result = create_presentation_slides(&select_item, &SlideSettings::default());
+        let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
         let slides = result.unwrap();
         // Example.pdf has 1 page, so 1 slide
@@ -1211,7 +1298,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
         };
-        let result = create_presentation_slides(&select_item, &SlideSettings::default());
+        let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
         let slides = result.unwrap();
         // MultiPage.pdf has 3 pages, so 3 slides
@@ -1243,7 +1330,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
         };
-        let result = create_presentation_slides(&select_item, &SlideSettings::default());
+        let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
         let slides = result.unwrap();
         assert_eq!(slides.len(), 1);
@@ -1271,7 +1358,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
         };
-        let result = create_presentation_slides(&select_item, &SlideSettings::default());
+        let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
         let slides = result.unwrap();
         // example.md has 3 sections separated by ---
@@ -1386,7 +1473,8 @@ mod tests {
             &design,
             &settings,
             &StreamDefaults::default(),
-        );
+                    &[],
+);
         rp.expect("build_presentation should succeed for inline markdown items")
     }
 
@@ -1415,7 +1503,8 @@ mod tests {
             &PresentationDesign::default(),
             &SlideSettings::default(),
             &StreamDefaults::default(),
-        );
+                    &[],
+);
 
         let pos = updated.position.expect("position should survive regeneration");
         assert_eq!(pos.chapter(), 1, "chapter index should be preserved");
@@ -1446,7 +1535,8 @@ mod tests {
             &PresentationDesign::default(),
             &SlideSettings::default(),
             &StreamDefaults::default(),
-        );
+                    &[],
+);
 
         let pos = updated.position.expect("position should still exist");
         assert_eq!(pos.chapter(), 0, "still in chapter 0");
@@ -1478,7 +1568,8 @@ mod tests {
             &PresentationDesign::default(),
             &SlideSettings::default(),
             &StreamDefaults::default(),
-        );
+                    &[],
+);
 
         let pos = updated.position.expect("position should survive reorder");
         // item_two is now chapter 0; user should still be on its slide 1
@@ -1509,7 +1600,8 @@ mod tests {
             &PresentationDesign::default(),
             &SlideSettings::default(),
             &StreamDefaults::default(),
-        );
+                    &[],
+);
 
         let pos = updated.position.expect("position should fall back, not be None");
         assert_eq!(pos.chapter(), 0, "should fall back to first chapter");

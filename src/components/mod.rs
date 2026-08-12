@@ -54,6 +54,9 @@ pub mod selection_components;
 
 pub mod detail_components;
 
+/// Creating an element, and moving one between repositories.
+pub mod element_creation;
+
 pub mod presentation_components;
 
 pub mod presentation_design_settings_components;

@@ -116,6 +116,33 @@ settings:
   presentation_description:
     en: Setup how the presentation should look like. Click on one of the presentation designs below to adjust its settings, or create a new one.
     de: Hier kann eingestellt werden, wie die Präsentation aussehen soll. Klicken Sie dazu auf eines der Präsentationsdesigns oder legen Sie ein neues an.
+  tag_mapping_headline:
+    en: Tag mapping
+    de: Tag-Zuordnung
+  tag_mapping_description:
+    en: "Songs from different collections call the same thing by different names. A rule lets Cantara read one name as another when it builds the slides — for example a song recording an \"author\" also answers to \"composer\". Nothing in your files is changed, and removing a rule undoes it."
+    de: "Lieder aus verschiedenen Sammlungen benennen dasselbe unterschiedlich. Eine Regel lässt Cantara beim Erzeugen der Folien einen Namen als einen anderen lesen — ein Lied mit \"author\" antwortet dann auch auf \"composer\". An den Dateien ändert sich nichts, und das Entfernen einer Regel macht sie rückgängig."
+  tag_mapping_empty:
+    en: No rules yet. Songs are read exactly as their files are written.
+    de: Noch keine Regeln. Lieder werden genau so gelesen, wie ihre Dateien geschrieben sind.
+  tag_mapping_from:
+    en: Name in the file
+    de: Name in der Datei
+  tag_mapping_to:
+    en: Read as
+    de: Gelesen als
+  tag_mapping_add:
+    en: Add rule
+    de: Regel hinzufügen
+  tag_mapping_remove:
+    en: Remove rule
+    de: Regel entfernen
+  tag_mapping_incomplete:
+    en: Both names are needed before this rule does anything.
+    de: Diese Regel wirkt erst, wenn beide Namen ausgefüllt sind.
+  tag_mapping_circular:
+    en: A name cannot be read as itself.
+    de: Ein Name kann nicht als er selbst gelesen werden.
   stream_headline:
     en: Network streaming
     de: Netzwerk-Übertragung

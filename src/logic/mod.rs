@@ -68,6 +68,14 @@ pub mod sourcefiles;
 pub mod bundled_repos;
 
 pub mod detail;
+/// Reading one source's tag names as another's, without changing a file.
+pub mod tag_mapping;
+/// Making a song out of text somebody pasted in.
+pub mod song_text;
+/// Putting a file into a repository, and moving it between them.
+/// A browser has no folders to move anything between.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod repository_files;
 /// Where the translations live, and what keeps every one of them findable.
 pub mod localisation;
 /// The second reading of the same service: what the network stream shows.

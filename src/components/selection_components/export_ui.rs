@@ -424,6 +424,7 @@ pub(crate) fn ExportMenu(
             // An export is the projection on paper. What the phones were shown
             // has no bearing on it.
             &crate::logic::stream_view::StreamDefaults::default(),
+            &settings.read().tag_mappings,
         )
         .map(|presentation| {
             let slides: Vec<_> = presentation
@@ -480,6 +481,7 @@ pub(crate) fn ExportMenu(
             // An export is the projection on paper. What the phones were shown
             // has no bearing on it.
             &crate::logic::stream_view::StreamDefaults::default(),
+            &settings.read().tag_mappings,
         )
         .map(|presentation| {
             let slides: Vec<_> = presentation

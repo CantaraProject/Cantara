@@ -601,6 +601,7 @@ mod tests {
             file_name,
             settings,
             "fallback",
+            &[],
         )
         .unwrap()
     }

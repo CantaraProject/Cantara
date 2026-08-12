@@ -494,6 +494,7 @@ fn DetailFooter() -> Element {
                     }
                     span { class: "desktop-only", {t!("settings.settings_button").to_string()} }
                 }
+                crate::components::element_creation::NewElementButton {}
                 ViewModeToggle {}
             }
         }
@@ -600,6 +601,13 @@ fn DetailPane(subject: DetailSubject) -> Element {
                 }
             }
         }
+
+        // Which repository this element belongs to, and the way to change it.
+        // Shown for every element and not only the editable ones: a picture and
+        // a PDF live in a repository exactly as a song does, and moving one is
+        // the same job. It folds itself away, so it costs a line to someone who
+        // only opened the element to read it.
+        crate::components::element_creation::RepositoryPicker { file: file.clone() }
 
         if tabs.len() > 1 && mode() == DetailMode::View {
             div { class: "detail-tabs", role: "group",
@@ -1148,7 +1156,7 @@ fn AddPartButton(song: Song, on_changed: EventHandler<Song>) -> Element {
 /// The common ones get a translated name; anything else keeps the key the file
 /// used, because a song may carry tags Cantara knows nothing about and dropping
 /// them would lose information the author put there on purpose.
-fn tag_label(key: &str) -> String {
+pub fn tag_label(key: &str) -> String {
     let translated = match key.to_lowercase().as_str() {
         "author" => Some("detail.tag_author"),
         "composer" => Some("detail.tag_composer"),

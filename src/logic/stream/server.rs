@@ -876,7 +876,8 @@ mod tests {
                     ..SlideSettings::default()
                 }),
             },
-        )
+                    &[],
+)
         .expect("a presentation");
 
         // Two slide changes on the wall, which is one on the phones.

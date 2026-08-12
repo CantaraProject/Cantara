@@ -48,6 +48,69 @@ detail:
   picture_unreadable:
     en: This picture cannot be read.
     de: Dieses Bild kann nicht gelesen werden.
+  new_element:
+    en: New element
+    de: Neues Element
+  new_needs_writable_repository:
+    en: A local repository that can be written to is needed to create anything.
+    de: Zum Anlegen wird ein lokales Repository benötigt, in das geschrieben werden kann.
+  new_title:
+    en: Title
+    de: Titel
+  new_repository:
+    en: Repository
+    de: Repository
+  new_create:
+    en: Create
+    de: Anlegen
+  new_paste_label:
+    en: Paste the song text here (optional)
+    de: Liedtext hier einfügen (optional)
+  new_paste_placeholder:
+    en: "Paste the text you copied, for example from hymnary.org. Cantara looks for the title, the verses and a refrain."
+    de: "Fügen Sie den kopierten Text ein, etwa von hymnary.org. Cantara sucht darin Titel, Strophen und einen Kehrvers."
+  new_paste_found:
+    en: What was found
+    de: Was gefunden wurde
+  new_paste_nothing_found:
+    en: Nothing recognisable yet. The text becomes a single verse, which can be divided in the editor.
+    de: Noch nichts Erkennbares. Der Text wird eine einzelne Strophe, die sich im Editor aufteilen lässt.
+  repository_section:
+    en: Repository
+    de: Repository
+  repository_target:
+    en: Move or copy to
+    de: Verschieben oder kopieren nach
+  repository_move:
+    en: Move
+    de: Verschieben
+  repository_copy:
+    en: Copy
+    de: Kopieren
+  repository_moved:
+    en: Moved.
+    de: Verschoben.
+  repository_copied:
+    en: Copied.
+    de: Kopiert.
+  new_song:
+    en: Song
+    de: Lied
+  new_markdown:
+    en: Markdown document
+    de: Markdown-Dokument
+  file_error_io:
+    en: "%{name} could not be written: %{reason}"
+    de: "%{name} konnte nicht geschrieben werden: %{reason}"
+  file_error_no_free_name:
+    en: No free file name was left for %{name}.
+    de: Für %{name} war kein freier Dateiname mehr übrig.
+  file_error_not_a_file:
+    en: "%{name} is not a file that can be moved."
+    de: "%{name} ist keine Datei, die sich verschieben lässt."
+  file_error_already_there:
+    en: The file is already in that repository.
+    de: Die Datei liegt bereits in diesem Repository.
   tag_author:
     en: Author
     de: Autor

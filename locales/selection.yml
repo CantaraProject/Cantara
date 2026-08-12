@@ -97,6 +97,7 @@ selection:
       max_lines_note:
         en: "The line wrap follows the presentation: a streamed slide holds a whole number of the projected ones. %{chosen} becomes %{used} lines."
         de: "Der Zeilenumbruch richtet sich nach der Präsentation: Eine über das Netzwerk übertragene Folie enthält ein ganzes Vielfaches der projizierten. Aus %{chosen} werden %{used} Zeilen."
+      max_lines_dropped:
         en: "The presentation shows whole verses, so the stream does too — there is nothing for its line wrap to be a multiple of."
         de: "Die Präsentation zeigt ganze Strophen, daher tut es die Übertragung auch — es gibt nichts, wovon ihr Zeilenumbruch ein Vielfaches sein könnte."
     timer:

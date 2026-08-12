@@ -1399,3 +1399,136 @@ div.inline-div {
     color: var(--pico-muted-color);
     font-style: italic;
 }
+
+/* ── Tag mapping ─────────────────────────────────────────────────────────── */
+/* One rule per row: the name a file uses, an arrow, the name it is read as,
+   and the button that removes it. The row wraps on a narrow window rather than
+   squeezing the two fields, because a tag name typed into the wrong one is a
+   rule that silently does nothing. */
+.tag-mapping-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.tag-mapping-row label {
+    flex: 1 1 12rem;
+    margin-bottom: 0;
+}
+
+.tag-mapping-row input {
+    margin-bottom: 0;
+}
+
+/* Sits on the baseline of the two fields rather than of their labels. */
+.tag-mapping-arrow {
+    padding-bottom: 0.6rem;
+    color: var(--pico-muted-color);
+}
+
+.tag-mapping-row button {
+    width: auto;
+    margin-bottom: 0;
+}
+
+.tag-mapping-problem {
+    margin: -0.25rem 0 0.75rem 0;
+    font-size: 0.85em;
+    color: var(--pico-del-color, #b3261e);
+}
+
+/* ── Creating an element ─────────────────────────────────────────────────── */
+.new-element-modal label {
+    display: block;
+}
+
+.new-element-modal textarea {
+    font-family: var(--pico-font-family-monospace, monospace);
+    font-size: 0.9em;
+}
+
+/* What the pasted text was read as. A summary to glance at before saving,
+   which is why the verses are one line each rather than in full. */
+.new-element-guess {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    background: var(--pico-card-sectioning-background-color);
+}
+
+.new-element-guess h4 {
+    margin-bottom: 0.5rem;
+    font-size: 0.95em;
+}
+
+.new-element-guess ul {
+    margin: 0;
+    padding-left: 1.1rem;
+}
+
+.new-element-guess li {
+    margin-bottom: 0.15rem;
+}
+
+/* The first line of the verse, next to its heading. It is there to recognise
+   the verse by, so it gives way rather than wrapping the row. */
+.new-element-guess-line {
+    margin-left: 0.5rem;
+    color: var(--pico-muted-color);
+    font-size: 0.9em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.new-element-guess-tags {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.9em;
+}
+
+.new-element-guess-tags dt {
+    font-weight: bold;
+}
+
+.new-element-guess-tags dd {
+    margin: 0 0 0.25rem 0;
+}
+
+.new-element-guess-empty,
+.new-element-error {
+    font-size: 0.9em;
+    color: var(--pico-del-color, #b3261e);
+}
+
+/* ── Which repository an element is in ───────────────────────────────────── */
+/* Folded away by default: most visits to an element are to read it. */
+.repository-picker {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.9em;
+}
+
+.repository-picker summary {
+    color: var(--pico-muted-color);
+    cursor: pointer;
+}
+
+.repository-picker select {
+    margin-bottom: 0.5rem;
+}
+
+.repository-picker-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.repository-picker-actions button {
+    width: auto;
+    margin-bottom: 0;
+}
+
+.repository-picker-message {
+    margin: 0.5rem 0 0 0;
+    color: var(--pico-muted-color);
+}
