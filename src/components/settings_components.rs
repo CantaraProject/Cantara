@@ -5,6 +5,7 @@ use super::shared_components::{
     DeleteIcon, EditIcon, PresentationDesignSelector, js_message_box, js_yes_no_box, translate,
 };
 use crate::logic::sourcefiles::SourceFile;
+use crate::logic::tag_mapping::TagMapping;
 use super::song_slide_settings_components::SongSlideSettingsSection;
 #[cfg(feature = "desktop")]
 use crate::logic::screens::{MonitorInfo, enumerate_monitors};
@@ -102,7 +103,106 @@ fn SettingsContent() -> Element {
         SongSlideSettingsSection {
             song_slide_settings
         }
+        hr {}
+        TagMappingSection {}
         StreamSettingsSection {}
+    }
+}
+
+/// Reading one collection's tag names as another's.
+///
+/// Sits after the slide settings because that is where the names it talks
+/// about are used: the meta line of a slide is a template asking for tags by
+/// name, and this is what decides which names a song answers to. See
+/// [`crate::logic::tag_mapping`] for what a rule does and, just as
+/// importantly, what it does not do — no file is ever changed.
+#[component]
+fn TagMappingSection() -> Element {
+    let mut settings = use_settings();
+    let mappings = use_memo(move || settings.read().tag_mappings.clone());
+
+    rsx! {
+        hgroup {
+            h3 { { t!("settings.tag_mapping_headline").to_string() } }
+            p { { t!("settings.tag_mapping_description").to_string() } }
+        }
+        article {
+            class: "listed-article",
+
+            if mappings().is_empty() {
+                p {
+                    style: "color: var(--pico-muted-color);",
+                    { t!("settings.tag_mapping_empty").to_string() }
+                }
+            }
+
+            for (index, mapping) in mappings().into_iter().enumerate() {
+                div {
+                    key: "{index}",
+                    class: "tag-mapping-row",
+
+                    label {
+                        { t!("settings.tag_mapping_from").to_string() }
+                        input {
+                            r#type: "text",
+                            value: "{mapping.from}",
+                            placeholder: "author",
+                            oninput: move |event| {
+                                if let Some(rule) = settings.write().tag_mappings.get_mut(index) {
+                                    rule.from = event.value();
+                                }
+                                settings.read().save();
+                            },
+                        }
+                    }
+
+                    span { class: "tag-mapping-arrow", "→" }
+
+                    label {
+                        { t!("settings.tag_mapping_to").to_string() }
+                        input {
+                            r#type: "text",
+                            value: "{mapping.to}",
+                            placeholder: "composer",
+                            oninput: move |event| {
+                                if let Some(rule) = settings.write().tag_mappings.get_mut(index) {
+                                    rule.to = event.value();
+                                }
+                                settings.read().save();
+                            },
+                        }
+                    }
+
+                    button {
+                        class: "outline secondary",
+                        title: t!("settings.tag_mapping_remove").to_string(),
+                        onclick: move |_| {
+                            settings.write().tag_mappings.remove(index);
+                            settings.read().save();
+                        },
+                        DeleteIcon {}
+                    }
+                }
+
+                // A rule that is still being typed is marked rather than
+                // refused: it simply does not take effect until it is whole.
+                if let Some(problem) = mapping.problem() {
+                    p {
+                        class: "tag-mapping-problem",
+                        { translate(problem, &[]) }
+                    }
+                }
+            }
+
+            button {
+                class: "outline",
+                onclick: move |_| {
+                    settings.write().tag_mappings.push(TagMapping::default());
+                    settings.read().save();
+                },
+                { t!("settings.tag_mapping_add").to_string() }
+            }
+        }
     }
 }
 

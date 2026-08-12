@@ -864,6 +864,8 @@ fn preview_slides(slide_settings: &SlideSettings) -> Vec<Slide> {
         "Amazing Grace.song",
         slide_settings,
         "Amazing Grace",
+        // A classic `.song` carries no tags, so there is nothing to map.
+        &[],
     )
     .unwrap_or_default()
 }

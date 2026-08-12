@@ -280,6 +280,10 @@ fn App() -> Element {
     // that the detail view — which re-mounts every time an element is opened,
     // since that writes the address — does not throw it away. It starts on
     // whatever the user has dragged to the top of the sidebar.
+    // Something that changes a file in a watched folder — the editor — asks
+    // for a fresh scan through this.
+    let library_refresh = use_context_provider(states::LibraryRefresh::new);
+
     use_context_provider(|| states::LibraryFilterState {
         active: Signal::new(states::first_sidebar_type(
             &settings.peek().sidebar_order,
@@ -381,6 +385,9 @@ fn App() -> Element {
 
     use_effect(move || {
         let repositories = repositories();
+        // Subscribes this scan to the editor's requests as well; the value
+        // itself means nothing beyond "something changed on disk".
+        let _ = library_refresh.generation();
 
         // A scan takes seconds on a large library, so a second one can start
         // while the first is still running. Each claims a generation and only

@@ -2,6 +2,7 @@
 
 use crate::logic::css::{CssFontFamily, CssString};
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
+use crate::logic::tag_mapping::TagMapping;
 // The directory scan and the paths it works on exist on the desktop only; the
 // web build reads its repositories from an in-memory VFS instead.
 #[cfg(not(target_arch = "wasm32"))]
@@ -128,6 +129,17 @@ pub struct Settings {
     /// keeping.
     #[serde(default)]
     pub stream: StreamSettings,
+
+    /// Tag names this installation reads as other tag names.
+    ///
+    /// A library grown from several collections calls the same thing by
+    /// several names, and a meta line asking for `{{composer}}` stays empty
+    /// for the files that say `author`. These rules close that gap at the
+    /// moment the slides are built — no file is touched, and a rule removed
+    /// here leaves everything exactly as it was. See
+    /// [`crate::logic::tag_mapping`].
+    #[serde(default)]
+    pub tag_mappings: Vec<TagMapping>,
 }
 
 /// What the streaming server is set up to do, when it is switched on.
@@ -288,6 +300,7 @@ impl Default for Settings {
             presenter_console_grid_size: default_presenter_console_grid_size(),
             sidebar_order: default_sidebar_order(),
             show_design_preview: default_show_design_preview(),
+            tag_mappings: Vec::new(),
         }
     }
 }

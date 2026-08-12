@@ -104,6 +104,12 @@ File formats:
   and its fonts) or a single slide division (`.cantara-slides.json`) to somebody
   else.
 
+Configuration:
+
+- [`docs/tag-mapping.md`](docs/tag-mapping.md): reading one collection's tag
+  names as another's, so that a meta line asking for `{{composer}}` still fills
+  for a song whose file says `author`. No file is changed by it.
+
 ## Implementation Status
 
 As this is a rewrite, the implementation status is not directly comparable to the original Cantara repository. The following table shows the features that are currently implemented or planned for this version:

@@ -4,7 +4,7 @@ use crate::components::presentation_components::{
     PresentationRendererComponent, PresentationRole,
 };
 use crate::logic::presentation::{create_amazing_grace_presentation, create_single_item_presentation};
-use crate::logic::settings::{CssSize, PresentationDesign};
+use crate::logic::settings::{CssSize, PresentationDesign, use_settings};
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
 use cantara_songlib::slides::SlideSettings;
 use dioxus::logger::tracing;
@@ -230,10 +230,14 @@ pub fn SelectedItemPreview(
         .as_ref()
         .map(|t| t.timer_seconds);
 
+    // The preview is what the audience will see, so it reads the song by
+    // the same rules the presentation will — tag mappings included.
+    let settings = use_settings();
     let presentation = create_single_item_presentation(
         &selected_item,
         &default_presentation_design,
         &default_slide_settings,
+        &settings.read().tag_mappings,
     );
 
     let mut presentation_signal = use_signal(|| presentation.clone());

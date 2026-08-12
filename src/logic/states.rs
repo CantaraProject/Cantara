@@ -4,7 +4,7 @@
 //! navigation behavior. Persistent application configuration is implemented in
 //! [`crate::logic::settings`].
 
-use dioxus::prelude::Signal;
+use dioxus::prelude::{ReadableExt, Signal, WritableExt};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -47,6 +47,48 @@ pub struct InitialRouteState {
 #[derive(Clone, Copy)]
 pub struct LibraryFilterState {
     pub active: Signal<SelectionSidebarType>,
+}
+
+/// Asks for the library to be read again.
+///
+/// The scan reacts to the configured repositories, which is right for the case
+/// it was built for: a folder is added, so its files appear. It cannot see a
+/// change *inside* a folder, and there is now one thing that makes those — the
+/// editor, which creates files and moves them between repositories. A song
+/// written into a folder that Cantara is already watching would otherwise not
+/// show up until the program was restarted.
+///
+/// A counter rather than a flag: two operations in quick succession each move
+/// it, and nothing has to reset it.
+#[derive(Clone, Copy)]
+pub struct LibraryRefresh {
+    generation: Signal<u64>,
+}
+
+impl LibraryRefresh {
+    /// Builds the trigger. There is one, provided at the top of the program.
+    pub fn new() -> LibraryRefresh {
+        LibraryRefresh {
+            generation: Signal::new(0),
+        }
+    }
+
+    /// Reads the counter, which is how the scan subscribes to it.
+    pub fn generation(&self) -> u64 {
+        (self.generation)()
+    }
+
+    /// Asks for a fresh scan.
+    pub fn request(&mut self) {
+        let next = *self.generation.peek() + 1;
+        self.generation.set(next);
+    }
+}
+
+impl Default for LibraryRefresh {
+    fn default() -> Self {
+        LibraryRefresh::new()
+    }
 }
 
 /// The kind of element the library list starts on: whichever the user has put

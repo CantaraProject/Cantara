@@ -104,6 +104,9 @@ pub fn Selection() -> Element {
         crate::logic::stream_view::StreamDefaults::of(&settings.read())
     });
 
+    // The installation's tag reading rules, which the slides are built with.
+    let tag_mappings_memo = use_memo(move || settings.read().tag_mappings.clone());
+
     let wizard_completed = use_memo(move || settings.read().wizard_completed);
 
     use_effect(move || {
@@ -207,6 +210,7 @@ pub fn Selection() -> Element {
                                 &default_presentation_design_memo(),
                                 &default_song_slide_settings_memo(),
                                 &stream_defaults_memo(),
+                                &tag_mappings_memo(),
                             );
                         },
                         {t!("selection.update_presentation").to_string()}
@@ -223,6 +227,7 @@ pub fn Selection() -> Element {
                                     &default_presentation_design_memo(),
                                     &default_song_slide_settings_memo(),
                                     &stream_defaults_memo(),
+                                    &tag_mappings_memo(),
                                 );
                                 nav.push(crate::Route::PresenterConsolePage {});
                             },
@@ -412,6 +417,7 @@ pub fn Selection() -> Element {
                                     &default_presentation_design_memo(),
                                     &default_song_slide_settings_memo(),
                                     &stream_defaults_memo(),
+                                    &tag_mappings_memo(),
                                 );
                                 if settings.read().presenter_console_in_main_window
                                     && settings.read().show_presenter_console
@@ -468,6 +474,7 @@ fn start_presentation(
         default_presentation_design,
         default_slide_settings,
         stream_defaults,
+        &settings_read.tag_mappings,
     )
     .is_some()
     {
@@ -585,6 +592,7 @@ fn start_presentation(
         default_presentation_design,
         default_slide_settings,
         stream_defaults,
+        &settings_read.tag_mappings,
     ) else {
         return;
     };
