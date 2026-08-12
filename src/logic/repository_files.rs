@@ -64,10 +64,27 @@ impl NewFileKind {
     /// person would type first anyway.
     pub fn initial_content(self, title: &str) -> String {
         match self {
-            NewFileKind::Song => format!("version: 0.1\ntitle: {title}\nparts: []\n"),
+            NewFileKind::Song => format!(
+                "version: 0.1\ntitle: {}\nparts: []\n",
+                yaml_string(title)
+            ),
             NewFileKind::Markdown => format!("# {title}\n"),
         }
     }
+}
+
+/// A title as a YAML scalar that means exactly the title.
+///
+/// Written plainly, `title: Psalm 23: The Lord is my shepherd` is not valid
+/// YAML at all, and a song called `#1` or one holding a quote or a line break
+/// is read as something else. The file would be written and then refuse to
+/// open — the one moment a user has no reason to suspect their own title.
+///
+/// The escaping is `serde_json`'s. A YAML 1.2 double-quoted scalar uses the
+/// same escapes as a JSON string, so a JSON string *is* one; borrowing the
+/// encoder is safer than writing a fourth one by hand.
+fn yaml_string(title: &str) -> String {
+    serde_json::to_string(title).unwrap_or_else(|_| "\"\"".to_string())
 }
 
 /// Why a file could not be created, moved or copied.
@@ -261,6 +278,36 @@ mod tests {
         let song = crate::logic::export::song_from_content("X.song.yml", &content)
             .expect("a new song file has to be readable");
         assert_eq!(song.title, "Amazing Grace");
+    }
+
+    /// A title is whatever the user typed, and YAML gives several ordinary
+    /// characters a meaning. Written plainly, `Psalm 23: The Lord` is not
+    /// valid YAML — the file would be created and then refuse to open.
+    #[test]
+    fn a_title_yaml_would_misread_survives() {
+        for title in [
+            "Psalm 23: The Lord is my shepherd",
+            "#1 in the book",
+            "He said \"peace\"",
+            "Ends with a backslash \\",
+            "A title\nwith a line break",
+            "  leading and trailing  ",
+            "- not a list item",
+            "{braces} and [brackets]",
+            "",
+        ] {
+            let content = NewFileKind::Song.initial_content(title);
+            let song = crate::logic::export::song_from_content("X.song.yml", &content)
+                .unwrap_or_else(|error| {
+                    panic!("{title:?} produced a file that cannot be read: {error:?}\n{content}")
+                });
+
+            // An empty title is filled in from the file name by the reader,
+            // which is the behaviour every other format gets too.
+            if !title.trim().is_empty() {
+                assert_eq!(song.title, title, "the title came back changed");
+            }
+        }
     }
 
     #[test]

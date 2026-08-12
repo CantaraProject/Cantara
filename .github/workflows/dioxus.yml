@@ -9,6 +9,11 @@ on:
   pull_request:
     branches: [master]
 
+env:
+  # The dx that builds this project. Named once so that every job installs the
+  # same one, and kept in step with the `dioxus` version in Cargo.toml.
+  DIOXUS_CLI_VERSION: "0.7.10"
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -30,15 +35,29 @@ jobs:
         uses: cargo-bins/cargo-binstall@main
       - name: Run npm install
         run: npm install
+      # `--locked` is not optional here, and its absence is what broke this job.
+      #
+      # When the prebuilt `dx` cannot be fetched, binstall falls back to
+      # building dioxus-cli from source — and without `--locked` cargo throws
+      # away the version's own lockfile and resolves every dependency to the
+      # newest compatible release. That is how a CI run that changed nothing
+      # here started failing: `git2` 0.21 dropped `Cred::credential_helper`,
+      # `auth-git2` still calls it, and dioxus-cli picked up both. Its lockfile
+      # names the versions the release was built against; `--locked` is what
+      # makes cargo read it.
+      #
+      # The version is pinned for the same reason — so that a new dioxus-cli
+      # cannot arrive on its own between two runs. Keep it in step with the
+      # `dioxus` version in Cargo.toml.
       - name: Install dioxus-cli (macOS)
         if: matrix.os == 'macos-latest'
-        run: cargo install dioxus-cli --locked
+        run: cargo install dioxus-cli --version ${{ env.DIOXUS_CLI_VERSION }} --locked
       - name: Install dioxus-cli (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: cargo binstall -y dioxus-cli
+        run: cargo binstall -y --locked dioxus-cli@${{ env.DIOXUS_CLI_VERSION }}
       - name: Install dioxus-cli (Windows)
         if: matrix.os == 'windows-latest'
-        run: cargo install dioxus-cli --locked
+        run: cargo install dioxus-cli --version ${{ env.DIOXUS_CLI_VERSION }} --locked
       - name: Install dependencies under Linux
         if: matrix.os == 'ubuntu-latest'
         run: |-
@@ -136,8 +155,9 @@ jobs:
         run: npm install
       - name: Install cargo bininstall
         uses: cargo-bins/cargo-binstall@main
+      # Pinned and `--locked`, for the reason given in the `build` job above.
       - name: Install dioxus-cli
-        run: cargo binstall -y dioxus-cli
+        run: cargo binstall -y --locked dioxus-cli@${{ env.DIOXUS_CLI_VERSION }}
       - name: Add Rust Android targets
         run: |
           rustup target add aarch64-linux-android
@@ -150,12 +170,98 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
+
+      # Android refuses to install an APK that carries no signature, and
+      # `assembleRelease` on a project without a signing configuration writes
+      # `app-release-unsigned.apk`. That is what the pipeline was publishing:
+      # a file that builds, uploads and then cannot be installed on a phone.
+      #
+      # The key comes from the repository secrets when they are set. Without
+      # them a key is made here so that the pipeline still produces something
+      # installable — but it is a different key on every run, and Android will
+      # not install an update signed by a different key than the version
+      # already on the device. Set the secrets before handing builds to anyone.
+      - name: Provide a signing key
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYSTORE="${RUNNER_TEMP}/cantara.jks"
+
+          if [ -n "${KEYSTORE_BASE64}" ]; then
+            echo "${KEYSTORE_BASE64}" | base64 --decode > "${KEYSTORE}"
+            echo "alias=${KEY_ALIAS}" >> "$GITHUB_OUTPUT"
+            echo "::add-mask::${KEYSTORE_PASSWORD}"
+            echo "::add-mask::${KEY_PASSWORD}"
+            echo "store_password=${KEYSTORE_PASSWORD}" >> "$GITHUB_OUTPUT"
+            echo "key_password=${KEY_PASSWORD}" >> "$GITHUB_OUTPUT"
+            echo "Signing with the key from the repository secrets."
+          else
+            GENERATED="cantara-ci-$(date +%s)"
+            echo "::add-mask::${GENERATED}"
+            keytool -genkeypair -v \
+              -keystore "${KEYSTORE}" \
+              -alias cantara \
+              -keyalg RSA -keysize 4096 -validity 10000 \
+              -storepass "${GENERATED}" -keypass "${GENERATED}" \
+              -dname "CN=Cantara CI, O=CantaraProject, C=DE"
+            echo "alias=cantara" >> "$GITHUB_OUTPUT"
+            echo "store_password=${GENERATED}" >> "$GITHUB_OUTPUT"
+            echo "key_password=${GENERATED}" >> "$GITHUB_OUTPUT"
+            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret is set, so this APK is signed with a throwaway key. It installs, but it cannot be installed *over* a build signed with any other key."
+          fi
+          echo "keystore=${KEYSTORE}" >> "$GITHUB_OUTPUT"
+
+      - name: Align and sign the APK
+        working-directory: target/dx/cantara/release/android/app/app/build/outputs/apk/release
+        env:
+          KEYSTORE: ${{ steps.signing.outputs.keystore }}
+          KEY_ALIAS: ${{ steps.signing.outputs.alias }}
+          STORE_PASSWORD: ${{ steps.signing.outputs.store_password }}
+          KEY_PASSWORD: ${{ steps.signing.outputs.key_password }}
+        run: |
+          set -euo pipefail
+          TOOLS="${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}"
+
+          # Whatever Gradle called it — `app-release-unsigned.apk` without a
+          # signing config, `app-release.apk` with one.
+          UNSIGNED="$(ls *.apk | head -n 1)"
+          echo "signing ${UNSIGNED}"
+
+          # Alignment has to happen before signing: zipalign rewrites the
+          # archive, which would invalidate a signature already in it.
+          "${TOOLS}/zipalign" -p -f 4 "${UNSIGNED}" aligned.apk
+
+          "${TOOLS}/apksigner" sign \
+            --ks "${KEYSTORE}" \
+            --ks-key-alias "${KEY_ALIAS}" \
+            --ks-pass "pass:${STORE_PASSWORD}" \
+            --key-pass "pass:${KEY_PASSWORD}" \
+            --out cantara-release.apk \
+            aligned.apk
+
+          rm -f aligned.apk "${UNSIGNED}"
+
+      # The check the pipeline was missing. An APK that does not verify here is
+      # one that a phone will refuse, and the job should say so rather than
+      # publish it.
+      - name: Verify the APK is installable
+        working-directory: target/dx/cantara/release/android/app/app/build/outputs/apk/release
+        run: |
+          set -euo pipefail
+          "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}/apksigner" verify \
+            --verbose --print-certs cantara-release.apk
+
       - name: Upload Android artifact
         if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: release-android
-          path: target/dx/cantara/release/android/app/app/build/outputs/apk/release/*.apk
+          path: target/dx/cantara/release/android/app/app/build/outputs/apk/release/cantara-release.apk
           if-no-files-found: error
 
   build-web:
@@ -193,8 +299,9 @@ jobs:
         run: rustup target add wasm32-unknown-unknown
       - name: Install cargo bininstall
         uses: cargo-bins/cargo-binstall@main
+      # Pinned and `--locked`, for the reason given in the `build` job above.
       - name: Install dioxus-cli
-        run: cargo binstall -y dioxus-cli
+        run: cargo binstall -y --locked dioxus-cli@${{ env.DIOXUS_CLI_VERSION }}
       - name: Build web release
         run: dx build --platform web --release
       # GitHub Pages serves files, and Cantara's routes (/detail/<element-id>,

@@ -289,7 +289,23 @@ fn meta_line(line: &str) -> Option<(String, String)> {
 /// result is always usable: text that fits no pattern at all comes back as a
 /// single verse.
 pub fn guess(text: &str) -> Guess {
-    let normalised = text.replace("\r\n", "\n").replace('\r', "\n");
+    // A line holding nothing but spaces or a tab is a blank line to the eye,
+    // and copied text is full of them — a selection dragged across a web page
+    // brings the indentation of the markup with it. Emptying them before the
+    // split is what makes "blank lines separate the blocks" true of the text a
+    // user actually pastes; without it two verses either side of such a line
+    // merge into one.
+    let normalised: String = text
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .lines()
+        .map(|line| match line.trim().is_empty() {
+            true => "",
+            false => line,
+        })
+        .collect::<Vec<&str>>()
+        .join("\n");
+
     let mut result = Guess::default();
 
     // Blocks separated by one or more blank lines.
@@ -529,6 +545,34 @@ mod tests {
         assert!(guess.tags.is_empty(), "{:?}", guess.tags);
         assert_eq!(guess.parts.len(), 1);
         assert!(guess.parts[0].text().starts_with("And this he said"));
+    }
+
+    /// Text copied out of a web page carries the markup's indentation, so the
+    /// line between two verses is very often spaces rather than nothing. To
+    /// the eye it is blank, and it has to separate the blocks like any other.
+    #[test]
+    fn a_separator_line_of_spaces_still_separates() {
+        let guess = guess("1 First verse\n   \n2 Second verse\n\t\n3 Third verse");
+
+        assert_eq!(guess.parts.len(), 3);
+        assert_eq!(guess.parts[0].text(), "First verse");
+        assert_eq!(guess.parts[1].text(), "Second verse");
+        assert_eq!(guess.parts[2].text(), "Third verse");
+    }
+
+    /// The same, where it decides whether a heading is metadata or a verse.
+    #[test]
+    fn whitespace_separators_do_not_merge_metadata_into_a_verse() {
+        let spaced = guess("Amazing Grace\n \nAuthor: John Newton\n \n1 Amazing grace");
+        let empty = guess("Amazing Grace\n\nAuthor: John Newton\n\n1 Amazing grace");
+
+        assert_eq!(spaced, empty);
+        assert_eq!(spaced.title, "Amazing Grace");
+        assert_eq!(
+            spaced.tags.get("author").map(String::as_str),
+            Some("John Newton")
+        );
+        assert_eq!(spaced.parts.len(), 1);
     }
 
     #[test]
