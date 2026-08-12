@@ -66,27 +66,14 @@ pub fn PresentationDesignSelector(
                     class: format!("presentation-design-selector-item {}", if active_item() == Some(index) { "active" } else { "" }),
                     tabindex: index,
                     key: "{index}",
-                    // Every tile is a whole presentation laid out at 1920x1080
-                    // and shrunk with `zoom`. A handful of them is a great deal
-                    // of layout for a page one scrolls past, and it is what
-                    // makes that scrolling stutter where a compositor is not
-                    // doing the work for us.
-                    //
-                    // `content-visibility: auto` lets the engine skip a tile
-                    // that is off screen. The placeholder size is given rather
-                    // than guessed: the tile is as wide as it was asked to be
-                    // and 9:16 of that tall, which is the size it will have
-                    // when it is drawn. Getting that wrong would change the
-                    // page height as tiles come and go — the very thing that
-                    // makes a page jump under the reader.
-                    //
-                    // Where the property is not supported it is ignored, and
-                    // nothing about the page changes.
-                    style: format!(
-                        "content-visibility: auto; contain-intrinsic-size: {}px {}px;",
-                        viewer_width,
-                        viewer_width * 9 / 16,
-                    ),
+                    // There was a `content-visibility: auto` here, to let the
+                    // engine skip a tile that is off screen. It went again once
+                    // the scrolling trouble turned out to be `zoom` rather than
+                    // the cost of the tiles: it only paid off if the declared
+                    // placeholder size matched the real one, and the real one
+                    // follows the design's own resolution. A design that is not
+                    // 16:9 would have changed the page height as its tile came
+                    // into view — the very fault this was meant to help with.
                     SelectablePresentationViewer {
                         presentation: create_amazing_grace_presentation(design, &song_slide_settings()),
                         width: viewer_width,
@@ -143,10 +130,24 @@ pub fn PresentationViewer(
     #[props(default)]
     navigable: bool,
 ) -> Element {
-    // Render at native presentation resolution and scale down to desired width
+    // Rendered at the presentation's own resolution and scaled down to the
+    // width that was asked for.
+    //
+    // The scaling is a `transform` and not `zoom`, which is what it used to be.
+    // `zoom` was the neater of the two: it changes an element's layout size, so
+    // the box simply became the scaled size and nothing around it had to know.
+    // But WebKitGTK — the engine behind the Linux build — re-lays-out a zoomed
+    // subtree as the page scrolls, and each of these is a whole presentation.
+    // That is what made the settings pages stall and then jump while scrolling,
+    // and it is why a preview left at `zoom: 1` scrolled smoothly.
+    //
+    // A `transform` never touches layout, so the cost is paid once. In exchange
+    // the scaled box no longer occupies the space it appears to, and the frame
+    // around it has to state that size — which is what `frame_w`/`frame_h` are.
     let (native_w, native_h) = presentation.presentation_resolution;
-    let zoom_factor = width as f64 / native_w as f64;
-    let zoom_css = format!("zoom: {};", zoom_factor);
+    let scale = width as f64 / native_w as f64;
+    let frame_w = width;
+    let frame_h = (native_h as f64 * scale).round() as usize;
     let css_class = selected.map_or("rounded-corners-inactive", |s| {
         if s {
             "rounded-corners-active"
@@ -166,10 +167,25 @@ pub fn PresentationViewer(
     }
 
     rsx! {
+        // The frame is what the page sees: an empty box of the finished size.
+        // It carries nothing but that size, because everything else has to be
+        // *inside* the scaling to look as it did — the selection border is
+        // 18 pixels at presentation scale, which came out at four and a half.
+        // Left on the frame it would be four times too heavy.
         div {
-            class: format!("{} presentation-preview inline-div", css_class),
-            style: format!("position: relative; width: {}px; height: {}px; {}", native_w, native_h, zoom_css),
+            class: "inline-div",
+            style: format!("position: relative; width: {frame_w}px; height: {frame_h}px;"),
             onclick: move |event| if let Some(onclick_event) = onclick { onclick_event.call(event) },
+            div {
+                // Everything in here is laid out in the presentation's own
+                // pixels, exactly as before — only the way it is shrunk has
+                // changed.
+                class: format!("{} presentation-preview", css_class),
+                style: format!(
+                    "position: absolute; top: 0; left: 0; width: {native_w}px; \
+                     height: {native_h}px; transform: scale({scale}); \
+                     transform-origin: top left;"
+                ),
             PresentationRendererComponent {
                 running_presentation: presentation_signal,
                 role: PresentationRole::Follower,
@@ -185,8 +201,8 @@ pub fn PresentationViewer(
                 // Across the lower third of the preview, and only there while
                 // the pointer is on it — see `.preview-navigation`. Everything
                 // here is sized in the presentation's own pixels, because the
-                // whole preview is scaled down by `zoom`: a 24-pixel button
-                // would come out at five.
+                // preview around it is scaled down: a 24-pixel button would
+                // come out at five.
                 div { class: "preview-navigation",
                     button {
                         r#type: "button",
@@ -211,6 +227,7 @@ pub fn PresentationViewer(
                         "›"
                     }
                 }
+            }
             }
         }
     }
@@ -278,18 +295,30 @@ pub fn SelectedItemPreview(
 
     let total_slides = use_memo(move || presentation_signal.read().total_slides());
 
-    // Render at native presentation resolution and scale down to desired width
+    // The frame at its finished size, with the full-size slide scaled down
+    // inside it. See `PresentationViewer` for why this is a `transform` and
+    // not `zoom`.
     let (native_w, native_h) = presentation.presentation_resolution;
-    let zoom_factor = width as f64 / native_w as f64;
-    let zoom_css = format!("zoom: {};", zoom_factor);
+    let scale = width as f64 / native_w as f64;
+    let frame_w = width;
+    let frame_h = (native_h as f64 * scale).round() as usize;
 
     rsx! {
         div {
+            // The rounding sits on the frame rather than inside the scaling.
+            // It used to be scaled along with everything else, which turned a
+            // requested 8 pixels into two — the corners were as good as square.
             class: "presentation-preview",
             style: format!(
-                "position: relative; width: {}px; height: {}px; cursor: pointer; overflow: hidden; border-radius: 8px; {}",
-                native_w, native_h, zoom_css
+                "position: relative; width: {frame_w}px; height: {frame_h}px; \
+                 cursor: pointer; overflow: hidden; border-radius: 8px;"
             ),
+            div {
+                style: format!(
+                    "position: absolute; top: 0; left: 0; width: {native_w}px; \
+                     height: {native_h}px; transform: scale({scale}); \
+                     transform-origin: top left;"
+                ),
             PresentationRendererComponent {
                 running_presentation: presentation_signal,
                 // It shows what a slide timer does, so it has to run —
@@ -318,6 +347,7 @@ pub fn SelectedItemPreview(
                     style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 20px; z-index: 100;",
                     { format!("{} / {}", current_slide_number() + 1, total_slides()) }
                 }
+            }
             }
         }
     }

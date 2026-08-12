@@ -303,9 +303,8 @@ div.inline-div {
 }
 
 .presentation-design-selector-item {
-    /* Each tile is exactly as wide as the preview inside it — the preview is
-       laid out at presentation size and scaled by `zoom`, so it brings its own
-       width and must not be stretched. */
+    /* Each tile is exactly as wide as the preview inside it — the preview's
+       frame states its own finished size, so it must not be stretched. */
     display: inline-block;
     line-height: 0;
     border-radius: 0.5rem;
@@ -335,22 +334,15 @@ div.inline-div {
 
     .presentation-design-actions {
         margin-top: 0;
-        /* This used to be `position: sticky; top: 1rem` so that the buttons
-           stayed in view while a long list of designs scrolled past.
-           It is gone because it made the page unusable on Linux: scrolling
-           braked at exactly the offset where the element engaged and then went
-           on in jumps. Windows and macOS run on Chromium, which puts a sticky
-           element on a compositing layer of its own; WebKitGTK re-resolves its
-           offset against the scroller on every frame, and here that scroller
-           also holds a presentation laid out at 1920x1080. A convenience is
-           not worth a page that fights the reader. */
+        /* Stays in view while a long list of designs is scrolled past. */
+        position: sticky;
+        top: 1rem;
     }
 }
 
 /* Paging through a preview: across its lower third, and out of the way until
    the pointer is on the preview. Sizes are in the presentation's own pixels,
-   because the preview as a whole is scaled down by `zoom` — see
-   `PresentationViewer`. */
+   because the preview as a whole is scaled down — see `PresentationViewer`. */
 .preview-navigation {
     position: absolute;
     left: 0;
@@ -901,10 +893,14 @@ div.inline-div {
     display: block;
 }
 
-/* The stage shrink-wraps the scaled canvas, so it needs no size of its own:
-   `zoom` changes the canvas's layout size, unlike `transform: scale`. */
+/* The stage is the visible box, at the size the preview actually occupies:
+   1920 x 1080 at a quarter is 480 x 270. It carries the size itself because
+   the canvas inside it no longer has one the page can see — see below. */
 .design-preview-stage {
+    position: relative;
     display: inline-block;
+    width: 480px;
+    height: 270px;
     overflow: hidden;
     border: 1px solid var(--pico-muted-border-color);
     border-radius: var(--pico-border-radius);
@@ -915,13 +911,23 @@ div.inline-div {
 /* The slide renders as `.presentation`, which is absolutely positioned with
    `inset: 0`. It needs a positioned ancestor at presentation size — without
    one it resolves against the page and covers the whole window.
-   Scaling with `zoom` rather than `transform` keeps the layout size in step,
-   so the stage around it needs no dimensions of its own. */
+   
+   Scaled with `transform` and not with `zoom`, which is what this used to say.
+   `zoom` was the tidier of the two on paper: it changes the layout size, so
+   the box around it needed no dimensions. In WebKitGTK — the engine the Linux
+   build runs on — a zoomed subtree is re-laid-out as the page scrolls, and
+   with a whole presentation inside it that made scrolling stall and then jump.
+   `transform` is only ever a paint-time operation, so the cost is paid once.
+   The price is that the scaled box no longer occupies the space it appears to,
+   which is why the stage above states the size. Keep the two in step. */
 .design-preview-canvas {
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 1920px;
     height: 1080px;
-    zoom: 0.25;
+    transform: scale(0.25);
+    transform-origin: top left;
 }
 
 .design-preview-controls {
@@ -976,9 +982,15 @@ div.inline-div {
     }
 
     /* A docked bar is for glancing at, not for studying: 1920 x 0.15 = 288,
-       which fits the narrowest phone and leaves the form most of the screen. */
+       which fits the narrowest phone and leaves the form most of the screen.
+       The stage states the size, the canvas is scaled to it. */
+    .design-editor.preview-open .design-preview-stage {
+        width: 288px;
+        height: 162px;
+    }
+
     .design-editor.preview-open .design-preview-canvas {
-        zoom: 0.15;
+        transform: scale(0.15);
     }
 }
 
@@ -992,9 +1004,10 @@ div.inline-div {
         align-items: start;
     }
 
-    /* Not sticky, for the reason given at `.presentation-design-actions`. */
     .design-editor .design-preview-pane {
         display: block;
+        position: sticky;
+        top: 1rem;
     }
 
     .design-preview-toggle {
