@@ -1,0 +1,71 @@
+# Words and sentences that belong to no one part: the name of a thing,
+# a button that appears everywhere, a question a dialog asks.
+#
+# Every file under `locales/` is read and merged, so this one is
+# reached without being registered anywhere. The version has to be a
+# whole number: `2.0` is read as version 1 and the file silently
+# stops working.
+_version: 2
+general:
+  type:
+    en: Type
+    de: Typ
+  song:
+    en: Song
+    de: Lied
+  picture:
+    en: Picture
+    de: Bild
+  presentation:
+    en: Presentation
+    de: Präsentation
+  video:
+    en: Video
+    de: Video
+  pdf:
+    en: PDF
+    de: PDF
+  markdown:
+    en: Markdown
+    de: Markdown
+  pdf_page:
+    en: "Page %{page}"
+    de: "Seite %{page}"
+  file_path:
+    en: File Path
+    de: Dateipfad
+  title:
+    en: Title
+    de: Titel
+  close:
+    en: Close
+    de: Schließen
+  edit:
+    en: Edit
+    de: Bearbeiten
+  delete:
+    en: Delete
+    de: Löschen
+  cancel:
+    en: Cancel
+    de: Abbrechen
+  meta_information:
+    en: Meta Information
+    de: Metainformationen
+  name:
+    en: Name
+    de: Name
+  description:
+    en: Description
+    de: Beschreibung
+  duplicate:
+    en: Duplicate
+    de: Duplizieren
+
+dialogs:
+  confirm_deletion:
+    en: Are you sure that you would like to delete this element?
+    de: Sind Sie sicher, dass Sie dieses Element löschen möchten?
+  settings_not_saved:
+    en: "The settings could not be saved, so your changes are only kept until Cantara is closed. Reason: %{error}"
+    de: "Die Einstellungen konnten nicht gespeichert werden. Ihre Änderungen bleiben daher nur erhalten, bis Cantara beendet wird. Grund: %{error}"

@@ -1,0 +1,175 @@
+# The detail view: reading and editing one element of the library.
+#
+# Every file under `locales/` is read and merged, so this one is
+# reached without being registered anywhere. The version has to be a
+# whole number: `2.0` is read as version 1 and the file silently
+# stops working.
+_version: 2
+detail:
+  nothing_open:
+    en: Pick an element on the left to look at it.
+    de: Wähle ein Element auf der linken Seite aus, um es anzusehen.
+  tab_text:
+    en: Text
+    de: Text
+  tab_notation:
+    en: Notation
+    de: Noten
+  tab_preview:
+    en: Preview
+    de: Vorschau
+  edit:
+    en: Edit
+    de: Bearbeiten
+  stop_editing:
+    en: Done
+    de: Fertig
+  save:
+    en: Save
+    de: Speichern
+  saved:
+    en: Saved
+    de: Gespeichert
+  parse_failed:
+    en: This song cannot be read yet.
+    de: Dieses Lied kann noch nicht gelesen werden.
+  no_lyrics:
+    en: This part has no lyrics of its own.
+    de: Dieser Teil hat keinen eigenen Text.
+  no_notation:
+    en: "No notation available: %{reason}"
+    de: "Keine Noten verfügbar: %{reason}"
+  default_language:
+    en: Default
+    de: Standard
+  no_write_on_web:
+    en: The web version cannot write files.
+    de: Die Webversion kann keine Dateien schreiben.
+  picture_unreadable:
+    en: This picture cannot be read.
+    de: Dieses Bild kann nicht gelesen werden.
+  tag_author:
+    en: Author
+    de: Autor
+  tag_composer:
+    en: Composer
+    de: Komponist
+  tag_copyright:
+    en: Copyright
+    de: Copyright
+  tag_ccli:
+    en: CCLI number
+    de: CCLI-Nummer
+  tag_publisher:
+    en: Publisher
+    de: Verlag
+  tag_year:
+    en: Year
+    de: Jahr
+  tag_melody:
+    en: Melody
+    de: Melodie
+  tag_translation:
+    en: Translation
+    de: Übersetzung
+  edit_field:
+    en: Edit (double-click)
+    de: Bearbeiten (Doppelklick)
+  only_yml_editable:
+    en: This song is not in the song.yml format, so it is shown but not edited here.
+    de: Dieses Lied liegt nicht im song.yml-Format vor und wird hier daher nur angezeigt.
+  add_tag:
+    en: Add
+    de: Hinzufügen
+  new_tag_placeholder:
+    en: New tag, e.g. composer
+    de: Neues Tag, z. B. composer
+  add_part:
+    en: "Add part:"
+    de: "Teil hinzufügen:"
+  empty_name:
+    en: A name cannot be empty.
+    de: Ein Name darf nicht leer sein.
+  name_has_separator:
+    en: A name cannot contain a path separator.
+    de: Ein Name darf kein Pfadtrennzeichen enthalten.
+  name_taken:
+    en: There is already a file with that name.
+    de: Es gibt bereits eine Datei mit diesem Namen.
+  move_up:
+    en: Move up
+    de: Nach oben
+  move_down:
+    en: Move down
+    de: Nach unten
+  remove_part:
+    en: Remove part
+    de: Teil entfernen
+  add_language:
+    en: Add language
+    de: Sprache hinzufügen
+  language_placeholder:
+    en: en
+    de: en
+  orders:
+    en: Orders
+    de: Reihenfolgen
+  order_default:
+    en: Default order
+    de: Standardreihenfolge
+  order_name_placeholder:
+    en: Name of the alternative
+    de: Name der Alternative
+  order_verse_first:
+    en: Verse first
+    de: Strophe zuerst
+  order_refrain_first:
+    en: Refrain first
+    de: Refrain zuerst
+  remove_order:
+    en: Remove order
+    de: Reihenfolge entfernen
+  to_detail:
+    en: Detail view
+    de: Detailansicht
+  to_selection:
+    en: Selection
+    de: Auswahl
+
+song_part:
+  verse:
+    en: Verse
+    de: Strophe
+  chorus:
+    en: Chorus
+    de: Refrain
+  refrain:
+    en: Refrain
+    de: Kehrvers
+  bridge:
+    en: Bridge
+    de: Bridge
+  intro:
+    en: Intro
+    de: Intro
+  outro:
+    en: Outro
+    de: Outro
+  interlude:
+    en: Interlude
+    de: Zwischenspiel
+  instrumental:
+    en: Instrumental
+    de: Instrumental
+  solo:
+    en: Solo
+    de: Solo
+  prechorus:
+    en: Pre-chorus
+    de: Vor-Refrain
+  postchorus:
+    en: Post-chorus
+    de: Nach-Refrain
+  other:
+    en: Part
+    de: Teil

@@ -1,0 +1,398 @@
+# The settings page: repositories, screens, presentation designs, the
+# network stream.
+#
+# Every file under `locales/` is read and merged, so this one is
+# reached without being registered anywhere. The version has to be a
+# whole number: `2.0` is read as version 1 and the file silently
+# stops working.
+_version: 2
+settings:
+  repositories_headline:
+    en: Repositories
+    de: Quellen
+  repositories_description:
+    en: |-
+      Cantara loads all source files from one or multiple repositories.
+      Select one or multiple Repositories where Cantara will load source files from.
+      You need to select at least one repository.
+    de: |-
+      Cantara lädt alle Dateien aus einer oder mehreren Quellen.
+      Wählen Sie eine oder mehrere Quellen aus, aus denen Cantara Quelldateien laden soll.
+      Es muss mindestens eine Quelle ausgewählt sein.
+  repositories_local_dir:
+    en: Local directory
+    de: Lokales Verzeichnis
+  repositories_remote_dir:
+    en: Remote directory
+    de: Entferntes Verzeichnis
+  add_folder:
+    en: Add Folder
+    de: Verzeichnis hinzufügen
+  add_remote_repository:
+    en: Add Remote Repository
+    de: Entferntes Repository hinzufügen
+  repositories_remote_zip:
+    en: Remote ZIP Repository
+    de: Entferntes ZIP-Repository
+  repositories_github:
+    en: GitHub Repository
+    de: GitHub-Repository
+  repositories_github_authenticated:
+    en: authenticated
+    de: authentifiziert
+  add_github_repository:
+    en: Add GitHub Repository
+    de: GitHub-Repository hinzufügen
+  github_repository_prompt:
+    en: "Enter GitHub repository (owner/repo or https://github.com/owner/repo):"
+    de: "GitHub-Repository eingeben (owner/repo oder https://github.com/owner/repo):"
+  github_token_prompt:
+    en: "Optional: Enter a personal access token for private repositories (leave empty for public repos):"
+    de: "Optional: Persönlichen Zugriffstoken für private Repositories eingeben (leer lassen für öffentliche Repos):"
+  github_repository_added:
+    en: The GitHub repository has been added successfully.
+    de: Das GitHub-Repository wurde erfolgreich hinzugefügt.
+  github_repository_invalid:
+    en: "Invalid format. Please enter owner/repo or a GitHub URL (https://github.com/owner/repo)."
+    de: "Ungültiges Format. Bitte geben Sie owner/repo oder eine GitHub-URL ein (https://github.com/owner/repo)."
+  remote_repository_url:
+    en: URL to ZIP file
+    de: URL zur ZIP-Datei
+  remote_repository_url_invalid:
+    en: The URL is invalid. Please enter a valid URL to a ZIP file.
+    de: Die URL ist ungültig. Bitte geben Sie eine gültige URL zu einer ZIP-Datei ein.
+  remote_repository_url_valid:
+    en: The URL is valid.
+    de: Die URL ist gültig.
+  source_files_count:
+    en: "Source files: %{count}"
+    de: "Quelldateien: %{count}"
+  local_directory_prompt:
+    en: "Enter the path to a local song directory:"
+    de: "Pfad zum lokalen Liedverzeichnis eingeben:"
+  directory_browser:
+    title:
+      en: "Select a folder"
+      de: "Ordner auswählen"
+    select:
+      en: "Select this folder"
+      de: "Diesen Ordner auswählen"
+    cancel:
+      en: "Cancel"
+      de: "Abbrechen"
+    empty:
+      en: "No subdirectories found"
+      de: "Keine Unterverzeichnisse gefunden"
+    error:
+      en: "Cannot read directory:"
+      de: "Verzeichnis kann nicht gelesen werden:"
+    new_folder:
+      en: "New Folder"
+      de: "Neuer Ordner"
+    new_folder_placeholder:
+      en: "Folder name"
+      de: "Ordnername"
+    create:
+      en: "Create"
+      de: "Erstellen"
+    error_already_exists:
+      en: "A folder with this name already exists"
+      de: "Ein Ordner mit diesem Namen existiert bereits"
+    error_permission_denied:
+      en: "Permission denied"
+      de: "Zugriff verweigert"
+  settings_button:
+    en: Settings...
+    de: Einstellungen...
+  settings:
+    en: Settings
+    de: Einstellungen
+  close:
+    en: Close
+    de: Schließen
+  presentation_headline:
+    en: Presentation Settings
+    de: Präsentationseinstellungen
+  presentation_description:
+    en: Setup how the presentation should look like. Click on one of the presentation designs below to adjust its settings, or create a new one.
+    de: Hier kann eingestellt werden, wie die Präsentation aussehen soll. Klicken Sie dazu auf eines der Präsentationsdesigns oder legen Sie ein neues an.
+  stream_headline:
+    en: Network streaming
+    de: Netzwerk-Übertragung
+  stream_description:
+    en: "How the running presentation is offered to browsers on the local network. Switching it on happens per presentation, in the selection window."
+    de: "Wie die laufende Präsentation Browsern im lokalen Netzwerk angeboten wird. Eingeschaltet wird sie pro Präsentation im Auswahlfenster."
+  stream_port:
+    en: Port
+    de: Port
+  stream_password:
+    en: Password (empty means anyone on the network can watch)
+    de: Passwort (leer heißt, jeder im Netzwerk kann zusehen)
+  stream_plain_http_note:
+    en: "This is unencrypted HTTP on your local network. The password keeps the curious out; it is not protection from someone who is trying."
+    de: "Dies ist unverschlüsseltes HTTP im lokalen Netzwerk. Das Passwort hält Neugierige ab, es schützt aber nicht vor gezielten Zugriffen."
+  screen_headline:
+    en: Screen Settings
+    de: Bildschirmeinstellungen
+  screen_description:
+    en: Configure which screens to use for the presentation and the presenter console.
+    de: Konfigurieren Sie, welche Bildschirme für die Präsentation und die Moderatorenkonsole verwendet werden sollen.
+  show_presenter_console_title:
+    en: Show Presenter Console
+    de: Moderatorenkonsole anzeigen
+  show_presenter_console_description:
+    en: When enabled, a presenter console window opens alongside the presentation with slide text, preview, and controls.
+    de: Wenn aktiviert, öffnet sich neben der Präsentation ein Fenster mit Folientext, Vorschau und Steuerung.
+  presenter_console_in_main_window_title:
+    en: Presenter Console in Main Window
+    de: Moderatorenkonsole im Hauptfenster
+  presenter_console_in_main_window_description:
+    en: When enabled, the presenter console is shown in the main window instead of opening a separate window.
+    de: Wenn aktiviert, wird die Moderatorenkonsole im Hauptfenster angezeigt, anstatt ein separates Fenster zu öffnen.
+  detected_monitors:
+    en: Detected Monitors
+    de: Erkannte Bildschirme
+  refresh_monitors:
+    en: Refresh
+    de: Aktualisieren
+  no_monitors_detected:
+    en: No monitors detected.
+    de: Keine Bildschirme erkannt.
+  primary_monitor:
+    en: Primary
+    de: Primär
+  presentation_screen:
+    en: Presentation Screen
+    de: Präsentationsbildschirm
+  presenter_screen:
+    en: Presenter Console Screen
+    de: Moderatorenkonsolen-Bildschirm
+  automatic:
+    en: Automatic
+    de: Automatisch
+  always_start_fullscreen_title:
+    en: Always Start Fullscreen by Default
+    de: Standardmäßig im Vollbildmodus starten
+  always_start_fullscreen_description:
+    en: When enabled, presentations will automatically start in fullscreen mode.
+    de: Wenn aktiviert, werden Präsentationen automatisch im Vollbildmodus gestartet.
+  presentation_designs:
+    en: Presentation Designs
+    de: Präsentationsdesigns
+  presentation_designs_edit_header:
+    en: Edit Presentation Design %{title}
+    de: Präsentationsdesign %{title} bearbeiten
+  # How a song is broken into slides — the section, the list and its editor.
+  song_slide_headline:
+    en: Slide settings
+    de: Folien-Einstellungen
+  song_slide_description:
+    en: "How a song is divided into slides: which languages are shown, what is added around the lyrics, and how much goes on one slide."
+    de: "Wie ein Lied in Folien aufgeteilt wird: welche Sprachen gezeigt werden, was um den Liedtext herum ergänzt wird und wie viel auf eine Folie kommt."
+  song_slide_settings_edit_header:
+    en: Edit slide settings %{title}
+    de: Folien-Einstellungen %{title} bearbeiten
+  slide_settings:
+    en: Slide settings
+    de: Folien-Einstellungen
+  slide_settings_name_placeholder:
+    en: "For example: Two languages, four lines"
+    de: "Zum Beispiel: Zweisprachig, vier Zeilen"
+  export_design:
+    en: Export...
+    de: Exportieren...
+  export_slide_settings:
+    en: Export...
+    de: Exportieren...
+  presentation_design_configuration:
+    en: Design Configuration
+    de: Konfiguration des Aussehens
+  background:
+    en: Background
+    de: Hintergrund
+  color:
+    en: Color
+    de: Farbe
+  use_background_image:
+    en: Use a background image
+    de: Ein Hintergrundbild verwenden
+  background_image_transparency:
+    en: Background Image Transparency
+    de: Transparenz des Hintergrundbilds
+  background_image_count:
+    en: "%{count} pictures"
+    de: "%{count} Bilder"
+  background_image_none_available:
+    en: There is no picture in your repositories yet. Add a folder holding pictures in the settings, and it can be used as a background here.
+    de: In Ihren Quellen ist noch kein Bild vorhanden. Fügen Sie in den Einstellungen einen Ordner mit Bildern hinzu, dann kann eines davon hier als Hintergrund dienen.
+  padding:
+    en: Padding
+    de: Randabstand des Inhalts
+  horizontal_alignment:
+    title:
+      en: Horizontal Alignment
+      de: Horizontale Ausrichtung
+    left:
+      en: Left
+      de: Linksbündig
+    centered:
+      en: Centered
+      de: Zentriert
+    right:
+      en: Right
+      de: Rechtsbündig
+    justify:
+      en: Justify
+      de: Blocksatz
+    justify_with_hyphenation:
+      en: Justify (with hyphenation)
+      de: Blocksatz (mit Silbentrennung)
+  design_preview:
+    title:
+      en: Live preview
+      de: Live-Vorschau
+    previous:
+      en: Previous slide
+      de: Vorherige Folie
+    next:
+      en: Next slide
+      de: Nächste Folie
+    show:
+      en: Show preview
+      de: Vorschau einblenden
+    hide:
+      en: Hide preview
+      de: Vorschau ausblenden
+    unavailable:
+      en: The preview could not be built with the current slide settings.
+      de: Die Vorschau konnte mit den aktuellen Folieneinstellungen nicht erzeugt werden.
+  title_slide:
+    title:
+      en: Title slide
+      de: Titelfolie
+    bold:
+      en: Set the title in bold
+      de: Titel fett setzen
+  notation:
+    title:
+      en: Notation
+      de: Notensatz
+    width:
+      en: Width of the staff
+      de: Breite des Notensatzes
+    staff_line_height:
+      en: Staff line height
+      de: Notenzeilenhöhe
+    font_size:
+      en: Size of the words under the notes
+      de: Schriftgröße unter den Noten
+  vertical_alignment:
+    title:
+      en: Vertical Alignment
+      de: Vertikale Ausrichtung
+    description:
+      en: The vertical alignment of the slide content
+      de: Die vertikale Ausrichtung des Inhalts
+    top:
+      en: Top
+      de: Oben
+    middle:
+      en: Middle
+      de: Mittig
+    bottom:
+      en: Bottom
+      de: Unten
+    add_folder:
+      en: Add Folder...
+      de: Verzeichnis hinzufügen...
+  main_spoiler_content_distance:
+    en: Distance between the main content and the spoiler
+    de: Abstand zwischen Hauptinhalt und Spoiler
+  fonts:
+    family:
+      en: Font
+      de: Schriftart
+    family_default:
+      en: "Default"
+      de: "Standard"
+    add_block:
+      en: Add text block
+      de: Textblock hinzufügen
+    remove_block:
+      en: Remove this block
+      de: Diesen Block entfernen
+    language_font:
+      en: "Language: %{language}"
+      de: "Sprache: %{language}"
+    language:
+      en: Language code
+      de: Sprachcode
+    language_hint:
+      en: Rows in this language are drawn with this block; other rows fall back to the main block.
+      de: Zeilen in dieser Sprache werden mit diesem Block dargestellt; andere Zeilen fallen auf den Hauptblock zurück.
+    weight:
+      en: Weight
+      de: Schriftstärke
+    weight_light:
+      en: Light
+      de: Leicht
+    weight_regular:
+      en: Regular
+      de: Normal
+    weight_semibold:
+      en: Semibold
+      de: Halbfett
+    weight_bold:
+      en: Bold
+      de: Fett
+    outline:
+      en: Outline
+      de: Rand
+    outline_width:
+      en: Outline width
+      de: Randstärke
+    shadow:
+      en: Shadow
+      de: Schatten
+    shadow_blur:
+      en: Blur
+      de: Weichzeichnung
+    shadow_offset:
+      en: Offset
+      de: Versatz
+    group_bundled:
+      en: Shipped with Cantara
+      de: Mit Cantara ausgeliefert
+    group_websafe:
+      en: Available everywhere
+      de: Überall verfügbar
+    group_system:
+      en: Installed on this computer
+      de: Auf diesem Rechner installiert
+    title:
+      en: Font Settings
+      de: Einstellung des Schriftbilds
+    size:
+      en: Font Size
+      de: Schriftgröße
+    set_main:
+      en: Main Font
+      de: Hauptschrift
+    set_spoiler:
+      en: Spoiler Font
+      de: Spoilerschrift
+    primary_font:
+      en: Primary Font
+      de: Primärschrift
+    secondary_font:
+      en: Secondary Font
+      de: Sekundärschriftart
+    spoiler_font:
+      en: Spoiler Font
+      de: Spoilerschrift
+    meta_font:
+      en: Meta information font
+      de: Font für Metainformationen
+    line_height:
+      en: Line Height
+      de: Zeilenhöhe

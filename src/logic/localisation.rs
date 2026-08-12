@@ -1,0 +1,297 @@
+//! Where the translations live, and what keeps every one of them findable.
+//!
+//! The texts sit in `locales/`, split by the part of the program they belong
+//! to — `selection.yml`, `settings.yml`, `display.yml` and so on.  Nothing has
+//! to be registered anywhere: `rust_i18n::i18n!("locales", …)` reads
+//! **every** file under that folder and merges them, section by section, at
+//! compile time.  A new file is picked up by existing; a section that appears
+//! in two files is combined rather than replaced.
+//!
+//! That leaves three ways to lose a text, all of them silent, and all three are
+//! held shut by the tests below:
+//!
+//! 1. **A key nobody wrote.** `rust_i18n` answers a missing key with the key
+//!    itself, so the program shows `settings.song_slide_headline` where a
+//!    heading belongs.  Every `t!("…")` in the source is looked up.
+//! 2. **A key written twice.** Two files carrying the same key merge, and the
+//!    one read later wins — quietly, and the loser may be the one somebody just
+//!    edited.  The files are checked against each other.
+//! 3. **A file that is not read as it looks.** The version has to be a *whole
+//!    number*: `_version: 2.0` parses as a float, `as_u64()` gives nothing, and
+//!    rust-i18n falls back to its version-1 format, in which the file means
+//!    something else entirely.  That is how `wizard.yml` sat there doing
+//!    nothing.  Every file is checked.
+
+/// Whether the key has a text behind it.
+///
+/// `rust_i18n` answers a key it does not know with the key, which is what puts
+/// `settings.song_slide_headline` on the screen instead of a heading.
+pub fn is_translated(key: &str) -> bool {
+    rust_i18n::t!(key) != key
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+
+    /// The two languages every text is written in.
+    const LANGUAGES: [&str; 2] = ["en", "de"];
+
+    fn locales_folder() -> PathBuf {
+        PathBuf::from("locales")
+    }
+
+    fn locale_files() -> Vec<PathBuf> {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(locales_folder())
+            .expect("the locales folder is beside the sources")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.extension().and_then(|extension| extension.to_str()) == Some("yml")
+            })
+            .collect();
+        files.sort();
+        assert!(!files.is_empty(), "no locale files at all");
+        files
+    }
+
+    /// Every key of one file, with the languages it was written in.
+    ///
+    /// A reader for the shape these files actually have — a block map two
+    /// spaces at a time, values either on the line or in a `|-` block. It is
+    /// deliberately strict: anything it cannot read is something the tests
+    /// below would be quietly passing over.
+    fn keys_of(path: &Path) -> BTreeMap<String, Vec<String>> {
+        let text = std::fs::read_to_string(path).expect("a locale file can be read");
+        let lines: Vec<&str> = text.lines().collect();
+        let mut keys: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut path_so_far: Vec<String> = Vec::new();
+        let mut index = 0;
+
+        while index < lines.len() {
+            let line = lines[index];
+            index += 1;
+
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+
+            let depth = line.len() - line.trim_start().len();
+            assert_eq!(depth % 2, 0, "{}: odd indentation in {line:?}", path.display());
+            let level = depth / 2;
+
+            let (name, value) = match trimmed.split_once(':') {
+                Some((name, value)) => (name.trim(), value.trim()),
+                None => panic!("{}: {line:?} is neither a key nor a value", path.display()),
+            };
+
+            if name == "_version" {
+                continue;
+            }
+
+            path_so_far.truncate(level);
+            path_so_far.push(name.to_string());
+
+            if value.is_empty() {
+                // A section: its contents follow, indented.
+                continue;
+            }
+
+            // A block scalar carries its text on the following, deeper lines.
+            if value.starts_with('|') || value.starts_with('>') {
+                while index < lines.len() {
+                    let next = lines[index];
+                    if next.trim().is_empty()
+                        || next.len() - next.trim_start().len() > depth
+                    {
+                        index += 1;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            // The leaf is a language; the key is everything above it.
+            let language = path_so_far.pop().expect("a leaf has a name");
+            let key = path_so_far.join(".");
+            keys.entry(key).or_default().push(language);
+        }
+
+        keys
+    }
+
+    fn every_key() -> BTreeMap<String, Vec<(PathBuf, Vec<String>)>> {
+        let mut all: BTreeMap<String, Vec<(PathBuf, Vec<String>)>> = BTreeMap::new();
+        for file in locale_files() {
+            for (key, languages) in keys_of(&file) {
+                all.entry(key).or_default().push((file.clone(), languages));
+            }
+        }
+        all
+    }
+
+    /// The version decides which of two quite different file formats rust-i18n
+    /// reads. It has to be a whole number: `2.0` is not, and the file is then
+    /// read as a version-1 file, in which everything means something else.
+    #[test]
+    fn every_file_declares_the_version_as_a_whole_number() {
+        for file in locale_files() {
+            let text = std::fs::read_to_string(&file).expect("readable");
+            let version = text
+                .lines()
+                .find_map(|line| line.strip_prefix("_version:"))
+                .unwrap_or_else(|| panic!("{} has no _version", file.display()))
+                .trim();
+
+            assert_eq!(
+                version,
+                "2",
+                "{} declares version {version:?}; only a whole 2 is read as \
+                 the format these files are written in",
+                file.display()
+            );
+        }
+    }
+
+    /// Two files carrying the same key merge into one, and whichever is read
+    /// last wins. Nothing says which — so the text somebody just edited may be
+    /// the one that disappears.
+    #[test]
+    fn no_key_is_written_in_two_files() {
+        let twice: Vec<String> = every_key()
+            .into_iter()
+            .filter(|(_, places)| places.len() > 1)
+            .map(|(key, places)| {
+                let names: Vec<String> = places
+                    .iter()
+                    .map(|(file, _)| file.display().to_string())
+                    .collect();
+                format!("{key} in {}", names.join(" and "))
+            })
+            .collect();
+
+        assert!(twice.is_empty(), "the same key in two files:\n{}", twice.join("\n"));
+    }
+
+    /// A key that has only English falls back to English without a word, which
+    /// is how a German window ends up with an English sentence in it.
+    #[test]
+    fn every_key_is_written_in_both_languages() {
+        let mut incomplete: Vec<String> = Vec::new();
+        for (key, places) in every_key() {
+            for (file, languages) in places {
+                for language in LANGUAGES {
+                    if !languages.iter().any(|written| written == language) {
+                        incomplete.push(format!(
+                            "{key} has no {language} ({})",
+                            file.display()
+                        ));
+                    }
+                }
+            }
+        }
+
+        assert!(incomplete.is_empty(), "{}", incomplete.join("\n"));
+    }
+
+    /// Every key the source asks for by name.
+    ///
+    /// The point of the whole module: a heading whose key was never written
+    /// shows the key itself, and that has reached the screen more than once.
+    fn keys_in_source() -> Vec<(PathBuf, String)> {
+        // The word boundary matters: without it `format!("…")` and every other
+        // macro ending in `t` is read as a translation.
+        let pattern = regex::Regex::new(r#"\bt!\(\s*"([^"]+)""#).expect("a valid pattern");
+        let mut found = Vec::new();
+
+        fn walk(folder: &Path, files: &mut Vec<PathBuf>) {
+            for entry in std::fs::read_dir(folder).expect("the sources can be read") {
+                let path = entry.expect("an entry").path();
+                if path.is_dir() {
+                    walk(&path, files);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                    files.push(path);
+                }
+            }
+        }
+
+        let mut files = Vec::new();
+        walk(Path::new("src"), &mut files);
+
+        for file in files {
+            let text = std::fs::read_to_string(&file).expect("a source file can be read");
+            // A comment explaining a `t!("…")` is not one.
+            let code: String = text
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("//"))
+                .collect::<Vec<&str>>()
+                .join("\n");
+            for capture in pattern.captures_iter(&code) {
+                found.push((file.clone(), capture[1].to_string()));
+            }
+        }
+
+        assert!(found.len() > 100, "only {} keys found — the scan is broken", found.len());
+        found
+    }
+
+    #[test]
+    fn every_key_the_program_asks_for_exists() {
+        let mut missing: Vec<String> = keys_in_source()
+            .into_iter()
+            .filter(|(_, key)| !is_translated(key))
+            .map(|(file, key)| format!("{key} ({})", file.display()))
+            .collect();
+        missing.sort();
+        missing.dedup();
+
+        assert!(
+            missing.is_empty(),
+            "keys the program asks for and no file answers:\n{}",
+            missing.join("\n")
+        );
+    }
+
+    /// The keys that are *returned* rather than written into a `t!`.
+    ///
+    /// The scan above cannot see these: the key is the result of a function
+    /// and only meets `t!` at the other end. They are the labels of everything
+    /// the export and import dialogs offer, so a missing one is a menu entry
+    /// with a key in it.
+    #[test]
+    fn every_key_a_function_hands_out_exists() {
+        use crate::logic::export::{ExportCategory, ExportFormat};
+        use crate::logic::selection_io::{SelectionFormat, SelectionIoError};
+
+        let mut keys: Vec<String> = Vec::new();
+
+        keys.extend(ExportFormat::ALL.iter().map(|format| format.label_key().to_string()));
+        for category in ExportCategory::ALL {
+            keys.push(category.label_key().to_string());
+            keys.push(category.description_key().to_string());
+        }
+        keys.extend(SelectionFormat::ALL.iter().map(|format| format.label_key().to_string()));
+
+        for error in [
+            SelectionIoError::Empty,
+            SelectionIoError::Unreadable {
+                name: String::new(),
+                reason: String::new(),
+            },
+            SelectionIoError::Malformed(String::new()),
+            SelectionIoError::TooNew {
+                found: 2,
+                supported: 1,
+            },
+            SelectionIoError::Archive(String::new()),
+        ] {
+            keys.push(error.message_key().0.to_string());
+        }
+
+        let missing: Vec<&String> = keys.iter().filter(|key| !is_translated(key)).collect();
+        assert!(missing.is_empty(), "{missing:?}");
+    }
+}

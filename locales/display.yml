@@ -1,0 +1,149 @@
+# How a song is divided into slides — the editor for it, and the summary
+# the settings page shows of a division.
+#
+# Every file under `locales/` is read and merged, so this one is
+# reached without being registered anywhere. The version has to be a
+# whole number: `2.0` is read as version 1 and the file silently
+# stops working.
+_version: 2
+# Configuration of what a song slide shows: one language, several languages,
+# or the complex layout that stacks notation and languages.
+display:
+  section:
+    en: Display
+    de: Anzeige
+  # What a division does, said in words rather than shown as a struct. See
+  # `logic::slide_summary`.
+  summary:
+    layout_single_default:
+      en: One language, whichever the song is written in
+      de: Eine Sprache, so wie das Lied verfasst ist
+    layout_single_named:
+      en: "One language: %{language}"
+      de: "Eine Sprache: %{language}"
+    layout_multi:
+      en: "%{count} languages under each other: %{languages}"
+      de: "%{count} Sprachen untereinander: %{languages}"
+    layout_complex:
+      en: "Notation with %{count} language(s) under it: %{languages}"
+      de: "Noten mit %{count} Sprache(n) darunter: %{languages}"
+    title_slide:
+      en: Begins with a title slide
+      de: Beginnt mit einer Titelfolie
+    spoiler:
+      en: Shows the next lines as a spoiler
+      de: Zeigt die nächsten Zeilen als Vorschau
+    empty_last_slide:
+      en: Ends with an empty slide
+      de: Endet mit einer leeren Folie
+    meta:
+      en: "Metadata line on: %{positions}"
+      de: "Metadaten-Zeile auf: %{positions}"
+    meta_title:
+      en: the title slide
+      de: der Titelfolie
+    meta_first:
+      en: the first slide
+      de: der ersten Folie
+    meta_last:
+      en: the last slide
+      de: der letzten Folie
+    max_lines:
+      en: At most %{count} lines per slide
+      de: Höchstens %{count} Zeilen je Folie
+    whole_block:
+      en: A whole verse per slide
+      de: Eine ganze Strophe je Folie
+  mode:
+    en: Layout
+    de: Layout
+  mode_single:
+    en: One language
+    de: Eine Sprache
+  mode_single_hint:
+    en: Show the lyrics in a single language.
+    de: Zeigt den Liedtext in einer Sprache.
+  mode_multi:
+    en: Several languages
+    de: Mehrere Sprachen
+  mode_multi_hint:
+    en: Show the lyrics in several languages below one another.
+    de: Zeigt den Liedtext in mehreren Sprachen untereinander.
+  mode_complex:
+    en: Notation and languages
+    de: Noten und Sprachen
+  mode_complex_hint:
+    en: "Stack the melody and any number of languages. The notation shows the words of the first language and covers exactly the lines below it."
+    de: "Noten und beliebig viele Sprachen übereinander. Die Noten enthalten den Text der ersten Sprache und decken genau die darunter gezeigten Zeilen ab."
+  language:
+    en: Language
+    de: Sprache
+  language_placeholder:
+    en: "Language code, e.g. en"
+    de: "Sprachcode, z. B. de"
+  language_auto:
+    en: "Automatic (song default)"
+    de: "Automatisch (Standard des Liedes)"
+  languages_all:
+    en: "All available languages"
+    de: "Alle verfügbaren Sprachen"
+  rows:
+    en: Rows
+    de: Zeilen
+  rows_hint:
+    en: "The rows are shown in this order. Songs without language information show their text in the first language row."
+    de: "Die Zeilen werden in dieser Reihenfolge angezeigt. Lieder ohne Sprachangabe zeigen ihren Text in der ersten Sprachzeile."
+  row_notation:
+    en: Notation
+    de: Noten
+  add_notation:
+    en: Add notation
+    de: Noten hinzufügen
+  add_language:
+    en: Add language
+    de: Sprache hinzufügen
+  move_up:
+    en: Move up
+    de: Nach oben
+  move_down:
+    en: Move down
+    de: Nach unten
+  remove_row:
+    en: Remove
+    de: Entfernen
+  no_rows:
+    en: "No rows yet — add notation or a language."
+    de: "Noch keine Zeilen — Noten oder eine Sprache hinzufügen."
+  title_slide:
+    en: Show title slide
+    de: Titelfolie anzeigen
+  show_spoiler:
+    en: Show spoiler
+    de: Vorschau anzeigen
+  empty_last_slide:
+    en: Empty slide at the end
+    de: Leere Folie am Ende
+  meta_syntax:
+    en: Meta information template
+    de: Vorlage für Metainformationen
+  meta_syntax_hint:
+    en: "Handlebars template, e.g. {{title}} ({{author}})"
+    de: "Handlebars-Vorlage, z. B. {{title}} ({{author}})"
+  meta_where:
+    en: Show meta information on
+    de: Metainformationen anzeigen auf
+  meta_on_title:
+    en: Title slide
+    de: Titelfolie
+  meta_on_first:
+    en: First slide
+    de: Erster Folie
+  meta_on_last:
+    en: Last slide
+    de: Letzter Folie
+  max_lines:
+    en: Maximum lines per slide
+    de: Maximale Zeilen pro Folie
+  max_lines_placeholder:
+    en: Unlimited
+    de: Unbegrenzt
