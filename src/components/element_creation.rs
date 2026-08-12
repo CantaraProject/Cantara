@@ -14,6 +14,8 @@ use crate::logic::settings::{Settings, use_settings};
 use crate::logic::sourcefiles::SourceFile;
 use crate::logic::states::LibraryRefresh;
 use dioxus::prelude::*;
+use dioxus_free_icons::Icon;
+use dioxus_free_icons::icons::fa_solid_icons::FaPlus;
 use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -41,7 +43,10 @@ pub fn NewElementButton() -> Element {
 
     rsx! {
         button {
-            class: "outline",
+            // The same classes as the buttons beside it in the footer group.
+            // Without `smaller-buttons` this one keeps Pico's full height and
+            // stands taller than the row it is in.
+            class: "outline secondary smaller-buttons",
             // Without a folder to write into there is nothing this could do.
             // Disabled rather than hidden, with the reason on hover: a user
             // who has only remote libraries should learn why, not wonder
@@ -52,7 +57,12 @@ pub fn NewElementButton() -> Element {
                 false => t!("detail.new_element").to_string(),
             },
             onclick: move |_| open.set(true),
-            { t!("detail.new_element").to_string() }
+            // Icon where the bar is narrow, words where there is room — the
+            // settings button next to it says it the same way.
+            span { class: "mobile-only",
+                Icon { icon: FaPlus }
+            }
+            span { class: "desktop-only", { t!("detail.new_element").to_string() } }
         }
 
         if open() {
@@ -155,6 +165,14 @@ fn NewElementDialog(open: Signal<bool>) -> Element {
 
                 h3 { { t!("detail.new_element").to_string() } }
 
+                // Everything between the heading and the buttons scrolls, and
+                // those two stay put. Without this the fields are direct
+                // children of a box that is `overflow: hidden` at `90vh`, so a
+                // long pasted text pushes the buttons out of the window and
+                // there is no way to reach them — the export dialog had
+                // exactly this fault and is built this way for the same reason.
+                div { class: "new-element-body",
+
                 fieldset {
                     for offered in NewFileKind::ALL.iter().copied() {
                         label {
@@ -219,11 +237,14 @@ fn NewElementDialog(open: Signal<bool>) -> Element {
                     p { class: "new-element-error", "{message}" }
                 }
 
+                }
+
                 div { class: "export-menu-actions",
-                    button { class: "secondary", onclick: close,
+                    button { class: "outline secondary", onclick: close,
                         { t!("general.cancel").to_string() }
                     }
                     button {
+                        class: "primary",
                         onclick: move |_| save(),
                         { t!("detail.new_create").to_string() }
                     }

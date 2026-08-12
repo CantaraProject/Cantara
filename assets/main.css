@@ -1400,6 +1400,24 @@ div.inline-div {
     font-style: italic;
 }
 
+/* ── Sticky panes that hold a scaled preview ─────────────────────────────── */
+/* Both panes that stay put while the page scrolls — the actions beside the
+   design list and the preview beside the design editor — contain a 1920x1080
+   canvas shrunk with `zoom`. That combination is what makes these two pages
+   jump while scrolling on Linux and nowhere else:
+   Windows runs on WebView2 (Chromium), which gives a sticky element a
+   compositing layer of its own, so scrolling moves that layer and nothing is
+   drawn again. WebKitGTK does not promote it by itself, so every scroll frame
+   repaints the whole zoomed canvas, background picture and all, and the pane
+   visibly lags behind the scroll.
+   `will-change: transform` asks for that layer. It is a hint and changes
+   neither layout nor painting, so it costs Chromium nothing but the layer it
+   was already making. */
+.design-preview-pane,
+.presentation-design-actions {
+    will-change: transform;
+}
+
 /* ── Tag mapping ─────────────────────────────────────────────────────────── */
 /* One rule per row: the name a file uses, an arrow, the name it is read as,
    and the button that removes it. The row wraps on a narrow window rather than
@@ -1440,6 +1458,21 @@ div.inline-div {
 }
 
 /* ── Creating an element ─────────────────────────────────────────────────── */
+.new-element-modal {
+    max-width: 40rem;
+}
+
+/* The fields scroll; the heading and the buttons above and below them do not.
+   The modal is a column that clips at 90vh, so without a part that takes the
+   leftover height and scrolls it, a long pasted text pushes the buttons out of
+   the window with no way to reach them. `min-height: 0` is what allows this to
+   become shorter than its content — a flex item refuses to by default. */
+.new-element-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
 .new-element-modal label {
     display: block;
 }
