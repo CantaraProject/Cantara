@@ -809,17 +809,73 @@ pub fn PresentationRendererComponent(
         css
     });
 
+    // Have the scaled-down background made, for the views that will use it.
+    //
+    // Asking here rather than where the picture is read, because that happens
+    // while the view is being drawn and must not start any work. The counter is
+    // read below so that the tile is redrawn once the small copy has landed;
+    // until then it shows the full picture and looks no different.
+    let mut thumbnails_ready: Signal<u64> = use_signal(crate::logic::images::thumbnail_generation);
+    use_effect(move || {
+        if role.is_audience_view() {
+            return;
+        }
+        let Some(path) = current_pds()
+            .background_image
+            .as_ref()
+            .map(|image| image.as_source().path.clone())
+        else {
+            return;
+        };
+        if crate::logic::images::thumbnail(&path).is_some() {
+            return;
+        }
+        crate::logic::images::prepare_thumbnails(vec![path]);
+
+        // A background thread cannot write to a signal, so the view looks for
+        // the result instead and stops as soon as it is in.
+        spawn(async move {
+            loop {
+                let generation = crate::logic::images::thumbnail_generation();
+                if generation != *thumbnails_ready.peek() {
+                    thumbnails_ready.set(generation);
+                }
+                if !crate::logic::images::thumbnails_in_progress() {
+                    return;
+                }
+                let _ = document::eval("await new Promise(r => setTimeout(r, 100))").await;
+            }
+        });
+    });
+
     let background_css: Memo<String> = use_memo(move || {
+        // Read so that this is rebuilt when the scaled copy arrives.
+        let _ = thumbnails_ready();
         let mut css: CssHandler = CssHandler::new();
         let pds = current_pds();
 
         // A `url()` pointing into the file system is as unreachable for the
         // page as an `img` source is, so the picture is inlined the same way.
-        if let Some(source) = pds
-            .background_image
-            .as_ref()
-            .and_then(|image| crate::logic::images::image_data_url(&image.as_source().path))
-        {
+        //
+        // Everything that is not the audience's screen takes the scaled-down
+        // copy. A design's background is a photograph off a camera, several
+        // thousand pixels across, and the design tiles in the settings show it
+        // four hundred pixels wide — where it is not merely displayed small but
+        // rescaled on every paint. Scrolling past two of those asks for that
+        // sixty times a second; on the wall the full picture is the point, in a
+        // tile it is what makes the page stutter.
+        //
+        // The small copy is only taken when it is already there. Nothing here
+        // may wait for a file: this runs while the view is being drawn.
+        if let Some(source) = pds.background_image.as_ref().and_then(|image| {
+            let path = &image.as_source().path;
+            if !role.is_audience_view()
+                && let Some(small) = crate::logic::images::thumbnail(path)
+            {
+                return Some(small);
+            }
+            crate::logic::images::image_data_url(path)
+        }) {
             css.background_image(&source);
             css.background_size("cover");
             css.background_position("center");
@@ -1948,7 +2004,7 @@ pub(crate) fn PdfScrollView(pdf_path: String, pages: u32) -> Element {
 }
 
 
-/// The inline copy of a picture, made on a background thread.
+/// The inline copy of a picture, at the size a preview needs it.
 ///
 /// For the views that can live without it for a moment — a thumbnail, the
 /// design preview. Reading and encoding a background photograph while
@@ -1956,6 +2012,15 @@ pub(crate) fn PdfScrollView(pdf_path: String, pages: u32) -> Element {
 /// to open because of it. Here nothing is read on the render: the picture is
 /// asked for, `None` is drawn until it lands, and the view is redrawn when it
 /// does. See [`crate::logic::images`].
+///
+/// The scaled-down copy is preferred over the full one. A design's background
+/// is whatever photograph the user picked, and those come off a camera —
+/// several thousand pixels across. On the wall that is the point; in a preview
+/// four hundred pixels wide it is not, and it is not free either, because the
+/// picture is not merely shown small but **rescaled on every paint**. Scrolling
+/// a settings page past one asks for that sixty times a second, and where the
+/// engine does not keep the scaled copy, the scroll stalls and then jumps to
+/// catch up.
 fn use_inlined_picture(path: Option<PathBuf>) -> Option<String> {
     // The path arrives as a prop, which is not something an effect can watch,
     // so it is mirrored into a signal — as [`PresentationViewer`] does with
@@ -1968,6 +2033,29 @@ fn use_inlined_picture(path: Option<PathBuf>) -> Option<String> {
     // Counts up as pictures arrive. Read below, while rendering, because that
     // is what subscribes this view to it.
     let mut images_ready: Signal<u64> = use_signal(crate::logic::images::image_generation);
+    let mut thumbnails_ready: Signal<u64> = use_signal(crate::logic::images::thumbnail_generation);
+
+    // The small copy is the one that will be used; the full one is asked for
+    // as well, so that something can be drawn while the scaling is still going
+    // on and the preview is never blank.
+    use_effect(move || {
+        if let Some(path) = wanted() {
+            crate::logic::images::prepare_thumbnails(vec![path]);
+        }
+
+        spawn(async move {
+            loop {
+                let generation = crate::logic::images::thumbnail_generation();
+                if generation != *thumbnails_ready.peek() {
+                    thumbnails_ready.set(generation);
+                }
+                if !crate::logic::images::thumbnails_in_progress() {
+                    return;
+                }
+                let _ = document::eval("await new Promise(r => setTimeout(r, 100))").await;
+            }
+        });
+    });
 
     use_effect(move || {
         let Some(path) = wanted() else {
@@ -1995,8 +2083,12 @@ fn use_inlined_picture(path: Option<PathBuf>) -> Option<String> {
     });
 
     let _ = images_ready();
+    let _ = thumbnails_ready();
 
-    path.and_then(|path| crate::logic::images::cached_image_data_url(&path))
+    path.and_then(|path| {
+        crate::logic::images::thumbnail(&path)
+            .or_else(|| crate::logic::images::cached_image_data_url(&path))
+    })
 }
 
 /// A static (non-interactive) slide renderer that renders a single slide with its
