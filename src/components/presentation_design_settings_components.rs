@@ -926,11 +926,17 @@ fn PresentationDesignPreview(
                 // the stylesheet, so the preview is a true miniature rather
                 // than a re-flowed layout. The scale lives in CSS because it
                 // has to follow the screen width.
-                div { class: "design-preview-stage",
-                    div { class: "design-preview-canvas",
-                        StaticSlideRendererComponent {
-                            slide: slides.read()[current].clone(),
-                            presentation_design: design(),
+                // The sideways scrolling sits here rather than on the pane:
+                // the pane is what sticks while the page scrolls past, and an
+                // element cannot both stick and scroll. See
+                // `.design-preview-stage-scroll` in `assets/main.css`.
+                div { class: "design-preview-stage-scroll",
+                    div { class: "design-preview-stage",
+                        div { class: "design-preview-canvas",
+                            StaticSlideRendererComponent {
+                                slide: slides.read()[current].clone(),
+                                presentation_design: design(),
+                            }
                         }
                     }
                 }

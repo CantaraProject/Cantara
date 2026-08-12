@@ -875,9 +875,21 @@ div.inline-div {
 .design-preview-pane {
     display: none;
     min-width: 0;
-    /* Should a stage ever be wider than its column, it scrolls inside itself
-       rather than pushing the whole page sideways. */
+}
+
+/* Should the stage ever be wider than its column, it scrolls sideways rather
+   than pushing the whole page along with it.
+   This sits on the stage and *not* on the pane around it, which is the pane's
+   whole trouble: from 62rem up the pane is `position: sticky`, and an element
+   cannot be the thing that sticks and the thing that scrolls at once. Worse,
+   `overflow-x: auto` does not stay in its axis — the CSS overflow rules turn a
+   `visible` on the other axis into `auto`, so the pane became a vertical
+   scroller too. The wheel then moved the pane, which has nothing to scroll,
+   before the page — which is the scrolling that brakes at the point the pane
+   starts sticking and then goes on in jumps. */
+.design-preview-stage-scroll {
     overflow-x: auto;
+    max-width: 100%;
 }
 
 .design-editor.preview-open .design-preview-pane {
@@ -1400,23 +1412,6 @@ div.inline-div {
     font-style: italic;
 }
 
-/* ── Sticky panes that hold a scaled preview ─────────────────────────────── */
-/* Both panes that stay put while the page scrolls — the actions beside the
-   design list and the preview beside the design editor — contain a 1920x1080
-   canvas shrunk with `zoom`. That combination is what makes these two pages
-   jump while scrolling on Linux and nowhere else:
-   Windows runs on WebView2 (Chromium), which gives a sticky element a
-   compositing layer of its own, so scrolling moves that layer and nothing is
-   drawn again. WebKitGTK does not promote it by itself, so every scroll frame
-   repaints the whole zoomed canvas, background picture and all, and the pane
-   visibly lags behind the scroll.
-   `will-change: transform` asks for that layer. It is a hint and changes
-   neither layout nor painting, so it costs Chromium nothing but the layer it
-   was already making. */
-.design-preview-pane,
-.presentation-design-actions {
-    will-change: transform;
-}
 
 /* ── Tag mapping ─────────────────────────────────────────────────────────── */
 /* One rule per row: the name a file uses, an arrow, the name it is read as,
