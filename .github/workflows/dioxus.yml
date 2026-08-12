@@ -9,6 +9,11 @@ on:
   pull_request:
     branches: [master]
 
+env:
+  # The dx that builds this project. Named once so that every job installs the
+  # same one, and kept in step with the `dioxus` version in Cargo.toml.
+  DIOXUS_CLI_VERSION: "0.7.10"
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -30,15 +35,29 @@ jobs:
         uses: cargo-bins/cargo-binstall@main
       - name: Run npm install
         run: npm install
+      # `--locked` is not optional here, and its absence is what broke this job.
+      #
+      # When the prebuilt `dx` cannot be fetched, binstall falls back to
+      # building dioxus-cli from source — and without `--locked` cargo throws
+      # away the version's own lockfile and resolves every dependency to the
+      # newest compatible release. That is how a CI run that changed nothing
+      # here started failing: `git2` 0.21 dropped `Cred::credential_helper`,
+      # `auth-git2` still calls it, and dioxus-cli picked up both. Its lockfile
+      # names the versions the release was built against; `--locked` is what
+      # makes cargo read it.
+      #
+      # The version is pinned for the same reason — so that a new dioxus-cli
+      # cannot arrive on its own between two runs. Keep it in step with the
+      # `dioxus` version in Cargo.toml.
       - name: Install dioxus-cli (macOS)
         if: matrix.os == 'macos-latest'
-        run: cargo install dioxus-cli --locked
+        run: cargo install dioxus-cli --version ${{ env.DIOXUS_CLI_VERSION }} --locked
       - name: Install dioxus-cli (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: cargo binstall -y dioxus-cli
+        run: cargo binstall -y --locked dioxus-cli@${{ env.DIOXUS_CLI_VERSION }}
       - name: Install dioxus-cli (Windows)
         if: matrix.os == 'windows-latest'
-        run: cargo install dioxus-cli --locked
+        run: cargo install dioxus-cli --version ${{ env.DIOXUS_CLI_VERSION }} --locked
       - name: Install dependencies under Linux
         if: matrix.os == 'ubuntu-latest'
         run: |-
@@ -136,8 +155,9 @@ jobs:
         run: npm install
       - name: Install cargo bininstall
         uses: cargo-bins/cargo-binstall@main
+      # Pinned and `--locked`, for the reason given in the `build` job above.
       - name: Install dioxus-cli
-        run: cargo binstall -y dioxus-cli
+        run: cargo binstall -y --locked dioxus-cli@${{ env.DIOXUS_CLI_VERSION }}
       - name: Add Rust Android targets
         run: |
           rustup target add aarch64-linux-android
@@ -279,8 +299,9 @@ jobs:
         run: rustup target add wasm32-unknown-unknown
       - name: Install cargo bininstall
         uses: cargo-bins/cargo-binstall@main
+      # Pinned and `--locked`, for the reason given in the `build` job above.
       - name: Install dioxus-cli
-        run: cargo binstall -y dioxus-cli
+        run: cargo binstall -y --locked dioxus-cli@${{ env.DIOXUS_CLI_VERSION }}
       - name: Build web release
         run: dx build --platform web --release
       # GitHub Pages serves files, and Cantara's routes (/detail/<element-id>,
