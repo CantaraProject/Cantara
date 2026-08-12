@@ -53,6 +53,11 @@ pub struct TagMapping {
 
 impl TagMapping {
     /// Build a mapping.
+    ///
+    /// Only the tests build one this way. The settings page adds an empty row
+    /// for the user to fill in, because a rule is something they write rather
+    /// than something the program decides.
+    #[cfg(test)]
     pub fn new(from: &str, to: &str) -> TagMapping {
         TagMapping {
             from: from.to_string(),
