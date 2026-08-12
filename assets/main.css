@@ -335,9 +335,15 @@ div.inline-div {
 
     .presentation-design-actions {
         margin-top: 0;
-        /* Stays in view while a long list of designs is scrolled past. */
-        position: sticky;
-        top: 1rem;
+        /* This used to be `position: sticky; top: 1rem` so that the buttons
+           stayed in view while a long list of designs scrolled past.
+           It is gone because it made the page unusable on Linux: scrolling
+           braked at exactly the offset where the element engaged and then went
+           on in jumps. Windows and macOS run on Chromium, which puts a sticky
+           element on a compositing layer of its own; WebKitGTK re-resolves its
+           offset against the scroller on every frame, and here that scroller
+           also holds a presentation laid out at 1920x1080. A convenience is
+           not worth a page that fights the reader. */
     }
 }
 
@@ -879,14 +885,13 @@ div.inline-div {
 
 /* Should the stage ever be wider than its column, it scrolls sideways rather
    than pushing the whole page along with it.
-   This sits on the stage and *not* on the pane around it, which is the pane's
-   whole trouble: from 62rem up the pane is `position: sticky`, and an element
-   cannot be the thing that sticks and the thing that scrolls at once. Worse,
-   `overflow-x: auto` does not stay in its axis — the CSS overflow rules turn a
-   `visible` on the other axis into `auto`, so the pane became a vertical
-   scroller too. The wheel then moved the pane, which has nothing to scroll,
-   before the page — which is the scrolling that brakes at the point the pane
-   starts sticking and then goes on in jumps. */
+   This sits on the stage and not on the pane around it. `overflow-x: auto`
+   does not stay in its axis — the CSS overflow rules turn a `visible` on the
+   other axis into `auto` — so putting it on the pane made the pane a vertical
+   scroller as well, and the wheel moved that (which has nothing to scroll)
+   before it moved the page. Keeping it here leaves the pane an ordinary box.
+   On a narrow screen the pane still docks with `position: sticky`, which is
+   the other reason the two must not be the same element. */
 .design-preview-stage-scroll {
     overflow-x: auto;
     max-width: 100%;
@@ -987,10 +992,9 @@ div.inline-div {
         align-items: start;
     }
 
+    /* Not sticky, for the reason given at `.presentation-design-actions`. */
     .design-editor .design-preview-pane {
         display: block;
-        position: sticky;
-        top: 1rem;
     }
 
     .design-preview-toggle {
