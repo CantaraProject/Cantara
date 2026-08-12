@@ -66,6 +66,27 @@ pub fn PresentationDesignSelector(
                     class: format!("presentation-design-selector-item {}", if active_item() == Some(index) { "active" } else { "" }),
                     tabindex: index,
                     key: "{index}",
+                    // Every tile is a whole presentation laid out at 1920x1080
+                    // and shrunk with `zoom`. A handful of them is a great deal
+                    // of layout for a page one scrolls past, and it is what
+                    // makes that scrolling stutter where a compositor is not
+                    // doing the work for us.
+                    //
+                    // `content-visibility: auto` lets the engine skip a tile
+                    // that is off screen. The placeholder size is given rather
+                    // than guessed: the tile is as wide as it was asked to be
+                    // and 9:16 of that tall, which is the size it will have
+                    // when it is drawn. Getting that wrong would change the
+                    // page height as tiles come and go — the very thing that
+                    // makes a page jump under the reader.
+                    //
+                    // Where the property is not supported it is ignored, and
+                    // nothing about the page changes.
+                    style: format!(
+                        "content-visibility: auto; contain-intrinsic-size: {}px {}px;",
+                        viewer_width,
+                        viewer_width * 9 / 16,
+                    ),
                     SelectablePresentationViewer {
                         presentation: create_amazing_grace_presentation(design, &song_slide_settings()),
                         width: viewer_width,

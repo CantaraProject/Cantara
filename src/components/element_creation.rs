@@ -172,71 +172,74 @@ fn NewElementDialog(open: Signal<bool>) -> Element {
                 // there is no way to reach them — the export dialog had
                 // exactly this fault and is built this way for the same reason.
                 div { class: "new-element-body",
-
-                fieldset {
-                    for offered in NewFileKind::ALL.iter().copied() {
-                        label {
-                            input {
-                                r#type: "radio",
-                                name: "new-element-kind",
-                                checked: kind() == offered,
-                                onchange: move |_| kind.set(offered),
-                            }
-                            { t!(offered.label_key()).to_string() }
-                        }
-                    }
-                }
-
-                label {
-                    { t!("detail.new_title").to_string() }
-                    input {
-                        r#type: "text",
-                        value: "{title}",
-                        oninput: move |event| title.set(event.value()),
-                    }
-                }
-
-                label {
-                    { t!("detail.new_repository").to_string() }
-                    select {
-                        onchange: move |event| {
-                            if let Ok(chosen) = event.value().parse::<usize>() {
-                                target.set(chosen);
-                            }
-                        },
-                        for (index, name) in targets() {
-                            option {
-                                value: "{index}",
-                                selected: target() == index,
-                                "{name}"
+                    fieldset {
+                        for offered in NewFileKind::ALL.iter().copied() {
+                            label {
+                                input {
+                                    r#type: "radio",
+                                    name: "new-element-kind",
+                                    checked: kind() == offered,
+                                    onchange: move |_| kind.set(offered),
+                                }
+                                { t!(offered.label_key()).to_string() }
                             }
                         }
                     }
-                }
 
-                // Only a song has a structure worth guessing at. A Markdown
-                // document is written in the editor, where it is already shown
-                // the way it will look.
-                if kind() == NewFileKind::Song {
                     label {
-                        { t!("detail.new_paste_label").to_string() }
-                        textarea {
-                            rows: "8",
-                            placeholder: t!("detail.new_paste_placeholder").to_string(),
-                            value: "{pasted}",
-                            oninput: move |event| pasted.set(event.value()),
+                        { t!("detail.new_title").to_string() }
+                        input {
+                            r#type: "text",
+                            value: "{title}",
+                            oninput: move |event| title.set(event.value()),
                         }
                     }
 
-                    if !pasted().trim().is_empty() {
-                        GuessPreview { guessed: guessed() }
+                    label {
+                        { t!("detail.new_repository").to_string() }
+                        select {
+                            onchange: move |event| {
+                                if let Ok(chosen) = event.value().parse::<usize>() {
+                                    target.set(chosen);
+                                }
+                            },
+                            for (index, name) in targets() {
+                                option {
+                                    value: "{index}",
+                                    selected: target() == index,
+                                    "{name}"
+                                }
+                            }
+                        }
+                    }
+
+                    // Only a song has a structure worth guessing at. A Markdown
+                    // document is written in the editor, where it is already
+                    // shown the way it will look.
+                    if kind() == NewFileKind::Song {
+                        label {
+                            { t!("detail.new_paste_label").to_string() }
+                            textarea {
+                                rows: "8",
+                                placeholder: t!("detail.new_paste_placeholder").to_string(),
+                                value: "{pasted}",
+                                oninput: move |event| pasted.set(event.value()),
+                            }
+                        }
+
+                        if !pasted().trim().is_empty() {
+                            GuessPreview { guessed: guessed() }
+                        }
                     }
                 }
 
+                // Outside the scrolling part, directly above the button that
+                // caused it. Inside, a long pasted text scrolls the message out
+                // of sight — so the click appears to have done nothing at all.
+                // `role: "alert"` has a screen reader say it when it appears,
+                // which the export dialog's message does too.
                 if let Some(message) = error() {
-                    p { class: "new-element-error", "{message}" }
-                }
-
+                    p { class: "new-element-error", role: "alert", "{message}" }
                 }
 
                 div { class: "export-menu-actions",
