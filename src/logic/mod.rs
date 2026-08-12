@@ -68,6 +68,8 @@ pub mod sourcefiles;
 pub mod bundled_repos;
 
 pub mod detail;
+/// Where the translations live, and what keeps every one of them findable.
+pub mod localisation;
 /// The second reading of the same service: what the network stream shows.
 pub mod stream_view;
 pub mod element_id;

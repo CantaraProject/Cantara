@@ -1,1 +1,62 @@
-_version: 2.0
+# The wizard that greets a first-time user.
+#
+# Every file under `locales/` is read and merged, so this one is
+# reached without being registered anywhere. The version has to be a
+# whole number: `2.0` is read as version 1 and the file silently
+# stops working.
+_version: 2
+wizard:
+  title:
+    en: "Welcome to Cantara!"
+    de: "Herzlich Willkommen bei Cantara!"
+  back:
+    en: "Back"
+    de: "Zurück"
+  next:
+    en: "Next"
+    de: "Weiter"
+  first_step:
+    en: |-
+      <p>Thank you for using Cantara–the open source song presentation software!</p>
+      <p>This assistant will guide you through the setup process.
+      In about one minute, you will be ready to start creating your first song presentation.</p>
+      <p>If you have any questions, feel free to reach out to the developer.</p>
+      <p><strong>The author of Cantara wishes God's blessing for the use of this software.</strong></p>
+    de: |-
+      <p>Vielen Dank für die Verwendung von Cantara–der freien Liedpräsentationssoftware!</p>
+      <p>Dieser Assistent wird Sie durch den Einrichtungsprozess führen.
+      Nach ca. einer Minute können Sie Ihre erste Liedpräsentation erstellen.</p>
+      <p>Wenn Sie Fragen haben, können Sie gerne den Entwickler kontaktieren.</p>
+      <p><strong>Der Autor von Cantara wünscht Gottes Segen bei der Nutzung dieser Software.</strong></p>
+  second_step:
+    title:
+      en: "Select a song repository folder"
+      de: "Wählen Sie ein Liedverzeichnis aus"
+    explanation:
+      en: |-
+        <p>In this step, you can select a folder where your songs are stored.</p>
+        <p>Click the "Browse" button to select a folder.</p>
+        <p>If you don't have any songs yet, you can create a new folder or choose an empty one.</p>
+      de: |-
+        <p>In diesem Schritt können Sie einen Ordner auswählen, in dem Ihre Lieder gespeichert sind.</p>
+        <p>Klicken Sie auf die Schaltfläche "Durchsuchen", um einen Ordner auszuwählen.</p>
+        <p>Wenn Sie noch keine Lieder haben, können Sie einen neuen Ordner erstellen oder einen leeren auswählen.</p>
+    chose_directory:
+      en: "Choose a folder"
+      de: "Ordner auswählen"
+    dir_selected:
+      en: "The selected directory %{dir} is valid!"
+      de: "Das ausgewählte Verzeichnis %{dir} ist gültig!"
+  third_step:
+    title:
+      en: "Finish"
+      de: "Fertig"
+    explanation:
+      en: |-
+        <p>Congratulations, you have finished the setup!</p>
+        <p>You can now start creating your first song presentation and add more songs to your repository.
+        Thank you for using Cantara!</p>
+      de: |-
+        <p>Glückwunsch, die Einrichtung ist nun abgeschlossen!</p>
+        <p>Sie können nun Ihre erste Liedpräsentation erstellen und weitere Lieder zu Ihrem Repository hinzufügen.
+        Vielen Dank für Ihre Nutzung von Cantara!</p>

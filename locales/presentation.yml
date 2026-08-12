@@ -1,0 +1,52 @@
+# The presentation itself and the presenter console beside it.
+#
+# Every file under `locales/` is read and merged, so this one is
+# reached without being registered anywhere. The version has to be a
+# whole number: `2.0` is read as version 1 and the file silently
+# stops working.
+_version: 2
+presentation:
+  title:
+    en: Presentation
+    de: Präsentation
+
+presenter:
+  title:
+    en: Presenter Console
+    de: Moderatorenkonsole
+  status_running:
+    en: The presentation is running
+    de: Die Präsentation läuft
+  preview:
+    en: Live Preview
+    de: Live-Vorschau
+  stream_preview:
+    en: Network stream
+    de: Netzwerk-Übertragung
+  previous:
+    en: Previous
+    de: Zurück
+  next:
+    en: Next
+    de: Weiter
+  black_screen:
+    en: Black Screen
+    de: Schwarzer Bildschirm
+  quit:
+    en: Quit
+    de: Beenden
+  edit_selection:
+    en: Edit Selection
+    de: Auswahl bearbeiten
+  empty_slide:
+    en: (Empty slide)
+    de: (Leere Folie)
+  view_text:
+    en: Text
+    de: Text
+  view_grid:
+    en: Overview
+    de: Übersicht
+  grid_size:
+    en: Size
+    de: Größe
