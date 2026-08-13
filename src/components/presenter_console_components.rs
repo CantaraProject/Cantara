@@ -313,7 +313,7 @@ pub fn PresenterConsolePage() -> Element {
                 }
             },
 
-            PresenterHeader { view }
+            PresenterHeader { running_presentation, view }
 
             PresenterContent { running_presentation, view }
 
@@ -339,13 +339,43 @@ pub fn PresenterConsolePage() -> Element {
 
 /// Status bar at the top of the presenter console with view toggle buttons
 #[component]
-fn PresenterHeader(view: Signal<PresenterConsoleView>) -> Element {
+fn PresenterHeader(
+    running_presentation: Signal<RunningPresentation>,
+    view: Signal<PresenterConsoleView>,
+) -> Element {
     let mut settings = use_settings();
     let current_view = *view.read();
+
+    // How far through the service the presentation is. The counter in the
+    // control bar says it in numbers; this says it at a glance, which is what
+    // is wanted from across a room while something else is being read.
+    let (slides_done, total_slides) = {
+        let rp = running_presentation.read();
+        let done = rp
+            .position
+            .as_ref()
+            .map(|position| position.slide_total() + 1)
+            .unwrap_or(0);
+        (done, rp.total_slides())
+    };
 
     rsx! {
         header { class: "presenter-header",
             h3 { {t!("presenter.status_running").to_string()} }
+
+            // A presentation with nothing in it has no progress to show, and a
+            // bar with a maximum of zero is one a browser draws as permanently
+            // busy.
+            if total_slides > 0 {
+                progress {
+                    class: "presenter-progress",
+                    value: "{slides_done}",
+                    max: "{total_slides}",
+                    aria_label: t!("presenter.progress").to_string(),
+                    title: format!("{slides_done} / {total_slides}"),
+                }
+            }
+
             div { class: "presenter-view-toggle",
                 button {
                     class: if current_view == PresenterConsoleView::Text { "view-toggle-btn active" } else { "view-toggle-btn" },
@@ -502,15 +532,24 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
 
     rsx! {
         div { class: "presenter-grid-panel",
-            // Size slider
+            // How large the thumbnails are drawn. It stays at the top of the
+            // overview while it is scrolled — a setting that scrolls away is
+            // one that has to be scrolled back to, and the point of it is
+            // trying sizes against what is on the screen.
+            //
+            // The slider carries no visible label: a range control between 150
+            // and 500 pixels of thumbnail says what it does by doing it, and
+            // the word took a line of an overview that is all pictures. Screen
+            // readers still get it, from `aria-label`.
             div { class: "presenter-grid-toolbar",
-                label { class: "presenter-grid-size-label", {t!("presenter.grid_size").to_string()} }
                 input {
                     r#type: "range",
                     class: "presenter-grid-size-slider",
                     min: "150",
                     max: "500",
                     value: "{size}",
+                    aria_label: t!("presenter.grid_size").to_string(),
+                    title: t!("presenter.grid_size").to_string(),
                     oninput: move |evt| {
                         if let Ok(val) = evt.value().parse::<u32>() {
                             grid_size.set(val);

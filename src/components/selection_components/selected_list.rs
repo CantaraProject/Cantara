@@ -62,24 +62,53 @@ fn drop_index(rows: &[RowExtent], pointer_y: f64) -> usize {
     rows.len()
 }
 
-/// Starts a drag on the row `id` and measures the list.
+/// How far the pointer has to travel before a press counts as a drag, in
+/// pixels.
 ///
-/// The measuring happens once, here, rather than on every move: nothing shifts
-/// while a drag runs, and asking the renderer for a rectangle costs a round
-/// trip per row. A row that cannot be measured gives the whole drag up — a
-/// missing one would shift every row below it, and the drop would land
-/// somewhere that was never pointed at.
+/// Without it, pressing a row to open it flashed the dashed drop lines between
+/// every row for as long as the button was down: the press *might* have been
+/// the start of a drag, and the list said so before it could know. A few pixels
+/// of movement is what tells the two apart, and is also what stops a hand that
+/// is not quite steady on a touchscreen from turning every tap into a drag.
+const DRAG_THRESHOLD: f64 = 5.0;
+
+/// A press on a row that has not become a drag yet.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct PendingDrag {
+    row: usize,
+    /// Where the pointer went down, to measure the distance from.
+    started_at_y: f64,
+}
+
+/// Whether a press that started at `pending` has moved far enough to be a drag.
+fn is_a_drag(pending: PendingDrag, pointer_y: f64) -> bool {
+    (pointer_y - pending.started_at_y).abs() >= DRAG_THRESHOLD
+}
+
+/// Arms a drag on the row `id` and measures the list.
+///
+/// Nothing is shown yet — that waits for the pointer to move, see
+/// [`DRAG_THRESHOLD`]. The measuring happens here rather than then, because
+/// asking the renderer for a rectangle costs a round trip per row and the
+/// answer has to be ready by the first move. Nothing shifts in between, so
+/// measuring early is measuring correctly.
+///
+/// A row that cannot be measured gives the whole drag up — a missing one would
+/// shift every row below it, and the drop would land somewhere that was never
+/// pointed at.
 async fn begin_drag(
     id: usize,
-    mut dragging_from: Signal<Option<usize>>,
-    mut drop_at: Signal<Option<usize>>,
+    started_at_y: f64,
+    mut pending_drag: Signal<Option<PendingDrag>>,
     mut anim_target: Signal<Option<usize>>,
     row_handles: Signal<Vec<Option<Rc<MountedData>>>>,
     mut row_extents: Signal<Vec<RowExtent>>,
 ) {
     anim_target.set(None);
-    dragging_from.set(Some(id));
-    drop_at.set(Some(id));
+    pending_drag.set(Some(PendingDrag {
+        row: id,
+        started_at_y,
+    }));
 
     let handles: Vec<Option<Rc<MountedData>>> = row_handles.read().clone();
     let mut extents: Vec<RowExtent> = Vec::with_capacity(handles.len());
@@ -101,8 +130,7 @@ async fn begin_drag(
     }
 
     if extents.is_empty() {
-        dragging_from.set(None);
-        drop_at.set(None);
+        pending_drag.set(None);
     }
     row_extents.set(extents);
 }
@@ -132,7 +160,10 @@ pub(crate) fn SelectedItems(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     active_selected_item_id: Signal<Option<usize>>,
 ) -> Element {
-    // Which row is being dragged, and which gap it would drop into.
+    // A press that may yet turn into a drag, and the drag it turns into once
+    // the pointer has moved far enough — see [`DRAG_THRESHOLD`]. Keeping them
+    // apart is what stops a plain click from flashing the drop lines.
+    let mut pending_drag: Signal<Option<PendingDrag>> = use_signal(|| None);
     let mut dragging_from: Signal<Option<usize>> = use_signal(|| None);
     let mut drop_at: Signal<Option<usize>> = use_signal(|| None);
     // Highlights the row that has just been moved, so a change made by drag or
@@ -145,6 +176,7 @@ pub(crate) fn SelectedItems(
     let mut row_extents: Signal<Vec<RowExtent>> = use_signal(Vec::new);
 
     let mut end_drag = move || {
+        pending_drag.set(None);
         dragging_from.set(None);
         drop_at.set(None);
         row_extents.set(Vec::new());
@@ -166,10 +198,21 @@ pub(crate) fn SelectedItems(
             // captures to the row it began on, so the rows it travels over see
             // nothing, while everything bubbles to this element.
             onpointermove: move |event: Event<PointerData>| {
-                if dragging_from().is_none() {
-                    return;
-                }
                 let pointer_y = event.data().coordinates().client().y;
+
+                // A press becomes a drag only once it has travelled. Until
+                // then nothing is shown, so pressing a row to open it does not
+                // flash the drop lines between every row.
+                if dragging_from().is_none() {
+                    let Some(pending) = pending_drag() else {
+                        return;
+                    };
+                    if !is_a_drag(pending, pointer_y) {
+                        return;
+                    }
+                    dragging_from.set(Some(pending.row));
+                }
+
                 let extents = row_extents.read();
                 if extents.is_empty() {
                     return;
@@ -189,7 +232,7 @@ pub(crate) fn SelectedItems(
             // which is the only sign available that the release happened out
             // there.
             onpointerenter: move |event: Event<PointerData>| {
-                if dragging_from().is_some() && event.data().held_buttons().is_empty() {
+                if pending_drag().is_some() && event.data().held_buttons().is_empty() {
                     end_drag();
                 }
             },
@@ -200,6 +243,7 @@ pub(crate) fn SelectedItems(
                     selected_items,
                     id: number,
                     active_selected_item_id,
+                    pending_drag,
                     dragging_from,
                     drop_at,
                     anim_target,
@@ -229,6 +273,7 @@ fn SelectedItem(
     selected_items: Signal<Vec<SelectedItemRepresentation>>,
     id: usize,
     active_selected_item_id: Signal<Option<usize>>,
+    pending_drag: Signal<Option<PendingDrag>>,
     dragging_from: Signal<Option<usize>>,
     drop_at: Signal<Option<usize>>,
     anim_target: Signal<Option<usize>>,
@@ -279,10 +324,16 @@ fn SelectedItem(
 
         div {
             role: "button",
+            // Which row is open in the options beside the list is worth saying:
+            // the panel changes under the reader when another row is picked,
+            // and without a mark on the row there is nothing tying the two
+            // together. Drawn the way the library list marks its open item.
             class: if anim_target() == Some(id) {
                 "outline secondary selection_item selected-item selected-item-moved"
             } else if dragging_from() == Some(id) {
                 "outline secondary selection_item selected-item selected-item-dragging"
+            } else if active_selected_item_id() == Some(id) {
+                "outline secondary selection_item selection_item-active selected-item"
             } else {
                 "outline secondary selection_item selected-item"
             },
@@ -307,7 +358,9 @@ fn SelectedItem(
                 if event.data().pointer_type() == "touch" || !event.data().is_primary() {
                     return;
                 }
-                begin_drag(id, dragging_from, drop_at, anim_target, row_handles, row_extents).await;
+                let started_at_y = event.data().coordinates().client().y;
+                begin_drag(id, started_at_y, pending_drag, anim_target, row_handles, row_extents)
+                    .await;
             },
             // The order can be changed without a pointer at all. Alt keeps it
             // clear of the arrow keys the list itself uses to move between
@@ -351,7 +404,15 @@ fn SelectedItem(
                     // The row's own handler would otherwise start the same drag
                     // a second time.
                     event.stop_propagation();
-                    begin_drag(id, dragging_from, drop_at, anim_target, row_handles, row_extents)
+                    let started_at_y = event.data().coordinates().client().y;
+                    begin_drag(
+                        id,
+                        started_at_y,
+                        pending_drag,
+                        anim_target,
+                        row_handles,
+                        row_extents,
+                    )
                         .await;
                 },
                 onkeydown: move |event: Event<KeyboardData>| {
@@ -479,6 +540,35 @@ mod tests {
     #[test]
     fn test_above_the_list_is_its_start() {
         assert_eq!(drop_index(&rows(3), -100.0), 0);
+    }
+
+    /// A press is not a drag until it has travelled. Pressing a row to open it
+    /// used to flash the dashed drop line between every row for as long as the
+    /// button was down.
+    #[test]
+    fn test_a_press_that_has_not_moved_is_not_a_drag() {
+        let pending = PendingDrag {
+            row: 1,
+            started_at_y: 100.0,
+        };
+
+        assert!(!is_a_drag(pending, 100.0), "a click that did not move");
+        assert!(!is_a_drag(pending, 102.0), "a hand that is not quite steady");
+        assert!(!is_a_drag(pending, 96.0), "and the same upwards");
+    }
+
+    /// Once it has travelled it is a drag, in either direction — the list is a
+    /// column, so a row can be picked up and taken upwards just as well.
+    #[test]
+    fn test_a_press_that_has_moved_far_enough_is_a_drag() {
+        let pending = PendingDrag {
+            row: 1,
+            started_at_y: 100.0,
+        };
+
+        assert!(is_a_drag(pending, 100.0 + DRAG_THRESHOLD));
+        assert!(is_a_drag(pending, 100.0 - DRAG_THRESHOLD));
+        assert!(is_a_drag(pending, 400.0));
     }
 
     /// An empty list has one gap and it is the only answer; asking must not
