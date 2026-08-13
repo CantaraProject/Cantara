@@ -14,6 +14,7 @@ use cantara_songlib::slides::{SlideContent, SlideRow};
 use dioxus::prelude::*;
 use rust_i18n::t;
 
+use super::jump_sidebar::{JumpSidebar, JumpTarget};
 use super::presentation_components::{
     PresentationRendererComponent, PresentationRole, StaticSlideRendererComponent,
 };
@@ -375,15 +376,47 @@ fn PresenterContent(
     running_presentation: Signal<RunningPresentation>,
     view: Signal<PresenterConsoleView>,
 ) -> Element {
+    // The elements of the service, as places to jump to. The same list the
+    // dropdown in the control bar offers — but standing open beside the
+    // console, where a glance says which one is running rather than a click.
+    let rp = running_presentation.read();
+    let chapters: Vec<JumpTarget> = rp
+        .presentation
+        .iter()
+        .map(|chapter| JumpTarget {
+            label: chapter.source_file.name.clone(),
+            id: String::new(),
+        })
+        .collect();
+    let current_chapter = rp.position.as_ref().map(|p| p.chapter());
+    drop(rp);
+
+    // Jumping to an element means its first slide — which is what the
+    // dropdown does, and what "go to that song" means to a person.
+    let jump = move |index: usize| {
+        running_presentation.write().jump_to(index, 0);
+    };
+
+    let sidebar = rsx! {
+        JumpSidebar {
+            targets: chapters,
+            active: current_chapter,
+            title: t!("presenter.chapters").to_string(),
+            on_select: jump,
+        }
+    };
+
     match *view.read() {
         PresenterConsoleView::Text => rsx! {
-            main { class: "presenter-content",
+            main { class: "presenter-content presenter-content-with-jumps",
+                { sidebar }
                 PresenterTextPanel { running_presentation }
                 PresenterPreviewPanel { running_presentation }
             }
         },
         PresenterConsoleView::Grid => rsx! {
-            main { class: "presenter-content presenter-content-grid",
+            main { class: "presenter-content presenter-content-grid presenter-content-with-jumps",
+                { sidebar }
                 PresenterGridPanel { running_presentation }
             }
         },

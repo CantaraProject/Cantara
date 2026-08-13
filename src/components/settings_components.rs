@@ -6,6 +6,7 @@ use super::shared_components::{
 };
 use crate::logic::sourcefiles::SourceFile;
 use crate::logic::tag_mapping::TagMapping;
+use super::jump_sidebar::{JumpSidebar, JumpTarget, scroll_to_section, use_section_spy};
 use super::song_slide_settings_components::SongSlideSettingsSection;
 #[cfg(feature = "desktop")]
 use crate::logic::screens::{MonitorInfo, enumerate_monitors};
@@ -92,20 +93,83 @@ fn SettingsContent() -> Element {
         }
     });
 
-    // Here the element order of the settings can be defined
-    rsx! {
-        RepositorySettings {}
-        hr {}
-        ScreenSettings {}
-        hr {}
-        PresentationSettings {}
-        hr {}
-        SongSlideSettingsSection {
-            song_slide_settings
+    // The sections, in the order they appear. Named here rather than read out
+    // of the page: this is the list the sidebar shows, and a heading the user
+    // reads should be the heading the list names — the same translation key
+    // feeds both, so they cannot drift apart.
+    //
+    // The section elements below carry these ids, and nothing else on the page
+    // does; `use_section_spy` watches exactly them.
+    let sections: Vec<JumpTarget> = vec![
+        JumpTarget::section("settings-repositories", t!("settings.repositories_headline")),
+        JumpTarget::section("settings-screens", t!("settings.screen_headline")),
+        JumpTarget::section("settings-presentation", t!("settings.presentation_headline")),
+        JumpTarget::section("settings-slides", t!("settings.song_slide_headline")),
+        JumpTarget::section("settings-tag-mapping", t!("settings.tag_mapping_headline")),
+        // The stream section is not in the web build, and neither is its entry.
+        #[cfg(not(target_arch = "wasm32"))]
+        JumpTarget::section("settings-stream", t!("settings.stream_headline")),
+    ];
+
+    let ids: Vec<String> = sections.iter().map(|target| target.id.clone()).collect();
+    let mut active_section = use_section_spy(ids.clone());
+
+    // Marking a section because the reader went to it, rather than waiting for
+    // the scrolling to say so. Two things ask for this and the watcher can
+    // answer neither: a click in the list is an answer in itself, and clicking
+    // *into* a section says where the reader is without moving the page at all.
+    //
+    // Named by its id and not by its position, so that the marking and the
+    // element it belongs to carry the same word — a number here would have to
+    // be kept in step with the list above by hand.
+    let id_list: Signal<Vec<String>> = use_signal(|| ids.clone());
+    let mut mark = move |id: &str| {
+        if let Some(index) = id_list.read().iter().position(|known| known == id) {
+            active_section.set(Some(index));
         }
-        hr {}
-        TagMappingSection {}
-        StreamSettingsSection {}
+    };
+
+    rsx! {
+        div { class: "jump-layout",
+            JumpSidebar {
+                targets: sections.clone(),
+                active: active_section(),
+                // The settings are long and the reader may want the width for
+                // a wide form, so this one folds away.
+                collapsible: true,
+                on_select: move |index: usize| {
+                    if let Some(id) = id_list.read().get(index) {
+                        mark(id);
+                        scroll_to_section(id);
+                    }
+                },
+            }
+
+            div { class: "jump-layout-content",
+                section { id: "settings-repositories", onclick: move |_| mark("settings-repositories"), RepositorySettings {} }
+                hr {}
+                section { id: "settings-screens", onclick: move |_| mark("settings-screens"), ScreenSettings {} }
+                hr {}
+                section { id: "settings-presentation", onclick: move |_| mark("settings-presentation"), PresentationSettings {} }
+                hr {}
+                section { id: "settings-slides", onclick: move |_| mark("settings-slides"),
+                    SongSlideSettingsSection {
+                        song_slide_settings
+                    }
+                }
+                hr {}
+                section { id: "settings-tag-mapping", onclick: move |_| mark("settings-tag-mapping"), TagMappingSection {} }
+
+                // Left out of the web build along with its entry in the list.
+                // The section itself is what the list points at, and one
+                // without an entry is an anchor nothing can reach — on the web
+                // an empty one at that, since the stream settings are not
+                // there either.
+                if cfg!(not(target_arch = "wasm32")) {
+                    section { id: "settings-stream", onclick: move |_| mark("settings-stream"), StreamSettingsSection {} }
+                }
+            }
+        }
     }
 }
 

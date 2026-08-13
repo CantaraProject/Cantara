@@ -54,6 +54,9 @@ pub mod selection_components;
 
 pub mod detail_components;
 
+/// A list of places to jump to, beside a long view.
+pub mod jump_sidebar;
+
 /// Creating an element, and moving one between repositories.
 pub mod element_creation;
 

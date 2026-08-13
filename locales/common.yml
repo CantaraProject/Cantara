@@ -46,6 +46,15 @@ general:
   delete:
     en: Delete
     de: Löschen
+  jump_to:
+    en: Jump to
+    de: Springen zu
+  jump_collapse:
+    en: Fold the list away
+    de: Liste einklappen
+  jump_expand:
+    en: Show the list
+    de: Liste ausklappen
   cancel:
     en: Cancel
     de: Abbrechen
