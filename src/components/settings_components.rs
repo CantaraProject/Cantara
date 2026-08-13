@@ -159,7 +159,15 @@ fn SettingsContent() -> Element {
                 }
                 hr {}
                 section { id: "settings-tag-mapping", onclick: move |_| mark("settings-tag-mapping"), TagMappingSection {} }
-                section { id: "settings-stream", onclick: move |_| mark("settings-stream"), StreamSettingsSection {} }
+
+                // Left out of the web build along with its entry in the list.
+                // The section itself is what the list points at, and one
+                // without an entry is an anchor nothing can reach — on the web
+                // an empty one at that, since the stream settings are not
+                // there either.
+                if cfg!(not(target_arch = "wasm32")) {
+                    section { id: "settings-stream", onclick: move |_| mark("settings-stream"), StreamSettingsSection {} }
+                }
             }
         }
     }

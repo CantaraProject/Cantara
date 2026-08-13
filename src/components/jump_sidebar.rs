@@ -112,6 +112,14 @@ pub fn JumpSidebar(
                         r#type: "button",
                         class: "outline secondary jump-sidebar-toggle",
                         aria_expanded: (!collapsed()).to_string(),
+                        // The button says «, which is no name at all. `title`
+                        // shows a tooltip but is not dependably read as the
+                        // name either, so the words are stated outright — a
+                        // screen reader would otherwise announce the glyph.
+                        aria_label: match collapsed() {
+                            true => t!("general.jump_expand").to_string(),
+                            false => t!("general.jump_collapse").to_string(),
+                        },
                         title: match collapsed() {
                             true => t!("general.jump_expand").to_string(),
                             false => t!("general.jump_collapse").to_string(),
