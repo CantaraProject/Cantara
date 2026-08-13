@@ -83,6 +83,8 @@ pub mod stream_view;
 pub mod element_id;
 pub mod images;
 pub mod pdf;
+/// Which pages of a PDF belong in the presentation.
+pub mod pdf_pages;
 
 /// Offering the running presentation to browsers on the local network.
 /// There is no server in a browser, so the web build has none of this.

@@ -275,6 +275,103 @@ pub fn pdf_page_of(path: &str) -> Option<(String, u32)> {
     Some((document, page))
 }
 
+// ── How many pages a document has ────────────────────────────────────────────
+//
+// Asked by the field where a user says which pages to show, so that "page 7"
+// on a one-page handout can be answered rather than silently ignored. Counting
+// means opening and parsing the file, which a view must not do while it draws
+// — the same rule the pictures follow. So the count is made on a background
+// thread and read from here, and a view that has not got one yet simply says
+// nothing about the range.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
+
+/// The counts, by the path they were read from. `None` means the file could
+/// not be read — remembered so it is not tried again on every draw.
+static PAGE_COUNTS: OnceLock<Mutex<HashMap<PathBuf, Option<u32>>>> = OnceLock::new();
+
+/// Counts up as counts arrive, so a view knows to look again. A background
+/// thread cannot write to a signal; a counter it can.
+static PAGE_COUNT_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// How many documents are still being counted.
+static PAGE_COUNTS_OUTSTANDING: AtomicUsize = AtomicUsize::new(0);
+
+fn page_counts() -> &'static Mutex<HashMap<PathBuf, Option<u32>>> {
+    PAGE_COUNTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// How many pages the document has, if that has already been worked out.
+///
+/// Never reads a file. `None` means "not yet, or not readable", and a caller
+/// draws that as no answer rather than as a wrong one.
+pub fn page_count(path: &Path) -> Option<u32> {
+    page_counts().lock().ok()?.get(path).copied().flatten()
+}
+
+/// Counts up as counts arrive.
+pub fn page_count_generation() -> u64 {
+    PAGE_COUNT_GENERATION.load(Ordering::Relaxed)
+}
+
+/// Whether any document is still being counted.
+pub fn page_counts_in_progress() -> bool {
+    PAGE_COUNTS_OUTSTANDING.load(Ordering::Relaxed) > 0
+}
+
+/// Works out the page count off the calling thread.
+///
+/// Returns at once, and does nothing for a document that has been counted
+/// already — so a view may call it on every draw.
+pub fn prepare_page_count(path: PathBuf) {
+    {
+        let Ok(mut counts) = page_counts().lock() else {
+            return;
+        };
+        if counts.contains_key(&path) {
+            return;
+        }
+        // Claimed straight away, so that two draws in a row do not both count
+        // the same file. The entry is filled in when the answer is there.
+        counts.insert(path.clone(), None);
+    }
+    PAGE_COUNTS_OUTSTANDING.fetch_add(1, Ordering::Relaxed);
+
+    let count = move || {
+        let found = read_page_count(&path);
+        if let Ok(mut counts) = page_counts().lock() {
+            counts.insert(path, found);
+        }
+        PAGE_COUNTS_OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
+        PAGE_COUNT_GENERATION.fetch_add(1, Ordering::Relaxed);
+    };
+
+    // A browser has no threads; there the file is already in memory and the
+    // parsing is paid here and now.
+    #[cfg(target_arch = "wasm32")]
+    count();
+
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(count);
+}
+
+/// Opens the document and counts its pages.
+fn read_page_count(path: &Path) -> Option<u32> {
+    #[cfg(target_arch = "wasm32")]
+    let document = {
+        let bytes = crate::logic::settings::RepositoryType::web_read_file(&path.to_string_lossy())?;
+        lopdf::Document::load_mem(&bytes).ok()?
+    };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let document = lopdf::Document::load(path).ok()?;
+
+    u32::try_from(document.get_pages().len()).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

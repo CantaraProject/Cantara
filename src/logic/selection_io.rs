@@ -278,6 +278,10 @@ pub struct ManifestItem {
     /// How the slides of this element arrive.
     #[serde(default)]
     pub transition: SlideTransition,
+    /// Which pages of a PDF to show — `1-3+6`. Left out when it is every page,
+    /// which is what a file written before this existed also means.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub pdf_pages: String,
 }
 
 /// What a selection file was found to contain.
@@ -311,6 +315,8 @@ pub struct DocumentItem {
     pub inline_markdown: Option<String>,
     pub timer: Option<SlideTimerSettings>,
     pub transition: SlideTransition,
+    /// Which pages of a PDF to show, as the user wrote it.
+    pub pdf_pages: String,
 }
 
 impl DocumentItem {
@@ -328,6 +334,7 @@ impl DocumentItem {
             inline_markdown: None,
             timer: None,
             transition: SlideTransition::default(),
+            pdf_pages: String::new(),
         }
     }
 }
@@ -483,6 +490,7 @@ fn write_cantara_zip(
             inline_markdown: item.inline_markdown.clone(),
             timer: item.timer_settings_option.clone(),
             transition: item.transition_effect,
+            pdf_pages: item.pdf_pages.clone(),
         });
     }
 
@@ -770,6 +778,7 @@ fn read_cantara_zip(bytes: &[u8]) -> Result<SelectionDocument, SelectionIoError>
             inline_markdown: entry.inline_markdown.clone(),
             timer: entry.timer.clone(),
             transition: entry.transition,
+            pdf_pages: entry.pdf_pages.clone(),
         });
     }
 
@@ -937,6 +946,7 @@ pub fn selected_item_of(resolved: &ResolvedItem, path: Option<PathBuf>) -> Optio
         inline_markdown: item.inline_markdown.clone(),
         timer_settings_option: item.timer.clone(),
         transition_effect: item.transition,
+        pdf_pages: item.pdf_pages.clone(),
     })
 }
 

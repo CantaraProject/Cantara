@@ -1,5 +1,6 @@
 use crate::components::shared_components::SelectedItemPreview;
 use crate::logic::settings::{use_settings, AfterLastSlide, SlideTimerSettings, SlideTransition};
+use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::stream_view::reconcile_max_lines;
 use crate::logic::states::SelectedItemRepresentation;
 use dioxus::prelude::*;
@@ -105,6 +106,58 @@ fn SpecificOptions(
         .unwrap_or_default();
     let current_transition = item.transition_effect;
 
+    // Only a PDF has pages to choose between. What the field says about a
+    // pattern it cannot read is worked out here rather than on every keystroke
+    // in the handler, so that the message and the value can never disagree.
+    let is_pdf = item.source_file.file_type == SourceFileType::Pdf;
+    let pdf_pages = item.pdf_pages.clone();
+    let pdf_path = item.source_file.path.clone();
+
+    // How long the document is, so that a page it does not have can be said
+    // rather than silently dropped. Counting means opening and parsing the
+    // file, which must not happen while this is being drawn — so it is asked
+    // for here and read when it arrives. Until then only the pattern itself is
+    // checked, which is the honest thing: nothing yet knows the length.
+    let mut pages_ready: Signal<u64> = use_signal(crate::logic::pdf::page_count_generation);
+    use_effect({
+        let pdf_path = pdf_path.clone();
+        move || {
+            if !is_pdf {
+                return;
+            }
+            crate::logic::pdf::prepare_page_count(pdf_path.clone());
+
+            spawn(async move {
+                loop {
+                    let generation = crate::logic::pdf::page_count_generation();
+                    if generation != *pages_ready.peek() {
+                        pages_ready.set(generation);
+                    }
+                    if !crate::logic::pdf::page_counts_in_progress() {
+                        return;
+                    }
+                    let _ = document::eval("await new Promise(r => setTimeout(r, 100))").await;
+                }
+            });
+        }
+    });
+
+    // Read while rendering, because that is what subscribes this to it.
+    let _ = pages_ready();
+    let page_total = crate::logic::pdf::page_count(&pdf_path);
+
+    let pdf_pages_problem = crate::logic::pdf_pages::PageSelection::parse(&pdf_pages)
+        .and_then(|selection| match page_total {
+            Some(total) => selection.check_against(total),
+            // Not counted yet. Saying nothing beats guessing.
+            None => Ok(()),
+        })
+        .err()
+        .map(|error| {
+            let (key, parameters) = error.message_key();
+            crate::components::shared_components::translate(key, &parameters)
+        });
+
     rsx! {
         div { class: "grid",
             div {
@@ -181,6 +234,36 @@ fn SpecificOptions(
                 default_presentation_design: settings.read().default_presentation_design(),
                 default_slide_settings: settings.read().default_song_slide_settings(),
                 width: 400,
+            }
+        }
+
+        if is_pdf {
+            div {
+                label { {t!("selection.pdf_pages_label").to_string()} }
+                input {
+                    r#type: "text",
+                    // `aria-invalid` is what Pico marks a bad field with, so a
+                    // wrong pattern looks the way every other wrong field does.
+                    aria_invalid: pdf_pages_problem.is_some().to_string(),
+                    value: "{pdf_pages}",
+                    placeholder: t!("selection.pdf_pages_placeholder").to_string(),
+                    oninput: move |event| {
+                        // Kept as typed, wrong or not: a pattern is wrong for
+                        // as long as it takes to finish writing it, and a field
+                        // that refuses the half of it cannot be typed into.
+                        selected_items.write()[item_index].pdf_pages = event.value();
+                    },
+                }
+                match pdf_pages_problem.clone() {
+                    Some(problem) => rsx! {
+                        small { class: "pdf-pages-problem", "{problem}" }
+                    },
+                    None => rsx! {
+                        small { class: "pdf-pages-hint",
+                            {t!("selection.pdf_pages_hint").to_string()}
+                        }
+                    },
+                }
             }
         }
 
