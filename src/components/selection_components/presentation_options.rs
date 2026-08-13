@@ -111,7 +111,47 @@ fn SpecificOptions(
     // in the handler, so that the message and the value can never disagree.
     let is_pdf = item.source_file.file_type == SourceFileType::Pdf;
     let pdf_pages = item.pdf_pages.clone();
+    let pdf_path = item.source_file.path.clone();
+
+    // How long the document is, so that a page it does not have can be said
+    // rather than silently dropped. Counting means opening and parsing the
+    // file, which must not happen while this is being drawn — so it is asked
+    // for here and read when it arrives. Until then only the pattern itself is
+    // checked, which is the honest thing: nothing yet knows the length.
+    let mut pages_ready: Signal<u64> = use_signal(crate::logic::pdf::page_count_generation);
+    use_effect({
+        let pdf_path = pdf_path.clone();
+        move || {
+            if !is_pdf {
+                return;
+            }
+            crate::logic::pdf::prepare_page_count(pdf_path.clone());
+
+            spawn(async move {
+                loop {
+                    let generation = crate::logic::pdf::page_count_generation();
+                    if generation != *pages_ready.peek() {
+                        pages_ready.set(generation);
+                    }
+                    if !crate::logic::pdf::page_counts_in_progress() {
+                        return;
+                    }
+                    let _ = document::eval("await new Promise(r => setTimeout(r, 100))").await;
+                }
+            });
+        }
+    });
+
+    // Read while rendering, because that is what subscribes this to it.
+    let _ = pages_ready();
+    let page_total = crate::logic::pdf::page_count(&pdf_path);
+
     let pdf_pages_problem = crate::logic::pdf_pages::PageSelection::parse(&pdf_pages)
+        .and_then(|selection| match page_total {
+            Some(total) => selection.check_against(total),
+            // Not counted yet. Saying nothing beats guessing.
+            None => Ok(()),
+        })
         .err()
         .map(|error| {
             let (key, parameters) = error.message_key();

@@ -25,6 +25,9 @@ selection:
   pdf_pages_error_backwards:
     en: "%{from}-%{to} ends before it begins."
     de: "%{from}-%{to} endet vor dem Anfang."
+  pdf_pages_error_beyond_end:
+    en: "The document has %{total} pages, so there is no page %{page}."
+    de: "Das Dokument hat %{total} Seiten, eine Seite %{page} gibt es nicht."
   pdf_pages_error_half_range:
     en: "%{part} is missing one side of the range."
     de: "Bei %{part} fehlt eine Seite des Bereichs."

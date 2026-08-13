@@ -42,6 +42,13 @@ pub enum PageSelectionError {
 
     /// A range with a side missing, such as `4-` or `-4`.
     HalfRange(String),
+
+    /// A page the document does not have — page seven of a one-page handout.
+    ///
+    /// Not something [`PageSelection::parse`] can find: the pattern is read
+    /// before anything knows how long the document is. It comes from
+    /// [`PageSelection::check_against`], which is asked once the count is in.
+    BeyondEnd { page: u32, total: u32 },
 }
 
 impl PageSelectionError {
@@ -63,6 +70,10 @@ impl PageSelectionError {
             PageSelectionError::HalfRange(part) => (
                 "selection.pdf_pages_error_half_range",
                 vec![("part", part.clone())],
+            ),
+            PageSelectionError::BeyondEnd { page, total } => (
+                "selection.pdf_pages_error_beyond_end",
+                vec![("page", page.to_string()), ("total", total.to_string())],
             ),
         }
     }
@@ -119,11 +130,40 @@ impl PageSelection {
                 .any(|(from, to)| page >= *from && page <= *to)
     }
 
+    /// Whether every page it names is in a document of `total` pages.
+    ///
+    /// A separate question from [`parse`](Self::parse), and it has to be: the
+    /// pattern is typed long before anything has opened the file. The caller
+    /// asks this once the count is known — and until it is, asks nothing,
+    /// which is why this is not folded into the parsing.
+    ///
+    /// The *first* page past the end is reported. A pattern usually goes wrong
+    /// in one place, and a list of every page it should not have named would
+    /// say the same thing several times over.
+    pub fn check_against(&self, total: u32) -> Result<(), PageSelectionError> {
+        for (from, to) in &self.ranges {
+            // The end of the range is what is checked, and the start reported
+            // when that is what is out of reach: `9-12` on four pages is a
+            // mistake about page nine, not about page twelve.
+            if *to > total {
+                let page = match *from > total {
+                    true => *from,
+                    false => *to,
+                };
+                return Err(PageSelectionError::BeyondEnd { page, total });
+            }
+        }
+        Ok(())
+    }
+
     /// The pages to show of a document that has `total` of them.
     ///
     /// In the document's own order and without repeats — see the module
     /// documentation. Pages the document does not have are left out rather
-    /// than reported: `1-100` on a four-page handout means the handout.
+    /// than refused: [`check_against`](Self::check_against) is what says so,
+    /// and it says it in the field where the pattern was typed. Here a pattern
+    /// that overshoots still yields the pages that do exist, so an element
+    /// never disappears from a presentation over it.
     pub fn pages(&self, total: u32) -> Vec<u32> {
         (1..=total).filter(|page| self.includes(*page)).collect()
     }
@@ -228,11 +268,62 @@ mod tests {
         assert_eq!(pages("2,2,2", 5), vec![2]);
     }
 
-    /// A handout is however long it is; asking for more of it is not an error.
+    /// Building the slides never refuses — the field is where that is said.
     #[test]
     fn pages_the_document_does_not_have_are_left_out() {
         assert_eq!(pages("1-100", 4), vec![1, 2, 3, 4]);
         assert_eq!(pages("9-12", 4), Vec::<u32>::new());
+    }
+
+    /// The case this is for: page seven of a one-page handout.
+    #[test]
+    fn a_page_the_document_does_not_have_is_reported() {
+        let selection = PageSelection::parse("7").expect("reads");
+
+        assert_eq!(
+            selection.check_against(1),
+            Err(PageSelectionError::BeyondEnd { page: 7, total: 1 })
+        );
+    }
+
+    #[test]
+    fn a_pattern_that_fits_the_document_passes() {
+        for pattern in ["", "1", "1-4", "1,3-5", "1-3+6"] {
+            assert_eq!(
+                PageSelection::parse(pattern).expect("reads").check_against(6),
+                Ok(()),
+                "for {pattern:?}"
+            );
+        }
+    }
+
+    /// A range that runs past the end is a mistake about where it starts, not
+    /// about where it stops — that is the page worth naming back.
+    #[test]
+    fn a_range_past_the_end_names_the_page_that_matters() {
+        assert_eq!(
+            PageSelection::parse("9-12")
+                .expect("reads")
+                .check_against(4),
+            Err(PageSelectionError::BeyondEnd { page: 9, total: 4 })
+        );
+        assert_eq!(
+            PageSelection::parse("1-12")
+                .expect("reads")
+                .check_against(4),
+            Err(PageSelectionError::BeyondEnd { page: 12, total: 4 })
+        );
+    }
+
+    /// One mistake, said once — even when several parts overshoot.
+    #[test]
+    fn the_first_page_past_the_end_is_the_one_reported() {
+        assert_eq!(
+            PageSelection::parse("5,8,9")
+                .expect("reads")
+                .check_against(4),
+            Err(PageSelectionError::BeyondEnd { page: 5, total: 4 })
+        );
     }
 
     #[test]
@@ -307,6 +398,7 @@ mod tests {
             PageSelectionError::ZeroPage,
             PageSelectionError::Backwards { from: 5, to: 3 },
             PageSelectionError::HalfRange(String::new()),
+            PageSelectionError::BeyondEnd { page: 7, total: 1 },
         ] {
             let (key, _) = error.message_key();
             assert!(
