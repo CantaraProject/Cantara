@@ -112,7 +112,22 @@ fn SettingsContent() -> Element {
     ];
 
     let ids: Vec<String> = sections.iter().map(|target| target.id.clone()).collect();
-    let active_section = use_section_spy(ids.clone());
+    let mut active_section = use_section_spy(ids.clone());
+
+    // Marking a section because the reader went to it, rather than waiting for
+    // the scrolling to say so. Two things ask for this and the watcher can
+    // answer neither: a click in the list is an answer in itself, and clicking
+    // *into* a section says where the reader is without moving the page at all.
+    //
+    // Named by its id and not by its position, so that the marking and the
+    // element it belongs to carry the same word — a number here would have to
+    // be kept in step with the list above by hand.
+    let id_list: Signal<Vec<String>> = use_signal(|| ids.clone());
+    let mut mark = move |id: &str| {
+        if let Some(index) = id_list.read().iter().position(|known| known == id) {
+            active_section.set(Some(index));
+        }
+    };
 
     rsx! {
         div { class: "jump-layout",
@@ -123,27 +138,28 @@ fn SettingsContent() -> Element {
                 // a wide form, so this one folds away.
                 collapsible: true,
                 on_select: move |index: usize| {
-                    if let Some(id) = ids.get(index) {
+                    if let Some(id) = id_list.read().get(index) {
+                        mark(id);
                         scroll_to_section(id);
                     }
                 },
             }
 
             div { class: "jump-layout-content",
-                section { id: "settings-repositories", RepositorySettings {} }
+                section { id: "settings-repositories", onclick: move |_| mark("settings-repositories"), RepositorySettings {} }
                 hr {}
-                section { id: "settings-screens", ScreenSettings {} }
+                section { id: "settings-screens", onclick: move |_| mark("settings-screens"), ScreenSettings {} }
                 hr {}
-                section { id: "settings-presentation", PresentationSettings {} }
+                section { id: "settings-presentation", onclick: move |_| mark("settings-presentation"), PresentationSettings {} }
                 hr {}
-                section { id: "settings-slides",
+                section { id: "settings-slides", onclick: move |_| mark("settings-slides"),
                     SongSlideSettingsSection {
                         song_slide_settings
                     }
                 }
                 hr {}
-                section { id: "settings-tag-mapping", TagMappingSection {} }
-                section { id: "settings-stream", StreamSettingsSection {} }
+                section { id: "settings-tag-mapping", onclick: move |_| mark("settings-tag-mapping"), TagMappingSection {} }
+                section { id: "settings-stream", onclick: move |_| mark("settings-stream"), StreamSettingsSection {} }
             }
         }
     }

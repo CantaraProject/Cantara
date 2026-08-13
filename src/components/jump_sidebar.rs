@@ -202,21 +202,56 @@ pub fn use_section_spy(ids: Vec<String>) -> Signal<Option<usize>> {
                    const seen = new Map();
                    let reported = -1;
 
-                   const observer = new IntersectionObserver(function (entries) {{
-                       for (const entry of entries) {{
-                           seen.set(entry.target.id, entry.intersectionRatio > 0);
+                   // The element that actually scrolls. The page sits inside
+                   // one rather than scrolling the document itself, and the
+                   // end-of-scroll rule below needs to ask the right box how
+                   // far it has left to go.
+                   function scroller() {{
+                       let node = document.getElementById(ids[0]);
+                       while (node && node !== document.body) {{
+                           const style = getComputedStyle(node);
+                           if (/(auto|scroll)/.test(style.overflowY)) {{ return node; }}
+                           node = node.parentElement;
                        }}
-                       // The one nearest the top of the list that is on screen.
-                       // Reading downwards means the heading one has just
-                       // scrolled under is the one that stays marked.
+                       return document.scrollingElement || document.body;
+                   }}
+
+                   function report() {{
                        let current = -1;
-                       for (let index = 0; index < ids.length; index += 1) {{
-                           if (seen.get(ids[index])) {{ current = index; break; }}
+
+                       // The last section can never reach the top of the view:
+                       // there is nothing under it to scroll up. Once the box
+                       // is at its end, the section being read is the last one
+                       // on screen — otherwise clicking the bottom entry marks
+                       // whichever section happens to sit above it.
+                       const box = scroller();
+                       const atEnd =
+                           box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+
+                       if (atEnd) {{
+                           for (let index = ids.length - 1; index >= 0; index -= 1) {{
+                               if (seen.get(ids[index])) {{ current = index; break; }}
+                           }}
+                       }} else {{
+                           // Otherwise the one nearest the top of the list that
+                           // is on screen. Reading downwards means the heading
+                           // one has just scrolled under stays marked.
+                           for (let index = 0; index < ids.length; index += 1) {{
+                               if (seen.get(ids[index])) {{ current = index; break; }}
+                           }}
                        }}
+
                        if (current !== -1 && current !== reported) {{
                            reported = current;
                            dioxus.send(current);
                        }}
+                   }}
+
+                   const observer = new IntersectionObserver(function (entries) {{
+                       for (const entry of entries) {{
+                           seen.set(entry.target.id, entry.intersectionRatio > 0);
+                       }}
+                       report();
                    }}, {{
                        // A section counts as current once its top third is in
                        // view, so the mark moves with the reading and not with
@@ -228,6 +263,14 @@ pub fn use_section_spy(ids: Vec<String>) -> Signal<Option<usize>> {
                        const element = document.getElementById(id);
                        if (element) {{ observer.observe(element); }}
                    }}
+
+                   // Asked again once the scrolling has come to rest. The
+                   // observer only speaks when a section crosses the edge of
+                   // the view, and the last stretch to the very bottom crosses
+                   // nothing — which is exactly where the rule above matters.
+                   // `scrollend` fires once when the movement stops, so this
+                   // costs nothing per frame.
+                   scroller().addEventListener("scrollend", report);
                    "#
             ));
 

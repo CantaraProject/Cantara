@@ -118,6 +118,24 @@
     background-color: var(--pico-card-sectioning-background-color);
 }
 
+/* A clicked entry keeps the focus, and Pico rings a focused button. On a
+   full-width entry in a box that hides what runs over the sides, the ring is
+   clipped to its top and bottom edges — which is the pair of lines that stayed
+   under whichever entry had last been clicked, saying nothing true about where
+   the reader is.
+   Only the pointer loses the ring. `:focus-visible` matches when the focus was
+   reached by keyboard, and someone moving through the list with the tab key has
+   to be able to see where they are. */
+.jump-sidebar-entry:focus {
+    outline: none;
+    box-shadow: none;
+}
+
+.jump-sidebar-entry:focus-visible {
+    outline: 2px solid var(--pico-primary);
+    outline-offset: -2px;
+}
+
 /* Where the reader is. A bar down the side rather than a filled row: the list
    is read at a glance, and a block of colour in it draws more attention than
    the position deserves. */
