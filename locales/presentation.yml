@@ -23,6 +23,9 @@ presenter:
   stream_preview:
     en: Network stream
     de: Netzwerk-Übertragung
+  chapters:
+    en: Elements
+    de: Elemente
   previous:
     en: Previous
     de: Zurück

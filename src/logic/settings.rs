@@ -2241,7 +2241,23 @@ mod tests {
     #[test]
     fn test_current_settings_are_left_alone() {
         let current = serde_json::to_string(&Settings::default()).unwrap();
-        assert_eq!(migrate_settings_json(&current), current);
+        let migrated = migrate_settings_json(&current);
+
+        // Compared as documents rather than as text. The migration reads the
+        // settings into a `serde_json::Value` and writes them back out, and a
+        // `Value` holds its keys sorted while `Settings` writes them in the
+        // order it declares them — so the two strings differ by key order alone
+        // even when not one value was touched. Comparing the strings made this
+        // test depend on those two orders happening to agree, which is not
+        // something either side promises and which stopped being true without
+        // anything here changing.
+        //
+        // What the test is about is that nothing was changed, and that is a
+        // statement about the documents.
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&migrated).expect("valid JSON"),
+            serde_json::from_str::<serde_json::Value>(&current).expect("valid JSON"),
+        );
     }
 
     #[cfg(target_os = "linux")]

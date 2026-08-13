@@ -301,3 +301,34 @@
 .presenter-grid-slide-inner {
     pointer-events: none;
 }
+
+/* ── The list of elements beside the console ─────────────────────────────── */
+/* The generic sidebar — see `components::jump_sidebar` and `.jump-sidebar` in
+   `main.css`, which styles the list itself. What belongs here is the column it
+   occupies, because the console lays its panels out and this joins that row.
+
+   Only from 62rem up, which is where the sidebar draws itself at all. Below
+   that it is `display: none` and therefore not a grid item, so the two panels
+   must find the columns they always had — which is why these rules are inside
+   the query rather than overriding it. */
+@media (min-width: 62rem) {
+    .presenter-content-with-jumps {
+        grid-template-columns: minmax(9rem, 13rem) 1fr 1fr;
+    }
+
+    /* The grid view has one panel, not two. */
+    .presenter-content-grid.presenter-content-with-jumps {
+        grid-template-columns: minmax(9rem, 13rem) 1fr;
+    }
+
+    /* It sits in a row that is already the height of the window, so it scrolls
+       within its column rather than making the console taller. */
+    .presenter-content-with-jumps > .jump-sidebar {
+        position: static;
+        align-self: stretch;
+        max-height: 100%;
+        overflow-y: auto;
+        padding-right: 0.5rem;
+        border-right: 1px solid var(--pico-muted-border-color);
+    }
+}

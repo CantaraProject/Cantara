@@ -6,6 +6,7 @@ use super::shared_components::{
 };
 use crate::logic::sourcefiles::SourceFile;
 use crate::logic::tag_mapping::TagMapping;
+use super::jump_sidebar::{JumpSidebar, JumpTarget, scroll_to_section, use_section_spy};
 use super::song_slide_settings_components::SongSlideSettingsSection;
 #[cfg(feature = "desktop")]
 use crate::logic::screens::{MonitorInfo, enumerate_monitors};
@@ -92,20 +93,59 @@ fn SettingsContent() -> Element {
         }
     });
 
-    // Here the element order of the settings can be defined
+    // The sections, in the order they appear. Named here rather than read out
+    // of the page: this is the list the sidebar shows, and a heading the user
+    // reads should be the heading the list names — the same translation key
+    // feeds both, so they cannot drift apart.
+    //
+    // The section elements below carry these ids, and nothing else on the page
+    // does; `use_section_spy` watches exactly them.
+    let sections: Vec<JumpTarget> = vec![
+        JumpTarget::section("settings-repositories", t!("settings.repositories_headline")),
+        JumpTarget::section("settings-screens", t!("settings.screen_headline")),
+        JumpTarget::section("settings-presentation", t!("settings.presentation_headline")),
+        JumpTarget::section("settings-slides", t!("settings.song_slide_headline")),
+        JumpTarget::section("settings-tag-mapping", t!("settings.tag_mapping_headline")),
+        // The stream section is not in the web build, and neither is its entry.
+        #[cfg(not(target_arch = "wasm32"))]
+        JumpTarget::section("settings-stream", t!("settings.stream_headline")),
+    ];
+
+    let ids: Vec<String> = sections.iter().map(|target| target.id.clone()).collect();
+    let active_section = use_section_spy(ids.clone());
+
     rsx! {
-        RepositorySettings {}
-        hr {}
-        ScreenSettings {}
-        hr {}
-        PresentationSettings {}
-        hr {}
-        SongSlideSettingsSection {
-            song_slide_settings
+        div { class: "jump-layout",
+            JumpSidebar {
+                targets: sections.clone(),
+                active: active_section(),
+                // The settings are long and the reader may want the width for
+                // a wide form, so this one folds away.
+                collapsible: true,
+                on_select: move |index: usize| {
+                    if let Some(id) = ids.get(index) {
+                        scroll_to_section(id);
+                    }
+                },
+            }
+
+            div { class: "jump-layout-content",
+                section { id: "settings-repositories", RepositorySettings {} }
+                hr {}
+                section { id: "settings-screens", ScreenSettings {} }
+                hr {}
+                section { id: "settings-presentation", PresentationSettings {} }
+                hr {}
+                section { id: "settings-slides",
+                    SongSlideSettingsSection {
+                        song_slide_settings
+                    }
+                }
+                hr {}
+                section { id: "settings-tag-mapping", TagMappingSection {} }
+                section { id: "settings-stream", StreamSettingsSection {} }
+            }
         }
-        hr {}
-        TagMappingSection {}
-        StreamSettingsSection {}
     }
 }
 

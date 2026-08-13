@@ -1,0 +1,130 @@
+/* ── A list of places to jump to ─────────────────────────────────────────── */
+/* The generic sidebar — see `components::jump_sidebar`. Only the layout is
+   here; what a target means belongs to the view that has them. */
+
+/* One column by default: the sidebar is not drawn at all where the page is
+   narrow, so nothing has to make room for it. */
+.jump-layout {
+    display: block;
+}
+
+.jump-sidebar {
+    display: none;
+}
+
+/* The width at which a column of headings beside the page is worth what it
+   costs the page. Below it the view has the whole width, as it always did. */
+@media (min-width: 62rem) {
+    .jump-layout {
+        display: grid;
+        grid-template-columns: minmax(11rem, 15rem) minmax(0, 1fr);
+        gap: 1.5rem;
+        align-items: start;
+    }
+
+    .jump-sidebar {
+        display: block;
+        /* Stays beside the view while it scrolls past, which is the point of
+           having it at all. */
+        position: sticky;
+        top: 1rem;
+        max-height: calc(100vh - 8rem);
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    /* Folded away it is a strip with the button on it, and the view takes the
+       width back. */
+    .jump-sidebar.collapsed {
+        max-height: none;
+        overflow: visible;
+    }
+
+    .jump-layout:has(.jump-sidebar.collapsed) {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+}
+
+.jump-sidebar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.jump-sidebar-title {
+    font-size: 0.8em;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--pico-muted-color);
+}
+
+.jump-sidebar-toggle {
+    width: auto;
+    margin: 0;
+    padding: 0.1rem 0.5rem;
+    line-height: 1.4;
+}
+
+/* Stated rather than left to the browser. The list used to sit in a `nav`,
+   where Pico gives it `display: flex` and its items `display: inline-block` —
+   which put the headings side by side with a scrollbar under them. The element
+   is an `aside` now so those rules no longer apply, and these say plainly what
+   the list is meant to be. */
+.jump-sidebar-list {
+    display: block;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.jump-sidebar-list li {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+/* An entry is a button because it does something, and looks like a line of
+   text because it reads as one. */
+.jump-sidebar-entry {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: 0.35rem 0.6rem;
+    border: none;
+    border-left: 3px solid transparent;
+    border-radius: 0;
+    background: none;
+    /* `inherit` and not `var(--pico-color)`: Pico sets that variable *on the
+       button* to the inverse colour, because its buttons are filled. Read
+       inside one it therefore comes out white — which is what left every
+       entry but the current one invisible on a light background. Inheriting
+       takes the colour of the text around the list, in either theme. */
+    color: inherit;
+    font-size: 0.9em;
+    text-align: left;
+    line-height: 1.3;
+    cursor: pointer;
+    /* A heading wider than the column wraps. Cut off it would be unreadable,
+       and widened it would take the space from the page it points into. */
+    white-space: normal;
+    overflow-wrap: break-word;
+}
+
+.jump-sidebar-entry:hover {
+    background-color: var(--pico-card-sectioning-background-color);
+}
+
+/* Where the reader is. A bar down the side rather than a filled row: the list
+   is read at a glance, and a block of colour in it draws more attention than
+   the position deserves. */
+.jump-sidebar-entry.active {
+    border-left-color: var(--pico-primary);
+    color: var(--pico-primary);
+    font-weight: bold;
+    background-color: var(--pico-card-sectioning-background-color);
+}
+
