@@ -202,6 +202,36 @@ body {
     pointer-events: none;
 }
 
+/* ── The three columns, each scrolling on its own ────────────────────────── */
+/*
+ * The library, the running order and the options are three separate reading
+ * tasks, and each keeps its own place: scrolling the library must not carry
+ * the options away with it.
+ *
+ * What makes that work is that none of the three may make the row taller than
+ * the space between the bars. `positioning.js` used to guarantee it by writing
+ * a measured pixel height onto each of them. In CSS it takes two things, and
+ * leaving out either gives one scrollbar for the whole page instead of three:
+ *
+ * * `grid-template-rows: minmax(0, 1fr)` — a grid row is otherwise as tall as
+ *   its tallest item, so a long list of options grows the row past the
+ *   container rather than scrolling inside it.
+ * * `min-height: 0` on the panels — a grid or flex item will not shrink below
+ *   its content unless it is told it may.
+ */
+.swipe-container {
+    height: 100%;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+}
+
+/* Every column scrolls itself, at every width. The one that holds a
+   `.scrollable-container` scrolls there instead, one level further in. */
+.swipe-panel {
+    min-height: 0;
+    overflow-y: auto;
+}
+
 /* A list that scrolls inside the space it is given, rather than making the page
    longer. The 20px it used to be was a placeholder that `positioning.js`
    overwrote with a measured pixel height; the height is inherited now. */
@@ -282,8 +312,6 @@ div.inline-div {
     .swipe-container {
         display: flex !important;
         flex-direction: row;
-        height: 100%;
-        min-height: 0;
         overflow-x: auto;
         overflow-y: hidden;
         scroll-snap-type: x mandatory;
@@ -294,17 +322,18 @@ div.inline-div {
     .swipe-container::-webkit-scrollbar {
         display: none; /* Chrome/Safari */
     }
-    /* Each panel is exactly one screen wide and as tall as the container it
-       sits in, which is the space between the bars. `positioning.js` used to
-       compute that height in pixels; a stretched flex item is the same answer
-       without the arithmetic. */
+    /* Each panel is exactly one screen wide. Its height and its own scrolling
+       are the same on every width and are set outside this block. */
     .swipe-panel {
         flex: 0 0 100%;
         min-width: 100%;
-        height: 100%;
-        min-height: 0;
         scroll-snap-align: start;
-        overflow-y: auto;
+    }
+
+    /* Where the row cannot be dragged by pointing at it, it is dragged by this.
+       See `.selected-item-grip` above and `selected_list.rs`. */
+    .selected-item-grip {
+        display: inline-flex;
     }
 
     /* Swipe indicator dots */
@@ -1236,7 +1265,13 @@ div.inline-div {
     display: flex;
     align-items: center;
     gap: 0.5em;
+    /* A mouse or a pen picks the row up anywhere on it. */
+    cursor: grab;
     transition: background-color 300ms ease-out;
+}
+
+.selected-item:active {
+    cursor: grabbing;
 }
 
 .selected-item-label {
@@ -1795,12 +1830,16 @@ div.inline-div {
    claims a touch. A list long enough to scroll has to keep scrolling under the
    finger everywhere else, and `touch-action: none` is exactly the difference
    between a drag and a scroll. See `selected_list.rs`. */
-/* Drawn like the arrows and the wastebasket on the other side of the row: a
-   small muted icon, no box around it. It is an addition to the row, so it has
-   to be as quiet as the controls that were already there. */
+/* The grip exists for fingers only, and is not shown where there is a pointer:
+   on a wide screen the whole row is draggable, and a fourth control in a row
+   that already has three would be clutter. The mobile rule that shows it is
+   further down, with the rest of the narrow layout.
+
+   Drawn like the arrows and the wastebasket on the other side of the row when
+   it does appear: a small muted icon, no box around it. */
 .selected-item-grip {
+    display: none;
     flex: 0 0 auto;
-    display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 1.75em;
@@ -1809,6 +1848,8 @@ div.inline-div {
     background: none;
     border: none;
     cursor: grab;
+    /* The one element on the row that claims a touch, which is what makes the
+       gesture a drag rather than a scroll of the list. */
     touch-action: none;
     border-radius: var(--pico-border-radius);
 }

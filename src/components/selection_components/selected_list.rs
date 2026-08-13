@@ -62,6 +62,51 @@ fn drop_index(rows: &[RowExtent], pointer_y: f64) -> usize {
     rows.len()
 }
 
+/// Starts a drag on the row `id` and measures the list.
+///
+/// The measuring happens once, here, rather than on every move: nothing shifts
+/// while a drag runs, and asking the renderer for a rectangle costs a round
+/// trip per row. A row that cannot be measured gives the whole drag up — a
+/// missing one would shift every row below it, and the drop would land
+/// somewhere that was never pointed at.
+async fn begin_drag(
+    id: usize,
+    mut dragging_from: Signal<Option<usize>>,
+    mut drop_at: Signal<Option<usize>>,
+    mut anim_target: Signal<Option<usize>>,
+    row_handles: Signal<Vec<Option<Rc<MountedData>>>>,
+    mut row_extents: Signal<Vec<RowExtent>>,
+) {
+    anim_target.set(None);
+    dragging_from.set(Some(id));
+    drop_at.set(Some(id));
+
+    let handles: Vec<Option<Rc<MountedData>>> = row_handles.read().clone();
+    let mut extents: Vec<RowExtent> = Vec::with_capacity(handles.len());
+    for handle in handles.iter() {
+        let Some(handle) = handle else {
+            extents.clear();
+            break;
+        };
+        match handle.get_client_rect().await {
+            Ok(rect) => extents.push(RowExtent {
+                top: rect.min_y(),
+                bottom: rect.max_y(),
+            }),
+            Err(_) => {
+                extents.clear();
+                break;
+            }
+        }
+    }
+
+    if extents.is_empty() {
+        dragging_from.set(None);
+        drop_at.set(None);
+    }
+    row_extents.set(extents);
+}
+
 /// Moves the item at `from` into the gap `to`, and says where it ended up.
 ///
 /// `to` counts gaps, so moving an item down by one means `to == from + 2`: the
@@ -252,6 +297,18 @@ fn SelectedItem(
                 handles[id] = Some(handle);
             },
             onclick: move |_| { active_selected_item_id.set(Some(id)) },
+            // A mouse or a pen may start a drag anywhere on the row, the way it
+            // always could. A finger may not: claiming a touch is what turns it
+            // into a drag rather than a scroll, and a list that claimed every
+            // touch on it could not be scrolled at all. That is what the grip
+            // below is for, and why it is the only part of the row with
+            // `touch-action: none` on it.
+            onpointerdown: move |event: Event<PointerData>| async move {
+                if event.data().pointer_type() == "touch" || !event.data().is_primary() {
+                    return;
+                }
+                begin_drag(id, dragging_from, drop_at, anim_target, row_handles, row_extents).await;
+            },
             // The order can be changed without a pointer at all. Alt keeps it
             // clear of the arrow keys the list itself uses to move between
             // rows, and is what a sortable list is expected to answer to.
@@ -272,12 +329,12 @@ fn SelectedItem(
                 }
             },
 
-            // The grip, and the only part of the row a drag starts on.
+            // The grip: the part of the row a *finger* can drag it by.
             //
-            // Not the whole row, because claiming a touch is what makes it a
-            // drag instead of a scroll, and a list claiming every touch on it
-            // could not be scrolled. `touch-action: none` sits on this element
-            // alone — see `.selected-item-grip` in `assets/main.css`.
+            // Hidden where there is room for a pointer — see
+            // `.selected-item-grip` in `assets/main.css`. On a wide screen the
+            // whole row is draggable and the grip would only be one more thing
+            // in a row that already has three buttons in it.
             span {
                 class: "selected-item-grip",
                 // Reachable with the keyboard, but *not* `role="button"`: Pico
@@ -287,48 +344,15 @@ fn SelectedItem(
                 aria_label: t!("selection.reorder_handle").to_string(),
                 title: t!("selection.reorder_hint").to_string(),
                 onpointerdown: move |event: Event<PointerData>| async move {
-                    // A right-click or a second finger is not a drag.
+                    // A second finger or a right-click is not a drag.
                     if !event.data().is_primary() {
                         return;
                     }
-                    // Starting a drag must not also open the row.
+                    // The row's own handler would otherwise start the same drag
+                    // a second time.
                     event.stop_propagation();
-
-                    anim_target.set(None);
-                    dragging_from.set(Some(id));
-                    drop_at.set(Some(id));
-
-                    // Measure the list once, now: the rows do not move while
-                    // the drag runs, and asking for a rectangle costs a round
-                    // trip to the renderer for every row.
-                    let handles: Vec<Option<Rc<MountedData>>> = row_handles.read().clone();
-                    let mut extents: Vec<RowExtent> = Vec::with_capacity(handles.len());
-                    for handle in handles.iter() {
-                        let Some(handle) = handle else {
-                            // A row that could not be measured must not shift
-                            // every row after it, so the whole drag is given up
-                            // rather than dropping somewhere that was never
-                            // pointed at.
-                            extents.clear();
-                            break;
-                        };
-                        match handle.get_client_rect().await {
-                            Ok(rect) => extents.push(RowExtent {
-                                top: rect.min_y(),
-                                bottom: rect.max_y(),
-                            }),
-                            Err(_) => {
-                                extents.clear();
-                                break;
-                            }
-                        }
-                    }
-
-                    if extents.is_empty() {
-                        dragging_from.set(None);
-                        drop_at.set(None);
-                    }
-                    row_extents.set(extents);
+                    begin_drag(id, dragging_from, drop_at, anim_target, row_handles, row_extents)
+                        .await;
                 },
                 onkeydown: move |event: Event<KeyboardData>| {
                     match event.key() {
