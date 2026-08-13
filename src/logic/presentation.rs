@@ -304,10 +304,17 @@ fn create_presentation_slides(
             .unwrap_or("")
             .to_string();
 
+        // Which pages the user asked for. A pattern that cannot be read is
+        // every page — the field says so while it is being typed, and a
+        // half-written one must not make the element disappear from the
+        // presentation. See [`crate::logic::pdf_pages`].
+        let wanted = crate::logic::pdf_pages::PageSelection::parse(&selected_item.pdf_pages)
+            .unwrap_or_default();
+
         #[cfg(not(target_arch = "wasm32"))]
         {
             let page_count = get_pdf_page_count(&selected_item.source_file.path)?;
-            for page in 1..=page_count {
+            for page in wanted.pages(page_count as u32) {
                 let page_path = format!("{}#page={}", path_str, page);
                 let picture_slide: SimplePictureSlide =
                     serde_json::from_value(serde_json::json!({"picture_path": page_path}))?;
@@ -322,7 +329,7 @@ fn create_presentation_slides(
         {
             if let Some(pdf_bytes) = crate::logic::settings::RepositoryType::web_read_file(&path_str) {
                 let page_count = get_pdf_page_count_from_bytes(&pdf_bytes)?;
-                for page in 1..=page_count {
+                for page in wanted.pages(page_count as u32) {
                     let page_path = format!("{}#page={}", path_str, page);
                     let picture_slide: SimplePictureSlide =
                         serde_json::from_value(serde_json::json!({"picture_path": page_path}))?;
@@ -1041,6 +1048,7 @@ mod tests {
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: Default::default(),
+            pdf_pages: String::new(),
         };
         assert!(create_presentation_slides(&select_item, &SlideSettings::default(), &[]).is_ok());
     }
@@ -1229,6 +1237,7 @@ mod tests {
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: Default::default(),
+            pdf_pages: String::new(),
         }
     }
 
@@ -1263,6 +1272,7 @@ mod tests {
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: Default::default(),
+            pdf_pages: String::new(),
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
@@ -1297,6 +1307,7 @@ mod tests {
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: Default::default(),
+            pdf_pages: String::new(),
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
@@ -1310,6 +1321,53 @@ mod tests {
                 assert!(path.ends_with(&format!("#page={}", i + 1)));
             }
         }
+    }
+
+    /// The pattern has to reach the slides — the parser being right about
+    /// `1+3` is worth nothing if the presentation still shows all three pages.
+    #[test]
+    fn a_page_pattern_leaves_the_other_pages_out() {
+        let multipage = |pattern: &str| SelectedItemRepresentation {
+            source_file: SourceFile {
+                name: "MultiPage".to_string(),
+                path: PathBuf::from_str("testfiles/MultiPage.pdf").unwrap(),
+                file_type: SourceFileType::Pdf,
+                md5_hash: None,
+                relative_path: None,
+            },
+            presentation_design_option: None,
+            slide_settings_option: None,
+            stream_design_option: None,
+            stream_slide_settings_option: None,
+            inline_markdown: None,
+            timer_settings_option: None,
+            transition_effect: Default::default(),
+            pdf_pages: pattern.to_string(),
+        };
+
+        let pages_of = |pattern: &str| -> Vec<String> {
+            create_presentation_slides(&multipage(pattern), &SlideSettings::default(), &[])
+                .expect("the PDF is read")
+                .iter()
+                .filter_map(|slide| match slide.slide_content {
+                    SlideContent::SimplePicture(ref picture) => {
+                        let path = get_picture_path(picture);
+                        path.rsplit_once("#page=")
+                            .map(|(_, page)| page.to_string())
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+
+        assert_eq!(pages_of("2"), vec!["2"]);
+        assert_eq!(pages_of("1+3"), vec!["1", "3"]);
+        assert_eq!(pages_of("2-3"), vec!["2", "3"]);
+
+        // Empty is the whole document, and so is a pattern that cannot be
+        // read: a half-written one must not make the element vanish.
+        assert_eq!(pages_of(""), vec!["1", "2", "3"]);
+        assert_eq!(pages_of("2-"), vec!["1", "2", "3"]);
     }
 
     #[test]
@@ -1329,6 +1387,7 @@ mod tests {
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: Default::default(),
+            pdf_pages: String::new(),
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
@@ -1357,6 +1416,7 @@ mod tests {
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: Default::default(),
+            pdf_pages: String::new(),
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
@@ -1461,6 +1521,7 @@ mod tests {
             inline_markdown: Some(markdown.to_string()),
             timer_settings_option: None,
             transition_effect: Default::default(),
+            pdf_pages: String::new(),
         }
     }
 

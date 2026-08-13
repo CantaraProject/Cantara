@@ -1585,3 +1585,17 @@ div.inline-div {
     margin: 0.5rem 0 0 0;
     color: var(--pico-muted-color);
 }
+
+/* ── Which pages of a PDF to show ────────────────────────────────────────── */
+/* The examples sit under the field while it is right, and give way to what is
+   wrong with the pattern while it is not — one line either way, so the panel
+   does not jump as the pattern is typed. */
+.pdf-pages-hint {
+    display: block;
+    color: var(--pico-muted-color);
+}
+
+.pdf-pages-problem {
+    display: block;
+    color: var(--pico-del-color, #b3261e);
+}

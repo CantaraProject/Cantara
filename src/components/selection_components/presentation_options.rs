@@ -1,5 +1,6 @@
 use crate::components::shared_components::SelectedItemPreview;
 use crate::logic::settings::{use_settings, AfterLastSlide, SlideTimerSettings, SlideTransition};
+use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::stream_view::reconcile_max_lines;
 use crate::logic::states::SelectedItemRepresentation;
 use dioxus::prelude::*;
@@ -104,6 +105,18 @@ fn SpecificOptions(
         .map(|t| t.after_last_slide)
         .unwrap_or_default();
     let current_transition = item.transition_effect;
+
+    // Only a PDF has pages to choose between. What the field says about a
+    // pattern it cannot read is worked out here rather than on every keystroke
+    // in the handler, so that the message and the value can never disagree.
+    let is_pdf = item.source_file.file_type == SourceFileType::Pdf;
+    let pdf_pages = item.pdf_pages.clone();
+    let pdf_pages_problem = crate::logic::pdf_pages::PageSelection::parse(&pdf_pages)
+        .err()
+        .map(|error| {
+            let (key, parameters) = error.message_key();
+            crate::components::shared_components::translate(key, &parameters)
+        });
 
     rsx! {
         div { class: "grid",
@@ -272,6 +285,36 @@ fn SpecificOptions(
                 .as_ref()
                 .and_then(|slide_settings| slide_settings.max_lines);
             wrap_note(chosen_wrap, reconcile_max_lines(projection_wrap, chosen_wrap))
+        }
+
+        if is_pdf {
+            div {
+                label { {t!("selection.pdf_pages_label").to_string()} }
+                input {
+                    r#type: "text",
+                    // `aria-invalid` is what Pico marks a bad field with, so a
+                    // wrong pattern looks the way every other wrong field does.
+                    aria_invalid: pdf_pages_problem.is_some().to_string(),
+                    value: "{pdf_pages}",
+                    placeholder: t!("selection.pdf_pages_placeholder").to_string(),
+                    oninput: move |event| {
+                        // Kept as typed, wrong or not: a pattern is wrong for
+                        // as long as it takes to finish writing it, and a field
+                        // that refuses the half of it cannot be typed into.
+                        selected_items.write()[item_index].pdf_pages = event.value();
+                    },
+                }
+                match pdf_pages_problem.clone() {
+                    Some(problem) => rsx! {
+                        small { class: "pdf-pages-problem", "{problem}" }
+                    },
+                    None => rsx! {
+                        small { class: "pdf-pages-hint",
+                            {t!("selection.pdf_pages_hint").to_string()}
+                        }
+                    },
+                }
+            }
         }
 
         div { class: "grid",

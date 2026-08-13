@@ -137,6 +137,15 @@ pub struct SelectedItemRepresentation {
 
     /// The transition effect for this selection. Uses the default (Fade) when not set.
     pub transition_effect: SlideTransition,
+
+    /// Which pages of a PDF to show, as the user wrote it — `1-3+6`.
+    ///
+    /// Kept as the text rather than as the parsed selection so that the field
+    /// shows back what was typed, including a pattern that is half-written or
+    /// wrong. It is read by [`crate::logic::pdf_pages::PageSelection::parse`]
+    /// where the slides are made; empty, which is the ordinary case, is every
+    /// page. Means nothing for an element that is not a PDF.
+    pub pdf_pages: String,
 }
 
 impl SelectedItemRepresentation {
@@ -150,6 +159,7 @@ impl SelectedItemRepresentation {
             inline_markdown: None,
             timer_settings_option: None,
             transition_effect: SlideTransition::default(),
+            pdf_pages: String::new(),
         }
     }
 }
