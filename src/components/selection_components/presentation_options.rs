@@ -242,6 +242,13 @@ fn SpecificOptions(
                 label { {t!("selection.pdf_pages_label").to_string()} }
                 input {
                     r#type: "text",
+                    // Keys typed in here belong in here. The library view sends
+                    // any key it sees to the search field so that looking a
+                    // song up needs no click first, and it decides that by what
+                    // reaches it — so a field that is being typed into keeps
+                    // its own keys. See the `onkeydown` on `main` in
+                    // `selection_components.rs`.
+                    onkeydown: move |event: Event<KeyboardData>| event.stop_propagation(),
                     // `aria-invalid` is what Pico marks a bad field with, so a
                     // wrong pattern looks the way every other wrong field does.
                     aria_invalid: pdf_pages_problem.is_some().to_string(),
@@ -439,6 +446,9 @@ fn SpecificOptions(
                         max: "3600",
                         value: "{timer_seconds}",
                         style: "margin-top: 8px;",
+                        // As with the field above: what is typed into a field
+                        // stays in it.
+                        onkeydown: move |event: Event<KeyboardData>| event.stop_propagation(),
                         onchange: move |evt| {
                             if let Ok(secs) = evt.value().parse::<u32>()
                                 && secs > 0 {

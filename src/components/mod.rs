@@ -76,6 +76,10 @@ pub mod presenter_console_components;
 
 pub mod directory_browser;
 
+/// Asking the user something, in Cantara's own window rather than the web
+/// view's.
+pub mod dialogs;
+
 pub mod route_transitions;
 
 mod font_settings;

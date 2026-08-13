@@ -16,6 +16,55 @@ use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+/// Whether the page has been drawn once already.
+///
+/// A section that is expensive to build asks this and shows a placeholder
+/// until it is true, so that the page appears at once and fills in rather than
+/// staying blank while the whole of it is laid out. The design editor is the
+/// case that needs it: a library's worth of picture frames and a full-size
+/// slide preview are more work than a web view gets through in a frame, and on
+/// the Linux web view considerably more.
+///
+/// Returns `false` on the first render and `true` from the next tick on. The
+/// wait is a timer rather than a script in the page — see
+/// [`crate::logic::timer`].
+pub fn use_after_first_paint() -> ReadSignal<bool> {
+    let mut drawn = use_signal(|| false);
+
+    use_effect(move || {
+        if *drawn.peek() {
+            return;
+        }
+        spawn(async move {
+            // One frame's worth: long enough that the first paint is out,
+            // short enough not to be a visible pause of its own.
+            crate::logic::timer::sleep(std::time::Duration::from_millis(16)).await;
+            drawn.set(true);
+        });
+    });
+
+    drawn.into()
+}
+
+/// A stand-in for a block of settings that has not been drawn yet.
+///
+/// Sized like the thing it replaces, so the page is laid out once instead of
+/// jumping as each section arrives.
+#[component]
+pub fn SettingsSkeleton(
+    /// How many fields to stand in for.
+    fields: usize,
+) -> Element {
+    rsx! {
+        div { class: "skeleton-font-block", aria_hidden: "true",
+            span { class: "skeleton skeleton-heading" }
+            for field in 0..fields {
+                span { key: "{field}", class: "skeleton skeleton-field" }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn DeleteIcon() -> Element {
     rsx! { Icon { icon: FaTrashCan } }
@@ -420,22 +469,9 @@ pub fn translate(key: &str, parameters: &[(&str, String)]) -> String {
     message
 }
 
-/// Generates JavaScript for a yes/no dialog box.
-pub fn js_yes_no_box(prompt: String) -> String {
-    format!("return confirm('{}');", prompt)
-}
-
-/// Generates JavaScript for a message the user only has to acknowledge.
-///
-/// The text is handed over as JSON rather than pasted between quotes: a
-/// message that carries an error from the operating system may contain
-/// quotation marks, backslashes or line breaks, and any of them would
-/// otherwise turn the script into one that does not run — which is how a
-/// program ends up saying nothing precisely when it has something to say.
-pub fn js_message_box(message: String) -> String {
-    let encoded = serde_json::to_string(&message).unwrap_or_else(|_| "\"\"".to_string());
-    format!("alert({});", encoded)
-}
+// The dialogs used to be built here, as pieces of JavaScript handed to the web
+// view's `alert()`, `confirm()` and `prompt()`. They are Dioxus components now;
+// see [`crate::components::dialogs`].
 
 #[component]
 pub fn NumberedValidatedLengthInput(

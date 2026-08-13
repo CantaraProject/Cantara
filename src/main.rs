@@ -22,6 +22,7 @@ use crate::components::presenter_console_components::PresenterConsolePage;
 use crate::components::selection_components::Selection;
 use crate::components::settings_components::SettingsPage;
 use crate::components::detail_components::Detail;
+use crate::components::dialogs::DialogHost;
 use crate::components::presentation_components::{
     BundledFontFaces, MORPH_JS, PRESENTATION_CSS, PRESENTATION_JS,
 };
@@ -43,8 +44,12 @@ const PICO_CSS: Asset = asset!("/node_modules/@picocss/pico/css/pico.min.css");
 /// Cantara's own CSS file with additions to the PicoCSS definitions
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 
-/// JavaScript helper functions which are used for styling and keyboard event handling
-const POSITIONING_JS: Asset = asset!("/assets/positioning.js");
+// `assets/positioning.js` used to be loaded here. It measured the bars and
+// wrote pixel heights onto the scrolling boxes, tracked which swipe panel was
+// in view, scrolled to one on request, and sent stray keystrokes to the search
+// field. The first is a column flexbox — see the note on `.wrapper` in
+// `assets/main.css` — and the rest are ordinary handlers in
+// `components::selection_components`.
 
 /// The Cantara Logo
 pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
@@ -465,7 +470,6 @@ fn App() -> Element {
         // Makes the fonts shipped in `assets/fonts/` usable by name.
         BundledFontFaces {}
         document::Link { rel: "icon", href: FAVICON }
-        document::Script { src: POSITIONING_JS }
         document::Title { "Cantara" }
 
         document::Meta { name: "viewport", content: "width=device-width, initial-scale=1" }
@@ -473,6 +477,12 @@ fn App() -> Element {
         document::Meta { name: "content-language", content: locale }
 
         Router::<Route> {}
+
+        // Whatever question is being asked, drawn over the page. Mounted at the
+        // root and never unmounted, so that a dialog opened from a view that is
+        // navigating away still has somewhere to appear. See
+        // [`components::dialogs`].
+        DialogHost {}
     }
 }
 

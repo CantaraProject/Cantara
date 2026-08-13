@@ -1,9 +1,8 @@
 //! This module contains components for displaying and manipulating the program and presentation settings
 
 use super::directory_browser::DirectoryBrowserModal;
-use super::shared_components::{
-    DeleteIcon, EditIcon, PresentationDesignSelector, js_message_box, js_yes_no_box, translate,
-};
+use super::dialogs::{confirm_box, message_box, prompt_box};
+use super::shared_components::{DeleteIcon, EditIcon, PresentationDesignSelector, translate};
 use crate::logic::sourcefiles::SourceFile;
 use crate::logic::tag_mapping::TagMapping;
 use super::jump_sidebar::{JumpSidebar, JumpTarget, scroll_to_section, use_section_spy};
@@ -60,7 +59,7 @@ pub fn SettingsPage() -> Element {
                             if let Some(error) = save_error {
                                 let message = t!("dialogs.settings_not_saved", error = error)
                                     .to_string();
-                                let _ = document::eval(&js_message_box(message)).await;
+                                message_box(message).await;
                             }
                             nav.replace(Route::Selection {});
                         }
@@ -405,16 +404,27 @@ fn RepositorySettings() -> Element {
                     div {
                         style: "float:right",
                         span {
-                            onclick: move |_| {
-                                async move {
-                                    let new_name = match document::eval("return prompt('Please enter a new name: ', '');").await {
-                                        Ok(str) => Some(str.to_string().replace("\"", "")),
-                                        Err(_) => None,
-                                    };
-                                    if let Some(name) = new_name
-                                        && !name.trim().is_empty() && name != "null" {
-                                            settings.write().repositories[index].name = name.trim().to_string();
+                            onclick: {
+                                // The field starts out holding the name the
+                                // repository has, which is what makes this a
+                                // rename rather than a re-entry. The web view's
+                                // `prompt()` could be given a default too, but
+                                // this one was never handed one — and on
+                                // Android it does not exist at all, so the
+                                // button did nothing there.
+                                let current_name = repository.name.clone();
+                                move |_| {
+                                    let current_name = current_name.clone();
+                                    async move {
+                                        if let Some(name) = prompt_box(
+                                            t!("settings.repository_rename_prompt").to_string(),
+                                            current_name,
+                                        )
+                                        .await
+                                        {
+                                            settings.write().repositories[index].name = name;
                                         }
+                                    }
                                 }
                             },
                             EditIcon {}
@@ -517,29 +527,24 @@ fn RepositorySettings() -> Element {
                 class: "smaller-buttons",
                 onclick: move |_| {
                     async move {
-                        let prompt_text = t!("settings.remote_repository_url").to_string();
-                        let js_prompt = format!("return prompt('{}', '');", prompt_text);
-                        let url = match document::eval(&js_prompt).await {
-                            Ok(str) => Some(str.to_string().replace("\"", "")),
-                            Err(_) => None,
+                        let Some(url) = prompt_box(
+                            t!("settings.remote_repository_url").to_string(),
+                            String::new(),
+                        )
+                        .await
+                        else {
+                            return;
                         };
 
-                        if let Some(url) = url
-                            && !url.trim().is_empty() && url != "null" {
-                                // Basic URL validation
-                                if url.starts_with("http://") || url.starts_with("https://") {
-                                    // Add the repository
-                                    settings.write().add_remote_zip_repository_url(url.trim().to_string());
-
-                                    // Show success message
-                                    let success_msg = t!("settings.remote_repository_url_valid").to_string();
-                                    let _ = document::eval(&js_yes_no_box(success_msg)).await;
-                                } else {
-                                    // Show error message
-                                    let error_msg = t!("settings.remote_repository_url_invalid").to_string();
-                                    let _ = document::eval(&js_yes_no_box(error_msg)).await;
-                                }
-                            }
+                        // Basic URL validation
+                        if url.starts_with("http://") || url.starts_with("https://") {
+                            settings.write().add_remote_zip_repository_url(url);
+                            message_box(t!("settings.remote_repository_url_valid").to_string())
+                                .await;
+                        } else {
+                            message_box(t!("settings.remote_repository_url_invalid").to_string())
+                                .await;
+                        }
                     }
                 },
                 { t!("settings.add_remote_repository").to_string() }
@@ -548,47 +553,32 @@ fn RepositorySettings() -> Element {
                 class: "smaller-buttons",
                 onclick: move |_| {
                     async move {
-                        // Prompt for GitHub repository (owner/repo or full URL)
-                        let prompt_text = t!("settings.github_repository_prompt").to_string();
-                        let js_prompt = format!("return prompt('{}', '');", prompt_text);
-                        let input = match document::eval(&js_prompt).await {
-                            Ok(str) => Some(str.to_string().replace("\"", "")),
-                            Err(_) => None,
+                        // Which repository — `owner/repo`, or the full URL.
+                        let Some(input) = prompt_box(
+                            t!("settings.github_repository_prompt").to_string(),
+                            String::new(),
+                        )
+                        .await
+                        else {
+                            return;
                         };
 
-                        if let Some(input) = input
-                            && !input.trim().is_empty() && input != "null" {
-                                match RepositoryType::parse_github_repo(&input) {
-                                    Some((owner, repo)) => {
-                                        // Prompt for optional token (for private repos)
-                                        let token_prompt = t!("settings.github_token_prompt").to_string();
-                                        let js_token_prompt = format!("return prompt('{}', '');", token_prompt);
-                                        let token = match document::eval(&js_token_prompt).await {
-                                            Ok(str) => {
-                                                let t = str.to_string().replace("\"", "");
-                                                if t.trim().is_empty() || t == "null" {
-                                                    None
-                                                } else {
-                                                    Some(t.trim().to_string())
-                                                }
-                                            }
-                                            Err(_) => None,
-                                        };
+                        let Some((owner, repo)) = RepositoryType::parse_github_repo(&input) else {
+                            message_box(t!("settings.github_repository_invalid").to_string()).await;
+                            return;
+                        };
 
-                                        // Add the repository
-                                        settings.write().add_github_repository(owner, repo, token);
+                        // And a token, if the repository is a private one.
+                        // Blank means none, which is what a public repository
+                        // needs.
+                        let token = prompt_box(
+                            t!("settings.github_token_prompt").to_string(),
+                            String::new(),
+                        )
+                        .await;
 
-                                        // Show success message
-                                        let success_msg = t!("settings.github_repository_added").to_string();
-                                        let _ = document::eval(&js_yes_no_box(success_msg)).await;
-                                    }
-                                    None => {
-                                        // Show error message
-                                        let error_msg = t!("settings.github_repository_invalid").to_string();
-                                        let _ = document::eval(&js_yes_no_box(error_msg)).await;
-                                    }
-                                }
-                            }
+                        settings.write().add_github_repository(owner, repo, token);
+                        message_box(t!("settings.github_repository_added").to_string()).await;
                     }
                 },
                 { t!("settings.add_github_repository").to_string() }
@@ -998,14 +988,13 @@ fn PresentationDesignCard(
                     class: "secondary",
                     onclick: move |event| {
                         event.prevent_default();
-                        let js = t!("dialogs.confirm_deletion").to_string();
+                        let question = t!("dialogs.confirm_deletion").to_string();
                         async move {
-                            match document::eval(&js_yes_no_box(js)).await {
-                                Ok(value) if value.as_bool().unwrap_or(false) => {
-                                    tracing::debug!("Deletion confirmed.");
-                                    ondelete.call(());
-                                }
-                                _ => tracing::debug!("Deletion aborted or failed."),
+                            if confirm_box(question).await {
+                                tracing::debug!("Deletion confirmed.");
+                                ondelete.call(());
+                            } else {
+                                tracing::debug!("Deletion aborted.");
                             }
                         }
                     },

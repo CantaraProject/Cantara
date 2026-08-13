@@ -408,9 +408,6 @@ pub fn Detail(element: Vec<String>) -> Element {
             main {
                 id: "selection-content",
                 class: "content content-background height-100",
-                onmounted: move |_| async move {
-                    let _ = document::eval("initSelectionLayout();").await;
-                },
                 div { class: "grid swipe-container height-100",
                     div { class: "height-100 swipe-panel",
                         SelectionFilterSideBar { active_selection: active_selection_filter }
@@ -448,11 +445,13 @@ pub fn Detail(element: Vec<String>) -> Element {
                         }
                     }
 
-                    // The panel and the scrolling area have to be two elements.
-                    // `adjustDivHeight` sizes every `.scrollable-container` and
-                    // then clears the height of every `.swipe-panel`; on one
-                    // element carrying both classes the second step wipes the
-                    // first, leaving the pane unsized.
+                    // The panel and the scrolling area are two elements: the
+                    // panel is what the swipe snaps to and is as tall as the
+                    // row, and the pane inside it is what scrolls. (They had to
+                    // be two for a different reason once — `adjustDivHeight` in
+                    // the old `positioning.js` sized every scrolling box and
+                    // then cleared the height of every panel, so one element
+                    // carrying both classes came out unsized.)
                     div { class: "swipe-panel",
                         div { class: "detail-pane scrollable-container",
                             match subject() {

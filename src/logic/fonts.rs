@@ -122,6 +122,12 @@ static SYSTEM_FAMILIES: OnceLock<Mutex<Option<Vec<FontFamily>>>> = OnceLock::new
 /// it saw knows to look again. A background thread cannot write to a signal.
 static SYSTEM_GENERATION: AtomicU64 = AtomicU64::new(0);
 
+/// Counts up when a design import adds a font of its own, which is the other
+/// way the catalogue can change while the program runs. Kept apart from
+/// [`SYSTEM_GENERATION`] so that a view watching for the installed families is
+/// not woken by an import, and vice versa.
+static IMPORTED_GENERATION: AtomicU64 = AtomicU64::new(0);
+
 /// Whether a thread is reading them right now.
 static SYSTEM_PENDING: AtomicU64 = AtomicU64::new(0);
 
@@ -139,6 +145,10 @@ pub fn system_ready() -> Option<Vec<FontFamily>> {
 }
 
 /// Counts up when the installed families arrive.
+///
+/// A view watches [`catalog_generation`] instead, which also moves when an
+/// import brings a font of its own; this is the half of it the tests pin down.
+#[cfg(test)]
 pub fn system_generation() -> u64 {
     SYSTEM_GENERATION.load(Ordering::Relaxed)
 }
@@ -326,6 +336,9 @@ pub fn install(file_name: &str, bytes: &[u8]) -> Result<std::path::PathBuf, Stri
     let path = folder.join(file_name);
     if !path.exists() {
         std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
+        // A family that has just appeared has to reach the selectors, which
+        // hand out a kept copy of the catalogue until this says otherwise.
+        IMPORTED_GENERATION.fetch_add(1, Ordering::Relaxed);
     }
     Ok(path)
 }
@@ -397,8 +410,39 @@ pub fn file_of_family(_family: &str) -> Option<(String, Vec<u8>)> {
 /// [`prepare_system_fonts`] and appear here once they are in. There is
 /// deliberately no variant that waits for them: waiting is what a view must
 /// not do.
+///
+/// The answer is kept and handed out again until something can have changed it,
+/// which is what [`catalog_generation`] counts. Building it is a directory
+/// read, a few thousand string clones and a set to dedupe them with; that is
+/// nothing once, but every font block on the design editor asks, and the editor
+/// is redrawn on every keystroke and every step of a colour picker.
 pub fn available_now() -> Vec<FontFamily> {
+    let generation = catalog_generation();
+
+    let cache = AVAILABLE.get_or_init(|| Mutex::new(None));
+    if let Ok(mut cache) = cache.lock() {
+        if let Some((cached_generation, families)) = cache.as_ref()
+            && *cached_generation == generation
+        {
+            return families.clone();
+        }
+        let families = with_installed(system_ready().unwrap_or_default());
+        *cache = Some((generation, families.clone()));
+        return families;
+    }
+
+    // A poisoned lock is no reason to show the user no fonts at all.
     with_installed(system_ready().unwrap_or_default())
+}
+
+/// The list [`available_now`] last built, and what the catalogue looked like
+/// when it did.
+static AVAILABLE: OnceLock<Mutex<Option<(u64, Vec<FontFamily>)>>> = OnceLock::new();
+
+/// Changes whenever the set of offered families can have changed: the installed
+/// ones arriving, or an import bringing one of its own.
+pub fn catalog_generation() -> u64 {
+    SYSTEM_GENERATION.load(Ordering::Relaxed) ^ (IMPORTED_GENERATION.load(Ordering::Relaxed) << 32)
 }
 
 /// The sources in their order, with each name kept only once.
@@ -557,6 +601,57 @@ mod tests {
                 "'{expected}' should always be available"
             );
         }
+    }
+
+    /// The catalogue is handed out from a kept copy while nothing can have
+    /// changed it. Every font block on the design editor asks for it, and the
+    /// editor is redrawn on every keystroke and every step of a colour picker —
+    /// building it each time is a directory read and a few thousand string
+    /// clones per redraw.
+    #[test]
+    fn test_the_catalogue_is_not_rebuilt_while_nothing_changes() {
+        let generation = catalog_generation();
+        let first = available_now();
+
+        for _ in 0..50 {
+            assert_eq!(
+                available_now(),
+                first,
+                "the catalogue changed without anything changing it"
+            );
+        }
+        assert_eq!(
+            catalog_generation(),
+            generation,
+            "asking for the catalogue must not count as a change to it"
+        );
+    }
+
+    /// …and it is not kept past the point where it is wrong: the installed
+    /// families land on a thread of their own, after the selectors have already
+    /// been drawn with the ones that needed no reading.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_the_catalogue_gains_the_installed_families_when_they_land() {
+        let before = available_now();
+
+        prepare_system_fonts();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while system_fonts_pending() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        let after = available_now();
+        assert!(
+            after.len() >= before.len(),
+            "the catalogue lost families when the installed ones arrived"
+        );
+        assert!(
+            after
+                .iter()
+                .any(|family| family.source == FontSource::System),
+            "the kept copy was handed out again instead of being rebuilt"
+        );
     }
 
     #[test]

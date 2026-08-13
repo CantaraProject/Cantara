@@ -279,18 +279,13 @@ fn SongSlideSettingsCard(
                     class: "secondary",
                     onclick: move |event| {
                         event.prevent_default();
-                        let js = t!("dialogs.confirm_deletion").to_string();
+                        let question = t!("dialogs.confirm_deletion").to_string();
                         async move {
-                            match document::eval(
-                                    &crate::components::shared_components::js_yes_no_box(js),
-                                )
-                                .await
-                            {
-                                Ok(value) if value.as_bool().unwrap_or(false) => {
-                                    tracing::debug!("Deletion confirmed.");
-                                    ondelete.call(());
-                                }
-                                _ => tracing::debug!("Deletion aborted or failed."),
+                            if crate::components::dialogs::confirm_box(question).await {
+                                tracing::debug!("Deletion confirmed.");
+                                ondelete.call(());
+                            } else {
+                                tracing::debug!("Deletion aborted.");
                             }
                         }
                     },
