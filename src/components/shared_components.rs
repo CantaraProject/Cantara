@@ -31,10 +31,12 @@ rust_i18n::i18n!("locales", fallback = "en");
 pub fn use_after_first_paint() -> ReadSignal<bool> {
     let mut drawn = use_signal(|| false);
 
-    use_effect(move || {
-        if *drawn.peek() {
-            return;
-        }
+    // `use_hook` rather than `use_effect`: this has to happen exactly once per
+    // mount, and `use_hook` says so outright. An effect would be right too —
+    // it re-runs only when a signal it read has changed, and this reads none —
+    // but that is a rule about the body of the closure, and a later edit that
+    // read a signal in here would quietly start a timer per change.
+    use_hook(|| {
         spawn(async move {
             // One frame's worth: long enough that the first paint is out,
             // short enough not to be a visible pause of its own.

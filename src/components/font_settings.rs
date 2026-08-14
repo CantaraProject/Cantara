@@ -10,6 +10,7 @@ use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use rgb::RGB8;
 use rust_i18n::t;
+use std::sync::Arc;
 
 use crate::logic::conversions::*;
 
@@ -487,10 +488,13 @@ fn WeightSelector(weight: u16, onchange: EventHandler<u16>) -> Element {
 /// offers the bundled and web-safe families, says so, and gains the rest when
 /// they arrive. See [`crate::logic::fonts`].
 ///
-/// The list itself is memoised on the generation counter rather than rebuilt on
-/// every render: the editor is redrawn on every keystroke and every step of a
-/// colour picker, and there are three font blocks on it.
-fn use_font_families() -> (Memo<Vec<FontFamily>>, Memo<bool>) {
+/// The list is read fresh on every render and is cheap to read — see
+/// [`fonts::available_now`], which hands out a shared copy. It is deliberately
+/// *not* memoised on the generation counter: the counter also moves when a
+/// design import brings a font of its own, and a memo keyed on the signal below
+/// would go on showing the catalogue as it was before the import, because that
+/// signal only moves while the installed families are still being read.
+fn use_font_families() -> (Arc<Vec<FontFamily>>, Memo<bool>) {
     // Counts up when the installed families land. Read below, while
     // rendering, because that is what subscribes this selector to it.
     let mut families_ready: Signal<u64> = use_signal(fonts::catalog_generation);
@@ -527,14 +531,13 @@ fn use_font_families() -> (Memo<Vec<FontFamily>>, Memo<bool>) {
         });
     });
 
-    let families = use_memo(move || {
-        // Read so that the list is rebuilt when the installed families land.
-        let _ = families_ready();
-        fonts::available_now()
-    });
+    // Read while rendering, because that is what subscribes this selector to
+    // it: without it, the families that land on the background thread would
+    // never reach a selector that is already on the screen.
+    let _ = families_ready();
     let pending = use_memo(move || pending());
 
-    (families, pending)
+    (fonts::available_now(), pending)
 }
 
 /// How many families the list offers at once.
@@ -626,10 +629,18 @@ fn FontFamilySelector(
     // it is meaningless once the query changes — hence reset with it.
     let mut highlighted = use_signal(|| 0_usize);
 
-    let matches = use_memo(move || matching_families(&families(), &query()));
+    // Narrowing the catalogue to a windowful is the one part worth memoising:
+    // it runs a fuzzy match over every family, and the editor around it is
+    // redrawn on every step of a colour picker. Keyed on what is typed, so a
+    // catalogue that has grown since — an import bringing a font with it —
+    // still reaches it, because `families` is read fresh each render.
+    let matches = {
+        let families = Arc::clone(&families);
+        use_memo(move || matching_families(&families, &query()))
+    };
 
     // The whole catalogue, only to say how much of it is out of sight.
-    let total = use_memo(move || families().len());
+    let total = families.len();
 
     let mut choose = move |family: Option<String>| {
         match family {
@@ -782,11 +793,11 @@ fn FontFamilySelector(
                         p { class: "font-family-list-hint",
                             { t!("settings.fonts.family_no_match").to_string() }
                         }
-                    } else if total() > shown_count {
+                    } else if total > shown_count {
                         p { class: "font-family-list-hint",
                             {
                                 t!(
-                                    "settings.fonts.family_more", count = total() - shown_count
+                                    "settings.fonts.family_more", count = total - shown_count
                                 )
                                     .to_string()
                             }

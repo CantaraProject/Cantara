@@ -27,7 +27,7 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Where a font family comes from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -416,7 +416,12 @@ pub fn file_of_family(_family: &str) -> Option<(String, Vec<u8>)> {
 /// read, a few thousand string clones and a set to dedupe them with; that is
 /// nothing once, but every font block on the design editor asks, and the editor
 /// is redrawn on every keystroke and every step of a colour picker.
-pub fn available_now() -> Vec<FontFamily> {
+///
+/// Shared rather than copied, so that asking again is a reference count and not
+/// a list. That is what lets a view call this while it renders instead of
+/// memoising it — and a memo is exactly what could go on showing an old
+/// catalogue after a design import had added a family to it.
+pub fn available_now() -> Arc<Vec<FontFamily>> {
     let generation = catalog_generation();
 
     let cache = AVAILABLE.get_or_init(|| Mutex::new(None));
@@ -424,20 +429,20 @@ pub fn available_now() -> Vec<FontFamily> {
         if let Some((cached_generation, families)) = cache.as_ref()
             && *cached_generation == generation
         {
-            return families.clone();
+            return Arc::clone(families);
         }
-        let families = with_installed(system_ready().unwrap_or_default());
-        *cache = Some((generation, families.clone()));
+        let families = Arc::new(with_installed(system_ready().unwrap_or_default()));
+        *cache = Some((generation, Arc::clone(&families)));
         return families;
     }
 
     // A poisoned lock is no reason to show the user no fonts at all.
-    with_installed(system_ready().unwrap_or_default())
+    Arc::new(with_installed(system_ready().unwrap_or_default()))
 }
 
 /// The list [`available_now`] last built, and what the catalogue looked like
 /// when it did.
-static AVAILABLE: OnceLock<Mutex<Option<(u64, Vec<FontFamily>)>>> = OnceLock::new();
+static AVAILABLE: OnceLock<Mutex<Option<(u64, Arc<Vec<FontFamily>>)>>> = OnceLock::new();
 
 /// Changes whenever the set of offered families can have changed: the installed
 /// ones arriving, or an import bringing one of its own.

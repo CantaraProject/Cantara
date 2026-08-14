@@ -135,6 +135,24 @@ async fn begin_drag(
     row_extents.set(extents);
 }
 
+/// Where the item that was at `watched` ends up when the item at `from` is
+/// moved to `landed`.
+///
+/// The rows are identified by their position in the list, so moving one
+/// renumbers the rows it passed. Anything else holding a position — which row
+/// is open in the options beside the list — has to be renumbered with them, or
+/// it goes on pointing at the position and stops pointing at the item.
+fn index_after_move(watched: usize, from: usize, landed: usize) -> usize {
+    if watched == from {
+        return landed;
+    }
+
+    // Taking the item out pulls everything below it up one …
+    let without = if watched > from { watched - 1 } else { watched };
+    // … and putting it back pushes everything from its new place down one.
+    if without >= landed { without + 1 } else { without }
+}
+
 /// Moves the item at `from` into the gap `to`, and says where it ended up.
 ///
 /// `to` counts gaps, so moving an item down by one means `to == from + 2`: the
@@ -187,6 +205,17 @@ pub(crate) fn SelectedItems(
             && let Some(landed) = reorder(&mut selected_items.write(), from, to)
         {
             anim_target.set(Some(landed));
+            // The rows are numbered by their position, so a move renumbers
+            // every row it passed. Whatever is open in the options beside the
+            // list has to be renumbered with them, or the panel silently
+            // changes to a different item.
+            let active = *active_selected_item_id.peek();
+            if let Some(active) = active {
+                let follows = index_after_move(active, from, landed);
+                if follows != active {
+                    active_selected_item_id.set(Some(follows));
+                }
+            }
         }
         end_drag();
     };
@@ -540,6 +569,57 @@ mod tests {
     #[test]
     fn test_above_the_list_is_its_start() {
         assert_eq!(drop_index(&rows(3), -100.0), 0);
+    }
+
+    /// The row that was dragged keeps the selection, at its new position.
+    #[test]
+    fn test_the_selection_follows_the_row_that_was_moved() {
+        assert_eq!(index_after_move(0, 0, 2), 2);
+        assert_eq!(index_after_move(3, 3, 1), 1);
+    }
+
+    /// A row the dragged one moved past is renumbered, and the selection has to
+    /// be renumbered with it — otherwise the options panel silently changes to
+    /// a different item while the user is looking at it.
+    #[test]
+    fn test_the_selection_follows_a_row_that_was_moved_past() {
+        // "a b c d", `a` dropped after `c`: b and c each move up one.
+        assert_eq!(index_after_move(1, 0, 2), 0, "b");
+        assert_eq!(index_after_move(2, 0, 2), 1, "c");
+
+        // "a b c d", `d` dropped before `b`: b and c each move down one.
+        assert_eq!(index_after_move(1, 3, 1), 2, "b");
+        assert_eq!(index_after_move(2, 3, 1), 3, "c");
+    }
+
+    /// A row on neither side of the move keeps its number.
+    #[test]
+    fn test_a_row_the_move_did_not_reach_keeps_its_place() {
+        // "a b c d e", `b` dropped after `c`: `d` and `e` are past it all.
+        assert_eq!(index_after_move(3, 1, 2), 3);
+        assert_eq!(index_after_move(4, 1, 2), 4);
+        // …and `a` is before it all.
+        assert_eq!(index_after_move(0, 1, 2), 0);
+    }
+
+    /// Every row of the list has to end up somewhere, and no two rows on the
+    /// same number: a renumbering that collided would put two items in one
+    /// place and lose one.
+    #[test]
+    fn test_renumbering_is_a_permutation_of_the_list() {
+        let length = 6;
+        for from in 0..length {
+            for landed in 0..length {
+                let mut moved: Vec<usize> =
+                    (0..length).map(|row| index_after_move(row, from, landed)).collect();
+                moved.sort();
+                assert_eq!(
+                    moved,
+                    (0..length).collect::<Vec<_>>(),
+                    "moving {from} to {landed} did not renumber every row exactly once"
+                );
+            }
+        }
     }
 
     /// A press is not a drag until it has travelled. Pressing a row to open it

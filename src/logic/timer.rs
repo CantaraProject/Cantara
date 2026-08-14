@@ -26,9 +26,15 @@ pub async fn sleep(duration: Duration) {
 }
 
 /// A browser has no tokio; its timers are the ones the event loop provides.
+///
+/// `setTimeout` takes a 32-bit count of milliseconds, so anything longer than
+/// about seven weeks is capped rather than wrapped: a truncating cast would
+/// turn a very long wait into a very short one, which is the opposite of what
+/// was asked for and the harder failure to find.
 #[cfg(target_arch = "wasm32")]
 pub async fn sleep(duration: Duration) {
-    gloo_timers::future::TimeoutFuture::new(duration.as_millis() as u32).await;
+    let milliseconds = duration.as_millis().min(u32::MAX as u128) as u32;
+    gloo_timers::future::TimeoutFuture::new(milliseconds).await;
 }
 
 #[cfg(test)]

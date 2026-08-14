@@ -56,6 +56,18 @@ rust_i18n::i18n!("locales", fallback = "en");
 /// order, and the options. There is one dot for each.
 const PANEL_COUNT: usize = 3;
 
+/// Brings one of the swipe panels into view.
+///
+/// The panel is scrolled to rather than the row being scrolled by a computed
+/// distance: the container snaps, so bringing the panel into view lands exactly
+/// on it whatever the width happens to be.
+async fn show_panel(panel_handles: Signal<Vec<Option<Rc<MountedData>>>>, panel: usize) {
+    let handle = panel_handles.read().get(panel).cloned().flatten();
+    if let Some(handle) = handle {
+        let _ = handle.scroll_to(ScrollBehavior::Smooth).await;
+    }
+}
+
 #[component]
 pub fn Selection() -> Element {
     let nav = navigator();
@@ -398,14 +410,19 @@ pub fn Selection() -> Element {
                         tabindex: 0,
                         aria_selected: (active_panel() == panel).to_string(),
                         aria_label: t!("selection.panel", number = panel + 1).to_string(),
-                        onclick: move |_| async move {
-                            // Scrolling the panel itself into view rather than
-                            // working out how far along the row it is: the
-                            // container snaps, so bringing the panel into view
-                            // lands exactly on it.
-                            let handle = panel_handles.read().get(panel).cloned().flatten();
-                            if let Some(handle) = handle {
-                                let _ = handle.scroll_to(ScrollBehavior::Smooth).await;
+                        onclick: move |_| async move { show_panel(panel_handles, panel).await },
+                        // A `div` is not a button, however much it is dressed
+                        // as one: it takes focus because of its `tabindex` and
+                        // then does nothing when it is pressed. These are dots
+                        // ten pixels across, and a real `<button>` would come
+                        // with Pico's button drawn all over it.
+                        onkeydown: move |event: Event<KeyboardData>| {
+                            let activated = matches!(event.key(), Key::Enter)
+                                || matches!(event.key(), Key::Character(ref c) if c == " ");
+                            async move {
+                                if activated {
+                                    show_panel(panel_handles, panel).await;
+                                }
                             }
                         },
                     }
