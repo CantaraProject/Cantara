@@ -855,6 +855,13 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
                 }
             }
 
+            // Directly under the picture it operates, and the same width as it.
+            // These act on what is *on* the slide, unlike the buttons in the
+            // footer, which move between slides — putting them across the whole
+            // console mixed up the two. Renders nothing unless the slide that is
+            // up is a video.
+            VideoControls { running_presentation }
+
             StreamPreview { running_presentation }
         }
     }
@@ -953,10 +960,6 @@ fn PresenterControlBar(
 
     rsx! {
         footer { class: "presenter-control-bar",
-            // Above the slide controls, because it acts on what is on the
-            // slide rather than on which slide is up. Renders nothing unless
-            // the slide that is up is a video.
-            VideoControls { running_presentation }
             div { class: "presenter-controls",
                 button {
                     class: "secondary",
@@ -1111,7 +1114,7 @@ pub fn VideoControls(running_presentation: Signal<RunningPresentation>) -> Eleme
         div { class: "video-controls", role: "group",
             button {
                 r#type: "button",
-                class: "outline secondary",
+                class: "outline secondary video-back",
                 aria_label: t!("presenter.video.back").to_string(),
                 onclick: move |_| running_presentation.write().video.skip(-10.0),
                 "⏪ 10 s"
@@ -1119,6 +1122,7 @@ pub fn VideoControls(running_presentation: Signal<RunningPresentation>) -> Eleme
 
             button {
                 r#type: "button",
+                class: "video-play",
                 aria_label: if playback.playing {
                     t!("presenter.video.pause").to_string()
                 } else {
@@ -1134,7 +1138,7 @@ pub fn VideoControls(running_presentation: Signal<RunningPresentation>) -> Eleme
 
             button {
                 r#type: "button",
-                class: "outline secondary",
+                class: "outline secondary video-forward",
                 aria_label: t!("presenter.video.forward").to_string(),
                 onclick: move |_| running_presentation.write().video.skip(10.0),
                 "10 s ⏩"
@@ -1163,9 +1167,10 @@ pub fn VideoControls(running_presentation: Signal<RunningPresentation>) -> Eleme
                 "{clock(position)} / {clock(duration)}"
             }
 
+            div { class: "video-sound",
             button {
                 r#type: "button",
-                class: if playback.muted { "outline" } else { "outline secondary" },
+                class: if playback.muted { "outline video-mute" } else { "outline secondary video-mute" },
                 aria_pressed: playback.muted.to_string(),
                 aria_label: t!("presenter.video.mute").to_string(),
                 onclick: move |_| {
@@ -1195,6 +1200,7 @@ pub fn VideoControls(running_presentation: Signal<RunningPresentation>) -> Eleme
                         }
                     }
                 },
+            }
             }
         }
     }

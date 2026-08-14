@@ -409,43 +409,77 @@
 }
 
 /* ── Operating a video ───────────────────────────────────────────────────── */
-/* One row: the transport buttons, the scrubber that takes whatever width is
-   left, the clock, and the sound. */
+/* Under the live preview and no wider than it: these buttons act on what is
+   *on* the slide, while the ones in the footer move between slides, and a bar
+   across the whole console mixed the two up.
+ *
+ * Two rows, because the column is about 480px wide and one row of everything
+ * does not fit: the transport buttons and the clock above, the scrubber and
+ * the sound below. */
 .video-controls {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto auto auto 1fr;
+    grid-template-areas:
+        "back play forward time"
+        "scrub scrub scrub sound";
     align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    margin-bottom: 0.5rem;
+    gap: 0.4rem;
+    width: 480px;
+    max-width: 100%;
+    margin-top: 0.75rem;
+    padding: 0.5rem;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    background-color: var(--pico-background-color);
 }
 
+/* Small enough that four of them and a clock fit the width of the preview. */
 .video-controls button {
-    flex: 0 0 auto;
     width: auto;
     margin: 0;
+    padding: 0.3rem 0.6rem;
+    font-size: 0.85rem;
+    line-height: 1.2;
     white-space: nowrap;
 }
 
-/* The scrubber is the one thing here worth giving room to: it is how a
-   position is found, and a short one cannot be aimed. */
+.video-back { grid-area: back; }
+.video-play { grid-area: play; }
+.video-forward { grid-area: forward; }
+/* The button and the slider are one thing — the sound — so they share a cell
+   rather than each claiming one. */
+.video-sound {
+    grid-area: sound;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+/* The scrubber gets a row to itself: it is how a position is found, and a
+   short one cannot be aimed. */
 .video-scrubber {
-    flex: 1 1 12rem;
-    min-width: 8rem;
+    grid-area: scrub;
+    width: 100%;
     margin: 0;
 }
 
+/* Beside the mute button, not on a row of its own. */
 .video-volume {
-    flex: 0 0 6rem;
+    flex: 0 1 5rem;
+    min-width: 3rem;
     margin: 0;
 }
 
 /* Fixed width and tabular figures, so the row does not shuffle sideways every
    time the seconds tick over. */
 .video-time {
-    flex: 0 0 auto;
+    grid-area: time;
     min-width: 7.5ch;
-    text-align: center;
-    font-size: 0.85rem;
+    text-align: right;
+    font-size: 0.8rem;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+    color: var(--pico-muted-color);
 }
