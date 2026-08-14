@@ -1282,6 +1282,35 @@ div.inline-div {
     gap: 0.5em;
 }
 
+/* What kind of thing the row is: a slot of a fixed size, so that the icons form
+   a straight column down the list.
+ *
+ * Two things went wrong without it, both because the icon was a flex item like
+ * any other. `flex: 0 0 auto` is what stops a long name from squeezing it
+ * narrower than the icon on the row above — a flex item may be shrunk below its
+ * own width unless it says otherwise, and the names here are file names.
+ * `align-self: flex-start` is what puts it beside the *first* line of a name
+ * that wraps, rather than halfway down the two lines, which is what made the
+ * column look as though it were leaning. */
+.selected-item-type {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5em;
+    height: 1.5em;
+}
+
+/* The icon inside it keeps its size whatever the row does. `dioxus-free-icons`
+   writes a width onto the `svg`, which flexbox is free to override; this is not
+   free to be overridden. */
+.selected-item-type svg {
+    flex: 0 0 auto;
+    width: 1.15em;
+    height: 1.15em;
+}
+
 /* The name may wrap; what must not is the column of buttons beside it. */
 .selected-item-name {
     overflow-wrap: anywhere;
@@ -1299,6 +1328,9 @@ div.inline-div {
 /* Every button gets the same box, so the icons of one row sit above the icons
  * of the next even where a row has nothing to move up or down. */
 .selected-item-action {
+    /* Never squeezed, for the same reason the type icon opposite is not: these
+       are what hold the column of buttons in line. */
+    flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1306,6 +1338,12 @@ div.inline-div {
     height: 1.75em;
     cursor: pointer;
     border-radius: var(--pico-border-radius);
+}
+
+.selected-item-action svg {
+    flex: 0 0 auto;
+    width: 1.15em;
+    height: 1.15em;
 }
 
 .selected-item-action:hover {
@@ -1852,6 +1890,13 @@ div.inline-div {
        gesture a drag rather than a scroll of the list. */
     touch-action: none;
     border-radius: var(--pico-border-radius);
+}
+
+/* The same guard as on the icons at either end of the row. */
+.selected-item-grip svg {
+    flex: 0 0 auto;
+    width: 1.15em;
+    height: 1.15em;
 }
 
 .selected-item-grip:hover {
