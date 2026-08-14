@@ -11,7 +11,9 @@ use dioxus::logger::tracing;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
-use dioxus_free_icons::icons::fa_solid_icons::{FaFilePdf, FaFileCode, FaImage, FaMusic, FaPenToSquare};
+use dioxus_free_icons::icons::fa_solid_icons::{
+    FaFileCode, FaFilePdf, FaFilm, FaImage, FaMusic, FaPenToSquare,
+};
 use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -95,6 +97,11 @@ pub fn PdfIcon(width: Option<u32>) -> Element {
 #[component]
 pub fn MarkdownIcon(width: Option<u32>) -> Element {
     rsx! { Icon { icon: FaFileCode, width: width.unwrap_or(20) } }
+}
+
+#[component]
+pub fn VideoIcon(width: Option<u32>) -> Element {
+    rsx! { Icon { icon: FaFilm, width: width.unwrap_or(20) } }
 }
 
 /// A component displaying multiple presentation designs in an "Amazing Grace" presentation.

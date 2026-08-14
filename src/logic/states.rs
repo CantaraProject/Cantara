@@ -146,6 +146,43 @@ pub struct SelectedItemRepresentation {
     /// where the slides are made; empty, which is the ordinary case, is every
     /// page. Means nothing for an element that is not a PDF.
     pub pdf_pages: String,
+
+    /// How a video element is meant to be played. Means nothing for an element
+    /// that is not a video.
+    pub video_settings: VideoSettings,
+}
+
+/// How a video in the running order is played.
+///
+/// Both of these are the service's choice about *this* element, so they live
+/// here beside the timer and the PDF page selection rather than in the
+/// presentation design: the same video in two services is played differently,
+/// and two videos in one service usually are too.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct VideoSettings {
+    /// Whether it starts as soon as the slide is reached, rather than waiting
+    /// to be started.
+    ///
+    /// On by default. A video that has to be started by hand once it is already
+    /// on the wall is a pause in front of the congregation, and the operator
+    /// who wanted that pause can turn this off.
+    pub autostart: bool,
+
+    /// Whether it begins again when it reaches the end.
+    ///
+    /// Off by default: most videos in a service are shown once and then handed
+    /// back to the person leading it. Looping is for the ones that are
+    /// background — a scene under the welcome, a countdown before the start.
+    pub looping: bool,
+}
+
+impl Default for VideoSettings {
+    fn default() -> Self {
+        VideoSettings {
+            autostart: true,
+            looping: false,
+        }
+    }
 }
 
 impl SelectedItemRepresentation {
@@ -160,6 +197,7 @@ impl SelectedItemRepresentation {
             timer_settings_option: None,
             transition_effect: SlideTransition::default(),
             pdf_pages: String::new(),
+            video_settings: VideoSettings::default(),
         }
     }
 }

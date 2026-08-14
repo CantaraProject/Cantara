@@ -80,6 +80,9 @@ pub mod directory_browser;
 /// view's.
 pub mod dialogs;
 
+/// Serving video files to the window that plays them.
+pub mod video_host;
+
 pub mod route_transitions;
 
 mod font_settings;

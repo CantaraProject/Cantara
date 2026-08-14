@@ -40,6 +40,14 @@ pub fn PresenterConsolePage() -> Element {
     // so we can navigate back. In a separate window we close it.
     // We use try_consume_context to safely check for a router context, because calling
     // navigator() directly would panic in standalone desktop windows (no router present).
+
+    // While a console is on screen it is what the room hears: it is where the
+    // operator is, it is where the controls are, and it is the machine's one
+    // sound source. The projection mutes itself while this holds, and gets the
+    // sound back when the console closes — see [`crate::logic::video`].
+    use_hook(|| crate::logic::video::claim_audio(crate::logic::video::AudioOwner::Console));
+    use_drop(|| crate::logic::video::release_audio(crate::logic::video::AudioOwner::Console));
+
     let is_main_window = try_consume_context::<dioxus::router::RouterContext>().is_some();
     // Only acquire the navigator if a router is present to avoid panicking.
     let nav = if is_main_window { Some(navigator()) } else { None };

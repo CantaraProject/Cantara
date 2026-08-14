@@ -14,6 +14,7 @@ use crate::components::selection_components::sidebar::SelectionFilterSideBar;
 use crate::components::selection_components::search_ui::{SearchInput, SearchResults};
 use crate::components::selection_components::source_items::{
     ImageSourceItems, ItemClickAction, MarkdownSourceItems, PdfSourceItems, SongSourceItems,
+    VideoSourceItems,
 };
 use crate::logic::detail::{DetailMode, DetailSubject, DetailTab};
 use crate::logic::presentation::get_markdown_html;
@@ -437,6 +438,18 @@ pub fn Detail(element: Vec<String>) -> Element {
                         }
                         if active_selection_filter() == SelectionSidebarType::Markdown {
                             MarkdownSourceItems {
+                                source_files,
+                                active_detailed_item_id,
+                                selected_items,
+                                click_action: ItemClickAction::OpenDetail,
+                            }
+                        }
+                        // Listed, though a video has no detail view of its own
+                        // — see `DetailSubject::of`. Leaving it out would make
+                        // the sidebar, which is shared with the selection view,
+                        // show an empty panel when it is on videos.
+                        if active_selection_filter() == SelectionSidebarType::Videos {
+                            VideoSourceItems {
                                 source_files,
                                 active_detailed_item_id,
                                 selected_items,

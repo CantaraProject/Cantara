@@ -407,6 +407,22 @@ selection:
     en: Export
     de: Exportieren
 
+  video:
+    headline:
+      en: Video
+      de: Video
+    autostart:
+      en: Start automatically
+      de: Automatisch starten
+    autostart_hint:
+      en: Plays as soon as the slide is reached, instead of waiting to be started.
+      de: Spielt, sobald die Folie erreicht ist, statt auf den Start zu warten.
+    loop:
+      en: Repeat
+      de: Wiederholen
+    loop_hint:
+      en: Begins again when it reaches the end — for background scenes and countdowns.
+      de: Beginnt am Ende von vorn – für Hintergrundszenen und Countdowns.
 search:
   en: Search...
   de: Suchen...

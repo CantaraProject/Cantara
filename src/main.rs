@@ -469,6 +469,8 @@ fn App() -> Element {
         document::Script { src: crate::logic::pdf::PDF_VIEWER_JS }
         // Makes the fonts shipped in `assets/fonts/` usable by name.
         BundledFontFaces {}
+        // Answers this window's requests for video files.
+        crate::components::video_host::VideoAssetHost {}
         document::Link { rel: "icon", href: FAVICON }
         document::Title { "Cantara" }
 

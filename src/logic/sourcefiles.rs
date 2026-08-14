@@ -385,41 +385,6 @@ impl ImageSourceFile {
     }
 }
 
-/// This is a wrapper around [SourceFile] which ensures that the [SourceFile] is a video
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct VideoSourceFile(SourceFile);
-
-impl VideoSourceFile {
-    /// Constructor that enforces the [`SourceFileType::Video`] constraint.
-    pub fn new(source_file: SourceFile) -> Option<Self> {
-        if matches!(source_file.file_type, SourceFileType::Video) {
-            Some(VideoSourceFile(source_file))
-        } else {
-            None
-        }
-    }
-
-    /// Accessor to get the inner [SourceFile].
-    pub fn into_inner(self) -> SourceFile {
-        self.0
-    }
-
-    /// Reference accessor for convenience.
-    pub fn as_source(&self) -> &SourceFile {
-        &self.0
-    }
-
-    /// What to tell a web view this file holds, for the `type` of a `<source>`.
-    ///
-    /// A guess from the suffix, which is all there is without opening the file.
-    /// An engine that disagrees falls back to sniffing the content, so being
-    /// wrong here costs nothing; saying nothing at all is what makes some
-    /// engines refuse to try.
-    pub fn mime_type(&self) -> &'static str {
-        mime_type_of_video(self.0.file_name())
-    }
-}
-
 /// The MIME type a video file name promises.
 ///
 /// Free-standing as well as on [`VideoSourceFile`], because the thing that

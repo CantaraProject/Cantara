@@ -418,6 +418,89 @@ fn MarkdownSourceItem(
     }
 }
 
+/// The videos in the library.
+///
+/// A plain list of names rather than a strip of preview frames, as the pictures
+/// have. Making a still from a video means decoding it, and Cantara decodes no
+/// video itself — the web view does that, and only for the one that is playing.
+/// A library's worth of decoders running to fill a list is not worth the frame
+/// it would put beside each name.
+#[component]
+pub(crate) fn VideoSourceItems(
+    source_files: Signal<Vec<SourceFile>>,
+    active_detailed_item_id: Signal<Option<usize>>,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    #[props(default)]
+    click_action: ItemClickAction,
+) -> Element {
+    rsx! {
+        div {
+            class: "scrollable-container",
+            for (id , _) in source_files
+                .read()
+                .iter()
+                .enumerate()
+                .filter(|(_, sf)| sf.file_type == SourceFileType::Video)
+            {
+                VideoSourceItem {
+                    key: "{id}",
+                    id,
+                    source_files,
+                    active_detailed_item_id,
+                    selected_items,
+                    click_action,
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn VideoSourceItem(
+    source_files: Signal<Vec<SourceFile>>,
+    id: usize,
+    selected_items: Signal<Vec<SelectedItemRepresentation>>,
+    active_detailed_item_id: Signal<Option<usize>>,
+    #[props(default)]
+    click_action: ItemClickAction,
+) -> Element {
+    let source_file = source_files.read().get(id).cloned();
+    let Some(source_file) = source_file else {
+        return rsx! {};
+    };
+
+    rsx! {
+        div {
+            role: "button",
+            class: if active_detailed_item_id() == Some(id) {
+                "outline secondary selection_item selection_item-active"
+            } else {
+                "outline secondary selection_item"
+            },
+            tabindex: 0,
+            onclick: move |_| {
+                match click_action {
+                    ItemClickAction::AddToSelection => {
+                        selected_items
+                            .write()
+                            .push(SelectedItemRepresentation::new_with_sourcefile(
+                                source_file.clone(),
+                            ));
+                    }
+                    ItemClickAction::OpenDetail => active_detailed_item_id.set(Some(id)),
+                }
+            },
+            oncontextmenu: move |_| {
+                active_detailed_item_id.set(Some(id));
+            },
+            span { class: "selected-item-type",
+                crate::components::shared_components::VideoIcon {}
+            }
+            {source_file.name.clone()}
+        }
+    }
+}
+
 #[component]
 pub(crate) fn SourceDetailView(
     source_files: Signal<Vec<SourceFile>>,

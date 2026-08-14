@@ -49,7 +49,7 @@
 
 use crate::logic::settings::{PresentationDesign, SlideTimerSettings, SlideTransition};
 use crate::logic::sourcefiles::{SourceFile, SourceFileType};
-use crate::logic::states::SelectedItemRepresentation;
+use crate::logic::states::{SelectedItemRepresentation, VideoSettings};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cantara_songlib::slides::SlideSettings;
 use serde::{Deserialize, Serialize};
@@ -282,6 +282,18 @@ pub struct ManifestItem {
     /// which is what a file written before this existed also means.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub pdf_pages: String,
+    /// How a video is played. Left out when it is the ordinary case, which is
+    /// also what a running order written before videos existed means.
+    #[serde(default, skip_serializing_if = "is_default_video_settings")]
+    pub video_settings: VideoSettings,
+}
+
+/// Whether these are the settings a video gets when nothing was said about it.
+///
+/// Used to keep them out of a written running order, so that a file only
+/// mentions what the service actually chose.
+fn is_default_video_settings(settings: &VideoSettings) -> bool {
+    *settings == VideoSettings::default()
 }
 
 /// What a selection file was found to contain.
@@ -317,6 +329,8 @@ pub struct DocumentItem {
     pub transition: SlideTransition,
     /// Which pages of a PDF to show, as the user wrote it.
     pub pdf_pages: String,
+    /// How a video is played.
+    pub video_settings: VideoSettings,
 }
 
 impl DocumentItem {
@@ -335,6 +349,7 @@ impl DocumentItem {
             timer: None,
             transition: SlideTransition::default(),
             pdf_pages: String::new(),
+            video_settings: VideoSettings::default(),
         }
     }
 }
@@ -491,6 +506,7 @@ fn write_cantara_zip(
             timer: item.timer_settings_option.clone(),
             transition: item.transition_effect,
             pdf_pages: item.pdf_pages.clone(),
+            video_settings: item.video_settings,
         });
     }
 
@@ -779,6 +795,7 @@ fn read_cantara_zip(bytes: &[u8]) -> Result<SelectionDocument, SelectionIoError>
             timer: entry.timer.clone(),
             transition: entry.transition,
             pdf_pages: entry.pdf_pages.clone(),
+            video_settings: entry.video_settings,
         });
     }
 
@@ -947,6 +964,7 @@ pub fn selected_item_of(resolved: &ResolvedItem, path: Option<PathBuf>) -> Optio
         timer_settings_option: item.timer.clone(),
         transition_effect: item.transition,
         pdf_pages: item.pdf_pages.clone(),
+        video_settings: item.video_settings,
     })
 }
 

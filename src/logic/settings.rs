@@ -221,13 +221,22 @@ pub enum SelectionSidebarType {
     Pictures,
     Pdfs,
     Markdown,
+    Videos,
 }
 
-/// Returns the default sidebar order: Songs → Pictures → PDFs → Markdown.
+/// Returns the default sidebar order: Songs → Pictures → Videos → PDFs → Markdown.
+///
+/// Videos sit beside pictures because that is what they are to somebody
+/// building a service: something to show rather than something to read.
+///
+/// A user who has already arranged the sidebar has their order kept, and it
+/// will not mention videos — see [`Settings::ensure_sidebar_order`], which adds
+/// what is missing rather than replacing what is there.
 pub fn default_sidebar_order() -> Vec<SelectionSidebarType> {
     vec![
         SelectionSidebarType::Songs,
         SelectionSidebarType::Pictures,
+        SelectionSidebarType::Videos,
         SelectionSidebarType::Pdfs,
         SelectionSidebarType::Markdown,
     ]
@@ -424,6 +433,7 @@ impl Settings {
             };
             settings.ensure_default_presentation_design();
             settings.ensure_slide_settings_for_designs();
+            settings.ensure_sidebar_order();
             settings.migrate_github_zip_repos();
             settings.ensure_bundled_repos();
             settings
@@ -440,6 +450,7 @@ impl Settings {
                 .unwrap_or_default();
             settings.ensure_default_presentation_design();
             settings.ensure_slide_settings_for_designs();
+            settings.ensure_sidebar_order();
             settings.migrate_github_zip_repos();
             settings
         }
@@ -680,6 +691,31 @@ impl Settings {
             // Add default slide settings until there are at least as many as presentation designs
             for _ in 0..(design_count - slide_count) {
                 self.song_slide_settings.push(SongSlideSettings::default());
+            }
+        }
+    }
+
+    /// Puts any sidebar entry the saved order does not mention at the end of
+    /// it.
+    ///
+    /// The order is the user's arrangement and is kept as they left it. But it
+    /// was written out when Cantara had fewer kinds of source than it has now,
+    /// and an entry that is in no saved order is an icon that never appears —
+    /// which is how adding videos would have hidden them from everybody who had
+    /// ever touched the sidebar.
+    ///
+    /// Appended rather than inserted in the default position: the point of a
+    /// saved order is that things stay where they were put, and the new one has
+    /// nowhere it has to be.
+    pub fn ensure_sidebar_order(&mut self) {
+        if self.sidebar_order.is_empty() {
+            self.sidebar_order = default_sidebar_order();
+            return;
+        }
+
+        for entry in default_sidebar_order() {
+            if !self.sidebar_order.contains(&entry) {
+                self.sidebar_order.push(entry);
             }
         }
     }

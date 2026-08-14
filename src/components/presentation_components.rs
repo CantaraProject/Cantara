@@ -144,6 +144,8 @@ pub fn PresentationPage() -> Element {
         return rsx! {
             document::Link { rel: "stylesheet", href: MAIN_CSS }
             BundledFontFaces {}
+        crate::components::video_host::VideoAssetHost {}
+            crate::components::video_host::VideoAssetHost {}
             div { style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
                 p { "No presentation data found." }
             }
@@ -579,6 +581,12 @@ pub fn PresentationRendererComponent(
     #[props(default)]
     role: PresentationRole,
 ) -> Element {
+    // Handed down rather than threaded through every slide component between
+    // here and the `<video>` element that needs it. What a rendering is *for*
+    // is the same for everything inside it, and the only thing that asks is
+    // several layers down — see [`VideoSlideComponent`].
+    use_context_provider(|| role);
+
     let current_slide: Memo<Option<Slide>> =
         use_memo(move || running_presentation.read().get_current_slide());
 
@@ -1655,16 +1663,53 @@ fn slide_body(
 /// itself — the engine the rest of the program is drawn by already does that,
 /// with the machine's video hardware behind it.
 ///
-/// **Muted for now, in every window.** Which instance is allowed to make sound
-/// is not a property of the slide but of the machine: a presenter console and a
-/// projection window are two pages playing the same file, and both unmuted is
-/// the same audio twice, a few dozen milliseconds apart. Working that out is
-/// its own piece of work; until it is done, silence is the answer that is wrong
-/// in a way people can see rather than one that ruins a service.
+/// Which window makes the sound is not a property of the slide but of the
+/// machine: a presenter console and a projection window are two pages playing
+/// the same file, and both unmuted is the same audio twice, a few dozen
+/// milliseconds apart. One of them owns it and the rest are muted; the rule is
+/// in [`crate::logic::video`].
 #[component]
 fn VideoSlideComponent(video_slide: VideoSlide) -> Element {
+    use crate::logic::video::{AudioOwner, audio_generation, claim_audio, owns_audio};
+
     let source = crate::logic::video::video_url(&video_slide.video_path);
     let mime = crate::logic::sourcefiles::mime_type_of_video(&video_slide.video_path);
+
+    // What this window is. Anything that did not say — the design selector's
+    // preview, a thumbnail — is a follower and never makes a sound.
+    let role: PresentationRole = try_consume_context().unwrap_or(PresentationRole::Follower);
+
+    // The projection asks for the sound each time it draws a video. It does not
+    // get it while a console is open; see [`crate::logic::video::claim_audio`],
+    // where that rule lives.
+    let mut audio_changed: Signal<u64> = use_signal(audio_generation);
+    use_effect(move || {
+        if role == PresentationRole::Audience {
+            claim_audio(AudioOwner::Projection);
+        }
+        // A console opening or closing changes the answer under a window that
+        // is already showing the video, so it is looked for rather than
+        // assumed. See [`crate::logic::timer`] for why the wait is not a script.
+        spawn(async move {
+            loop {
+                crate::logic::timer::sleep(std::time::Duration::from_millis(250)).await;
+                let generation = audio_generation();
+                if generation != *audio_changed.peek() {
+                    audio_changed.set(generation);
+                }
+            }
+        });
+    });
+    // Read while rendering: that is what subscribes this element to it.
+    let _ = audio_changed();
+
+    let makes_the_sound = match role {
+        PresentationRole::Audience => owns_audio(AudioOwner::Projection),
+        PresentationRole::Follower => owns_audio(AudioOwner::Console),
+        // A preview running by itself is an illustration of a setting, not the
+        // service. It is never the thing the room hears.
+        PresentationRole::SelfRunning => false,
+    };
 
     rsx! {
         video {
@@ -1672,8 +1717,10 @@ fn VideoSlideComponent(video_slide: VideoSlide) -> Element {
             // What the slide says about how it is meant to be played.
             autoplay: video_slide.autostart,
             r#loop: video_slide.looping,
-            // See the note above: not yet the sound of the service.
-            muted: true,
+            // One window per machine makes the sound, and the rest are silent —
+            // two playing the same file tens of milliseconds apart is a
+            // flanging echo rather than a louder video.
+            muted: !makes_the_sound,
             // No browser chrome. The presentation is a projection, and a
             // playback bar across the bottom of it belongs to the operator's
             // screen rather than to the room's.
