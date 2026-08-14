@@ -32,9 +32,8 @@
 /* How far through the service the presentation is.
  *
  * Between the words and the view toggle, taking whatever width is left. Drawn
- * in the same colour as the text on this bar rather than in the accent colour:
- * the bar is already the accent colour, and a progress bar in it would be
- * invisible. */
+ * in white on a translucent white track: the header is already the accent
+ * colour, so a bar drawn in the accent colour cannot be seen on it. */
 .presenter-progress {
     flex: 1 1 auto;
     /* A `<progress>` is `display: block; width: 100%` in Pico, which would push
@@ -45,25 +44,46 @@
     margin: 0 20px;
     border-radius: 1rem;
     overflow: hidden;
-    background-color: rgba(255, 255, 255, 0.25);
-    /* Firefox draws the track through this one; the two `::-*` rules below are
-       for the WebKit and Blink engines, which draw it through the pseudos. */
-    color: var(--pico-primary-inverse);
-    background-image: none;
+
+    /* Pico fills a `<progress>` with `--pico-progress-color`, which it defines
+       as `var(--pico-primary-background)` — the very colour this bar is lying
+       on. The filled part was therefore drawn, correctly, in the header's own
+       blue, and could not be seen.
+     *
+     * Answering Pico's two variables is the fix rather than the workaround:
+     * its own rules then draw the right thing, on every engine, including any
+     * it grows a rule for later.
+     *
+     * White outright, not `--pico-primary-inverse`. The words beside it happen
+     * to be white through that variable, but what it means is "whatever reads
+     * on the primary colour", and this bar has to read on its own track. */
+    --pico-progress-color: #fff;
+    --pico-progress-background-color: rgba(255, 255, 255, 0.25);
+
+    /* Where a browser draws an unstyled `<progress>` from the element itself. */
+    accent-color: #fff;
 }
 
-.presenter-progress::-webkit-progress-bar {
+/* The pseudo-elements each engine paints, stated again for the same reason the
+   variables above are set: Pico reaches the filled part through
+   `progress[value]::-webkit-progress-value`, and an attribute selector outranks
+   a class — a rule written as `.presenter-progress::-webkit-progress-value`
+   loses to it and changes nothing. Hence the `[value]` here. */
+.presenter-progress[value]::-webkit-progress-bar {
     background-color: transparent;
-}
-
-.presenter-progress::-webkit-progress-value {
-    background-color: var(--pico-primary-inverse);
+    background-image: none;
     border-radius: 1rem;
-    transition: width 0.2s ease;
 }
 
-.presenter-progress::-moz-progress-bar {
-    background-color: var(--pico-primary-inverse);
+.presenter-progress[value]::-webkit-progress-value {
+    background-color: #fff;
+    background-image: none;
+    border-radius: 1rem;
+}
+
+.presenter-progress[value]::-moz-progress-bar {
+    background-color: #fff;
+    background-image: none;
     border-radius: 1rem;
 }
 

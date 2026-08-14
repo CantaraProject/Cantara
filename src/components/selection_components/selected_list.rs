@@ -461,20 +461,28 @@ fn SelectedItem(
             }
 
             span { class: "selected-item-label",
-                match current_item.source_file.file_type {
-                    SourceFileType::Song => rsx! {
-                        MusicIcon {}
-                    },
-                    SourceFileType::Image => rsx! {
-                        ImageIcon {}
-                    },
-                    SourceFileType::Pdf => rsx! {
-                        PdfIcon {}
-                    },
-                    SourceFileType::Markdown => rsx! {
-                        MarkdownIcon {}
-                    },
-                    _ => rsx! {},
+                // The icon sits in a slot of its own rather than directly in
+                // the row. Without one it is a flex item like any other: a long
+                // name squeezed it narrower than the icon on the row above, and
+                // a name that wrapped onto two lines put it halfway down the
+                // block — which is what left the column of icons ragged instead
+                // of straight. See `.selected-item-type` in `assets/main.css`.
+                span { class: "selected-item-type",
+                    match current_item.source_file.file_type {
+                        SourceFileType::Song => rsx! {
+                            MusicIcon {}
+                        },
+                        SourceFileType::Image => rsx! {
+                            ImageIcon {}
+                        },
+                        SourceFileType::Pdf => rsx! {
+                            PdfIcon {}
+                        },
+                        SourceFileType::Markdown => rsx! {
+                            MarkdownIcon {}
+                        },
+                        _ => rsx! {},
+                    }
                 }
                 span { class: "selected-item-name", {current_item.source_file.name.clone()} }
             }
