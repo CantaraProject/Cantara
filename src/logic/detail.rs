@@ -81,8 +81,13 @@ impl DetailSubject {
             SourceFileType::Image => Some(DetailSubject::Image(file.clone())),
             SourceFileType::Pdf => Some(DetailSubject::Pdf(file.clone())),
             SourceFileType::Markdown => Some(DetailSubject::Markdown(file.clone())),
-            // Cantara knows these turn up in a repository but has no viewer for
-            // them; the selection view does not offer them either.
+            // A video can be put into a running order and played there, but it
+            // has no detail view: there is nothing to read about it that the
+            // running order does not already show, and a second player beside
+            // the presentation's own is a second thing making sound.
+            //
+            // A presentation file Cantara knows only by name; it has no viewer
+            // for one and the selection view does not offer it.
             SourceFileType::Presentation | SourceFileType::Video => None,
         }
     }

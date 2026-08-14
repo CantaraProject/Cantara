@@ -178,6 +178,21 @@ impl SourceFileType {
         (".jpeg", SourceFileType::Image),
         (".pdf", SourceFileType::Pdf),
         (".md", SourceFileType::Markdown),
+        // Only the containers a web view can play by itself. Cantara hands a
+        // video to the engine the rest of the program is already drawn by
+        // rather than decoding one of its own, so what is offered here is what
+        // that engine can open: MP4 and WebM everywhere, Ogg on Gecko and
+        // Blink, QuickTime on WebKit.
+        //
+        // Deliberately absent: `.mkv`, `.avi`, `.wmv` and `.flv`. A browser
+        // engine will not play them, and a file that is listed but shows a
+        // black rectangle when the service reaches it is worse than one that
+        // was never offered.
+        (".mp4", SourceFileType::Video),
+        (".m4v", SourceFileType::Video),
+        (".webm", SourceFileType::Video),
+        (".ogv", SourceFileType::Video),
+        (".mov", SourceFileType::Video),
     ];
 
     /// What kind of content a file name promises, or `None` when Cantara does
@@ -367,6 +382,60 @@ impl ImageSourceFile {
     // Optional: Reference accessor for convenience
     pub fn as_source(&self) -> &SourceFile {
         &self.0
+    }
+}
+
+/// This is a wrapper around [SourceFile] which ensures that the [SourceFile] is a video
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct VideoSourceFile(SourceFile);
+
+impl VideoSourceFile {
+    /// Constructor that enforces the [`SourceFileType::Video`] constraint.
+    pub fn new(source_file: SourceFile) -> Option<Self> {
+        if matches!(source_file.file_type, SourceFileType::Video) {
+            Some(VideoSourceFile(source_file))
+        } else {
+            None
+        }
+    }
+
+    /// Accessor to get the inner [SourceFile].
+    pub fn into_inner(self) -> SourceFile {
+        self.0
+    }
+
+    /// Reference accessor for convenience.
+    pub fn as_source(&self) -> &SourceFile {
+        &self.0
+    }
+
+    /// What to tell a web view this file holds, for the `type` of a `<source>`.
+    ///
+    /// A guess from the suffix, which is all there is without opening the file.
+    /// An engine that disagrees falls back to sniffing the content, so being
+    /// wrong here costs nothing; saying nothing at all is what makes some
+    /// engines refuse to try.
+    pub fn mime_type(&self) -> &'static str {
+        mime_type_of_video(self.0.file_name())
+    }
+}
+
+/// The MIME type a video file name promises.
+///
+/// Free-standing as well as on [`VideoSourceFile`], because the thing that
+/// serves the file to a browser has a path and not a source file.
+pub fn mime_type_of_video(file_name: &str) -> &'static str {
+    let lower = file_name.to_lowercase();
+    if lower.ends_with(".webm") {
+        "video/webm"
+    } else if lower.ends_with(".ogv") {
+        "video/ogg"
+    } else if lower.ends_with(".mov") {
+        "video/quicktime"
+    } else {
+        // `.mp4` and `.m4v`, and the safest guess for anything else that got
+        // this far.
+        "video/mp4"
     }
 }
 

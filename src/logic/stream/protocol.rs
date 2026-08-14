@@ -93,6 +93,20 @@ pub enum StreamSlide {
     /// page fetches it from the server rather than having it pushed through
     /// every update.
     Picture { media: String },
+    /// A video. `media` names it the way [`StreamSlide::Picture`] does, and the
+    /// page fetches it from the server, which serves it in the parts the
+    /// browser asks for so that it can be played and seeked without the whole
+    /// file arriving first.
+    ///
+    /// How far into it the presentation is does *not* belong here. This is the
+    /// running order, which changes when the service is rebuilt; the playback
+    /// position changes many times a second and is sent separately — see
+    /// [`StreamState::position`] for the same distinction one level up.
+    Video {
+        media: String,
+        autostart: bool,
+        looping: bool,
+    },
     /// Deliberately nothing: the gap between two elements of a service.
     Empty,
 }
@@ -473,6 +487,12 @@ impl StreamSlide {
 
             SlideContent::PdfPage(page) => StreamSlide::Picture {
                 media: media_id(&format!("{}#page={}", page.pdf_path, page.page_number)),
+            },
+
+            SlideContent::Video(video) => StreamSlide::Video {
+                media: media_id(&video.video_path),
+                autostart: video.autostart,
+                looping: video.looping,
             },
 
             SlideContent::Empty(_) => StreamSlide::Empty,

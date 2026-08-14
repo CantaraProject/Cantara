@@ -274,11 +274,21 @@ pub fn deck_from_slides(
     let mut deck = PptxDeck::widescreen();
     let mut skipped_notation = 0usize;
     let mut missing_pictures = 0usize;
+    let mut skipped_videos = 0usize;
 
     for slide in slides {
         let mut pptx_slide = PptxSlide::new(deck_background.clone());
 
         match &slide.slide_content {
+            // A video is not exported yet. PptxGenJS can carry one — `addMedia`
+            // takes base64 for the formats PowerPoint plays — and doing that,
+            // with a still frame as the fallback for the formats it does not,
+            // is a piece of work of its own. Counted rather than passed over in
+            // silence, so the export can say what it left out.
+            SlideContent::Video(_) => {
+                skipped_videos += 1;
+                continue;
+            }
             SlideContent::Title(title) => {
                 pptx_slide = pptx_slide.with(text_shape(
                     &deck,
@@ -419,6 +429,7 @@ pub fn deck_from_slides(
         deck,
         skipped_notation,
         missing_pictures,
+        skipped_videos,
     }
 }
 
@@ -481,6 +492,9 @@ pub struct PptxConversion {
     /// How many slides should have carried a picture and could not — a file
     /// that would not open, or a PDF page that would not render.
     pub missing_pictures: usize,
+    /// How many video slides were left out, because carrying a video into a
+    /// deck is not implemented yet.
+    pub skipped_videos: usize,
 }
 
 /// A text box spanning the slide width at the given vertical band.

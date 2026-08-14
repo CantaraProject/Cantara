@@ -31,7 +31,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 sys-locale = "=0.3.2"
 
 # Cantara libraries
-cantara-songlib = "0.2.4"
+cantara-songlib = "0.3.0"
 markdown = "1.0.0"
 rgb = { version = "0.8.52", features = ["serde"] }
 # Decodes the pictures of a library so they can be scaled down to list
@@ -134,6 +134,17 @@ desktop = [
 # dioxus-motion has no dedicated mobile backend; its `desktop` feature is the
 # native (non-WASM) timing backend and is what mobile builds need as well.
 mobile = ["dioxus/mobile", "dioxus-motion/desktop"]
+
+# `cantara-songlib` 0.3.0 is the release that adds the video slide, and it has
+# not been published yet. Until it is, the version asked for above is answered
+# from the checkout beside this one.
+#
+# TO DO: publish cantara-songlib 0.3.0 and delete this section. Nothing else
+# changes — the dependency already names the right version, and this only says
+# where to find it in the meantime. While it is here, a checkout of Cantara on
+# its own does not build.
+[patch.crates-io]
+cantara-songlib = { path = "../cantara-songlib" }
 
 [profile]
 

@@ -777,6 +777,21 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
                 }
             }
         }
+        // A video has no words to read out. What a moderator needs here is not
+        // text but the playback controls — which is a piece of work of its own;
+        // until then, the name of the file at least says which video is up.
+        SlideContent::Video(video_slide) => {
+            let name = std::path::Path::new(&video_slide.video_path)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| video_slide.video_path.clone());
+
+            rsx! {
+                div { class: "slide-text-content",
+                    em { "🎬 {name}" }
+                }
+            }
+        }
     }
 }
 

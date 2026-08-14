@@ -871,9 +871,7 @@ dependencies = [
 
 [[package]]
 name = "cantara-songlib"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "597e4752104bdf1b0f2e8f36d26ec8c9fa13b56bc756a5041bba446972fd6f92"
+version = "0.3.0"
 dependencies = [
  "cbindgen",
  "clap",

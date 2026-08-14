@@ -158,6 +158,10 @@ enum Shows {
     Picture(String),
     /// Words, one entry per line.
     Words(Vec<String>),
+    /// A video. Not [`Shows::Picture`]: a still is fetched and drawn once,
+    /// while this has to be played, and the two are not interchangeable
+    /// wherever the answer is turned into markup.
+    Video(String),
 }
 
 impl Shows {
@@ -170,6 +174,7 @@ impl Shows {
             SlideContent::PdfPage(page) => {
                 Shows::Picture(format!("{}#page={}", page.pdf_path, page.page_number))
             }
+            SlideContent::Video(video) => Shows::Video(video.video_path.clone()),
             SlideContent::Title(title) => Shows::Words(lines(&title.title_text)),
             SlideContent::SingleLanguageMainContent(main) => {
                 Shows::Words(lines(&main.clone().main_text()))

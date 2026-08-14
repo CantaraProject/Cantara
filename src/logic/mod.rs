@@ -109,6 +109,9 @@ pub mod search;
 /// Waiting a moment, on the platform's clock rather than the page's.
 pub mod timer;
 
+/// Getting a video file into the page that plays it.
+pub mod video;
+
 /// Reading a library is thousands of independent file reads, and only the
 /// native builds have threads to spread them over.
 #[cfg(not(target_arch = "wasm32"))]

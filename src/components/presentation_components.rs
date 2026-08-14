@@ -1490,7 +1490,11 @@ pub(crate) fn meta_text_of(slide_content: &SlideContent) -> Option<String> {
                         .map(String::from)
                 })
         }
-        SlideContent::Empty(_) | SlideContent::SimplePicture(_) | SlideContent::PdfPage(_) => None,
+        // None of these carry text of their own to say anything about.
+        SlideContent::Empty(_)
+        | SlideContent::SimplePicture(_)
+        | SlideContent::PdfPage(_)
+        | SlideContent::Video(_) => None,
     };
     text.filter(|text| !text.trim().is_empty())
 }
@@ -1638,6 +1642,46 @@ fn slide_body(
                 page_num: pdf_slide.page_number,
             }
         },
+        SlideContent::Video(video_slide) => rsx! {
+            VideoSlideComponent { video_slide: video_slide.clone() }
+        },
+    }
+}
+
+/// Plays the video of a video slide.
+///
+/// The playing is the web view's own: a `<video>` element, fed by the handler
+/// in [`crate::logic::video`]. Cantara decodes nothing and draws no frames
+/// itself — the engine the rest of the program is drawn by already does that,
+/// with the machine's video hardware behind it.
+///
+/// **Muted for now, in every window.** Which instance is allowed to make sound
+/// is not a property of the slide but of the machine: a presenter console and a
+/// projection window are two pages playing the same file, and both unmuted is
+/// the same audio twice, a few dozen milliseconds apart. Working that out is
+/// its own piece of work; until it is done, silence is the answer that is wrong
+/// in a way people can see rather than one that ruins a service.
+#[component]
+fn VideoSlideComponent(video_slide: VideoSlide) -> Element {
+    let source = crate::logic::video::video_url(&video_slide.video_path);
+    let mime = crate::logic::sourcefiles::mime_type_of_video(&video_slide.video_path);
+
+    rsx! {
+        video {
+            class: "slide-video",
+            // What the slide says about how it is meant to be played.
+            autoplay: video_slide.autostart,
+            r#loop: video_slide.looping,
+            // See the note above: not yet the sound of the service.
+            muted: true,
+            // No browser chrome. The presentation is a projection, and a
+            // playback bar across the bottom of it belongs to the operator's
+            // screen rather than to the room's.
+            controls: false,
+            playsinline: true,
+            preload: "auto",
+            source { src: "{source}", r#type: "{mime}" }
+        }
     }
 }
 
