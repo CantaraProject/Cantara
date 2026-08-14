@@ -64,6 +64,18 @@ selection:
   move_down:
     en: Move down
     de: Nach unten verschieben
+  panels:
+    en: Sections
+    de: Bereiche
+  panel:
+    en: "Section %{number}"
+    de: "Bereich %{number}"
+  reorder_handle:
+    en: Drag to reorder
+    de: Zum Umsortieren ziehen
+  reorder_hint:
+    en: Drag to reorder, or use the arrow keys
+    de: Zum Umsortieren ziehen oder die Pfeiltasten verwenden
   import:
     en: Import...
     de: Importieren...

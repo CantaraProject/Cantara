@@ -51,5 +51,8 @@ presenter:
     en: Overview
     de: Übersicht
   grid_size:
-    en: Size
-    de: Größe
+    en: Thumbnail size
+    de: Größe der Vorschaubilder
+  progress:
+    en: Progress through the presentation
+    de: Fortschritt der Präsentation

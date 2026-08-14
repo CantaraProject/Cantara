@@ -21,9 +21,58 @@
 }
 
 .presenter-header h3 {
+    /* Says what it says and takes no more room than that: the bar beside it is
+       what the width is for. */
+    flex: 0 0 auto;
     margin: 0;
     font-size: 1rem;
     color: var(--pico-primary-inverse);
+}
+
+/* How far through the service the presentation is.
+ *
+ * Between the words and the view toggle, taking whatever width is left. Drawn
+ * in the same colour as the text on this bar rather than in the accent colour:
+ * the bar is already the accent colour, and a progress bar in it would be
+ * invisible. */
+.presenter-progress {
+    flex: 1 1 auto;
+    /* A `<progress>` is `display: block; width: 100%` in Pico, which would push
+       the toggle off the end of the bar. */
+    width: auto;
+    min-width: 0;
+    height: 0.5rem;
+    margin: 0 20px;
+    border-radius: 1rem;
+    overflow: hidden;
+    background-color: rgba(255, 255, 255, 0.25);
+    /* Firefox draws the track through this one; the two `::-*` rules below are
+       for the WebKit and Blink engines, which draw it through the pseudos. */
+    color: var(--pico-primary-inverse);
+    background-image: none;
+}
+
+.presenter-progress::-webkit-progress-bar {
+    background-color: transparent;
+}
+
+.presenter-progress::-webkit-progress-value {
+    background-color: var(--pico-primary-inverse);
+    border-radius: 1rem;
+    transition: width 0.2s ease;
+}
+
+.presenter-progress::-moz-progress-bar {
+    background-color: var(--pico-primary-inverse);
+    border-radius: 1rem;
+}
+
+/* The words wrap before the bar disappears — on a console narrow enough that
+   all three do not fit, the bar is the one worth keeping. */
+@media only screen and (max-width: 600px) {
+    .presenter-progress {
+        margin: 0 10px;
+    }
 }
 
 /* View toggle buttons */
@@ -223,20 +272,26 @@
     background-color: var(--pico-card-background-color);
 }
 
-/* Grid toolbar with size slider */
+/* Grid toolbar with size slider.
+ *
+ * Stays at the top of the overview while it is scrolled: the point of the
+ * slider is trying sizes against the thumbnails on the screen, and a control
+ * that has to be scrolled back to cannot be used that way. `.presenter-grid-panel`
+ * is what scrolls, so that is what this sticks to.
+ *
+ * The negative margins pull it out over the panel's own padding, so that the
+ * thumbnails scroll under it rather than appearing beside it in the gap. */
 .presenter-grid-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 12px;
-    padding: 4px 0;
-}
-
-.presenter-grid-size-label {
-    font-size: 0.8rem;
-    color: var(--pico-muted-color);
-    white-space: nowrap;
-    margin: 0;
+    margin: -10px -10px 12px -10px;
+    padding: 10px;
+    background-color: var(--pico-card-background-color);
+    border-bottom: 1px solid var(--pico-muted-border-color);
 }
 
 .presenter-grid-size-slider {

@@ -1,13 +1,47 @@
 /* Ensure full height and reset margins */
+/*
+ * `dvh` rather than `vh`, with `vh` left in front of it as the answer for
+ * anything that does not know the newer unit: on a phone `100vh` is the window
+ * with the address bar *hidden*, so a page sized that way is taller than what
+ * can be seen and the footer sits below the fold until the bar rolls away.
+ */
 html,
 body {
     height: 100vh;
+    height: 100dvh;
     margin: 0;
 }
+
+/*
+ * The height of everything is worked out here rather than in JavaScript.
+ *
+ * `assets/positioning.js` used to measure the header, the footer and the swipe
+ * indicator on load, on resize and from a `ResizeObserver`, and write pixel
+ * heights onto every `.scrollable-container` and `.swipe-panel` it could find.
+ * That is what a column flexbox does by itself: the bars take the height they
+ * need, the content takes what is left. Doing it in CSS also means it is right
+ * during the first paint rather than one frame later — the layout used to jump
+ * once on the way into every view.
+ *
+ * `min-height: 0` is the part that is easy to leave out and does not work
+ * without: a flex item will not shrink below the height of its contents unless
+ * it is told it may, so a long list would push the footer off the screen
+ * instead of scrolling inside its own box.
+ */
 .wrapper {
     height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+}
+
+/* The bars keep their own height and never give any of it up. */
+.wrapper > .top-bar,
+.wrapper > .bottom-bar,
+.wrapper > .swipe-indicator,
+.wrapper > .running-presentation-bar {
+    flex: 0 0 auto;
 }
 
 body {
@@ -55,8 +89,10 @@ body {
     padding: 0;
 }
 
-/* Main content area */
+/* Main content area — everything between the bars, and nothing more. */
 .content {
+    flex: 1 1 auto;
+    min-height: 0;
     margin: 0;
     min-width: 100%;
     max-height: 100%;
@@ -166,8 +202,42 @@ body {
     pointer-events: none;
 }
 
+/* ── The three columns, each scrolling on its own ────────────────────────── */
+/*
+ * The library, the running order and the options are three separate reading
+ * tasks, and each keeps its own place: scrolling the library must not carry
+ * the options away with it.
+ *
+ * What makes that work is that none of the three may make the row taller than
+ * the space between the bars. `positioning.js` used to guarantee it by writing
+ * a measured pixel height onto each of them. In CSS it takes two things, and
+ * leaving out either gives one scrollbar for the whole page instead of three:
+ *
+ * * `grid-template-rows: minmax(0, 1fr)` — a grid row is otherwise as tall as
+ *   its tallest item, so a long list of options grows the row past the
+ *   container rather than scrolling inside it.
+ * * `min-height: 0` on the panels — a grid or flex item will not shrink below
+ *   its content unless it is told it may.
+ */
+.swipe-container {
+    height: 100%;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+}
+
+/* Every column scrolls itself, at every width. The one that holds a
+   `.scrollable-container` scrolls there instead, one level further in. */
+.swipe-panel {
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* A list that scrolls inside the space it is given, rather than making the page
+   longer. The 20px it used to be was a placeholder that `positioning.js`
+   overwrote with a measured pixel height; the height is inherited now. */
 .scrollable-container {
-    height: 20px;
+    height: 100%;
+    min-height: 0;
     overflow-y: auto;
 }
 
@@ -243,6 +313,7 @@ div.inline-div {
         display: flex !important;
         flex-direction: row;
         overflow-x: auto;
+        overflow-y: hidden;
         scroll-snap-type: x mandatory;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: none; /* Firefox */
@@ -251,11 +322,18 @@ div.inline-div {
     .swipe-container::-webkit-scrollbar {
         display: none; /* Chrome/Safari */
     }
+    /* Each panel is exactly one screen wide. Its height and its own scrolling
+       are the same on every width and are set outside this block. */
     .swipe-panel {
         flex: 0 0 100%;
         min-width: 100%;
         scroll-snap-align: start;
-        overflow-y: auto;
+    }
+
+    /* Where the row cannot be dragged by pointing at it, it is dragged by this.
+       See `.selected-item-grip` above and `selected_list.rs`. */
+    .selected-item-grip {
+        display: inline-flex;
     }
 
     /* Swipe indicator dots */
@@ -1187,7 +1265,13 @@ div.inline-div {
     display: flex;
     align-items: center;
     gap: 0.5em;
+    /* A mouse or a pen picks the row up anywhere on it. */
+    cursor: grab;
     transition: background-color 300ms ease-out;
+}
+
+.selected-item:active {
+    cursor: grabbing;
 }
 
 .selected-item-label {
@@ -1598,4 +1682,275 @@ div.inline-div {
 .pdf-pages-problem {
     display: block;
     color: var(--pico-del-color, #b3261e);
+}
+
+/* ── Placeholders for what is still being read ───────────────────────────── */
+/* A shape the size of the thing that is coming, so the page is laid out once
+   rather than jumping as each piece lands. The shimmer says it is working;
+   `prefers-reduced-motion` turns it into a plain block, because a pulse in the
+   corner of the eye is exactly what that setting is asked for. */
+.skeleton {
+    display: block;
+    border-radius: calc(var(--pico-border-radius) / 2);
+    background-color: var(--pico-form-element-background-color);
+    background-image: linear-gradient(
+        90deg,
+        transparent 0%,
+        color-mix(in srgb, var(--pico-muted-border-color) 55%, transparent) 50%,
+        transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+    from {
+        background-position: 200% 0;
+    }
+    to {
+        background-position: -200% 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton {
+        background-image: none;
+        animation: none;
+    }
+}
+
+/* The shapes themselves. A line of text, a heading above it, a block standing
+   in for a control that has not been drawn yet. */
+.skeleton-text {
+    width: 100%;
+    height: 1em;
+}
+
+.skeleton-heading {
+    width: 40%;
+    height: 1.4em;
+    margin-bottom: 0.75rem;
+}
+
+.skeleton-field {
+    width: 100%;
+    height: 2.4rem;
+    margin-bottom: 1rem;
+}
+
+/* One font block's worth of controls, so the design editor keeps its shape
+   while the installed families are still being read. */
+.skeleton-font-block {
+    margin-bottom: 1.5rem;
+}
+
+/* ── Choosing a font family ──────────────────────────────────────────────── */
+/* A search field with a windowful of results under it, rather than a drop-down
+   holding every font on the computer. Each row is drawn in the family it
+   names, and a web view has to instantiate that font to lay the row out — so
+   the number of rows that exist at once is the number of fonts it has to load.
+   See `FontFamilySelector`. */
+.font-family-selector {
+    position: relative;
+}
+
+.font-family-list {
+    /* Over the controls below it, not between them: opening the list must not
+       push the rest of the block down the page. */
+    position: absolute;
+    z-index: 20;
+    left: 0;
+    right: 0;
+    max-height: 18rem;
+    overflow-y: auto;
+    padding: 0.25rem;
+    background-color: var(--pico-form-element-background-color);
+    border: 1px solid var(--pico-form-element-border-color);
+    border-radius: var(--pico-border-radius);
+    box-shadow: var(--pico-box-shadow, 0 0.5rem 1rem rgba(0, 0, 0, 0.2));
+}
+
+.font-family-option {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+    margin: 0;
+    padding: 0.35rem 0.5rem;
+    background: transparent;
+    color: inherit;
+    border: none;
+    border-radius: calc(var(--pico-border-radius) / 2);
+    text-align: left;
+    cursor: pointer;
+}
+
+.font-family-option:hover,
+.font-family-option-active {
+    background-color: var(--pico-primary-focus);
+}
+
+/* The name may be long and the font it is drawn in may be wide; what must not
+   wrap is the note saying where the family comes from. */
+.font-family-option-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.font-family-option-source {
+    flex: 0 0 auto;
+    font-size: 0.75rem;
+    color: var(--pico-muted-color);
+}
+
+/* A row that is not there yet keeps the list from growing under the pointer as
+   the installed families arrive. */
+.font-family-option-skeleton {
+    cursor: default;
+    pointer-events: none;
+}
+
+.font-family-list-hint {
+    margin: 0.25rem 0 0 0;
+    padding: 0 0.5rem 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    color: var(--pico-muted-color);
+}
+
+/* Fills the frame while the thumbnail is still being made. */
+.picture-selector-skeleton {
+    width: 100%;
+    height: 100%;
+}
+
+/* ── Reordering the running order ────────────────────────────────────────── */
+/* The grip is the only part of a row a drag starts on, and the only part that
+   claims a touch. A list long enough to scroll has to keep scrolling under the
+   finger everywhere else, and `touch-action: none` is exactly the difference
+   between a drag and a scroll. See `selected_list.rs`. */
+/* The grip exists for fingers only, and is not shown where there is a pointer:
+   on a wide screen the whole row is draggable, and a fourth control in a row
+   that already has three would be clutter. The mobile rule that shows it is
+   further down, with the rest of the narrow layout.
+
+   Drawn like the arrows and the wastebasket on the other side of the row when
+   it does appear: a small muted icon, no box around it. */
+.selected-item-grip {
+    display: none;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 1.75em;
+    height: 1.75em;
+    color: var(--pico-muted-color);
+    background: none;
+    border: none;
+    cursor: grab;
+    /* The one element on the row that claims a touch, which is what makes the
+       gesture a drag rather than a scroll of the list. */
+    touch-action: none;
+    border-radius: var(--pico-border-radius);
+}
+
+.selected-item-grip:hover {
+    background-color: color-mix(in srgb, var(--pico-primary) 15%, transparent);
+}
+
+.selected-item-grip:active {
+    cursor: grabbing;
+}
+
+/* The row being carried, left in place and faded: taking it out of the list
+   would reflow everything under it, and the rows were measured where they are. */
+.selected-item-dragging {
+    opacity: 0.5;
+}
+
+/* Where a drop would land. The gap keeps its height whether it is the target
+   or not, so the list does not jump as the pointer moves down it. */
+.selected-drop-gap {
+    height: 0.5rem;
+    margin: 0.125rem 0;
+    border-top: 2px dashed transparent;
+    transition: border-color 120ms ease-out;
+}
+
+.selected-drop-gap-active {
+    border-top-color: var(--pico-primary);
+}
+
+/* Marks the row that has just been moved, by drag or by keyboard, so the change
+   can be followed to where it landed. The same amber the row used to be given
+   from an inline style. */
+.selected-item-moved {
+    background-color: rgba(255, 230, 150, 0.8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .selected-drop-gap {
+        transition: none;
+    }
+}
+
+/* ── Cantara's own dialogs ───────────────────────────────────────────────── */
+/* What the web view's `alert()`, `confirm()` and `prompt()` used to draw. See
+   `src/components/dialogs.rs` for why they are drawn here instead.
+
+   `<dialog open>` is an ordinary element in the page rather than one the
+   browser opened modally, so the backdrop and the centring are ours. */
+.cantara-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 1rem;
+    border: none;
+    background-color: color-mix(in srgb, black 45%, transparent);
+}
+
+.cantara-dialog article {
+    width: 100%;
+    max-width: 30rem;
+    /* A message carrying an error from the operating system can be long; the
+       dialog scrolls rather than growing past the window. */
+    max-height: 80vh;
+    overflow-y: auto;
+    margin: 0;
+}
+
+.cantara-dialog-text {
+    /* Line breaks in the message are part of it — an error from a file reader
+       often is several lines. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.cantara-dialog-input {
+    width: 100%;
+}
+
+/* The confirming button last, where the platform puts it. */
+.cantara-dialog-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin: 0;
+    padding-bottom: 0;
+    background: none;
+    border: none;
+}
+
+.cantara-dialog-actions button {
+    width: auto;
+    margin-bottom: 0;
 }

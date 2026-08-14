@@ -31,9 +31,6 @@ pub(crate) fn SongSourceItems(
     rsx! {
         div {
             class: "scrollable-container",
-            onmounted: move |_| async move {
-                let _ = document::eval("initSelectionLayout();").await;
-            },
             for (id , _) in source_files
                 .read()
                 .iter()
@@ -145,9 +142,6 @@ pub(crate) fn ImageSourceItems(
     rsx! {
         div {
             class: "scrollable-container",
-            onmounted: move |_| async move {
-                let _ = document::eval("initSelectionLayout();").await;
-            },
             // The thumbnail is looked up here and handed down, rather than
             // each item reading the counter for itself. Reading it there made
             // every picture in the library re-render each time any one of them
@@ -257,9 +251,6 @@ pub(crate) fn PdfSourceItems(
     rsx! {
         div {
             class: "scrollable-container",
-            onmounted: move |_| async move {
-                let _ = document::eval("initSelectionLayout();").await;
-            },
             for (id , _) in source_files
                 .read()
                 .iter()
@@ -334,9 +325,6 @@ pub(crate) fn MarkdownSourceItems(
     rsx! {
         div {
             class: "scrollable-container",
-            onmounted: move |_| async move {
-                let _ = document::eval("initSelectionLayout();").await;
-            },
             for (id , _) in source_files
                 .read()
                 .iter()

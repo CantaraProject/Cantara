@@ -58,6 +58,12 @@ general:
   cancel:
     en: Cancel
     de: Abbrechen
+  ok:
+    en: OK
+    de: OK
+  yes:
+    en: "Yes"
+    de: "Ja"
   meta_information:
     en: Meta Information
     de: Metainformationen

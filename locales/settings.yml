@@ -55,6 +55,9 @@ settings:
   github_repository_invalid:
     en: "Invalid format. Please enter owner/repo or a GitHub URL (https://github.com/owner/repo)."
     de: "Ungültiges Format. Bitte geben Sie owner/repo oder eine GitHub-URL ein (https://github.com/owner/repo)."
+  repository_rename_prompt:
+    en: "New name for this library:"
+    de: "Neuer Name für diese Bibliothek:"
   remote_repository_url:
     en: URL to ZIP file
     de: URL zur ZIP-Datei
@@ -396,6 +399,18 @@ settings:
     group_system:
       en: Installed on this computer
       de: Auf diesem Rechner installiert
+    group_imported:
+      en: Came with a design
+      de: Mit einem Design mitgeliefert
+    family_loading:
+      en: Reading the fonts installed on this computer…
+      de: Auf diesem Rechner installierte Schriftarten werden gelesen …
+    family_no_match:
+      en: No font matches this search.
+      de: Keine Schriftart passt zu dieser Suche.
+    family_more:
+      en: "%{count} more — keep typing to find them"
+      de: "%{count} weitere – tippen Sie weiter, um sie zu finden"
     title:
       en: Font Settings
       de: Einstellung des Schriftbilds

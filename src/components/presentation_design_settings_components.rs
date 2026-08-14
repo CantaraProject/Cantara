@@ -2,7 +2,10 @@
 
 use crate::components::font_settings::FontRepresentationsComponent;
 use crate::components::presentation_components::StaticSlideRendererComponent;
-use crate::components::shared_components::{NumberedValidatedLengthInput, js_message_box};
+use crate::components::dialogs::message_box;
+use crate::components::shared_components::{
+    NumberedValidatedLengthInput, SettingsSkeleton, use_after_first_paint,
+};
 use cantara_songlib::slides::{Slide, SlideSettings};
 use crate::logic::settings::{
     CssSize, HorizontalAlign, PresentationDesign, PresentationDesignSettings,
@@ -55,6 +58,10 @@ pub fn PresentationDesignSettingsPage(
     let selected_presentation_design =
         use_memo(move || selected_presentation_design_option().unwrap_or_default());
 
+    // Whether the page has been drawn once. The heavy sections below wait for
+    // it; see [`use_after_first_paint`].
+    let drawn = use_after_first_paint();
+
     if selected_presentation_design_option.read().is_none() {
         // If no selected design is available, redirect to the settings page
         nav.replace(crate::Route::SettingsPage {});
@@ -103,25 +110,47 @@ pub fn PresentationDesignSettingsPage(
                     .presentation_design_settings
                 {
                     hr {}
-                    DesignTemplateSettings {
-                        presentation_design_template: pd_template,
-                        onchange: move |new_pdt: PresentationDesignTemplate| {
-                            let mut settings_write = settings.write();
-                            if let Some(current) = settings_write
-                                .presentation_designs
-                                .get_mut(index as usize)
-                                && let PresentationDesignSettings::Template(pdt) = &mut current
-                                    .presentation_design_settings
-                                {
-                                    *pdt = new_pdt.clone();
-                                }
-                        },
+                    // The design's own settings are the expensive half of this
+                    // page — a strip of frames for every picture in the
+                    // library, and a font block for every text of a slide — and
+                    // they are held back for a frame so that the editor appears
+                    // with its name and its buttons instead of staying blank
+                    // while all of that is laid out.
+                    if drawn() {
+                        DesignTemplateSettings {
+                            presentation_design_template: pd_template,
+                            onchange: move |new_pdt: PresentationDesignTemplate| {
+                                let mut settings_write = settings.write();
+                                if let Some(current) = settings_write
+                                    .presentation_designs
+                                    .get_mut(index as usize)
+                                    && let PresentationDesignSettings::Template(pdt) = &mut current
+                                        .presentation_design_settings
+                                    {
+                                        *pdt = new_pdt.clone();
+                                    }
+                            },
+                        }
+                    } else {
+                        SettingsSkeleton { fields: 4 }
+                        SettingsSkeleton { fields: 5 }
                     }
                 }
 
                 }
 
-                PresentationDesignPreview { index }
+                if drawn() {
+                    PresentationDesignPreview { index }
+                } else {
+                    aside { class: "design-preview-pane", aria_hidden: "true",
+                        span { class: "skeleton skeleton-heading" }
+                        div { class: "design-preview-stage-scroll",
+                            div { class: "design-preview-stage",
+                                div { class: "design-preview-canvas skeleton" }
+                            }
+                        }
+                    }
+                }
             }
             footer { class: "bottom-bar",
                 button {
@@ -136,7 +165,7 @@ pub fn PresentationDesignSettingsPage(
                             if let Some(error) = save_error {
                                 let message = t!("dialogs.settings_not_saved", error = error)
                                     .to_string();
-                                let _ = document::eval(&js_message_box(message)).await;
+                                message_box(message).await;
                             }
                             nav.replace(crate::Route::SettingsPage {});
                         }
@@ -546,7 +575,7 @@ fn PictureSelector(
                 if !crate::logic::images::thumbnails_in_progress() {
                     return;
                 }
-                let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
+                crate::logic::timer::sleep(std::time::Duration::from_millis(150)).await;
             }
         });
     });
@@ -657,6 +686,11 @@ fn PictureSelectorItem(
             // one; without this, every arrival changed the size of the strip
             // under the reader.
             div { class: "picture-selector-preview",
+                // The frame is not empty while its thumbnail is being made: a
+                // strip of blank boxes reads as a library of blank pictures.
+                if preview.is_none() {
+                    span { class: "skeleton picture-selector-skeleton", aria_hidden: "true" }
+                }
                 if let Some(preview) = preview {
                     // The whole library's thumbnails arrive as inline data, and
                     // a web view decodes a picture before it can draw it. As in

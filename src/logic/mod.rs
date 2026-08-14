@@ -106,6 +106,9 @@ pub mod conversions;
 pub mod css;
 pub mod search;
 
+/// Waiting a moment, on the platform's clock rather than the page's.
+pub mod timer;
+
 /// Reading a library is thousands of independent file reads, and only the
 /// native builds have threads to spread them over.
 #[cfg(not(target_arch = "wasm32"))]

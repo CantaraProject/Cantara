@@ -52,6 +52,22 @@ use std::rc::Rc;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+/// How many panels the narrow layout swipes between: the library, the running
+/// order, and the options. There is one dot for each.
+const PANEL_COUNT: usize = 3;
+
+/// Brings one of the swipe panels into view.
+///
+/// The panel is scrolled to rather than the row being scrolled by a computed
+/// distance: the container snaps, so bringing the panel into view lands exactly
+/// on it whatever the width happens to be.
+async fn show_panel(panel_handles: Signal<Vec<Option<Rc<MountedData>>>>, panel: usize) {
+    let handle = panel_handles.read().get(panel).cloned().flatten();
+    if let Some(handle) = handle {
+        let _ = handle.scroll_to(ScrollBehavior::Smooth).await;
+    }
+}
+
 #[component]
 pub fn Selection() -> Element {
     let nav = navigator();
@@ -74,6 +90,16 @@ pub fn Selection() -> Element {
     let mut drag_over_source: Signal<bool> = use_signal(|| false);
 
     let input_element_signal: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
+
+    // The three panels the narrow layout swipes between, and which of them is
+    // in view. Both used to live in `positioning.js`: the dots were given their
+    // `active` class from a scroll listener it attached, and a tap on one
+    // called a `scrollToPanel` it defined. The panels are held by their mounted
+    // handles so that a tap can scroll one into view without naming it in a
+    // selector.
+    let mut panel_handles: Signal<Vec<Option<Rc<MountedData>>>> =
+        use_signal(|| vec![None; PANEL_COUNT]);
+    let mut active_panel: Signal<usize> = use_signal(|| 0);
 
     let mut show_export_menu: Signal<bool> = use_signal(|| false);
 
@@ -263,9 +289,16 @@ pub fn Selection() -> Element {
                     drag_over_source.set(false);
                     process_dropped_files(event, source_files, selected_items).await;
                 },
-                onmounted: move |_| async move {
-                    let _ = document::eval("initSelectionLayout();").await;
-                },
+                // Typing anywhere in the library goes to the search field, so
+                // that looking a song up needs no click first.
+                //
+                // Which key events arrive here is the whole rule. A field that
+                // is being typed into stops its own keys from bubbling this far
+                // — see the note on the fields in `presentation_options.rs` —
+                // so a key that reaches this handler is one that was pressed
+                // with nothing in particular focused. This used to be a script
+                // asking the page for its `document.activeElement` on every
+                // keystroke, and waiting for the answer before deciding.
                 onkeydown: move |event: Event<KeyboardData>| async move {
                     let key = event.key().to_string();
                     if search_visible() && key.len() == 1
@@ -273,29 +306,32 @@ pub fn Selection() -> Element {
                     {
                         return;
                     }
-                    let is_other_input_focused = document::eval(
-                            r#"
-                                                                                                                                                                        (function() {
-                                                                                                                                                                            var a = document.activeElement;
-                                                                                                                                                                            return a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && a.id !== 'searchinput'));
-                                                                                                                                                                        })()
-                                                                                                                                                                    "#,
-                        )
-                        .await
-                        .ok()
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    if is_other_input_focused {
-                        return;
-                    }
                     if let Some(searchinput) = input_element_signal() {
                         let _ = searchinput.set_focus(true).await;
                     }
                 },
-                div { class: "grid swipe-container height-100",
+                div {
+                    class: "grid swipe-container height-100",
+                    // Which panel the swipe is on, so the dots below can say so.
+                    // The panels are a scroll-snapping row, so the one in view
+                    // is the one whose width the container is scrolled by.
+                    onscroll: move |event: Event<ScrollData>| {
+                        let width = event.data().client_width();
+                        if width <= 0 {
+                            return;
+                        }
+                        let panel =
+                            (event.data().scroll_left() / width as f64).round().max(0.0) as usize;
+                        if active_panel() != panel {
+                            active_panel.set(panel.min(PANEL_COUNT - 1));
+                        }
+                    },
 
                     div {
                         class: if drag_over_source() { "height-100 swipe-panel drop-zone drag-active" } else { "height-100 swipe-panel drop-zone" },
+                        onmounted: move |event: Event<MountedData>| {
+                            panel_handles.write()[0] = Some(event.data());
+                        },
                         ondragover: move |event: DragEvent| {
                             event.prevent_default();
                             drag_over_source.set(true);
@@ -340,7 +376,11 @@ pub fn Selection() -> Element {
                         }
                     }
 
-                    div { class: "height-100 scrollable-container swipe-panel",
+                    div {
+                        class: "height-100 scrollable-container swipe-panel",
+                        onmounted: move |event: Event<MountedData>| {
+                            panel_handles.write()[1] = Some(event.data());
+                        },
                         if !selected_items.read().is_empty() {
                             SelectedItems {
                                 selected_items,
@@ -349,29 +389,43 @@ pub fn Selection() -> Element {
                         }
                     }
 
-                    div { class: "swipe-panel",
+                    div {
+                        class: "swipe-panel",
+                        onmounted: move |event: Event<MountedData>| {
+                            panel_handles.write()[2] = Some(event.data());
+                        },
                         PresentationOptions { selected_items, active_selected_item_id }
                     }
                 }
             }
-            div { class: "swipe-indicator",
-                div {
-                    class: "swipe-dot active",
-                    onclick: move |_| {
-                        let _ = document::eval("scrollToPanel(0);");
-                    },
-                }
-                div {
-                    class: "swipe-dot",
-                    onclick: move |_| {
-                        let _ = document::eval("scrollToPanel(1);");
-                    },
-                }
-                div {
-                    class: "swipe-dot",
-                    onclick: move |_| {
-                        let _ = document::eval("scrollToPanel(2);");
-                    },
+            div {
+                class: "swipe-indicator",
+                role: "tablist",
+                aria_label: t!("selection.panels").to_string(),
+                for panel in 0..PANEL_COUNT {
+                    div {
+                        key: "{panel}",
+                        class: if active_panel() == panel { "swipe-dot active" } else { "swipe-dot" },
+                        role: "tab",
+                        tabindex: 0,
+                        aria_selected: (active_panel() == panel).to_string(),
+                        aria_label: t!("selection.panel", number = panel + 1).to_string(),
+                        onclick: move |_| async move { show_panel(panel_handles, panel).await },
+                        // A `div` is not a button, however much it is dressed
+                        // as one: it takes focus because of its `tabindex` and
+                        // then does nothing when it is pressed. These are dots
+                        // ten pixels across, and a real `<button>` would come
+                        // with Pico's button drawn all over it.
+                        onkeydown: move |event: Event<KeyboardData>| {
+                            let activated = matches!(event.key(), Key::Enter)
+                                || matches!(event.key(), Key::Character(ref c) if c == " ");
+                            async move {
+                                if activated {
+                                    show_panel(panel_handles, panel).await;
+                                }
+                            }
+                        },
+                    }
                 }
             }
             footer { class: "bottom-bar",
