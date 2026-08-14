@@ -144,8 +144,6 @@ pub fn PresentationPage() -> Element {
         return rsx! {
             document::Link { rel: "stylesheet", href: MAIN_CSS }
             BundledFontFaces {}
-        crate::components::video_host::VideoAssetHost {}
-            crate::components::video_host::VideoAssetHost {}
             div { style: "all: initial; margin:0; width:100%; height:100%; background-color: black; color: white; display: flex; align-items: center; justify-content: center;",
                 p { "No presentation data found." }
             }
@@ -437,6 +435,12 @@ pub fn PresentationPage() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         BundledFontFaces {}
+        // Serves this window's video files. An asset handler belongs to a web
+        // view, and the presentation window is a window of its own with a web
+        // view of its own — registering one in the main window does nothing
+        // for it. That is why the video played in the presenter console, which
+        // lives in the main window, and showed nothing here.
+        crate::components::video_host::VideoAssetHost {}
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         // The PDF viewer, loaded once per window. Registered *here*, at the
         // root, for the reason written above about the stylesheets: a
@@ -503,6 +507,21 @@ pub fn PresentationPage() -> Element {
                 }
             },
             PresentationRendererComponent { running_presentation }
+
+            // Where a video is operated from when there is no console to
+            // operate it in. A video nobody can pause is not something to put
+            // in front of a congregation — and the console, where these
+            // normally live, may simply not be open.
+            //
+            // The bar floats over the projection and fades out of the way; see
+            // `.presentation-video-controls` in `assets/presentation.css`.
+            if !crate::logic::video::owns_audio(crate::logic::video::AudioOwner::Console) {
+                div { class: "presentation-video-controls",
+                    crate::components::presenter_console_components::VideoControls {
+                        running_presentation,
+                    }
+                }
+            }
 
             // Context menu overlay
             if *show_context_menu.read() {
@@ -1458,7 +1477,9 @@ fn EmptySlideComponent() -> Element {
 /// so that their content can scroll or scale within a constrained area.
 fn slide_container_style(slide_content: &SlideContent) -> &'static str {
     match slide_content {
-        SlideContent::SimplePicture(_) => "height: 100%;",
+        // A video is fitted into the cell like a picture, so it needs one with
+        // a height: `height: 100%` against a parent that has none is zero.
+        SlideContent::SimplePicture(_) | SlideContent::Video(_) => "height: 100%;",
         // A markdown slide scrolls, so it needs the whole cell to scroll
         // inside; the same slide holding plain lyrics is laid out by the
         // design and must not be stretched.
@@ -1651,7 +1672,7 @@ fn slide_body(
             }
         },
         SlideContent::Video(video_slide) => rsx! {
-            VideoSlideComponent { video_slide: video_slide.clone() }
+            VideoSlideComponent { video_slide: video_slide.clone(), running_presentation }
         },
     }
 }
@@ -1669,7 +1690,13 @@ fn slide_body(
 /// milliseconds apart. One of them owns it and the rest are muted; the rule is
 /// in [`crate::logic::video`].
 #[component]
-fn VideoSlideComponent(video_slide: VideoSlide) -> Element {
+fn VideoSlideComponent(
+    video_slide: VideoSlide,
+    /// Where the playback of this video stands, shared with every other window
+    /// showing the presentation. `None` for a preview that belongs to no
+    /// running service — the design editor's sample slide.
+    running_presentation: Option<Signal<RunningPresentation>>,
+) -> Element {
     use crate::logic::video::{AudioOwner, audio_generation, claim_audio, owns_audio};
 
     let source = crate::logic::video::video_url(&video_slide.video_path);
@@ -1710,6 +1737,71 @@ fn VideoSlideComponent(video_slide: VideoSlide) -> Element {
         // service. It is never the thing the room hears.
         PresentationRole::SelfRunning => false,
     };
+
+    // The slide says how the video starts; from then on the running
+    // presentation says what it is doing, and every window follows the same
+    // value. See [`crate::logic::states::VideoPlayback`].
+    if let Some(mut running_presentation) = running_presentation {
+        // Bringing the element into line with what has been asked of it.
+        use_effect(move || {
+            let playback = running_presentation.read().video.clone();
+            let script = crate::logic::video::control_script(
+                playback.playing,
+                // A window that is not the one making the sound is muted
+                // whatever the operator set, so that only one of them is heard.
+                playback.muted || !makes_the_sound,
+                playback.volume,
+                playback.seek_to.map(|(seconds, _)| seconds),
+            );
+            spawn(async move {
+                let _ = document::eval(&script).await;
+            });
+        });
+
+        // …and asking it back where it has got to. Only the window that owns
+        // the sound reports: it is the one actually playing, and two windows
+        // writing the position would fight over it several times a second.
+        use_effect(move || {
+            if !makes_the_sound {
+                return;
+            }
+            spawn(async move {
+                loop {
+                    crate::logic::timer::sleep(std::time::Duration::from_millis(250)).await;
+                    let Ok(value) =
+                        document::eval(crate::logic::video::report_script()).await
+                    else {
+                        continue;
+                    };
+                    let Some(report) = value.as_array() else {
+                        // No video on screen any more: the slide moved on.
+                        return;
+                    };
+                    let position = report.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let duration = report.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let playing = report.get(2).and_then(|v| v.as_bool()).unwrap_or(false);
+
+                    let mut state = running_presentation.write();
+                    state.video.position = position;
+                    state.video.duration = duration;
+                    // A video that ran to its end has stopped by itself, and
+                    // the button in the console has to say so rather than
+                    // offering to pause something that is not moving.
+                    //
+                    // Only that case: mirroring the element's paused state in
+                    // general would undo a play the operator has just asked
+                    // for, in the quarter second before the element gets round
+                    // to starting.
+                    let ran_out =
+                        state.video.playing && !playing && duration > 0.0
+                            && position >= duration - 0.25;
+                    if ran_out {
+                        state.video.playing = false;
+                    }
+                }
+            });
+        });
+    }
 
     rsx! {
         video {

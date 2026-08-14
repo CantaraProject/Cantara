@@ -150,6 +150,17 @@ pub struct PptxImage {
     pub rect: PptxRect,
 }
 
+/// A video on a slide, as a data URL.
+#[derive(Clone, PartialEq, Debug, Serialize)]
+pub struct PptxMedia {
+    /// `data:` URL holding the video.
+    pub data: String,
+    /// What it is, so PowerPoint knows which decoder to reach for.
+    pub mime: String,
+    #[serde(flatten)]
+    pub rect: PptxRect,
+}
+
 /// Anything that can sit on a slide.
 #[derive(Clone, PartialEq, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -158,6 +169,32 @@ pub enum PptxShape {
     /// A picture slide, and a page of a PDF. Engraved notation is the
     /// remaining candidate, once it can be rasterised.
     Image(PptxImage),
+    /// A video, played by PowerPoint itself.
+    Media(PptxMedia),
+}
+
+/// How big a video may be before it is left out of a deck.
+///
+/// A `.pptx` carries its video inside itself, and the way one gets there is as
+/// base64 inside a JSON document handed to the browser — which makes a
+/// hundred-megabyte film something like a hundred and forty megabytes of text
+/// to build, hold and parse, twice over. Past this size the deck gets the
+/// still frame instead and the export says so.
+///
+/// 64 MB is roughly a few minutes of ordinary service video, and comfortably
+/// more than the clips these decks are usually made of.
+pub const MAX_EMBEDDED_VIDEO_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Whether PowerPoint can play a video of this name at all.
+///
+/// It is a Microsoft player, not a browser: it reads MP4 and QuickTime and does
+/// not read the open formats a web view is happiest with. A `.webm` embedded in
+/// a deck is a rectangle with an error in it, so those are exported as their
+/// still frame instead — which is what a deck of a video can honestly be
+/// without the video.
+pub fn powerpoint_can_play(file_name: &str) -> bool {
+    let lower = file_name.to_lowercase();
+    [".mp4", ".m4v", ".mov"].iter().any(|suffix| lower.ends_with(suffix))
 }
 
 /// One slide.
@@ -280,15 +317,29 @@ pub fn deck_from_slides(
         let mut pptx_slide = PptxSlide::new(deck_background.clone());
 
         match &slide.slide_content {
-            // A video is not exported yet. PptxGenJS can carry one — `addMedia`
-            // takes base64 for the formats PowerPoint plays — and doing that,
-            // with a still frame as the fallback for the formats it does not,
-            // is a piece of work of its own. Counted rather than passed over in
-            // silence, so the export can say what it left out.
-            SlideContent::Video(_) => {
-                skipped_videos += 1;
-                continue;
-            }
+            // A video reaches the deck the same way a picture does: as a data
+            // URL the caller has prepared, looked up here by its path. Which
+            // kind it is, is written on it — the caller decides whether the
+            // deck gets the film or a still of it, because that decision needs
+            // the file's size and PowerPoint's list of formats, and neither is
+            // known here.
+            SlideContent::Video(video) => match pictures.get(&video.video_path) {
+                Some(data) if data.starts_with("data:video/") => {
+                    pptx_slide = pptx_slide.with(media_shape(&deck, data));
+                }
+                // A still of it: everything a deck can honestly show of a
+                // video it cannot play.
+                Some(data) => {
+                    pptx_slide = pptx_slide.with(picture_shape(&deck, data));
+                }
+                // Nothing was prepared — the file could not be read, or it was
+                // too large to carry. Counted rather than passed over in
+                // silence, so the export can say what it left out.
+                None => {
+                    skipped_videos += 1;
+                    continue;
+                }
+            },
             SlideContent::Title(title) => {
                 pptx_slide = pptx_slide.with(text_shape(
                     &deck,
@@ -443,6 +494,10 @@ pub fn picture_key(content: &SlideContent) -> Option<String> {
         SlideContent::SimplePicture(picture) => {
             Some(crate::logic::presentation::get_picture_path(picture))
         }
+        // A video is prepared the same way, keyed by its path. What the caller
+        // puts there — the film or a still of it — is its decision; see the
+        // `SlideContent::Video` arm of [`deck_from_slides`].
+        SlideContent::Video(video) => Some(video.video_path.clone()),
         _ => None,
     }
 }
@@ -471,6 +526,25 @@ pub fn pictures_needed(slides: &[Slide]) -> Vec<String> {
 /// PowerPoint has no `object-fit`, so the box is the whole slide and the
 /// picture is told to sit inside it — which is what `pptx_export_inline.js`
 /// asks PptxGenJS for.
+fn media_shape(deck: &PptxDeck, data: &str) -> PptxShape {
+    PptxShape::Media(PptxMedia {
+        data: data.to_string(),
+        // What is in front of the base64 in the data URL, which is what the
+        // caller wrote there from the file's name.
+        mime: data
+            .strip_prefix("data:")
+            .and_then(|rest| rest.split(';').next())
+            .unwrap_or("video/mp4")
+            .to_string(),
+        rect: PptxRect {
+            x: 0.0,
+            y: 0.0,
+            w: deck.width,
+            h: deck.height,
+        },
+    })
+}
+
 fn picture_shape(deck: &PptxDeck, data: &str) -> PptxShape {
     PptxShape::Image(PptxImage {
         data: data.to_string(),
@@ -667,6 +741,7 @@ mod tests {
                 let rect = match shape {
                     PptxShape::Text(text) => text.rect,
                     PptxShape::Image(image) => image.rect,
+                    PptxShape::Media(media) => media.rect,
                 };
                 assert!(rect.x >= 0.0, "slide {index}: x {} < 0", rect.x);
                 assert!(rect.y >= 0.0, "slide {index}: y {} < 0", rect.y);
@@ -887,4 +962,83 @@ mod tests {
 
         assert!(pictures_needed(&slides).is_empty());
     }
+
+    /// PowerPoint is a Microsoft player, not a browser: it reads MP4 and
+    /// QuickTime and does not read the formats a web view is happiest with.
+    /// Embedding a `.webm` would put a rectangle with an error in it on the
+    /// slide, which is worse than a still of the video.
+    #[test]
+    fn test_which_formats_powerpoint_can_play() {
+        for playable in ["intro.mp4", "Intro.MP4", "clip.m4v", "scene.mov"] {
+            assert!(powerpoint_can_play(playable), "{playable}");
+        }
+        for not in ["intro.webm", "intro.ogv", "intro.mkv", "intro.avi", "intro"] {
+            assert!(!powerpoint_can_play(not), "{not}");
+        }
+    }
+
+    /// A video the caller prepared as a film is played by the deck; one it
+    /// prepared as a still is shown as a picture. Which of the two it is, is
+    /// written on the data URL, so the two cannot be confused.
+    #[test]
+    fn test_a_video_becomes_a_film_or_a_still_depending_on_what_was_prepared() {
+        use cantara_songlib::slides::Slide;
+        use std::collections::HashMap;
+
+        let design = PresentationDesign::default();
+        let slides = vec![Slide::new_video_slide("/library/intro.mp4".to_string(), true, false)];
+
+        // Prepared as a film.
+        let mut prepared = HashMap::new();
+        prepared.insert(
+            "/library/intro.mp4".to_string(),
+            "data:video/mp4;base64,AAAA".to_string(),
+        );
+        let conversion = deck_from_slides(&slides, &design, &prepared);
+        assert!(matches!(
+            conversion.deck.slides[0].shapes[0],
+            PptxShape::Media(_)
+        ));
+        assert_eq!(conversion.skipped_videos, 0);
+
+        // Prepared as a still.
+        let mut prepared = HashMap::new();
+        prepared.insert(
+            "/library/intro.mp4".to_string(),
+            "data:image/png;base64,AAAA".to_string(),
+        );
+        let conversion = deck_from_slides(&slides, &design, &prepared);
+        assert!(matches!(
+            conversion.deck.slides[0].shapes[0],
+            PptxShape::Image(_)
+        ));
+    }
+
+    /// Nothing prepared at all — the file could not be read, or was too large
+    /// to carry. The deck is still written, and says what it left out.
+    #[test]
+    fn test_a_video_that_could_not_be_prepared_is_counted_not_dropped_silently() {
+        use cantara_songlib::slides::Slide;
+        use std::collections::HashMap;
+
+        let slides = vec![Slide::new_video_slide("/library/intro.mp4".to_string(), true, false)];
+
+        let conversion =
+            deck_from_slides(&slides, &PresentationDesign::default(), &HashMap::new());
+
+        assert_eq!(conversion.skipped_videos, 1);
+        assert!(conversion.deck.is_empty(), "no slide was written for it");
+    }
+
+    /// The MIME type travels with the film so PowerPoint knows what it has.
+    #[test]
+    fn test_the_media_shape_carries_the_type_from_the_data_url() {
+        let deck = PptxDeck::widescreen();
+
+        match media_shape(&deck, "data:video/quicktime;base64,AAAA") {
+            PptxShape::Media(media) => assert_eq!(media.mime, "video/quicktime"),
+            other => panic!("expected media, got {other:?}"),
+        }
+    }
+
 }

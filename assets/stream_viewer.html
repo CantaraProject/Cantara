@@ -472,7 +472,47 @@
     metaLine.dataset.shown = 'yes';
   }
 
+  // The video element that is on screen, if the slide that is up is a video.
+  // Kept so that an update can adjust it instead of replacing it — replacing
+  // would restart the download and the playback, and updates arrive several
+  // times a second.
+  var currentVideo = null;
+  // What the presentation last said about it.
+  var videoState = null;
+
+  // How far a viewer may drift from the presentation before being pulled back,
+  // in seconds.
+  //
+  // Not zero, and not small: the position travels over a network and a phone
+  // decodes at its own pace, so some difference is permanent and normal.
+  // Correcting it constantly would stutter the picture on every update. Half a
+  // second is close enough that nobody in the room can tell the phone from the
+  // wall, and loose enough to leave an untroubled playback alone.
+  var VIDEO_DRIFT = 0.5;
+
+  function applyVideoState() {
+    if (!currentVideo || !videoState) { return; }
+
+    if (Math.abs(currentVideo.currentTime - videoState.position) > VIDEO_DRIFT) {
+      currentVideo.currentTime = videoState.position;
+    }
+
+    if (videoState.playing) {
+      if (currentVideo.paused) {
+        // A browser refuses to play unprompted unless the video is muted; it
+        // is, so this normally succeeds. Where it does not — some phones want
+        // a tap first — the refusal is swallowed rather than thrown, and the
+        // next update tries again.
+        var started = currentVideo.play();
+        if (started) { started.catch(function () {}); }
+      }
+    } else if (!currentVideo.paused) {
+      currentVideo.pause();
+    }
+  }
+
   function draw(state) {
+    videoState = state.video || null;
     applyDesign(state.design);
     document.documentElement.dataset.blank = state.blacked_out ? 'yes' : 'no';
 
@@ -552,6 +592,35 @@
       show([picture]);
       return;
     }
+
+    if (slide.kind === 'video') {
+      // The page plays its own copy of the file and is pulled onto the
+      // presentation's position, rather than being sent pictures. That is what
+      // makes it the same video at the same moment without anything being
+      // re-encoded — and it is the only way a phone keeps up at all.
+      //
+      // Reused rather than rebuilt while the same video is up: replacing the
+      // element would restart the download and the playback on every update,
+      // and updates arrive several times a second.
+      var source = 'video/' + encodeURIComponent(slide.media);
+      if (!currentVideo || currentVideo.dataset.media !== slide.media) {
+        currentVideo = document.createElement('video');
+        currentVideo.className = 'picture';
+        currentVideo.dataset.media = slide.media;
+        currentVideo.playsInline = true;
+        currentVideo.preload = 'auto';
+        currentVideo.loop = !!slide.looping;
+        // Muted, and not negotiable: a hall in which every phone plays the
+        // sound of the video is a hall nobody can hear the video in. The sound
+        // belongs to the room's own speakers.
+        currentVideo.muted = true;
+        currentVideo.src = source;
+        show([currentVideo]);
+      }
+      applyVideoState();
+      return;
+    }
+    currentVideo = null;
 
     // An empty slide is part of the service — the gap between two songs — so it
     // is shown as one.

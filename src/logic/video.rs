@@ -175,6 +175,132 @@ pub fn parse_byte_range(header: &str, length: u64) -> Option<ByteRange> {
     (range.start < length && range.start <= range.end).then_some(range)
 }
 
+// ── Telling the element what to do ───────────────────────────────────────────
+//
+// Everything a video slide *is* — which file, whether it starts by itself,
+// whether it repeats, whether it is muted — is an attribute, and Dioxus writes
+// attributes. Everything a video slide *does* — play, pause, jump to a
+// position — is a method on the element, and there is no Rust API for those.
+//
+// So this is the one part of the feature that is a script, for the same reason
+// the PDF viewer and the notation engraver are: the capability exists only
+// behind a JavaScript call. It is kept to two short scripts, generated here
+// where they can be tested, rather than pasted into the components.
+
+/// The script that brings the video element into line with `playback`.
+///
+/// Written to be safe to run at any time and as often as anything likes: it
+/// only touches what is already wrong. A `play()` on an element that is already
+/// playing restarts nothing, but assigning `currentTime` on every tick would
+/// stutter the picture, hence the comparisons.
+pub fn control_script(playing: bool, muted: bool, volume: f64, seek_to: Option<f64>) -> String {
+    let seek = match seek_to {
+        // Half a second of slack: the position is reported back a few times a
+        // second, so an exact comparison would seek on every tick and a video
+        // that is merely running would never be left alone.
+        Some(seconds) => format!(
+            "if (Math.abs(v.currentTime - {seconds:.3}) > 0.5) {{ v.currentTime = {seconds:.3}; }}"
+        ),
+        None => String::new(),
+    };
+
+    format!(
+        "(function() {{
+            var v = document.querySelector('.slide-video');
+            if (!v) {{ return; }}
+            {seek}
+            v.muted = {muted};
+            v.volume = {volume:.3};
+            if ({playing}) {{
+                if (v.paused) {{ var p = v.play(); if (p) {{ p.catch(function() {{}}); }} }}
+            }} else if (!v.paused) {{
+                v.pause();
+            }}
+        }})();"
+    )
+}
+
+/// The script that asks the element where it has got to.
+///
+/// Returns `[position, duration, playing]`, or nothing when there is no video
+/// on screen. The window that owns the sound runs this a few times a second so
+/// that the console's scrubber can follow and the network stream knows where
+/// the service is.
+pub fn report_script() -> &'static str {
+    "return (function() {
+        var v = document.querySelector('.slide-video');
+        if (!v) { return null; }
+        return [v.currentTime, isFinite(v.duration) ? v.duration : 0, !v.paused];
+    })();"
+}
+
+/// A length in seconds, as a clock reads it.
+///
+/// Used by the console and by the stream viewer, so that a service that is
+/// being run from two screens does not have them counting differently.
+pub fn clock(seconds: f64) -> String {
+    if !seconds.is_finite() || seconds < 0.0 {
+        return "0:00".to_string();
+    }
+    let total = seconds.round() as u64;
+    let (hours, minutes, secs) = (total / 3600, (total % 3600) / 60, total % 60);
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{secs:02}")
+    } else {
+        format!("{minutes}:{secs:02}")
+    }
+}
+
+/// A single frame of the video at `path`, as a PNG data URL.
+///
+/// Cantara decodes no video itself; this asks the web view, which already has a
+/// decoder and the machine's video hardware behind it. The frame is drawn into
+/// a canvas that is never put on screen — the same trick
+/// [`crate::logic::pdf::page_image`] uses to turn a page into a picture without
+/// showing it.
+///
+/// A second in, rather than the first frame: a great many videos open on black,
+/// and a black rectangle is not a picture of anything.
+///
+/// `None` when the video could not be read or the frame could not be taken.
+/// Callers treat that as "no picture", not as an error worth stopping for.
+pub async fn still_frame(path: &str) -> Option<String> {
+    let source = serde_json::to_string(&video_url(path)).ok()?;
+
+    let script = format!(
+        "return await new Promise(function(resolve) {{
+            var v = document.createElement('video');
+            v.muted = true;
+            v.preload = 'auto';
+            var done = false;
+            function give(value) {{ if (!done) {{ done = true; resolve(value); }} }}
+            // A video that will not load must not leave the export waiting.
+            setTimeout(function() {{ give(null); }}, 10000);
+            v.onerror = function() {{ give(null); }};
+            v.onloadeddata = function() {{
+                // Past the opening black, but never past the end of a video
+                // shorter than that.
+                var at = isFinite(v.duration) && v.duration > 1.2 ? 1.0 : 0.0;
+                v.onseeked = function() {{
+                    try {{
+                        var c = document.createElement('canvas');
+                        c.width = v.videoWidth;
+                        c.height = v.videoHeight;
+                        if (!c.width || !c.height) {{ give(null); return; }}
+                        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+                        give(c.toDataURL('image/png'));
+                    }} catch (e) {{ give(null); }}
+                }};
+                v.currentTime = at;
+            }};
+            v.src = {source};
+        }});"
+    );
+
+    let value = dioxus::prelude::document::eval(&script).await.ok()?;
+    value.as_str().map(str::to_string)
+}
+
 // ── Which window is allowed to make sound ───────────────────────────────────
 //
 // A running presentation is drawn by more than one window at a time: the
@@ -372,6 +498,68 @@ mod tests {
             parse_byte_range("bytes=0-99, 200-299", 1000),
             Some(ByteRange { start: 0, end: 99 })
         );
+    }
+
+    /// A clock, because a service run from two screens must not have them
+    /// counting differently.
+    #[test]
+    fn test_the_clock_reads_as_a_clock() {
+        assert_eq!(clock(0.0), "0:00");
+        assert_eq!(clock(9.0), "0:09");
+        assert_eq!(clock(75.0), "1:15");
+        assert_eq!(clock(599.6), "10:00", "rounded, not truncated");
+        assert_eq!(clock(3600.0), "1:00:00");
+        assert_eq!(clock(3725.0), "1:02:05");
+    }
+
+    /// Nothing sensible is still something readable: a video whose length the
+    /// browser has not worked out yet reports `NaN`, and `NaN:NaN` on the
+    /// console in front of the room is worse than `0:00`.
+    #[test]
+    fn test_the_clock_survives_nonsense() {
+        assert_eq!(clock(f64::NAN), "0:00");
+        assert_eq!(clock(f64::INFINITY), "0:00");
+        assert_eq!(clock(-5.0), "0:00");
+    }
+
+    /// The control script only touches what is wrong. Assigning `currentTime`
+    /// on every tick — and it runs a few times a second — would stutter the
+    /// picture, so a seek that is already where it was asked for does nothing.
+    #[test]
+    fn test_a_seek_is_only_applied_when_it_is_actually_somewhere_else() {
+        let script = control_script(true, false, 1.0, Some(30.0));
+
+        assert!(script.contains("30.000"), "the target is in the script");
+        assert!(
+            script.contains("Math.abs"),
+            "and it is only applied when the element is not already there"
+        );
+    }
+
+    /// No seek asked for, nothing about `currentTime` in the script at all —
+    /// otherwise merely playing would fight the element for its position.
+    #[test]
+    fn test_without_a_seek_the_position_is_not_touched() {
+        let script = control_script(true, false, 1.0, None);
+
+        assert!(!script.contains("currentTime ="));
+    }
+
+    /// The two states it can put the element into.
+    #[test]
+    fn test_the_script_plays_and_pauses() {
+        assert!(control_script(true, false, 1.0, None).contains("v.play()"));
+        assert!(control_script(false, false, 1.0, None).contains("v.pause()"));
+    }
+
+    /// Muting is on the element rather than the volume being set to zero: the
+    /// volume is the operator's setting and has to survive being unmuted.
+    #[test]
+    fn test_muting_does_not_lose_the_volume() {
+        let script = control_script(true, true, 0.7, None);
+
+        assert!(script.contains("v.muted = true"));
+        assert!(script.contains("0.700"), "the volume is kept while muted");
     }
 
     /// A serial guard. The owner is process-wide, so these tests are talking

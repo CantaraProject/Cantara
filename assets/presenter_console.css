@@ -407,3 +407,45 @@
         border-right: 1px solid var(--pico-muted-border-color);
     }
 }
+
+/* ── Operating a video ───────────────────────────────────────────────────── */
+/* One row: the transport buttons, the scrubber that takes whatever width is
+   left, the clock, and the sound. */
+.video-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+
+.video-controls button {
+    flex: 0 0 auto;
+    width: auto;
+    margin: 0;
+    white-space: nowrap;
+}
+
+/* The scrubber is the one thing here worth giving room to: it is how a
+   position is found, and a short one cannot be aimed. */
+.video-scrubber {
+    flex: 1 1 12rem;
+    min-width: 8rem;
+    margin: 0;
+}
+
+.video-volume {
+    flex: 0 0 6rem;
+    margin: 0;
+}
+
+/* Fixed width and tabular figures, so the row does not shuffle sideways every
+   time the seconds tick over. */
+.video-time {
+    flex: 0 0 auto;
+    min-width: 7.5ch;
+    text-align: center;
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}

@@ -776,6 +776,10 @@ fn apply_presentation_update(
         presentation_resolution: old_rp.presentation_resolution,
         markdown_scroll_position: old_rp.markdown_scroll_position,
         presentation_layout: old_rp.presentation_layout,
+        // Rebuilding the slides is not a reason to stop a video that is
+        // playing: the running order is updated while the service runs, and
+        // the element that is up may well be untouched by the change.
+        video: old_rp.video.clone(),
     }
 }
 

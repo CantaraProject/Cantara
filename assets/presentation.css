@@ -404,3 +404,33 @@ html, body {
        this the slide jumps once as it finds out. */
     background-color: transparent;
 }
+
+/* ── Operating a video from the projection window ────────────────────────── */
+/* Only there when no presenter console is open; see `PresentationPage`. It sits
+   over the picture and stays out of the way until the pointer is near it — the
+   room is looking at this window, and a permanent bar of buttons across the
+   bottom of the projection is part of what a projection must not have. */
+.presentation-video-controls {
+    position: absolute;
+    left: 50%;
+    bottom: 1.5rem;
+    transform: translateX(-50%);
+    z-index: 50;
+    padding: 0.5rem 0.75rem;
+    border-radius: 2rem;
+    background-color: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    opacity: 0.12;
+    transition: opacity 0.2s ease;
+}
+
+.presentation-video-controls:hover,
+.presentation-video-controls:focus-within {
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .presentation-video-controls {
+        transition: none;
+    }
+}

@@ -407,6 +407,9 @@ selection:
     en: Export
     de: Exportieren
 
+  export_pptx_videos_skipped:
+    en: "%{count} videos could not be put into the deck and were left out."
+    de: "%{count} Videos konnten nicht in die Präsentation übernommen werden und fehlen."
   video:
     headline:
       en: Video

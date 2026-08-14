@@ -84,6 +84,19 @@ try {
                     w: shape.w,
                     h: shape.h
                 });
+            } else if (shape.kind === 'media') {
+                // PowerPoint plays this itself, from bytes carried inside the
+                // .pptx — so the deck still works on a machine that has never
+                // seen the original file. Which formats it can play is decided
+                // on the Rust side; see `powerpoint_can_play`.
+                slide.addMedia({
+                    type: 'video',
+                    data: shape.data,
+                    x: shape.x,
+                    y: shape.y,
+                    w: shape.w,
+                    h: shape.h
+                });
             }
         });
     });

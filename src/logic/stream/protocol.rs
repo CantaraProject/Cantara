@@ -53,6 +53,29 @@ pub struct StreamState {
     /// so that a moderator who blanks the projection blanks every phone too
     /// rather than leaving the words up in the room.
     pub blacked_out: bool,
+
+    /// Where the video on the current slide has got to, when the slide is a
+    /// video. `None` otherwise.
+    ///
+    /// Sent with every update so that a phone shows the same moment of the
+    /// video as the room does: the page holds its own copy of the file and is
+    /// pulled onto this position rather than being sent pictures. That is what
+    /// makes it the same video at the same moment without anything being
+    /// re-encoded — and what makes it work at all on a phone, which would drop
+    /// a stream of frames long before it drops a file it is playing itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<StreamVideoState>,
+}
+
+/// Where the video on the current slide stands.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct StreamVideoState {
+    /// Whether it is running.
+    pub playing: bool,
+    /// How far into it the presentation is, in seconds.
+    pub position: f64,
+    /// How long it is, in seconds; `0.0` before that is known.
+    pub duration: f64,
 }
 
 /// Where the presentation stands, as indices into [`StreamState::chapters`].
@@ -317,6 +340,17 @@ impl StreamState {
             chapters,
             position,
             blacked_out: presentation.is_black_screen,
+            // Only while a video is what is up. Sending the last position of a
+            // video that has been left would have every phone quietly seeking
+            // a file it is no longer showing.
+            video: presentation
+                .get_current_slide()
+                .filter(|slide| matches!(slide.slide_content, SlideContent::Video(_)))
+                .map(|_| StreamVideoState {
+                    playing: presentation.video.playing,
+                    position: presentation.video.position,
+                    duration: presentation.video.duration,
+                }),
         }
     }
 
@@ -349,6 +383,26 @@ impl StreamState {
         for chapter in &self.chapters {
             for slide in &chapter.slides {
                 if let StreamSlide::Picture { media } = slide
+                    && !named.contains(media)
+                {
+                    named.push(media.clone());
+                }
+            }
+        }
+        named
+    }
+
+    /// Every video the running order refers to, each named once.
+    ///
+    /// Apart from [`media`](Self::media) because the two are handed over
+    /// differently: a picture is sent as bytes and held in memory, while a
+    /// video is registered by its path and served from there in pieces. See
+    /// [`crate::logic::stream::publish_video`].
+    pub fn videos(&self) -> Vec<String> {
+        let mut named: Vec<String> = Vec::new();
+        for chapter in &self.chapters {
+            for slide in &chapter.slides {
+                if let StreamSlide::Video { media, .. } = slide
                     && !named.contains(media)
                 {
                     named.push(media.clone());

@@ -284,6 +284,9 @@ pub fn PresenterConsolePage() -> Element {
 
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        // The console is a window of its own on the desktop, so it needs its
+        // own video handler for the same reason the presentation window does.
+        crate::components::video_host::VideoAssetHost {}
         document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }
         // The PDF viewer, loaded once per window. Registered *here*, at the
         // root, for the reason written above about the stylesheets: a
@@ -950,6 +953,10 @@ fn PresenterControlBar(
 
     rsx! {
         footer { class: "presenter-control-bar",
+            // Above the slide controls, because it acts on what is on the
+            // slide rather than on which slide is up. Renders nothing unless
+            // the slide that is up is a video.
+            VideoControls { running_presentation }
             div { class: "presenter-controls",
                 button {
                     class: "secondary",
@@ -1065,5 +1072,130 @@ mod tests {
         ];
 
         assert_eq!(readable_rows(&rows), vec!["Sing to the Lord"]);
+    }
+}
+
+/// The playback controls for a video on the current slide.
+///
+/// Shown where the operator is: in the presenter console when there is one, and
+/// in the presentation window itself when there is not — a video nobody can
+/// pause is not something to put in front of a congregation.
+///
+/// Every button writes to the running presentation rather than to an element,
+/// so that the projection follows whatever is pressed here. See
+/// [`crate::logic::states::VideoPlayback`].
+#[component]
+pub fn VideoControls(running_presentation: Signal<RunningPresentation>) -> Element {
+    use crate::logic::video::clock;
+
+    // Only when the slide that is up is a video.
+    let is_video = use_memo(move || {
+        matches!(
+            running_presentation
+                .read()
+                .get_current_slide()
+                .map(|slide| slide.slide_content),
+            Some(SlideContent::Video(_))
+        )
+    });
+
+    if !is_video() {
+        return rsx! {};
+    }
+
+    let playback = running_presentation.read().video.clone();
+    let duration = playback.duration;
+    let position = playback.position.min(duration.max(playback.position));
+
+    rsx! {
+        div { class: "video-controls", role: "group",
+            button {
+                r#type: "button",
+                class: "outline secondary",
+                aria_label: t!("presenter.video.back").to_string(),
+                onclick: move |_| running_presentation.write().video.skip(-10.0),
+                "⏪ 10 s"
+            }
+
+            button {
+                r#type: "button",
+                aria_label: if playback.playing {
+                    t!("presenter.video.pause").to_string()
+                } else {
+                    t!("presenter.video.play").to_string()
+                },
+                onclick: move |_| {
+                    let mut state = running_presentation.write();
+                    let playing = state.video.playing;
+                    state.video.playing = !playing;
+                },
+                if playback.playing { "⏸" } else { "▶" }
+            }
+
+            button {
+                r#type: "button",
+                class: "outline secondary",
+                aria_label: t!("presenter.video.forward").to_string(),
+                onclick: move |_| running_presentation.write().video.skip(10.0),
+                "10 s ⏩"
+            }
+
+            // Where the video is, and where it can be sent. The scrubber is
+            // disabled until the length is known — a slider with no range to
+            // it is a control that lies about what it can do.
+            input {
+                r#type: "range",
+                class: "video-scrubber",
+                min: "0",
+                max: "{duration.max(0.1)}",
+                step: "0.1",
+                value: "{position}",
+                disabled: duration <= 0.0,
+                aria_label: t!("presenter.video.position").to_string(),
+                oninput: move |event| {
+                    if let Ok(seconds) = event.value().parse::<f64>() {
+                        running_presentation.write().video.seek(seconds);
+                    }
+                },
+            }
+
+            span { class: "video-time",
+                "{clock(position)} / {clock(duration)}"
+            }
+
+            button {
+                r#type: "button",
+                class: if playback.muted { "outline" } else { "outline secondary" },
+                aria_pressed: playback.muted.to_string(),
+                aria_label: t!("presenter.video.mute").to_string(),
+                onclick: move |_| {
+                    let mut state = running_presentation.write();
+                    let muted = state.video.muted;
+                    state.video.muted = !muted;
+                },
+                if playback.muted { "🔇" } else { "🔊" }
+            }
+
+            input {
+                r#type: "range",
+                class: "video-volume",
+                min: "0",
+                max: "1",
+                step: "0.05",
+                value: "{playback.volume}",
+                aria_label: t!("presenter.video.volume").to_string(),
+                oninput: move |event| {
+                    if let Ok(volume) = event.value().parse::<f64>() {
+                        let mut state = running_presentation.write();
+                        state.video.volume = volume.clamp(0.0, 1.0);
+                        // Turning it up is also how somebody unmutes; leaving
+                        // it muted while the slider moved would look broken.
+                        if volume > 0.0 {
+                            state.video.muted = false;
+                        }
+                    }
+                },
+            }
+        }
     }
 }

@@ -247,6 +247,120 @@ pub struct RunningPresentation {
     /// size stands in until then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub presentation_layout: Option<(f64, f64)>,
+
+    /// Where the video on the current slide stands, and what it has been told
+    /// to do. Means nothing while the slide is not a video.
+    #[serde(default)]
+    pub video: VideoPlayback,
+}
+
+/// The state of the video on the current slide, shared by every window showing
+/// the presentation.
+///
+/// This lives here, on the running presentation, rather than in the component
+/// that holds the `<video>` element, because more than one window holds one:
+/// the projection the room is looking at and the presenter console in front of
+/// the operator. A pause pressed in the console has to stop the projection, and
+/// that only works if the two are looking at the same value.
+///
+/// # Commands and reports
+///
+/// The fields fall into two kinds, and keeping them apart is what makes the
+/// synchronisation between windows work at all:
+///
+/// * **Commands** — [`playing`](Self::playing), [`muted`](Self::muted),
+///   [`volume`](Self::volume) and [`seek_to`](Self::seek_to). These change when
+///   somebody presses something, which is rarely. Every window applies them.
+/// * **A report** — [`position`](Self::position), which the window that is
+///   actually playing writes several times a second so that the console's
+///   scrubber can follow and the network stream knows where the service is.
+///
+/// Only the commands take part in [`RunningPresentation::eq_ignoring_scroll`].
+/// If the report did too, the two windows would consider themselves out of step
+/// several times a second and push their whole state at one another — which is
+/// exactly the trap the markdown scroll position is kept out of, one field up.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct VideoPlayback {
+    /// Whether the video should be running.
+    pub playing: bool,
+
+    /// Whether the sound is off. Separate from *which window* makes the sound,
+    /// which is [`crate::logic::video::AudioOwner`] and is a property of the
+    /// machine rather than of the presentation.
+    pub muted: bool,
+
+    /// How loud, from 0.0 to 1.0.
+    pub volume: f64,
+
+    /// Where the operator has asked the video to jump to, in seconds, and a
+    /// count of how many times they have asked.
+    ///
+    /// The count is what makes a repeated seek to the same second work: jumping
+    /// twice to 0:30 is two commands, and without it the second would look
+    /// identical to the first and be ignored. It is also what tells a window
+    /// "jump now" apart from "you have drifted a little" — see
+    /// [`position`](Self::position).
+    pub seek_to: Option<(f64, u64)>,
+
+    /// How far into the video the window that is playing it has got, in
+    /// seconds. A report, not a command: writing to it does not move anything.
+    pub position: f64,
+
+    /// How long the video is, in seconds, once the window playing it has found
+    /// out. `0.0` until then.
+    pub duration: f64,
+}
+
+impl Default for VideoPlayback {
+    fn default() -> Self {
+        VideoPlayback {
+            playing: false,
+            muted: false,
+            volume: 1.0,
+            seek_to: None,
+            position: 0.0,
+            duration: 0.0,
+        }
+    }
+}
+
+impl VideoPlayback {
+    /// Whether two states differ in something a window has to act on.
+    ///
+    /// The position is left out on purpose; see the note on the struct.
+    pub fn commands_eq(&self, other: &Self) -> bool {
+        self.playing == other.playing
+            && self.muted == other.muted
+            && self.volume == other.volume
+            && self.seek_to == other.seek_to
+    }
+
+    /// Asks the video to jump to `seconds`.
+    ///
+    /// Counts the ask, so that jumping twice to the same second is two
+    /// commands rather than one that appears not to have changed.
+    pub fn seek(&mut self, seconds: f64) {
+        let count = self.seek_to.map(|(_, count)| count).unwrap_or(0);
+        self.seek_to = Some((seconds.max(0.0), count + 1));
+        // The scrubber should move under the finger rather than waiting for the
+        // playing window to report back.
+        self.position = seconds.max(0.0);
+    }
+
+    /// Moves by `seconds`, forwards or backwards, from where the video is now.
+    ///
+    /// Clamped at both ends: before the beginning is the beginning, and past
+    /// the end is the end — a jump past the end would otherwise stop the video
+    /// and look like a crash.
+    pub fn skip(&mut self, seconds: f64) {
+        let target = (self.position + seconds).max(0.0);
+        let target = if self.duration > 0.0 {
+            target.min(self.duration)
+        } else {
+            target
+        };
+        self.seek(target);
+    }
 }
 
 impl RunningPresentation {
@@ -259,6 +373,7 @@ impl RunningPresentation {
             presentation_resolution: default_presentation_resolution(),
             markdown_scroll_position: 0.0,
             presentation_layout: None,
+            video: VideoPlayback::default(),
         }
     }
 
@@ -411,6 +526,10 @@ impl RunningPresentation {
             && self.is_black_screen == other.is_black_screen
             && self.presentation_layout == other.presentation_layout
             && self.presentation_resolution == other.presentation_resolution
+            // Only what a window has to act on — the video's running position
+            // changes several times a second and is a report rather than a
+            // command. See [`VideoPlayback`].
+            && self.video.commands_eq(&other.video)
     }
 
     /// Returns the transition for the current chapter.
@@ -692,6 +811,106 @@ fn default_presentation_resolution() -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A seek to the same second twice is two commands. Without the count the
+    /// second would look identical to the first, and a video that ran on past
+    /// the mark would not be pulled back when the operator pressed again.
+    #[test]
+    fn test_seeking_twice_to_the_same_place_is_two_commands() {
+        let mut playback = VideoPlayback::default();
+
+        playback.seek(30.0);
+        let first = playback.seek_to;
+        playback.seek(30.0);
+
+        assert_ne!(playback.seek_to, first, "the second ask was lost");
+        assert_eq!(playback.seek_to.map(|(at, _)| at), Some(30.0));
+    }
+
+    /// The scrubber moves under the finger rather than waiting for the window
+    /// that is playing to report back.
+    #[test]
+    fn test_seeking_moves_the_reported_position_at_once() {
+        let mut playback = VideoPlayback::default();
+
+        playback.seek(42.0);
+
+        assert_eq!(playback.position, 42.0);
+    }
+
+    /// Skipping back from near the start lands at the start, not before it.
+    #[test]
+    fn test_skipping_back_past_the_beginning_lands_at_the_beginning() {
+        let mut playback = VideoPlayback {
+            position: 3.0,
+            duration: 100.0,
+            ..VideoPlayback::default()
+        };
+
+        playback.skip(-10.0);
+
+        assert_eq!(playback.seek_to.map(|(at, _)| at), Some(0.0));
+    }
+
+    /// …and skipping forward past the end lands at the end. Jumping past it
+    /// would stop the video and look like a crash in front of the room.
+    #[test]
+    fn test_skipping_past_the_end_lands_at_the_end() {
+        let mut playback = VideoPlayback {
+            position: 95.0,
+            duration: 100.0,
+            ..VideoPlayback::default()
+        };
+
+        playback.skip(10.0);
+
+        assert_eq!(playback.seek_to.map(|(at, _)| at), Some(100.0));
+    }
+
+    /// Before the length is known there is nothing to clamp against, and
+    /// refusing to skip would leave the buttons dead for the first moment of
+    /// every video.
+    #[test]
+    fn test_skipping_works_before_the_length_is_known() {
+        let mut playback = VideoPlayback::default();
+
+        playback.skip(10.0);
+
+        assert_eq!(playback.seek_to.map(|(at, _)| at), Some(10.0));
+    }
+
+    /// The running position is a report, not a command. If it counted as a
+    /// difference, the two windows would consider themselves out of step
+    /// several times a second and push their whole state at one another.
+    #[test]
+    fn test_the_running_position_is_not_a_command() {
+        let playing = VideoPlayback::default();
+        let further_along = VideoPlayback {
+            position: 61.0,
+            duration: 120.0,
+            ..playing.clone()
+        };
+
+        assert!(playing.commands_eq(&further_along));
+    }
+
+    /// Everything somebody can press is.
+    #[test]
+    fn test_everything_that_is_pressed_is_a_command() {
+        let base = VideoPlayback::default();
+
+        for changed in [
+            VideoPlayback { playing: !base.playing, ..base.clone() },
+            VideoPlayback { muted: !base.muted, ..base.clone() },
+            VideoPlayback { volume: 0.4, ..base.clone() },
+            VideoPlayback { seek_to: Some((12.0, 1)), ..base.clone() },
+        ] {
+            assert!(
+                !base.commands_eq(&changed),
+                "{changed:?} should have reached the other window"
+            );
+        }
+    }
 
     #[test]
     fn test_running_presentation_serialization() {

@@ -444,17 +444,24 @@ pub(crate) fn ExportMenu(
                 if pictures.peek().contains_key(&key) {
                     continue;
                 }
-                // A PDF names a page; anything else is a picture file.
-                let rendered = match crate::logic::pdf::pdf_page_of(&key) {
-                    Some((document, page)) => {
-                        crate::logic::pdf::page_image(
-                            &document,
-                            page,
-                            crate::logic::pdf::EXPORT_WIDTH,
-                        )
-                        .await
+                // A PDF names a page; a video is carried whole or as a still;
+                // anything else is a picture file.
+                let rendered = if crate::logic::sourcefiles::SourceFileType::of(&key)
+                    == Some(crate::logic::sourcefiles::SourceFileType::Video)
+                {
+                    video_for_deck(&key).await
+                } else {
+                    match crate::logic::pdf::pdf_page_of(&key) {
+                        Some((document, page)) => {
+                            crate::logic::pdf::page_image(
+                                &document,
+                                page,
+                                crate::logic::pdf::EXPORT_WIDTH,
+                            )
+                            .await
+                        }
+                        None => crate::logic::images::image_data_url(std::path::Path::new(&key)),
                     }
-                    None => crate::logic::images::image_data_url(std::path::Path::new(&key)),
                 };
                 if let Some(data) = rendered {
                     pictures.write().insert(key, data);
@@ -524,6 +531,18 @@ pub(crate) fn ExportMenu(
                         note.push_str(&t!(
                             "selection.export_pptx_pictures_pending",
                             count = conversion.missing_pictures
+                        ));
+                    }
+                    // A video that could not be carried at all — unreadable,
+                    // or too large for a deck and no frame of it could be
+                    // taken either. The slide is not in the deck, and silence
+                    // about that is how a service is rehearsed from a file
+                    // that is missing something.
+                    if conversion.skipped_videos > 0 {
+                        note.push('\n');
+                        note.push_str(&t!(
+                            "selection.export_pptx_videos_skipped",
+                            count = conversion.skipped_videos
                         ));
                     }
                     Ok(vec![ExportedFile {
@@ -869,4 +888,42 @@ mod tests {
         assert!(write_pptx_file("not base64 !!!", &path).is_err());
         assert!(!path.exists(), "a damaged file was left behind");
     }
+}
+
+/// What a deck should carry for the video at `path`: the film itself, or a
+/// still of it.
+///
+/// The film, when PowerPoint can play the format and the file is small enough
+/// to travel inside a `.pptx` — a deck that plays the video is what was asked
+/// for. Otherwise a frame of it, which is the most a deck can honestly show of
+/// a video it cannot play. `None` when neither could be had, and the export
+/// then says a video was left out.
+///
+/// The size limit is not fussiness: the bytes reach PptxGenJS as base64 inside
+/// a JSON document, so a hundred-megabyte film is something like a hundred and
+/// forty megabytes of text to build, hold and parse. See
+/// [`MAX_EMBEDDED_VIDEO_BYTES`](crate::logic::pptx::MAX_EMBEDDED_VIDEO_BYTES).
+#[cfg(not(target_arch = "wasm32"))]
+async fn video_for_deck(path: &str) -> Option<String> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
+    let small_enough = std::fs::metadata(path)
+        .map(|data| data.len() <= crate::logic::pptx::MAX_EMBEDDED_VIDEO_BYTES)
+        .unwrap_or(false);
+
+    if small_enough && crate::logic::pptx::powerpoint_can_play(path)
+        && let Ok(bytes) = std::fs::read(path)
+    {
+        let mime = crate::logic::sourcefiles::mime_type_of_video(path);
+        return Some(format!("data:{mime};base64,{}", BASE64.encode(&bytes)));
+    }
+
+    crate::logic::video::still_frame(path).await
+}
+
+/// The web build keeps its library in memory and has no video support yet, so
+/// there is nothing to put in a deck.
+#[cfg(target_arch = "wasm32")]
+async fn video_for_deck(_path: &str) -> Option<String> {
+    None
 }

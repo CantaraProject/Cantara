@@ -345,6 +345,17 @@ fn App() -> Element {
             let wanted = state.media();
             let sources = picture_sources(&presentations);
 
+            // A video is registered rather than rendered: the server reads it
+            // from where it is, in whatever piece a viewer's browser asks for.
+            for id in state.videos() {
+                if logic::stream::has_video(&id) {
+                    continue;
+                }
+                if let Some(path) = sources.get(&id) {
+                    logic::stream::publish_video(id, std::path::PathBuf::from(path));
+                }
+            }
+
             spawn(async move {
                 for id in wanted {
                     if logic::stream::has_media(&id) {
@@ -526,6 +537,10 @@ fn picture_sources(
                     SlideContent::PdfPage(page) => {
                         format!("{}#page={}", page.pdf_path, page.page_number)
                     }
+                    // A video is named here the same way, though what is done
+                    // with the name differs: it is registered with the server
+                    // rather than rendered into bytes.
+                    SlideContent::Video(video) => video.video_path.clone(),
                     _ => continue,
                 };
                 sources.insert(media_id(&source), source);
