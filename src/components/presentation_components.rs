@@ -1742,19 +1742,90 @@ fn VideoSlideComponent(
     // presentation says what it is doing, and every window follows the same
     // value. See [`crate::logic::states::VideoPlayback`].
     if let Some(mut running_presentation) = running_presentation {
+        // What has been *asked* of the video, as against where it has got to.
+        //
+        // A memo over those four fields on purpose. Reading the running
+        // presentation whole would subscribe this to the position as well, and
+        // the position is written several times a second — so the script below
+        // would be built and run at that rate, assigning volume and calling
+        // `play()` on an element that was already doing both.
+        let commands = use_memo(move || {
+            let playback = &running_presentation.read().video;
+            (
+                playback.playing,
+                playback.muted,
+                playback.volume,
+                playback.seek_to,
+            )
+        });
+
+        // The last jump this window has carried out. A seek is a command that
+        // happens *once*: the value stays in the running presentation after it
+        // has been obeyed, and re-applying it would pull the video back to the
+        // mark every time it played half a second past it — which is a video
+        // that will not leave the spot it was sent to.
+        let mut applied_seek: Signal<u64> = use_signal(|| 0);
+
         // Bringing the element into line with what has been asked of it.
         use_effect(move || {
-            let playback = running_presentation.read().video.clone();
+            let (playing, muted, volume, seek_to) = commands();
+
+            let seek = match seek_to {
+                Some((seconds, serial)) if serial > *applied_seek.peek() => {
+                    applied_seek.set(serial);
+                    Some(seconds)
+                }
+                _ => None,
+            };
+
             let script = crate::logic::video::control_script(
-                playback.playing,
+                playing,
                 // A window that is not the one making the sound is muted
                 // whatever the operator set, so that only one of them is heard.
-                playback.muted || !makes_the_sound,
-                playback.volume,
-                playback.seek_to.map(|(seconds, _)| seconds),
+                muted || !makes_the_sound,
+                volume,
+                seek,
             );
             spawn(async move {
                 let _ = document::eval(&script).await;
+            });
+        });
+
+        // A window that is not the one playing follows the one that is.
+        //
+        // Two `<video>` elements started at the same moment do not stay
+        // together: two decoders on two clocks, one of them a scaled-down
+        // preview. Left alone they are seconds apart within a few minutes, and
+        // the console showing a different moment than the wall is the one thing
+        // the console must not do.
+        use_effect(move || {
+            if makes_the_sound {
+                return;
+            }
+            spawn(async move {
+                loop {
+                    crate::logic::timer::sleep(std::time::Duration::from_millis(500)).await;
+                    let Some((published, _, _)) = crate::logic::video::published_position()
+                    else {
+                        // Nobody is playing, so there is nothing to follow.
+                        continue;
+                    };
+                    let Ok(value) =
+                        document::eval(crate::logic::video::report_script()).await
+                    else {
+                        continue;
+                    };
+                    let Some(report) = value.as_array() else {
+                        // The slide moved on; this window has no video left.
+                        return;
+                    };
+                    let own = report.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+                    if crate::logic::video::should_correct(own, published) {
+                        let script = crate::logic::video::seek_script(published);
+                        let _ = document::eval(&script).await;
+                    }
+                }
             });
         });
 
@@ -1774,12 +1845,20 @@ fn VideoSlideComponent(
                         continue;
                     };
                     let Some(report) = value.as_array() else {
-                        // No video on screen any more: the slide moved on.
+                        // No video on screen any more: the slide moved on. The
+                        // published position goes with it, so the next video
+                        // does not start against this one's clock.
+                        crate::logic::video::forget_position();
                         return;
                     };
                     let position = report.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let duration = report.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let playing = report.get(2).and_then(|v| v.as_bool()).unwrap_or(false);
+
+                    // For the other windows, which follow this one. Kept out
+                    // of the running presentation on purpose — see
+                    // [`crate::logic::video::publish_position`].
+                    crate::logic::video::publish_position(position, duration, playing);
 
                     let mut state = running_presentation.write();
                     state.video.position = position;

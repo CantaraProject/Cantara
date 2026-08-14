@@ -220,6 +220,20 @@ pub fn control_script(playing: bool, muted: bool, volume: f64, seek_to: Option<f
     )
 }
 
+/// The script that moves the video to `seconds`, and nothing else.
+///
+/// Used to pull a following window back onto the one that is playing. Separate
+/// from [`control_script`] because that one also plays, pauses and sets the
+/// volume, and a drift correction has no business doing any of those.
+pub fn seek_script(seconds: f64) -> String {
+    format!(
+        "(function() {{
+            var v = document.querySelector('.slide-video');
+            if (v) {{ v.currentTime = {seconds:.3}; }}
+        }})();"
+    )
+}
+
 /// The script that asks the element where it has got to.
 ///
 /// Returns `[position, duration, playing]`, or nothing when there is no video
@@ -299,6 +313,91 @@ pub async fn still_frame(path: &str) -> Option<String> {
 
     let value = dioxus::prelude::document::eval(&script).await.ok()?;
     value.as_str().map(str::to_string)
+}
+
+// ── Where the video has got to, for the whole machine ────────────────────────
+//
+// Two windows draw the same video slide, and each holds a `<video>` element of
+// its own. Started independently they drift: two decoders on two clocks, one of
+// them a scaled-down preview. Within a few minutes the console shows a
+// different moment than the wall, which is exactly what the console is for
+// getting right.
+//
+// So the window that is actually playing publishes where it is, and the others
+// pull themselves onto it. That value is a property of the machine, like
+// [`AudioOwner`], and lives here for the same reason: it changes several times
+// a second, and putting it through the running presentation would have the two
+// windows pushing their whole state at one another at that rate. The
+// presentation's own `VideoPlayback` carries the *commands*, which are rare.
+
+/// The published position, in milliseconds, and whether it is running.
+///
+/// Milliseconds in an integer rather than seconds in a float, so it can live in
+/// an atomic without any bit-casting to read wrong.
+static PLAYBACK_MILLIS: AtomicU64 = AtomicU64::new(0);
+static PLAYBACK_DURATION_MILLIS: AtomicU64 = AtomicU64::new(0);
+static PLAYBACK_RUNNING: AtomicU64 = AtomicU64::new(0);
+/// Counts up with every report, so a window can tell a fresh one from silence.
+static PLAYBACK_REPORTS: AtomicU64 = AtomicU64::new(0);
+
+/// Says where the video is. Called by the window that is playing it.
+pub fn publish_position(seconds: f64, duration: f64, playing: bool) {
+    PLAYBACK_MILLIS.store(to_millis(seconds), Ordering::Relaxed);
+    PLAYBACK_DURATION_MILLIS.store(to_millis(duration), Ordering::Relaxed);
+    PLAYBACK_RUNNING.store(playing as u64, Ordering::Relaxed);
+    PLAYBACK_REPORTS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Where the video is, as last published: the position and the length in
+/// seconds, and whether it is running.
+///
+/// `None` before anything has been published — a window that asks then has
+/// nothing to correct itself towards and should leave its own playback alone.
+pub fn published_position() -> Option<(f64, f64, bool)> {
+    if PLAYBACK_REPORTS.load(Ordering::Relaxed) == 0 {
+        return None;
+    }
+    Some((
+        PLAYBACK_MILLIS.load(Ordering::Relaxed) as f64 / 1000.0,
+        PLAYBACK_DURATION_MILLIS.load(Ordering::Relaxed) as f64 / 1000.0,
+        PLAYBACK_RUNNING.load(Ordering::Relaxed) != 0,
+    ))
+}
+
+/// Forgets it, so that the next slide does not begin against the last one's
+/// clock. Called when a video slide is left.
+pub fn forget_position() {
+    PLAYBACK_REPORTS.store(0, Ordering::Relaxed);
+    PLAYBACK_MILLIS.store(0, Ordering::Relaxed);
+    PLAYBACK_DURATION_MILLIS.store(0, Ordering::Relaxed);
+    PLAYBACK_RUNNING.store(0, Ordering::Relaxed);
+}
+
+/// Seconds as whole milliseconds, with nonsense read as the beginning.
+///
+/// A browser reports `NaN` for the length of a video it has not worked out yet,
+/// and `NaN as u64` is a silent zero on some targets and a saturating maximum
+/// on others — a length of six hundred million years would put every follower
+/// at the far end of a video that has barely started.
+fn to_millis(seconds: f64) -> u64 {
+    if !seconds.is_finite() || seconds <= 0.0 {
+        return 0;
+    }
+    (seconds * 1000.0) as u64
+}
+
+/// How far a window may be from the one that is playing before it is pulled
+/// back, in seconds.
+///
+/// Not zero and not small. The two decode at their own pace and one of them is
+/// a scaled-down preview, so a difference of a few frames is permanent and
+/// normal; correcting that would assign `currentTime` several times a second
+/// and stutter the picture — which is worse than the drift it was fixing.
+pub const DRIFT_TOLERANCE: f64 = 0.5;
+
+/// Whether a window at `own` should be pulled onto `published`.
+pub fn should_correct(own: f64, published: f64) -> bool {
+    (own - published).abs() > DRIFT_TOLERANCE
 }
 
 // ── Which window is allowed to make sound ───────────────────────────────────
@@ -560,6 +659,76 @@ mod tests {
 
         assert!(script.contains("v.muted = true"));
         assert!(script.contains("0.700"), "the volume is kept while muted");
+    }
+
+    /// A window is left alone while it is close enough. Correcting a few
+    /// frames of difference would assign `currentTime` several times a second,
+    /// and that stutters the picture — worse than the drift it was fixing.
+    #[test]
+    fn test_a_small_difference_is_left_alone() {
+        assert!(!should_correct(30.0, 30.0));
+        assert!(!should_correct(30.2, 30.0));
+        assert!(!should_correct(29.8, 30.0));
+    }
+
+    /// A real difference is corrected, in either direction — a preview can be
+    /// behind the wall as easily as ahead of it.
+    #[test]
+    fn test_a_real_difference_is_corrected() {
+        assert!(should_correct(31.0, 30.0));
+        assert!(should_correct(29.0, 30.0));
+        assert!(should_correct(0.0, 300.0), "a window that never started");
+    }
+
+    /// A browser reports `NaN` for the length of a video it has not worked out
+    /// yet. `NaN as u64` is a silent zero on some targets and a saturating
+    /// maximum on others, and the second of those would put every following
+    /// window at the far end of a video that had barely started.
+    #[test]
+    fn test_a_length_that_is_not_a_number_does_not_become_an_enormous_one() {
+        assert_eq!(to_millis(f64::NAN), 0);
+        assert_eq!(to_millis(f64::INFINITY), 0);
+        assert_eq!(to_millis(-1.0), 0);
+        assert_eq!(to_millis(1.5), 1500);
+    }
+
+    /// Nothing to follow before anything has been published: a window that
+    /// asked then would otherwise pull itself to zero and restart the video.
+    #[test]
+    fn test_there_is_nothing_to_follow_before_anything_is_published() {
+        let _guard = audio_lock();
+        forget_position();
+
+        assert_eq!(published_position(), None);
+
+        publish_position(12.5, 60.0, true);
+        assert_eq!(published_position(), Some((12.5, 60.0, true)));
+    }
+
+    /// Leaving a video slide forgets where it was, so that the next video does
+    /// not begin measured against the last one's clock.
+    #[test]
+    fn test_leaving_a_video_forgets_where_it_was() {
+        let _guard = audio_lock();
+        publish_position(90.0, 120.0, true);
+
+        forget_position();
+
+        assert_eq!(published_position(), None);
+    }
+
+    /// A drift correction moves the video and does nothing else. Playing,
+    /// pausing and the volume are commands from the operator, and a window
+    /// that is merely catching up has no business touching them.
+    #[test]
+    fn test_a_drift_correction_only_moves_the_video() {
+        let script = seek_script(42.0);
+
+        assert!(script.contains("42.000"));
+        assert!(!script.contains("play"));
+        assert!(!script.contains("pause"));
+        assert!(!script.contains("volume"));
+        assert!(!script.contains("muted"));
     }
 
     /// A serial guard. The owner is process-wide, so these tests are talking

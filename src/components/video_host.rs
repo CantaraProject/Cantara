@@ -29,10 +29,21 @@ mod desktop {
     use std::io::{Read, Seek, SeekFrom};
 
     /// Registers the handler for the window this is called in.
+    ///
+    /// The reading happens on a thread of its own. The handler is called on the
+    /// thread that runs the window, and a browser's *first* request for a video
+    /// carries no `Range` — so the answer to it is the whole file. Reading a
+    /// few hundred megabytes there freezes the window that is showing the
+    /// presentation for as long as the disk takes, which is what made a video
+    /// stutter as it started. Answering is asynchronous by design; this uses
+    /// that.
     pub(super) fn register() {
         use_asset_handler(crate::logic::video::VIDEO_HANDLER, move |request, responder| {
-            let response = answer(request.uri().path(), range_header(&request));
-            responder.respond(response);
+            let path = request.uri().path().to_string();
+            let range = range_header(&request);
+            std::thread::spawn(move || {
+                responder.respond(answer(&path, range));
+            });
         });
     }
 
