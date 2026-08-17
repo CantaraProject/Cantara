@@ -206,7 +206,7 @@ pub fn control_script(playing: bool, muted: bool, volume: f64, seek_to: Option<f
 
     format!(
         "(function() {{
-            var v = document.querySelector('.slide-video');
+            var v = document.querySelector('.slide-video-live');
             if (!v) {{ return; }}
             {seek}
             v.muted = {muted};
@@ -228,7 +228,7 @@ pub fn control_script(playing: bool, muted: bool, volume: f64, seek_to: Option<f
 pub fn seek_script(seconds: f64) -> String {
     format!(
         "(function() {{
-            var v = document.querySelector('.slide-video');
+            var v = document.querySelector('.slide-video-live');
             if (v) {{ v.currentTime = {seconds:.3}; }}
         }})();"
     )
@@ -242,7 +242,7 @@ pub fn seek_script(seconds: f64) -> String {
 /// the service is.
 pub fn report_script() -> &'static str {
     "return (function() {
-        var v = document.querySelector('.slide-video');
+        var v = document.querySelector('.slide-video-live');
         if (!v) { return null; }
         return [v.currentTime, isFinite(v.duration) ? v.duration : 0, !v.paused];
     })();"

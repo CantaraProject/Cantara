@@ -1738,10 +1738,49 @@ fn VideoSlideComponent(
         PresentationRole::SelfRunning => false,
     };
 
+    // Whether this is the slide the service is on, or a picture of one.
+    //
+    // The overview draws every slide of the whole running order at once, each
+    // through `StaticSlideRendererComponent`, which has no running presentation
+    // to hand down — and that is the difference. Without it every video in the
+    // service began playing the moment the overview was opened, twenty of them
+    // at once, none of them the slide anybody was looking at.
+    let is_live = running_presentation.is_some();
+
     // The slide says how the video starts; from then on the running
     // presentation says what it is doing, and every window follows the same
     // value. See [`crate::logic::states::VideoPlayback`].
     if let Some(mut running_presentation) = running_presentation {
+        let autostart = video_slide.autostart;
+
+        // Opening the slide is what starts the video — not the page being
+        // built. The component is created when the presentation reaches this
+        // slide and dropped when it leaves, so those are the two moments.
+        use_hook(move || {
+            spawn(async move {
+                let mut state = running_presentation.write();
+                state.video.playing = autostart;
+                state.video.position = 0.0;
+                state.video.duration = 0.0;
+                // A jump belonging to the video that was up before this one
+                // must not be carried out on this one.
+                state.video.seek_to = None;
+            });
+        });
+
+        // Leaving the slide stops it. A video that went on playing behind the
+        // next slide would still be heard in the room, and would still be
+        // holding the file open.
+        use_drop(move || {
+            if let Ok(mut state) = running_presentation.try_write() {
+                state.video.playing = false;
+                state.video.position = 0.0;
+            }
+            // …and the machine forgets where it was, so the next video does not
+            // start measured against this one's clock.
+            crate::logic::video::forget_position();
+        });
+
         // What has been *asked* of the video, as against where it has got to.
         //
         // A memo over those four fields on purpose. Reading the running
@@ -1884,10 +1923,16 @@ fn VideoSlideComponent(
 
     rsx! {
         video {
-            class: "slide-video",
-            // What the slide says about how it is meant to be played.
-            autoplay: video_slide.autostart,
-            r#loop: video_slide.looping,
+            // The live one is marked apart from the thumbnails: the scripts
+            // that play, pause and seek reach the element by selector, and
+            // the overview puts a `.slide-video` on screen for every slide of
+            // the service. Without this they would command whichever of those
+            // happened to come first in the document.
+            class: if is_live { "slide-video slide-video-live" } else { "slide-video" },
+            // Only where this is the slide the service is on. In the overview
+            // it is a picture of a slide, and a picture does not play.
+            autoplay: is_live && video_slide.autostart,
+            r#loop: is_live && video_slide.looping,
             // One window per machine makes the sound, and the rest are silent —
             // two playing the same file tens of milliseconds apart is a
             // flanging echo rather than a louder video.
@@ -1897,7 +1942,10 @@ fn VideoSlideComponent(
             // screen rather than to the room's.
             controls: false,
             playsinline: true,
-            preload: "auto",
+            // A thumbnail wants the first frame and nothing more; the slide
+            // that is up wants to be ready to play. Twenty thumbnails each
+            // fetching a whole film is what the overview would otherwise cost.
+            preload: if is_live { "auto" } else { "metadata" },
             source { src: "{source}", r#type: "{mime}" }
         }
     }

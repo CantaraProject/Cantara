@@ -280,6 +280,26 @@
 /* Grid view: full-width single column layout */
 .presenter-content-grid {
     grid-template-columns: 1fr;
+    /* No gap between the header and the size slider that sticks below it. The
+       slider is pinned to the top of the panel, so any padding above the panel
+       shows as a strip of background between the two — and with the slider
+       sitting in it, that strip reads as a seam rather than as spacing. */
+    padding-top: 0;
+}
+
+/* Flush under the header for the same reason: the panel's own top border and
+   rounded corners drew a second line under the first. The sides and the bottom
+   keep theirs — it is the top edge alone that meets the header. */
+.presenter-content-grid > .presenter-grid-panel {
+    border-top: none;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    padding-top: 0;
+}
+
+/* The toolbar then has no padding above it to reach back over. */
+.presenter-content-grid .presenter-grid-toolbar {
+    margin-top: 0;
 }
 
 /* Grid panel */
