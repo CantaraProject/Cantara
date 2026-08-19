@@ -440,6 +440,20 @@ async fn video(
         return (StatusCode::NOT_FOUND, "no such video").into_response();
     };
 
+    // Only something that is a video by its name, exactly as the desktop's own
+    // handler insists. Both are reached with an id the program registered, so
+    // neither *should* ever be pointed at anything else — but the paths come
+    // from a running order, and a running order can be imported from a file
+    // somebody else wrote. This route is reachable from the network, so the
+    // consequence of being wrong here is worse: every file the user running
+    // Cantara can read, handed to anyone who can open the stream.
+    if crate::logic::sourcefiles::SourceFileType::of(
+        &path.file_name().unwrap_or_default().to_string_lossy(),
+    ) != Some(crate::logic::sourcefiles::SourceFileType::Video)
+    {
+        return (StatusCode::FORBIDDEN, "not a video").into_response();
+    }
+
     let Ok(mut file) = std::fs::File::open(&path) else {
         return (StatusCode::NOT_FOUND, "the video is no longer there").into_response();
     };
@@ -959,6 +973,31 @@ mod tests {
             .send()
             .expect("answers");
         assert_eq!(past_the_end.status(), 416);
+    }
+
+    /// The paths this route serves come from a running order, and a running
+    /// order can be imported from a file somebody else wrote. The route is
+    /// reachable from the network, so anything that is not a video by its name
+    /// is refused however it came to be registered.
+    #[test]
+    fn only_a_video_is_served_to_the_network() {
+        let server = serving("");
+        let folder = tempfile::tempdir().expect("a temporary folder");
+        let secret = folder.path().join("settings.json");
+        std::fs::write(&secret, b"a token nobody should be handed").expect("written");
+
+        server.publish_video("not-a-video".to_string(), secret);
+
+        let refused = client()
+            .get(at(&server, "/video/not-a-video"))
+            .send()
+            .expect("answers");
+
+        assert_eq!(refused.status(), 403);
+        assert!(
+            !refused.text().unwrap_or_default().contains("token"),
+            "the file was served anyway"
+        );
     }
 
     /// A picture is fetched from the server rather than pushed with every

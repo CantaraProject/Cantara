@@ -109,7 +109,11 @@ mod desktop {
             },
             None => match ByteRange::whole(length) {
                 Some(whole) => (whole, false),
-                None => (ByteRange { start: 0, end: 0 }, false),
+                // A file of no bytes has no first byte either. Fabricating a
+                // one-byte range here meant the read below failed and the
+                // answer was a 500 — an internal error reported for a file that
+                // is simply empty, which is a wrong thing to go looking for.
+                None => return status(404),
             },
         };
 
@@ -222,6 +226,21 @@ mod desktop {
             let tail = answer(&url, Some("bytes=-8".to_string()));
             assert_eq!(tail.status(), 206);
             assert_eq!(tail.body(), &contents[248..=255]);
+        }
+
+        /// A file of no bytes has no first byte either. This used to fabricate
+        /// a one-byte range, fail to read it, and report a 500 — an internal
+        /// error for a file that is merely empty, which is a wrong thing to
+        /// send somebody looking for.
+        #[test]
+        fn test_an_empty_video_is_a_404_rather_than_a_server_error() {
+            let folder = tempfile::tempdir().expect("a temporary folder");
+            let path = folder.path().join("nothing.mp4");
+            std::fs::write(&path, b"").expect("the file can be written");
+
+            let response = answer(&video_url(&path.to_string_lossy()), None);
+
+            assert_eq!(response.status(), 404);
         }
 
         /// A range past the end is refused rather than answered with the

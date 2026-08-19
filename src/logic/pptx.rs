@@ -566,8 +566,14 @@ pub struct PptxConversion {
     /// How many slides should have carried a picture and could not — a file
     /// that would not open, or a PDF page that would not render.
     pub missing_pictures: usize,
-    /// How many video slides were left out, because carrying a video into a
-    /// deck is not implemented yet.
+    /// How many video slides the deck could carry neither as a film nor as a
+    /// still of one.
+    ///
+    /// A video is embedded when PowerPoint can play the format and the file is
+    /// small enough to travel inside a `.pptx`, and exported as a frame of
+    /// itself otherwise — see `video_for_deck` in the export. This counts what
+    /// was left of that: a file that could not be read, or one from which no
+    /// frame could be taken either.
     pub skipped_videos: usize,
 }
 

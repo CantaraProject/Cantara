@@ -1108,7 +1108,18 @@ pub fn VideoControls(running_presentation: Signal<RunningPresentation>) -> Eleme
 
     let playback = running_presentation.read().video.clone();
     let duration = playback.duration;
-    let position = playback.position.min(duration.max(playback.position));
+    // Kept inside the scrubber's own range. A video reports its position a
+    // little past its length as it ends, and a range input handed a value above
+    // its maximum snaps the thumb to the start — the bar would jump back to
+    // zero in the last moment of every video.
+    //
+    // Only once the length is known: before that there is nothing to clamp
+    // against, and clamping to zero would peg the scrubber at the beginning.
+    let position = if duration > 0.0 {
+        playback.position.clamp(0.0, duration)
+    } else {
+        playback.position.max(0.0)
+    };
 
     rsx! {
         div { class: "video-controls", role: "group",
