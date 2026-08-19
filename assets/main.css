@@ -866,6 +866,20 @@ div.inline-div {
 }
 
 .picture-selector-item {
+    /* A frame that is scrolled past costs nothing.
+     *
+     * The strip holds one of these per picture in the library, and each carries
+     * a thumbnail inlined as base64 — a few hundred pictures is a few hundred
+     * images for the engine to keep decoded and painted. Skipping the ones that
+     * are out of sight is what keeps scrolling the strip smooth.
+     *
+     * The size is safe to declare because the track sets it: `grid-auto-columns`
+     * above fixes the width and `.picture-selector-preview` fixes the height, so
+     * a skipped frame measures exactly what a drawn one does and the strip does
+     * not shift as it scrolls. */
+    content-visibility: auto;
+    contain-intrinsic-size: 11rem 9rem;
+
     /* The track decides the width; the frame never stretches beyond it. */
     min-width: 0;
     margin: 0;

@@ -124,14 +124,13 @@ pub fn PresentationDesignSelector(
                     class: format!("presentation-design-selector-item {}", if active_item() == Some(index) { "active" } else { "" }),
                     tabindex: index,
                     key: "{index}",
-                    // There was a `content-visibility: auto` here, to let the
-                    // engine skip a tile that is off screen. It went again once
-                    // the scrolling trouble turned out to be `zoom` rather than
-                    // the cost of the tiles: it only paid off if the declared
-                    // placeholder size matched the real one, and the real one
-                    // follows the design's own resolution. A design that is not
-                    // 16:9 would have changed the page height as its tile came
-                    // into view — the very fault this was meant to help with.
+                    // `content-visibility` used to sit here and was taken out
+                    // again: this element has no size of its own, so a skipped
+                    // tile collapsed and the page height changed as it scrolled
+                    // into view. It now sits one level in, on the frame that
+                    // states its size in pixels — see [`PresentationViewer`],
+                    // where the same idea works because the box cannot
+                    // collapse. Do not put it back here.
                     SelectablePresentationViewer {
                         presentation: create_amazing_grace_presentation(design, &song_slide_settings()),
                         width: viewer_width,
@@ -232,7 +231,25 @@ pub fn PresentationViewer(
         // Left on the frame it would be four times too heavy.
         div {
             class: "inline-div",
-            style: format!("position: relative; width: {frame_w}px; height: {frame_h}px;"),
+            // `content-visibility: auto` lets the engine skip laying out and
+            // painting a tile that is off screen. Each of these is a whole
+            // presentation, rendered at the *target screen's* resolution and
+            // shrunk with a transform — so on a 4K projector every tile is a
+            // 3840 x 2160 subtree, and a list of designs is that many. The cost
+            // of scrolling was measured in the area of the screen the service
+            // will be shown on, which is why a big projector made this page
+            // crawl and a small one did not.
+            //
+            // This was tried once before and taken out again, because it sat on
+            // the wrapper around this box — an element with no size of its own,
+            // which therefore collapsed to nothing while it was skipped and
+            // changed the page height as it came back into view. Here it is on
+            // the frame, whose width and height are written out in pixels just
+            // below: skipping the contents cannot change the size of a box that
+            // states its own, whatever shape the design is.
+            style: format!(
+                "position: relative; width: {frame_w}px; height: {frame_h}px;                  content-visibility: auto;                  contain-intrinsic-size: {frame_w}px {frame_h}px;"
+            ),
             onclick: move |event| if let Some(onclick_event) = onclick { onclick_event.call(event) },
             div {
                 // Everything in here is laid out in the presentation's own
