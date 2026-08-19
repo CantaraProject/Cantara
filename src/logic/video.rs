@@ -17,6 +17,13 @@
 //! server is [`dioxus::desktop::use_asset_handler`], which answers requests
 //! from the page's own origin without a socket being involved.
 //!
+//! Except on the WebKitGTK platforms, which will not play media from the
+//! custom URI scheme the page itself is served from — there the same bytes go
+//! over a socket on the loopback interface instead. Both servers answer with
+//! [`answer_video_request`], so what is sent is the same either way; which of
+//! them a slide asks is the difference between [`video_url`] and
+//! [`video_source_url`], and the reason is in [`crate::logic::video_server`].
+//!
 //! The path is carried in the URL rather than in a table of open files, so a
 //! window that is opened later — the projection, the presenter console — can
 //! resolve a slide it was handed without asking anyone first.
@@ -30,8 +37,37 @@ pub const VIDEO_HANDLER: &str = "cantara-video";
 /// The path is percent-encoded into one segment: a library path holds spaces,
 /// `#`, `?` and — on Windows — backslashes and a drive letter, and every one of
 /// those means something else in a URL.
+///
+/// This is the *path* a request arrives at, which is what both servers read.
+/// What goes into the element's `src` is [`video_source_url`], and on some
+/// platforms that is not the same thing.
 pub fn video_url(path: &str) -> String {
     format!("/{VIDEO_HANDLER}/{}", encode_path(path))
+}
+
+/// What to put in a `<video>`'s `src` for the video at `path`.
+///
+/// Everywhere but the WebKitGTK platforms this is [`video_url`] as it stands:
+/// a path on the page's own origin, answered by the asset handler in
+/// [`crate::components::video_host`].
+///
+/// WebKitGTK will not play media from a custom URI scheme at all. The page is
+/// served from `dioxus://index.html/`, and a `<video>` pointed anywhere on
+/// that origin fails before a single byte is asked for — the media player
+/// reports `FormatError` and the element never issues the request, so there is
+/// nothing the handler could have answered differently. That is why the Linux
+/// build has a server on the loopback interface instead, and why this returns
+/// an absolute `http://127.0.0.1:…` URL there. See
+/// [`crate::logic::video_server`].
+pub fn video_source_url(path: &str) -> String {
+    let url = video_url(path);
+
+    #[cfg(all(feature = "desktop", not(any(target_os = "windows", target_os = "macos"))))]
+    if let Some(origin) = crate::logic::video_server::origin() {
+        return format!("{origin}{url}");
+    }
+
+    url
 }
 
 /// The path a [`video_url`] was built from, or `None` when the URL is not one
@@ -175,6 +211,124 @@ pub fn parse_byte_range(header: &str, length: u64) -> Option<ByteRange> {
     (range.start < length && range.start <= range.end).then_some(range)
 }
 
+// ── Answering a request for a piece of a video ───────────────────────────────
+
+/// What a request for a video is answered with: a status, the headers that go
+/// with it, and the bytes.
+///
+/// Neither `wry`'s nor `axum`'s idea of a response, because both servers that
+/// hand out a video build one of these — the asset handler in
+/// [`crate::components::video_host`] and the loopback server in
+/// [`crate::logic::video_server`]. Deciding *what* to send in one place is the
+/// only way the two cannot answer the same request differently.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct VideoAnswer {
+    pub status: u16,
+    /// Complete, in the order they should be written.
+    pub headers: Vec<(&'static str, String)>,
+    pub body: Vec<u8>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl VideoAnswer {
+    /// An answer that is nothing but its status.
+    fn status(code: u16) -> VideoAnswer {
+        VideoAnswer {
+            status: code,
+            headers: Vec::new(),
+            body: Vec::new(),
+        }
+    }
+}
+
+/// What to send back for a request for `url_path`, asking for `range`.
+///
+/// `url_path` is the path a [`video_url`] produced, with or without an origin
+/// in front of it; `range` is the request's `Range` header, if it carried one.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn answer_video_request(url_path: &str, range: Option<&str>) -> VideoAnswer {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let Some(file_path) = path_of_video_url(url_path) else {
+        return VideoAnswer::status(400);
+    };
+
+    let file_path = std::path::PathBuf::from(&file_path);
+    // The URL says which file, and the URL came back out of the web view.
+    // Only something that is a video by its name is served: this can otherwise
+    // be asked for any file the user running Cantara can read, and the page
+    // that asks is not necessarily one Cantara wrote — a video slide could
+    // name a path that arrived in an imported running order.
+    if crate::logic::sourcefiles::SourceFileType::of(
+        &file_path.file_name().unwrap_or_default().to_string_lossy(),
+    ) != Some(crate::logic::sourcefiles::SourceFileType::Video)
+    {
+        return VideoAnswer::status(403);
+    }
+
+    let Ok(mut file) = std::fs::File::open(&file_path) else {
+        return VideoAnswer::status(404);
+    };
+    let Ok(metadata) = file.metadata() else {
+        return VideoAnswer::status(404);
+    };
+    let length = metadata.len();
+
+    let mime = crate::logic::sourcefiles::mime_type_of_video(
+        &file_path.file_name().unwrap_or_default().to_string_lossy(),
+    );
+
+    // No `Range` means the whole file, and that is a `200`. A `Range` that
+    // cannot be satisfied is a `416` rather than the whole file, or a player
+    // that asked to start ten minutes in would play the beginning and nobody
+    // would know why.
+    let (wanted, partial) = match range {
+        Some(header) => match parse_byte_range(header, length) {
+            Some(wanted) => (wanted, true),
+            None => {
+                return VideoAnswer {
+                    status: 416,
+                    headers: vec![("Content-Range", format!("bytes */{length}"))],
+                    body: Vec::new(),
+                };
+            }
+        },
+        None => match ByteRange::whole(length) {
+            Some(whole) => (whole, false),
+            // A file of no bytes has no first byte either. Fabricating a
+            // one-byte range here meant the read below failed and the answer
+            // was a 500 — an internal error reported for a file that is simply
+            // empty, which is a wrong thing to go looking for.
+            None => return VideoAnswer::status(404),
+        },
+    };
+
+    let mut body = vec![0u8; wanted.length() as usize];
+    if file.seek(SeekFrom::Start(wanted.start)).is_err() || file.read_exact(&mut body).is_err() {
+        return VideoAnswer::status(500);
+    }
+
+    let mut headers = vec![
+        ("Content-Type", mime.to_string()),
+        // Without this a web view will not seek at all: it takes the absence
+        // of the header to mean the whole file or nothing.
+        ("Accept-Ranges", "bytes".to_string()),
+        ("Content-Length", body.len().to_string()),
+    ];
+    if partial {
+        headers.push((
+            "Content-Range",
+            format!("bytes {}-{}/{}", wanted.start, wanted.end, length),
+        ));
+    }
+
+    VideoAnswer {
+        status: if partial { 206 } else { 200 },
+        headers,
+        body,
+    }
+}
+
 // ── Telling the element what to do ───────────────────────────────────────────
 //
 // Everything a video slide *is* — which file, whether it starts by itself,
@@ -279,13 +433,29 @@ pub fn clock(seconds: f64) -> String {
 /// `None` when the video could not be read or the frame could not be taken.
 /// Callers treat that as "no picture", not as an error worth stopping for.
 pub async fn still_frame(path: &str) -> Option<String> {
-    let source = serde_json::to_string(&video_url(path)).ok()?;
+    let url = video_source_url(path);
+    // Reading a frame back out of a canvas is refused when what was drawn into
+    // it came from another origin — and on the WebKitGTK platforms the video
+    // does come from another origin, the loopback server rather than the
+    // page's own scheme. Asking for it as a CORS request, which the server
+    // allows, is what keeps the canvas readable. Only where the URL is
+    // absolute: on the platforms that serve the video from the page's own
+    // origin there is nothing to ask permission for.
+    let cross_origin = url.starts_with("http");
+    let source = serde_json::to_string(&url).ok()?;
+
+    let cross = if cross_origin {
+        "v.crossOrigin = 'anonymous';"
+    } else {
+        ""
+    };
 
     let script = format!(
         "return await new Promise(function(resolve) {{
             var v = document.createElement('video');
             v.muted = true;
             v.preload = 'auto';
+            {cross}
             var done = false;
             function give(value) {{ if (!done) {{ done = true; resolve(value); }} }}
             // A video that will not load must not leave the export waiting.

@@ -1699,7 +1699,7 @@ fn VideoSlideComponent(
 ) -> Element {
     use crate::logic::video::{AudioOwner, audio_generation, claim_audio, owns_audio};
 
-    let source = crate::logic::video::video_url(&video_slide.video_path);
+    let source = crate::logic::video::video_source_url(&video_slide.video_path);
     let mime = crate::logic::sourcefiles::mime_type_of_video(&video_slide.video_path);
 
     // What this window is. Anything that did not say — the design selector's

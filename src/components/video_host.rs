@@ -8,6 +8,13 @@
 //! Only the desktop has a handler to register. The web build's library lives in
 //! a zip in memory rather than on a disk, and a browser will not let a page
 //! read a file by path — video there is a piece of work of its own.
+//!
+//! On the WebKitGTK platforms nothing asks this for a video, whatever it is
+//! mounted in: that web view will not play media from the page's own scheme at
+//! all, and a slide there points at the loopback server in
+//! [`crate::logic::video_server`] instead. The handler stays registered
+//! because it is the same code answering either way, and because what is
+//! mounted in a window should not depend on which platform the window is on.
 
 use dioxus::prelude::*;
 
@@ -24,9 +31,7 @@ pub fn VideoAssetHost() -> Element {
 
 #[cfg(feature = "desktop")]
 mod desktop {
-    use crate::logic::video::{ByteRange, parse_byte_range, path_of_video_url};
     use dioxus::desktop::{use_asset_handler, wry::http::Response};
-    use std::io::{Read, Seek, SeekFrom};
 
     /// Registers the handler for the window this is called in.
     ///
@@ -58,91 +63,22 @@ mod desktop {
 
     /// What to send back for a request for `path`.
     ///
-    /// Kept apart from the responder so that the decisions in it — which file,
-    /// which bytes, which status — are ordinary code rather than something that
-    /// only happens inside a web view.
+    /// Which file, which bytes and which status are decided in
+    /// [`crate::logic::video::answer_video_request`], where the loopback
+    /// server the WebKitGTK platforms use decides the same things from the
+    /// same code — two servers handing out the same file must not be able to
+    /// answer the same request differently. All that is left here is putting
+    /// the answer into the shape this web view wants.
     fn answer(path: &str, range: Option<String>) -> Response<Vec<u8>> {
-        let Some(file_path) = path_of_video_url(path) else {
-            return status(400);
-        };
+        let answer = crate::logic::video::answer_video_request(path, range.as_deref());
 
-        let file_path = std::path::PathBuf::from(&file_path);
-        // The URL says which file, and the URL came back out of the web view.
-        // Only something that is a video by its name is served: this handler
-        // can otherwise be asked for any file the user running Cantara can
-        // read, and the page that asks is not necessarily one Cantara wrote —
-        // a video slide could name a path that arrived in an imported running
-        // order.
-        if crate::logic::sourcefiles::SourceFileType::of(
-            &file_path.file_name().unwrap_or_default().to_string_lossy(),
-        ) != Some(crate::logic::sourcefiles::SourceFileType::Video)
-        {
-            return status(403);
+        let mut builder = Response::builder().status(answer.status);
+        for (name, value) in &answer.headers {
+            builder = builder.header(*name, value);
         }
-
-        let Ok(mut file) = std::fs::File::open(&file_path) else {
-            return status(404);
-        };
-        let Ok(metadata) = file.metadata() else {
-            return status(404);
-        };
-        let length = metadata.len();
-
-        let mime = crate::logic::sourcefiles::mime_type_of_video(
-            &file_path.file_name().unwrap_or_default().to_string_lossy(),
-        );
-
-        // No `Range` means the whole file, and that is a `200`. A `Range` that
-        // cannot be satisfied is a `416` rather than the whole file, or a
-        // player that asked to start ten minutes in would play the beginning
-        // and nobody would know why.
-        let (wanted, partial) = match &range {
-            Some(header) => match parse_byte_range(header, length) {
-                Some(wanted) => (wanted, true),
-                None => {
-                    return Response::builder()
-                        .status(416)
-                        .header("Content-Range", format!("bytes */{length}"))
-                        .body(Vec::new())
-                        .unwrap_or_else(|_| status(416));
-                }
-            },
-            None => match ByteRange::whole(length) {
-                Some(whole) => (whole, false),
-                // A file of no bytes has no first byte either. Fabricating a
-                // one-byte range here meant the read below failed and the
-                // answer was a 500 — an internal error reported for a file that
-                // is simply empty, which is a wrong thing to go looking for.
-                None => return status(404),
-            },
-        };
-
-        let mut body = vec![0u8; wanted.length() as usize];
-        if file.seek(SeekFrom::Start(wanted.start)).is_err() {
-            return status(500);
-        }
-        match file.read_exact(&mut body) {
-            Ok(()) => {}
-            Err(_) => return status(500),
-        }
-
-        let builder = Response::builder()
-            .header("Content-Type", mime)
-            // Without this a web view will not seek at all: it takes the
-            // absence of the header to mean the whole file or nothing.
-            .header("Accept-Ranges", "bytes")
-            .header("Content-Length", body.len().to_string());
-
-        let builder = if partial {
-            builder.status(206).header(
-                "Content-Range",
-                format!("bytes {}-{}/{}", wanted.start, wanted.end, length),
-            )
-        } else {
-            builder.status(200)
-        };
-
-        builder.body(body).unwrap_or_else(|_| status(500))
+        builder
+            .body(answer.body)
+            .unwrap_or_else(|_| status(500))
     }
 
     /// A reply with nothing in it but its status.
