@@ -358,6 +358,28 @@
     cursor: pointer;
     overflow: hidden;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+    /* Off-screen thumbnails cost nothing.
+     *
+     * Every thumbnail here is a live slide, laid out at the *presentation's own
+     * resolution* and shrunk with a transform — that is what makes it a picture
+     * of the slide rather than the slide re-flowed small, and it is why the
+     * line breaks match. The price is that a service on a 4K screen builds a
+     * 3840 × 2160 subtree per slide, and a running order of thirty slides is
+     * thirty of them. Scrolling then repaints work that is measured in the
+     * target screen's area, which is why a large screen crawled and a small one
+     * did not.
+     *
+     * `content-visibility: auto` lets the engine skip layout and painting
+     * entirely for the ones that are not on screen. `contain-intrinsic-size` is
+     * what keeps that from being visible: without it a skipped element measures
+     * zero, the page would collapse and the scrollbar would jump about as
+     * thumbnails came in and out of view. The real size is written inline where
+     * it is known — see `PresenterGridPanel`.
+     *
+     * An engine that does not know the property ignores it and behaves as
+     * before, so this costs nothing where it does not help. */
+    content-visibility: auto;
 }
 
 .presenter-grid-slide:hover {
@@ -395,6 +417,11 @@
 
 .presenter-grid-slide-inner {
     pointer-events: none;
+    /* A change inside one thumbnail cannot reflow or repaint the others. Thirty
+       independent slides have nothing to say about one another's layout, and
+       saying so is what keeps one arriving background picture from touching
+       all of them. */
+    contain: layout paint style;
 }
 
 /* ── The list of elements beside the console ─────────────────────────────── */

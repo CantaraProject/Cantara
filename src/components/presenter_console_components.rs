@@ -589,6 +589,14 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                                             div {
                                                 key: "{ch_idx}-{sl_idx}-{is_active}",
                                                 class: if is_active { "presenter-grid-slide active" } else { "presenter-grid-slide" },
+                                                // What this thumbnail measures
+                                                // while it is off screen and
+                                                // not being drawn. Without it a
+                                                // skipped thumbnail measures
+                                                // nothing and the grid collapses
+                                                // as it scrolls. See
+                                                // `.presenter-grid-slide`.
+                                                style: "contain-intrinsic-size: {size}px {thumb_height}px;",
                                                 onclick: move |_| {
                                                     running_presentation.write().jump_to(ch_idx, sl_idx);
                                                 },
