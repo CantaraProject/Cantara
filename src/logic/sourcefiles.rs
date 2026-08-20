@@ -285,10 +285,11 @@ pub struct SourceFile {
 pub fn get_source_files(start_dir: &Path) -> Vec<SourceFile> {
     let paths = find_supported_files(start_dir);
 
-    // Fingerprinting is what makes a scan expensive — every file is read from
-    // beginning to end — and each file's fingerprint is independent of the
-    // others, so they are computed a handful at a time. Everything else here
-    // is string work on names that are already in memory.
+    // Fingerprinting is what makes a scan expensive — a file that is
+    // fingerprinted is read from beginning to end — and each file's
+    // fingerprint is independent of the others, so they are computed a handful
+    // at a time. Everything else here is string work on names that are already
+    // in memory.
     let hashes = crate::logic::parallel::map_parallel(&paths, |path| fingerprint(path));
 
     paths
@@ -320,15 +321,40 @@ pub fn count_source_files(start_dir: &Path) -> usize {
     find_supported_files(start_dir).len()
 }
 
+/// How large a file may be and still be read from end to end to identify it.
+///
+/// Everything Cantara identifies by its contents — a song, a running order, a
+/// slide's Markdown — is a document of a few kilobytes. What is above this
+/// line is media: a video, a scan, a recording. Reading those is what made
+/// adding one, or opening a library that holds a few, take the time it took —
+/// a library of videos is tens of gigabytes, and every one of them was read
+/// from end to end each time the library was scanned, for a hash that only
+/// ever says whether two files are the same file.
+///
+/// Sixteen megabytes leaves every document Cantara can open well inside it.
+pub const MAX_FINGERPRINTED_BYTES: u64 = 16 * 1024 * 1024;
+
 #[cfg(not(target_arch = "wasm32"))]
 /// The MD5 hash of a file's contents, which is how the program tells one
 /// version of a file from another — see [`SourceFile::md5_hash`].
 ///
-/// Read in blocks rather than in one piece: a library may hold a video or a
-/// scanned score of a few hundred megabytes, and there is no reason for any of
-/// it to be in memory at once when all that comes out is a hash.
-fn fingerprint(path: &Path) -> Option<String> {
+/// `None` for a file above [`MAX_FINGERPRINTED_BYTES`], which is not read at
+/// all. Nothing needs the hash of one: a file with no fingerprint is found in
+/// the library by its name instead — see `find_in_library` in
+/// [`crate::logic::selection_io`] — and what a fingerprint is otherwise for is
+/// noticing that a document was edited between two scans, which is not
+/// something that happens to a service video.
+///
+/// Read in blocks rather than in one piece: even sixteen megabytes has no
+/// reason to be in memory at once when all that comes out is a hash.
+pub fn fingerprint(path: &Path) -> Option<String> {
     use std::io::Read;
+
+    // Asking the file system how big it is costs one call and saves reading
+    // hundreds of megabytes.
+    if fs::metadata(path).ok()?.len() > MAX_FINGERPRINTED_BYTES {
+        return None;
+    }
 
     /// Big enough that the read syscalls disappear next to the disk itself,
     /// small enough to stay in cache while it is being hashed.
@@ -659,6 +685,42 @@ pub mod tests {
                 sf.name
             );
         }
+    }
+
+    /// A file too large to identify by its contents is not read at all.
+    ///
+    /// This is what a service video is, and reading them is what made adding
+    /// one — and opening a library that holds a few — take as long as it did.
+    /// The scan learns nothing from the hash of a video that it does not
+    /// already know from the video's name and where it lies.
+    #[test]
+    fn a_file_too_large_to_identify_by_its_contents_is_not_read() {
+        let folder = tempfile::tempdir().expect("a temporary folder");
+
+        let small = folder.path().join("Intro.mp4");
+        std::fs::write(&small, vec![7u8; 1024]).expect("the file can be written");
+        let large = folder.path().join("Sermon.mp4");
+        std::fs::write(&large, vec![7u8; MAX_FINGERPRINTED_BYTES as usize + 1])
+            .expect("the file can be written");
+
+        assert!(
+            fingerprint(&small).is_some(),
+            "a small file is still identified by what is in it"
+        );
+        assert_eq!(
+            fingerprint(&large),
+            None,
+            "a large file is identified by where it lies, not by being read"
+        );
+
+        // And the scan carries that through rather than filling the gap in
+        // some other way.
+        let scanned = get_source_files(folder.path());
+        let large_file = scanned
+            .iter()
+            .find(|file| file.name == "Sermon")
+            .expect("the video is in the library");
+        assert_eq!(large_file.md5_hash, None);
     }
 
     #[test]

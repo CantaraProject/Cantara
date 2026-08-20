@@ -429,6 +429,33 @@ html, body {
     opacity: 1;
 }
 
+/* The controls themselves are the console's — see `.video-controls` in
+   `presenter_console.css`. On the projection they are drawn on the dark pill
+   above rather than on a card of their own, so the card is taken off them and
+   the colours are the ones that can be seen on black. */
+.presentation-video-controls .video-controls {
+    --video-accent: #fff;
+    --video-track: rgba(255, 255, 255, 0.35);
+    --video-hover: rgba(255, 255, 255, 0.18);
+    --video-ink: #fff;
+
+    width: 24rem;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: none;
+}
+
+/* Filled in white, so the one button that is filled is still the one that
+   stands out. */
+.presentation-video-controls .video-controls button.video-play {
+    color: #000;
+}
+
+.presentation-video-controls .video-time {
+    color: rgba(255, 255, 255, 0.7);
+}
+
 @media (prefers-reduced-motion: reduce) {
     .presentation-video-controls {
         transition: none;

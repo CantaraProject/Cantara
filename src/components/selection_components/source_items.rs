@@ -584,19 +584,21 @@ pub(crate) async fn process_dropped_files(
 
         let stem = SourceFileType::display_name(&file_name);
 
-        let content = match file_data.read_bytes().await {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                log::warn!("Failed to read dropped file '{}': {}", file_name, e);
-                continue;
-            }
-        };
-
-        let md5_hash = Some(format!("{:x}", md5::compute(&*content)));
-
         #[cfg(target_arch = "wasm32")]
         {
             use crate::logic::settings::RepositoryType;
+
+            // The browser build has no file system to leave the file in, so
+            // its bytes have to be carried into the VFS whatever they weigh.
+            let content = match file_data.read_bytes().await {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    log::warn!("Failed to read dropped file '{}': {}", file_name, e);
+                    continue;
+                }
+            };
+
+            let md5_hash = Some(format!("{:x}", md5::compute(&*content)));
             let vfs_path = format!("drop://{}", file_name);
             RepositoryType::store_web_file(&vfs_path, content.to_vec());
             let sf = SourceFile {
@@ -614,6 +616,14 @@ pub(crate) async fn process_dropped_files(
 
         #[cfg(not(target_arch = "wasm32"))]
         {
+            // Where the file already lies is where it stays, so nothing about
+            // it has to be read to add it — and a dropped video is not read at
+            // all. Dropping one used to pull the whole file through memory for
+            // a hash that was thrown away with the bytes, which is why adding
+            // a video took as long as it did. See
+            // [`crate::logic::sourcefiles::fingerprint`].
+            let md5_hash = crate::logic::sourcefiles::fingerprint(&file_path);
+
             let sf = SourceFile {
                 name: stem,
                 path: file_path,
