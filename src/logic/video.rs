@@ -360,7 +360,7 @@ pub fn control_script(playing: bool, muted: bool, volume: f64, seek_to: Option<f
 
     format!(
         "(function() {{
-            var v = document.querySelector('.slide-video-live');
+            var v = document.querySelector('.{LIVE_CLASS}');
             if (!v) {{ return; }}
             {seek}
             v.muted = {muted};
@@ -382,8 +382,53 @@ pub fn control_script(playing: bool, muted: bool, volume: f64, seek_to: Option<f
 pub fn seek_script(seconds: f64) -> String {
     format!(
         "(function() {{
-            var v = document.querySelector('.slide-video-live');
+            var v = document.querySelector('.{LIVE_CLASS}');
             if (v) {{ v.currentTime = {seconds:.3}; }}
+        }})();"
+    )
+}
+
+/// The class the one element that is *being* operated carries.
+///
+/// Everything that plays, pauses, seeks or reads a position finds its element
+/// by this, so there is exactly one of them in a window. A window that shows
+/// the same video somewhere else as well — the console's overview draws the
+/// slide that is up as a thumbnail — gives that one [`MIRROR_CLASS`] instead.
+pub const LIVE_CLASS: &str = "slide-video-live";
+
+/// The class a second view of the same video carries.
+///
+/// It takes no commands and makes no sound. It is told, a few times a second,
+/// where the one that is playing has got to, and catches up when it has
+/// drifted — the same arrangement the other *window* uses, in one window. See
+/// [`mirror_script`].
+pub const MIRROR_CLASS: &str = "slide-video-mirror";
+
+/// The script that brings a mirrored video into line with the one that is
+/// playing.
+///
+/// Silent whatever the operator set: the mirror is a picture of what is
+/// running, and two elements playing the same sound in one window is the
+/// flanging echo that [`AudioOwner`] exists to prevent.
+///
+/// The same slack as a following window gets, and for the same reason: two
+/// decoders on two clocks are a few frames apart as a matter of course, and
+/// correcting that several times a second stutters the picture rather than
+/// steadying it.
+pub fn mirror_script(seconds: f64, playing: bool) -> String {
+    format!(
+        "(function() {{
+            var v = document.querySelector('.{MIRROR_CLASS}');
+            if (!v) {{ return; }}
+            v.muted = true;
+            if (Math.abs(v.currentTime - {seconds:.3}) > {DRIFT_TOLERANCE}) {{
+                v.currentTime = {seconds:.3};
+            }}
+            if ({playing}) {{
+                if (v.paused) {{ var p = v.play(); if (p) {{ p.catch(function() {{}}); }} }}
+            }} else if (!v.paused) {{
+                v.pause();
+            }}
         }})();"
     )
 }
@@ -394,12 +439,14 @@ pub fn seek_script(seconds: f64) -> String {
 /// on screen. The window that owns the sound runs this a few times a second so
 /// that the console's scrubber can follow and the network stream knows where
 /// the service is.
-pub fn report_script() -> &'static str {
-    "return (function() {
-        var v = document.querySelector('.slide-video-live');
-        if (!v) { return null; }
-        return [v.currentTime, isFinite(v.duration) ? v.duration : 0, !v.paused];
-    })();"
+pub fn report_script() -> String {
+    format!(
+        "return (function() {{
+            var v = document.querySelector('.{LIVE_CLASS}');
+            if (!v) {{ return null; }}
+            return [v.currentTime, isFinite(v.duration) ? v.duration : 0, !v.paused];
+        }})();"
+    )
 }
 
 /// A length in seconds, as a clock reads it.
@@ -829,6 +876,66 @@ mod tests {
 
         assert!(script.contains("v.muted = true"));
         assert!(script.contains("0.700"), "the volume is kept while muted");
+    }
+
+    /// The mirror in the console's overview follows the video that is
+    /// playing, and is not one of the things that can command it.
+    ///
+    /// One element in a window is *the* video — the one that is played,
+    /// paused, seeked and read from. Everything finds it by its class, so a
+    /// second element showing the same file has to carry a different one or
+    /// the scripts would reach whichever came first in the document.
+    #[test]
+    fn test_the_mirror_and_the_video_that_is_playing_are_not_the_same_element() {
+        let mirror = mirror_script(30.0, true);
+        let command = control_script(true, false, 1.0, None);
+        let report = report_script();
+
+        assert_ne!(LIVE_CLASS, MIRROR_CLASS);
+        assert!(mirror.contains(MIRROR_CLASS));
+        assert!(!mirror.contains(LIVE_CLASS), "the mirror must not be commanded as the live one");
+        assert!(command.contains(LIVE_CLASS) && !command.contains(MIRROR_CLASS));
+        assert!(report.contains(LIVE_CLASS) && !report.contains(MIRROR_CLASS));
+    }
+
+    /// A mirror is silent whatever the operator set. It is in the same window
+    /// as the element that *is* making the sound, and the same file played
+    /// twice a few milliseconds apart is a flanging echo.
+    #[test]
+    fn test_a_mirror_makes_no_sound() {
+        for playing in [true, false] {
+            assert!(
+                mirror_script(12.0, playing).contains("v.muted = true"),
+                "a mirror that is {playing:?} still makes no sound"
+            );
+        }
+    }
+
+    /// It shows what the video is doing, which is both where it has got to and
+    /// whether it is moving at all.
+    #[test]
+    fn test_the_mirror_follows_the_playing_and_the_position() {
+        let running = mirror_script(42.0, true);
+        assert!(running.contains("42.000"));
+        assert!(running.contains("v.play()"));
+
+        let stopped = mirror_script(42.0, false);
+        assert!(stopped.contains("v.pause()"));
+    }
+
+    /// …but is left alone while it is close enough, for the reason a following
+    /// window is: two decoders on two clocks are a few frames apart as a
+    /// matter of course, and assigning `currentTime` several times a second
+    /// stutters the picture rather than steadying it.
+    #[test]
+    fn test_the_mirror_is_only_pulled_back_when_it_has_drifted() {
+        let script = mirror_script(42.0, true);
+
+        assert!(script.contains("Math.abs"));
+        assert!(
+            script.contains(&format!("{DRIFT_TOLERANCE:.1}")),
+            "the same slack a following window is given"
+        );
     }
 
     /// A window is left alone while it is close enough. Correcting a few

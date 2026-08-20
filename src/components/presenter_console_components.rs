@@ -10,7 +10,7 @@ use crate::logic::sync::{
     SYNC_KEY_QUIT,
 };
 use crate::MAIN_CSS;
-use cantara_songlib::slides::{SlideContent, SlideRow};
+use cantara_songlib::slides::{Slide, SlideContent, SlideRow};
 use dioxus::prelude::*;
 use rust_i18n::t;
 
@@ -632,7 +632,21 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                                                     div {
                                                         class: "slide-scale-inner",
                                                         style: "width: {native_w}px; height: {native_h}px; transform: scale({scale});",
-                                                        StaticSlideRendererComponent { slide: slide.clone(), presentation_design: design.clone() }
+                                                        // The thumbnail of the slide that is up shows what
+                                                        // the room is watching, which for a video means the
+                                                        // video and not its first frame. Every other
+                                                        // thumbnail stays a still; see [`MirroredSlide`].
+                                                        if is_active {
+                                                            MirroredSlide {
+                                                                slide: slide.clone(),
+                                                                presentation_design: design.clone(),
+                                                            }
+                                                        } else {
+                                                            StaticSlideRendererComponent {
+                                                                slide: slide.clone(),
+                                                                presentation_design: design.clone(),
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -645,6 +659,30 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                 }
             }
         }
+    }
+}
+
+/// The thumbnail of the slide the service is on.
+///
+/// The same rendering as any other thumbnail, with one thing said around it:
+/// a video in here is a picture of the one that is playing rather than a still
+/// of its opening frame. A still of a video that is running tells the operator
+/// nothing about what the room is watching — not where it has got to, and not
+/// whether it is moving at all.
+///
+/// Only the slide that is up gets this. The overview draws every slide of the
+/// service at once, and a service of twenty videos would otherwise open twenty
+/// decoders for the nineteen nobody is looking at.
+///
+/// The marker travels down through the context; what reads it, and what a
+/// mirrored video does differently, is in
+/// [`VideoSlideComponent`](crate::components::presentation_components).
+#[component]
+fn MirroredSlide(slide: Slide, presentation_design: PresentationDesign) -> Element {
+    use_context_provider(|| crate::components::presentation_components::MirrorsTheVideo);
+
+    rsx! {
+        StaticSlideRendererComponent { slide, presentation_design }
     }
 }
 

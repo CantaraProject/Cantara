@@ -1677,6 +1677,16 @@ fn slide_body(
     }
 }
 
+/// Marks a rendering whose video is a *picture of* the one that is playing.
+///
+/// Handed down through the context rather than as a prop for the same reason
+/// [`PresentationRole`] is: the thing that asks sits several layers below the
+/// view that knows the answer, and everything in between has no business
+/// carrying it. Provided by the console's overview around the thumbnail of the
+/// slide that is up; read in [`VideoSlideComponent`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct MirrorsTheVideo;
+
 /// Plays the video of a video slide.
 ///
 /// The playing is the web view's own: a `<video>` element, fed by the handler
@@ -1746,6 +1756,39 @@ fn VideoSlideComponent(
     // service began playing the moment the overview was opened, twenty of them
     // at once, none of them the slide anybody was looking at.
     let is_live = running_presentation.is_some();
+
+    // …and whether this picture of one is meant to move.
+    //
+    // The thumbnail of the slide that is up, in the console's overview: a
+    // still of a video that is playing says nothing about what the room is
+    // watching, so that one follows the video instead of showing its first
+    // frame. Every other thumbnail is still a still — twenty decoders for
+    // slides nobody is looking at is what the rule above is there to prevent.
+    //
+    // It is not the live element: it takes no commands, makes no sound, and is
+    // not what the console reports the position from. It is pulled onto the
+    // published position a few times a second, exactly as a following *window*
+    // is. See [`crate::logic::video::mirror_script`].
+    let mirrors = !is_live && try_consume_context::<MirrorsTheVideo>().is_some();
+
+    if mirrors {
+        use_effect(move || {
+            spawn(async move {
+                loop {
+                    crate::logic::timer::sleep(std::time::Duration::from_millis(250)).await;
+                    // Nobody is playing anything, so there is nothing to
+                    // follow — the thumbnail keeps the frame it is on.
+                    let Some((position, _, playing)) =
+                        crate::logic::video::published_position()
+                    else {
+                        continue;
+                    };
+                    let script = crate::logic::video::mirror_script(position, playing);
+                    let _ = document::eval(&script).await;
+                }
+            });
+        });
+    }
 
     // The slide says how the video starts; from then on the running
     // presentation says what it is doing, and every window follows the same
@@ -1850,7 +1893,7 @@ fn VideoSlideComponent(
                         continue;
                     };
                     let Ok(value) =
-                        document::eval(crate::logic::video::report_script()).await
+                        document::eval(&crate::logic::video::report_script()).await
                     else {
                         continue;
                     };
@@ -1879,7 +1922,7 @@ fn VideoSlideComponent(
                 loop {
                     crate::logic::timer::sleep(std::time::Duration::from_millis(250)).await;
                     let Ok(value) =
-                        document::eval(crate::logic::video::report_script()).await
+                        document::eval(&crate::logic::video::report_script()).await
                     else {
                         continue;
                     };
@@ -1927,25 +1970,38 @@ fn VideoSlideComponent(
             // that play, pause and seek reach the element by selector, and
             // the overview puts a `.slide-video` on screen for every slide of
             // the service. Without this they would command whichever of those
-            // happened to come first in the document.
-            class: if is_live { "slide-video slide-video-live" } else { "slide-video" },
+            // happened to come first in the document. The mirror is marked
+            // apart from both — it is told where to be rather than asked to
+            // go anywhere.
+            class: if is_live {
+                "slide-video slide-video-live"
+            } else if mirrors {
+                "slide-video slide-video-mirror"
+            } else {
+                "slide-video"
+            },
             // Only where this is the slide the service is on. In the overview
-            // it is a picture of a slide, and a picture does not play.
+            // it is a picture of a slide, and a picture does not play — the
+            // one that moves is started by the script that keeps it level with
+            // the video it is a picture of.
             autoplay: is_live && video_slide.autostart,
             r#loop: is_live && video_slide.looping,
             // One window per machine makes the sound, and the rest are silent —
             // two playing the same file tens of milliseconds apart is a
-            // flanging echo rather than a louder video.
-            muted: !makes_the_sound,
+            // flanging echo rather than a louder video. A mirror is silent
+            // whatever else is true: it is in the same window as the one that
+            // *is* making the sound.
+            muted: mirrors || !makes_the_sound,
             // No browser chrome. The presentation is a projection, and a
             // playback bar across the bottom of it belongs to the operator's
             // screen rather than to the room's.
             controls: false,
             playsinline: true,
             // A thumbnail wants the first frame and nothing more; the slide
-            // that is up wants to be ready to play. Twenty thumbnails each
-            // fetching a whole film is what the overview would otherwise cost.
-            preload: if is_live { "auto" } else { "metadata" },
+            // that is up wants to be ready to play, and so does the one
+            // thumbnail that is following it. Twenty thumbnails each fetching
+            // a whole film is what the overview would otherwise cost.
+            preload: if is_live || mirrors { "auto" } else { "metadata" },
             source { src: "{source}", r#type: "{mime}" }
         }
     }
