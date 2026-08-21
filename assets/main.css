@@ -547,11 +547,69 @@ div.inline-div {
     cursor: pointer;
 }
 
-/* The passage a content hit was found in. */
+/* Where the hit sits in the element, drawn as a card under its name: the
+ * passage itself, and in the corner what part of the element it is.
+ *
+ * A quotation rather than a continuation of the list, which is why it is set
+ * apart at all — the line belongs to the song above it, not to the song below
+ * it, and without the box the two run together. */
+.search-result-context {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0.4rem 0 0.2rem 1.2rem;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    background-color: var(--pico-card-sectioning-background-color);
+}
+
+/* The passage a content hit was found in.
+ *
+ * Line breaks are kept: lyrics are written in lines, and a verse whose lines
+ * have run together is not the verse anybody knows. */
 .search-result-content {
-    margin-top: 0.25rem;
+    flex: 1;
+    min-width: 0;
     font-size: 0.9em;
-    color: var(--pico-muted-color);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* …but a rendered document brings its own block elements, and `pre-wrap`
+   inside those turns every source line break into a break on screen. */
+.search-result-markdown { white-space: normal; }
+
+.search-result-markdown > :first-child { margin-top: 0; }
+.search-result-markdown > :last-child { margin-bottom: 0; }
+
+/* Headings inside a passage are a passage, not a page: they say which of the
+   document's own headings this text sat under, and a 2rem heading in a result
+   list would out-shout the name of the element it was found in. */
+.search-result-markdown :is(h1, h2, h3, h4, h5, h6) {
+    font-size: 1em;
+    margin-bottom: 0.3rem;
+}
+
+.search-result-markdown :is(p, ul, ol, blockquote) { margin-bottom: 0.4rem; }
+
+/* Which verse, which heading, which page — in the corner, quiet enough not to
+ * be read before the passage it labels. */
+.search-result-label {
+    order: 1;
+    flex: none;
+    font-size: 0.85em;
+    color: var(--pico-primary);
+    white-space: nowrap;
+}
+
+/* A picture has no text to quote and shows itself instead. Small: the point is
+   to recognise it, and ten of these should still be a list. */
+.search-result-picture {
+    max-height: 6rem;
+    max-width: 100%;
+    border-radius: var(--pico-border-radius);
 }
 
 /* The keyboard shortcut in front of the first ten hits. */

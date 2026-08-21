@@ -435,3 +435,6 @@ search:
   result_number:
     en: "Alt+%{number}"
     de: "Alt+%{number}"
+  page:
+    en: "Page %{number}"
+    de: "Seite %{number}"

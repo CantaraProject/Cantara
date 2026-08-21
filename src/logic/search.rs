@@ -19,11 +19,46 @@ use std::sync::{Mutex, OnceLock};
 // The indexed text of every element, keyed by file path.
 static SONG_CONTENT_CACHE: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
 
+// Where each element's text falls into named sections, keyed by file path.
+static SECTION_CACHE: OnceLock<Mutex<HashMap<PathBuf, Vec<Section>>>> = OnceLock::new();
+
 // Dedicated cache for per-page PDF text, keyed by "{path}#page={N}" strings.
 static PDF_PAGE_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 
 fn cache() -> &'static Mutex<HashMap<PathBuf, String>> {
     SONG_CONTENT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn section_cache() -> &'static Mutex<HashMap<PathBuf, Vec<Section>>> {
+    SECTION_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// A named stretch of an element's text: a verse of a song, whatever stands
+/// under a heading of a markdown document, a page of a PDF.
+///
+/// What a result list needs in order to say *where* it found something. A line
+/// of lyrics on its own is not an answer to "which song was that" — the reader
+/// wants to know it is the second verse, and the mockup this was built from
+/// says so in the corner of every hit.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Section {
+    /// Where it begins in the indexed text, counted in `char`s.
+    pub start: usize,
+    /// What to call it, as a user would say it.
+    ///
+    /// Translated when the index is built rather than when a result is drawn,
+    /// which is why changing the program's language shows through here only
+    /// after the next scan of the library.
+    pub label: String,
+}
+
+/// The section `position` falls in: the last one that begins at or before it.
+fn label_at(sections: &[Section], position: usize) -> Option<String> {
+    sections
+        .iter()
+        .rev()
+        .find(|section| section.start <= position)
+        .map(|section| section.label.clone())
 }
 
 fn pdf_page_cache() -> &'static Mutex<HashMap<String, String>> {
@@ -42,6 +77,10 @@ pub fn invalidate_search_cache() {
             map.clear();
         }
     if let Some(m) = PDF_PAGE_CACHE.get()
+        && let Ok(mut map) = m.lock() {
+            map.clear();
+        }
+    if let Some(m) = SECTION_CACHE.get()
         && let Ok(mut map) = m.lock() {
             map.clear();
         }
@@ -111,13 +150,20 @@ pub fn extract_pdf_page_text_from_bytes(bytes: &[u8], page_number: u32, path_key
 /// A PDF contributes nothing here: it is the one format whose text has to be
 /// parsed out of it, which is far too slow to do while someone is typing, and
 /// [`index_pdf`] does it during the scan instead.
-fn index_text(file: &SourceFile) -> Option<String> {
+fn index_text(file: &SourceFile) -> Option<(String, Vec<Section>)> {
     match file.file_type {
         SourceFileType::Song => {
             let content = read_source_file(file).ok()?;
-            Some(lyrics_of(file, &content).unwrap_or(content))
+            // A file that will not parse is still indexed, as itself. There is
+            // nothing to say about where in it a hit sits, though — its blocks
+            // are YAML keys rather than verses.
+            Some(lyrics_of(file, &content).unwrap_or((content, Vec::new())))
         }
-        SourceFileType::Markdown => read_source_file(file).ok(),
+        SourceFileType::Markdown => {
+            let content = read_source_file(file).ok()?;
+            let sections = markdown_sections(&content);
+            Some((content, sections))
+        }
         _ => None,
     }
 }
@@ -125,7 +171,7 @@ fn index_text(file: &SourceFile) -> Option<String> {
 /// What one file of the library contributes to the two indexes: the text the
 /// search matches against, and — for a PDF — the text of each of its pages,
 /// keyed as [`PDF_PAGE_CACHE`] holds them.
-type IndexedFile = (Option<String>, Vec<(String, String)>);
+type IndexedFile = (Option<(String, Vec<Section>)>, Vec<(String, String)>);
 
 /// What one PDF contributes to both indexes: the text of each of its pages,
 /// keyed as the page index holds them, and all of it as one text for the
@@ -143,9 +189,22 @@ fn index_pdf(path: &std::path::Path) -> IndexedFile {
 
     let path_str = path.display().to_string();
     let mut pages: Vec<(String, String)> = Vec::new();
+    // Which page each stretch of the joined text came from, so a hit can say
+    // where in the document it is. Built here because this is the only place
+    // that still knows: once the pages are joined the boundaries are gone.
+    let mut sections: Vec<Section> = Vec::new();
+    let mut offset = 0;
     for number in document.get_pages().keys().copied() {
         match document.extract_text(&[number]) {
-            Ok(text) => pages.push((format!("{}#page={}", path_str, number), text)),
+            Ok(text) => {
+                sections.push(Section {
+                    start: offset,
+                    label: rust_i18n::t!("search.page", number => number).to_string(),
+                });
+                // …plus the newline the pages are joined with.
+                offset += text.chars().count() + 1;
+                pages.push((format!("{}#page={}", path_str, number), text));
+            }
             Err(error) => log::debug!(
                 "Text extraction failed for page {} of {}: {}",
                 number, path_str, error
@@ -161,13 +220,108 @@ fn index_pdf(path: &std::path::Path) -> IndexedFile {
         .map(|(_, text)| text.as_str())
         .collect::<Vec<&str>>()
         .join("\n");
-    (Some(text), pages)
+    (Some((text, sections)), pages)
 }
 
-/// The lyrics of a song file, as plain text.
-fn lyrics_of(file: &SourceFile, content: &str) -> Option<String> {
+/// The lyrics of a song file, as plain text, and which verse each passage of
+/// them belongs to.
+fn lyrics_of(file: &SourceFile, content: &str) -> Option<(String, Vec<Section>)> {
     let song = crate::logic::export::song_from_content(file.file_name(), content).ok()?;
-    text_from_song(&song, &TextSettings::default()).ok()
+    let text = text_from_song(&song, &TextSettings::default()).ok()?;
+    let sections = song_sections(&song, &text);
+    Some((text, sections))
+}
+
+/// Which verse each passage of a song's exported text belongs to.
+///
+/// [`text_from_song`] writes the title, then every part that has lyrics in
+/// singing order, separated by blank lines — so the blocks of the text and the
+/// parts line up one for one. That is checked rather than assumed: a part whose
+/// own lyrics contain a blank line would shift every block after it, and a
+/// verse labelled "Refrain" is worse than a verse labelled nothing at all.
+///
+/// A refrain sung after each verse is several blocks and gets a section each,
+/// because the reader is being told where in the *song as it is sung* the line
+/// sits.
+fn song_sections(song: &cantara_songlib::song::Song, text: &str) -> Vec<Section> {
+    let parts: Vec<&cantara_songlib::song::SongPart> = song
+        .ordered_parts()
+        .into_iter()
+        .filter(|part| {
+            part.lyrics_for(None, song.default_language.as_deref())
+                .is_some()
+        })
+        .collect();
+
+    let blocks = blocks_of(text);
+    // The first block is the title, which is not a part; anything else means
+    // the text is not shaped the way this expects.
+    if blocks.len() != parts.len() + 1 {
+        return Vec::new();
+    }
+
+    blocks
+        .into_iter()
+        .skip(1)
+        .zip(parts)
+        .map(|((start, _), part)| Section {
+            start,
+            label: crate::logic::detail::part_label(song, part),
+        })
+        .collect()
+}
+
+/// Where each block of a text begins and ends, in `char`s.
+///
+/// A block is what a blank line separates: a verse of a song, a paragraph of a
+/// document. This is what a passage is cut along, so that a hit is shown as the
+/// verse it belongs to rather than as forty characters either side of a word.
+fn blocks_of(text: &str) -> Vec<(usize, usize)> {
+    let mut blocks: Vec<(usize, usize)> = Vec::new();
+    let mut open: Option<(usize, usize)> = None;
+    let mut offset = 0;
+
+    for line in text.split_inclusive('\n') {
+        let length = line.chars().count();
+        let content = line.trim_end_matches(['\n', '\r']);
+        if content.trim().is_empty() {
+            blocks.extend(open.take());
+        } else {
+            let (start, _) = open.unwrap_or((offset, offset));
+            open = Some((start, offset + content.chars().count()));
+        }
+        offset += length;
+    }
+
+    blocks.extend(open);
+    blocks
+}
+
+/// The headings of a markdown document, and where what stands under each of
+/// them begins.
+///
+/// A document is not divided into verses, but it is divided into what its
+/// author headed — and "under *Der Predigttext*" is the same kind of answer to
+/// "where was this found" that a verse number is for a song.
+fn markdown_sections(text: &str) -> Vec<Section> {
+    let mut sections: Vec<Section> = Vec::new();
+    let mut offset = 0;
+
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            let heading = trimmed.trim_start_matches('#').trim();
+            if !heading.is_empty() {
+                sections.push(Section {
+                    start: offset,
+                    label: heading.to_string(),
+                });
+            }
+        }
+        offset += line.chars().count();
+    }
+
+    sections
 }
 
 /// Reads every file of the library into the index.
@@ -199,10 +353,12 @@ pub fn refresh_search_cache(source_files: &[SourceFile]) {
         .collect();
 
     let mut entries: Vec<(PathBuf, String)> = Vec::with_capacity(source_files.len());
+    let mut sections: Vec<(PathBuf, Vec<Section>)> = Vec::new();
     let mut pages: Vec<(String, String)> = Vec::new();
-    for (file, (text, file_pages)) in source_files.iter().zip(indexed) {
-        if let Some(text) = text {
+    for (file, (indexed, file_pages)) in source_files.iter().zip(indexed) {
+        if let Some((text, file_sections)) = indexed {
             entries.push((file.path.clone(), text));
+            sections.push((file.path.clone(), file_sections));
         }
         pages.extend(file_pages);
     }
@@ -210,6 +366,11 @@ pub fn refresh_search_cache(source_files: &[SourceFile]) {
     if let Ok(mut map) = cache().lock() {
         map.clear();
         map.extend(entries);
+    }
+
+    if let Ok(mut map) = section_cache().lock() {
+        map.clear();
+        map.extend(sections);
     }
 
     // The page index is replaced rather than added to, so that the pages of a
@@ -241,20 +402,70 @@ pub fn read_source_file_content(source_file: &SourceFile) -> Option<String> {
         return None;
     }
 
-    let text = index_text(source_file)?;
+    let (text, sections) = index_text(source_file)?;
     if let Ok(mut map) = cache().lock() {
         map.insert(source_file.path.clone(), text.clone());
     }
+    if let Ok(mut map) = section_cache().lock() {
+        map.insert(source_file.path.clone(), sections);
+    }
     Some(text)
+}
+
+/// Where an element's text falls into named sections, as the index holds them.
+fn sections_of(source_file: &SourceFile) -> Vec<Section> {
+    section_cache()
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&source_file.path).cloned())
+        .unwrap_or_default()
 }
 
 /// A passage of an element's text that matched, ready to be shown.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Excerpt {
-    /// The passage itself, cut out around the match.
+    /// The passage itself: the verse, paragraph or page the match sits in,
+    /// whole wherever that is short enough to read at a glance.
     pub text: String,
     /// Which characters of `text` matched, as positions in `char`s.
     pub highlights: Vec<usize>,
+    /// What part of the element this is — `"Strophe 1"`, the heading it stands
+    /// under, `"Seite 3"`. `None` where the element has no such structure.
+    pub label: Option<String>,
+    /// Whether the passage begins in the middle of its block, because the block
+    /// was too long to show whole. The list draws an ellipsis where it does.
+    pub cut_before: bool,
+    /// The same at the end.
+    pub cut_after: bool,
+}
+
+impl Excerpt {
+    /// The distinct pieces of text that matched, longest first.
+    ///
+    /// The positions say which characters of the passage matched, which is all
+    /// a plain rendering needs. A passage rendered as markdown is HTML by the
+    /// time it is drawn and the positions no longer point at anything — so the
+    /// words themselves are handed on instead. Longest first so that a longer
+    /// match is marked before a shorter one it contains.
+    pub fn matched_words(&self) -> Vec<String> {
+        let characters: Vec<char> = self.text.chars().collect();
+        let mut words: Vec<String> = Vec::new();
+        let mut run = String::new();
+
+        for index in 0..=characters.len() {
+            if index < characters.len() && self.highlights.contains(&index) {
+                run.push(characters[index]);
+            } else if !run.is_empty() {
+                if !words.contains(&run) {
+                    words.push(run.clone());
+                }
+                run.clear();
+            }
+        }
+
+        words.sort_by_key(|word| std::cmp::Reverse(word.chars().count()));
+        words
+    }
 }
 
 /// One element the search found.
@@ -281,8 +492,19 @@ const TITLE_WEIGHT: i64 = 1000;
 /// The score every content hit gets, before the bonus for matching more words.
 const CONTENT_BASE_SCORE: i64 = 100;
 
-/// How much text is shown around a hit in the content, in characters.
-const EXCERPT_CONTEXT: usize = 40;
+/// How much of a block is shown when the block is too long to show whole, in
+/// characters: this much before the hit and twice as much after it.
+///
+/// Only a document runs into this. A verse is a verse and is shown entire,
+/// which is the point of cutting along blocks in the first place.
+const EXCERPT_CONTEXT: usize = 120;
+
+/// The longest passage shown whole, in characters.
+///
+/// A result list is read by glancing down it. Roughly a short paragraph is what
+/// can be taken in that way; a page-long section of a sermon in every one of
+/// ten results is a wall of text with the answer somewhere in it.
+const MAX_EXCERPT: usize = 480;
 
 /// Searches the library for `query`.
 ///
@@ -329,7 +551,8 @@ pub fn search_source_files(source_files: &[SourceFile], query: &str) -> Vec<Sear
         let Some(content) = read_source_file_content(source_file) else {
             continue;
         };
-        let Some((excerpt, matched_words)) = content_match(&content, &words) else {
+        let sections = sections_of(source_file);
+        let Some((excerpt, matched_words)) = content_match(&content, &words, &sections) else {
             continue;
         };
 
@@ -395,7 +618,11 @@ fn find_word(haystack: &[char], needle: &[char]) -> Option<usize> {
 /// Returns the passage and how many of the words were found — all of them, or
 /// nothing: a query is a description of one line, and a text that holds only
 /// half of its words is not that line.
-fn content_match(content: &str, words: &[Vec<char>]) -> Option<(Excerpt, usize)> {
+fn content_match(
+    content: &str,
+    words: &[Vec<char>],
+    sections: &[Section],
+) -> Option<(Excerpt, usize)> {
     let original: Vec<char> = content.chars().collect();
     let haystack: Vec<char> = fold(content);
     debug_assert_eq!(haystack.len(), original.len());
@@ -408,8 +635,28 @@ fn content_match(content: &str, words: &[Vec<char>]) -> Option<(Excerpt, usize)>
     }
 
     let first = hits.into_iter().min()?;
-    let start = first.saturating_sub(EXCERPT_CONTEXT);
-    let end = (first + EXCERPT_CONTEXT * 2).min(original.len());
+
+    // The block the hit sits in — the verse, the paragraph — rather than a
+    // fixed number of characters either side of it, which cuts lines in half
+    // and leaves the reader to guess at the rest.
+    let (block_start, block_end) = blocks_of(content)
+        .into_iter()
+        .find(|(from, to)| (*from..*to).contains(&first))
+        .unwrap_or((0, original.len()));
+
+    // …unless the block is a page of prose, in which case only the part of it
+    // around the hit is shown and the list says so with an ellipsis.
+    let (start, end) = if block_end - block_start > MAX_EXCERPT {
+        (
+            first.saturating_sub(EXCERPT_CONTEXT).max(block_start),
+            (first + EXCERPT_CONTEXT * 2).min(block_end),
+        )
+    } else {
+        (block_start, block_end)
+    };
+    let cut_before = start > block_start;
+    let cut_after = end < block_end;
+    let label = label_at(sections, first);
     let excerpt: String = original[start..end].iter().collect();
 
     // Highlight every occurrence of every word that falls inside the excerpt,
@@ -437,9 +684,71 @@ fn content_match(content: &str, words: &[Vec<char>]) -> Option<(Excerpt, usize)>
         Excerpt {
             text: excerpt,
             highlights,
+            label,
+            cut_before,
+            cut_after,
         },
         words.len(),
     ))
+}
+
+/// Marks every occurrence of `needles` in the *text* of `html`.
+///
+/// A markdown passage is shown rendered, and by then the positions the search
+/// recorded point into the source rather than into what is on screen — a `#`
+/// that became an `<h2>` has moved everything after it. So the words are found
+/// again in the rendered HTML, which is what the reader is actually looking at.
+///
+/// Only text is searched: inside a tag is where the attributes are, and a match
+/// in a `href` would be marked with a `<mark>` in the middle of the tag,
+/// wrecking the document. Nothing is escaped or unescaped — the needles come
+/// from the passage's own text, so an entity in the HTML simply fails to match,
+/// which loses a highlight rather than producing a wrong one.
+pub fn highlight_in_html(html: &str, needles: &[String]) -> String {
+    let needles: Vec<&String> = needles.iter().filter(|word| !word.is_empty()).collect();
+    if needles.is_empty() {
+        return html.to_string();
+    }
+
+    let characters: Vec<char> = html.chars().collect();
+    let lowered: Vec<char> = fold(html);
+    let folded: Vec<Vec<char>> = needles.iter().map(|word| fold(word)).collect();
+
+    let mut result = String::with_capacity(html.len());
+    let mut index = 0;
+    let mut in_tag = false;
+
+    while index < characters.len() {
+        match characters[index] {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ => {}
+        }
+
+        let found = (!in_tag && characters[index] != '>')
+            .then(|| {
+                folded
+                    .iter()
+                    .find(|needle| lowered[index..].starts_with(needle))
+                    .map(|needle| needle.len())
+            })
+            .flatten();
+
+        match found {
+            Some(length) => {
+                result.push_str("<mark class=\"search-highlight\">");
+                result.extend(&characters[index..index + length]);
+                result.push_str("</mark>");
+                index += length;
+            }
+            None => {
+                result.push(characters[index]);
+                index += 1;
+            }
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -510,7 +819,7 @@ mod tests {
     #[test]
     fn a_song_is_indexed_as_lyrics_rather_than_as_its_file() {
         invalidate_search_cache();
-        let indexed = index_text(&song("Amazing Grace", "testfiles/Amazing Grace.song.yml"))
+        let (indexed, _) = index_text(&song("Amazing Grace", "testfiles/Amazing Grace.song.yml"))
             .expect("the song can be read");
 
         assert!(
@@ -561,7 +870,7 @@ mod tests {
     #[test]
     fn a_passage_knows_which_characters_matched() {
         let (excerpt, matched) =
-            content_match("Amazing grace, how sweet the sound", &[fold("sweet")])
+            content_match("Amazing grace, how sweet the sound", &[fold("sweet")], &[])
                 .expect("the word is in the text");
 
         assert_eq!(matched, 1);
@@ -575,17 +884,150 @@ mod tests {
         assert_eq!(highlighted, "sweet");
     }
 
+    /// A hit is shown as the block it sits in — the whole verse, not the words
+    /// either side of the match. A line on its own says nothing about which
+    /// song it is from; the verse around it does.
+    #[test]
+    fn a_passage_is_the_whole_verse_it_was_found_in() {
+        let verse = "Amazing grace, how sweet the sound\n\
+                     That saved a wretch like me\n\
+                     I once was lost but now am found\n\
+                     Was blind, but now I see";
+        let content = format!("Amazing Grace\n\n{verse}\n\nTwas grace that taught my heart");
+
+        let (excerpt, _) =
+            content_match(&content, &[fold("wretch")], &[]).expect("the word is in the text");
+
+        assert_eq!(excerpt.text, verse);
+        assert!(!excerpt.cut_before && !excerpt.cut_after, "a verse is shown whole");
+    }
+
+    /// …but a block that is a page of prose is not a verse, and ten of those
+    /// in a result list is a wall of text. That one is cut, and says so.
+    #[test]
+    fn a_passage_too_long_to_read_at_a_glance_is_cut() {
+        let content = format!("{} wretch {}", "wort ".repeat(200), "wort ".repeat(200));
+
+        let (excerpt, _) =
+            content_match(&content, &[fold("wretch")], &[]).expect("the word is in the text");
+
+        assert!(excerpt.text.chars().count() < content.chars().count());
+        assert!(excerpt.text.contains("wretch"));
+        assert!(excerpt.cut_before && excerpt.cut_after, "the reader is told it was cut");
+    }
+
+    /// And it says *where* it was found. Which is the whole point of the
+    /// sections: "Strophe 1" is what turns a quoted line into an answer.
+    #[test]
+    fn a_passage_says_which_section_it_came_from() {
+        let sections = vec![
+            Section { start: 0, label: "Strophe 1".to_string() },
+            Section { start: 20, label: "Refrain".to_string() },
+        ];
+
+        let (excerpt, _) = content_match("kurze zeile\n\nspäter das wort", &[fold("wort")], &sections)
+            .expect("the word is in the text");
+
+        assert_eq!(excerpt.label.as_deref(), Some("Refrain"));
+    }
+
+    /// The verses of a song are found in its exported text, so a hit can be
+    /// labelled with the verse it belongs to rather than with nothing.
+    #[test]
+    fn a_song_hit_is_labelled_with_its_verse() {
+        invalidate_search_cache();
+        let library = vec![song("Amazing Grace", "testfiles/Amazing Grace.song.yml")];
+
+        let results = search_source_files(&library, "wretch like me");
+
+        let excerpt = results[0].excerpt.as_ref().expect("a hit in the text");
+        assert!(
+            excerpt.label.is_some(),
+            "the hit should say which verse it is in, got {excerpt:?}"
+        );
+    }
+
+    /// A markdown document is divided by what its author headed.
+    #[test]
+    fn a_document_is_divided_by_its_headings() {
+        let sections = markdown_sections("Vorwort\n\n## Der Predigttext\n\nEs steht geschrieben\n");
+
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].label, "Der Predigttext");
+        assert!(
+            label_at(&sections, 0).is_none(),
+            "what stands before the first heading is under no heading"
+        );
+        assert_eq!(
+            label_at(&sections, 40).as_deref(),
+            Some("Der Predigttext")
+        );
+    }
+
+    /// Blank lines are what divide a text, and the pieces have to be found
+    /// where they really are — the passage is cut out of the original by
+    /// position.
+    #[test]
+    fn a_text_is_divided_at_its_blank_lines() {
+        let text = "eins\nzwei\n\nvier\n";
+
+        let blocks = blocks_of(text);
+
+        assert_eq!(blocks.len(), 2);
+        let cut = |(from, to): (usize, usize)| {
+            text.chars().skip(from).take(to - from).collect::<String>()
+        };
+        assert_eq!(cut(blocks[0]), "eins\nzwei");
+        assert_eq!(cut(blocks[1]), "vier");
+    }
+
+    /// A rendered passage is HTML by the time it is drawn, so what matched is
+    /// found again in it — but only in the text. A match inside a tag would put
+    /// a `<mark>` in the middle of an attribute and wreck the document.
+    #[test]
+    fn what_matched_is_marked_in_the_rendered_text_only() {
+        let html = r#"<p>Eine <a href="https://gnade.example">Gnade</a></p>"#;
+
+        let marked = highlight_in_html(html, &["gnade".to_string()]);
+
+        assert!(marked.contains(">Eine <"), "the untouched text stays as it was");
+        assert!(
+            marked.contains("<mark class=\"search-highlight\">Gnade</mark>"),
+            "the word in the text is marked, got: {marked}"
+        );
+        assert!(
+            marked.contains(r#"href="https://gnade.example""#),
+            "the link must not have been rewritten, got: {marked}"
+        );
+    }
+
+    /// The words are taken from the passage itself, so that a rendering which
+    /// no longer lines up with the recorded positions can still be marked.
+    #[test]
+    fn a_passage_can_say_what_matched_in_words() {
+        let excerpt = Excerpt {
+            text: "Amazing grace".to_string(),
+            highlights: vec![0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12],
+            label: None,
+            cut_before: false,
+            cut_after: false,
+        };
+
+        assert_eq!(excerpt.matched_words(), vec!["Amazing", "grace"]);
+    }
+
+
     /// A word of the query has to start where a word starts. Without that,
     /// two letters of a half-typed query are found inside every second word
     /// of the library and the result list is noise.
     #[test]
     fn a_word_is_found_at_the_start_of_a_word_only() {
         assert!(
-            content_match("how sweet the sound", &[fold("he")]).is_none(),
+            content_match("how sweet the sound", &[fold("he")], &[]).is_none(),
             "'he' must not be found inside 'the'"
         );
         assert!(
-            content_match("how sweet the sound", &[fold("the")]).is_some(),
+            content_match("how sweet the sound", &[fold("the")], &[]).is_some(),
             "'the' is a word of the text"
         );
     }
@@ -596,7 +1038,7 @@ mod tests {
     fn a_word_of_the_query_may_be_half_typed() {
         for query in ["s", "swe", "sweet"] {
             assert!(
-                content_match("how sweet the sound", &[fold(query)]).is_some(),
+                content_match("how sweet the sound", &[fold(query)], &[]).is_some(),
                 "'{query}' should find 'sweet'"
             );
         }
@@ -618,7 +1060,7 @@ mod tests {
             "the fixture no longer reproduces the mismatch"
         );
 
-        let (excerpt, _) = content_match(content, &[fold("grace")])
+        let (excerpt, _) = content_match(content, &[fold("grace")], &[])
             .expect("the word is in the text");
 
         let highlighted: String = excerpt
@@ -634,7 +1076,7 @@ mod tests {
     /// The search is indifferent to case in both directions.
     #[test]
     fn case_does_not_matter_in_the_content() {
-        let (excerpt, _) = content_match("Amazing GRACE", &[fold("Grace")])
+        let (excerpt, _) = content_match("Amazing GRACE", &[fold("Grace")], &[])
             .expect("the word is in the text");
 
         assert!(excerpt.text.contains("GRACE"));

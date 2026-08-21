@@ -5,8 +5,9 @@
 //! in [`crate::logic::search`]; this module only shows the result.
 
 use crate::components::selection_components::source_items::ItemClickAction;
-use crate::logic::search::SearchResult;
-use crate::logic::sourcefiles::SourceFile;
+use crate::logic::presentation::markdown_to_html;
+use crate::logic::search::{Excerpt, SearchResult, highlight_in_html};
+use crate::logic::sourcefiles::{SourceFile, SourceFileType};
 use crate::logic::states::SelectedItemRepresentation;
 use dioxus::prelude::*;
 use rust_i18n::t;
@@ -43,6 +44,52 @@ fn Highlighted(text: String, positions: Vec<usize>) -> Element {
                 mark { class: "search-highlight", {run} }
             } else {
                 span { {run} }
+            }
+        }
+    }
+}
+
+/// The passage a hit was found in, and where in the element it sits.
+///
+/// The box is the point: a line of lyrics needs the verse around it and the
+/// name of that verse before it means anything, and a sentence out of a sermon
+/// needs the paragraph. What can be shown differs by format, so this is the one
+/// place that knows how each of them is read.
+#[component]
+fn ResultContext(excerpt: Excerpt, file_type: SourceFileType) -> Element {
+    rsx! {
+        div { class: "search-result-context",
+            if let Some(label) = excerpt.label.clone() {
+                span { class: "search-result-label", "{label}" }
+            }
+
+            div { class: "search-result-content",
+                match file_type {
+                    // A document is read as what it is. Rendering it means the
+                    // positions the search recorded no longer point at what is
+                    // on screen, so the words are found again in the rendered
+                    // HTML — see [`highlight_in_html`].
+                    SourceFileType::Markdown => {
+                        let html = markdown_to_html(&excerpt.text);
+                        let html = highlight_in_html(&html, &excerpt.matched_words());
+                        rsx! { div { class: "search-result-markdown", dangerous_inner_html: "{html}" } }
+                    }
+                    // Lyrics and the text of a page are read as they were
+                    // written, line for line: a verse whose lines run together
+                    // is not a verse any more.
+                    _ => rsx! {
+                        if excerpt.cut_before {
+                            span { "… " }
+                        }
+                        Highlighted {
+                            text: excerpt.text.clone(),
+                            positions: excerpt.highlights.clone(),
+                        }
+                        if excerpt.cut_after {
+                            span { " …" }
+                        }
+                    },
+                }
             }
         }
     }
@@ -121,10 +168,26 @@ pub(crate) fn SearchResults(
                             }
 
                             if let Some(excerpt) = excerpt {
-                                div { class: "search-result-content",
-                                    span { "…" }
-                                    Highlighted { text: excerpt.text, positions: excerpt.highlights }
-                                    span { "…" }
+                                ResultContext {
+                                    excerpt,
+                                    file_type: source_file.file_type,
+                                }
+                            }
+
+                            // A picture has no text to quote, so it shows
+                            // itself. The scaled-down copy is the one the
+                            // library list uses and is made during the scan —
+                            // nothing is read from disk here. See
+                            // [`crate::logic::images`].
+                            if source_file.file_type == SourceFileType::Image
+                                && let Some(thumbnail) = crate::logic::images::thumbnail(&source_file.path)
+                            {
+                                div { class: "search-result-context",
+                                    img {
+                                        class: "search-result-picture",
+                                        src: "{thumbnail}",
+                                        alt: source_file.name.clone(),
+                                    }
                                 }
                             }
                         }
