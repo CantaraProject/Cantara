@@ -29,6 +29,8 @@ pub enum DetailSubject {
     Pdf(SourceFile),
     /// A markdown document.
     Markdown(SourceFile),
+    /// A video, played from the pane.
+    Video(SourceFile),
 }
 
 /// Whether the detail view is showing an element or editing it.
@@ -81,14 +83,15 @@ impl DetailSubject {
             SourceFileType::Image => Some(DetailSubject::Image(file.clone())),
             SourceFileType::Pdf => Some(DetailSubject::Pdf(file.clone())),
             SourceFileType::Markdown => Some(DetailSubject::Markdown(file.clone())),
-            // A video can be put into a running order and played there, but it
-            // has no detail view: there is nothing to read about it that the
-            // running order does not already show, and a second player beside
-            // the presentation's own is a second thing making sound.
-            //
+            // Watching a clip through before it goes into a service is what
+            // this view is for: finding the moment it should be cut at, or
+            // which of five files named by date is the right one. Nothing is
+            // being presented while it plays — the running order is not
+            // running — so there is no second player making sound over it.
+            SourceFileType::Video => Some(DetailSubject::Video(file.clone())),
             // A presentation file Cantara knows only by name; it has no viewer
             // for one and the selection view does not offer it.
-            SourceFileType::Presentation | SourceFileType::Video => None,
+            SourceFileType::Presentation => None,
         }
     }
 
@@ -98,7 +101,8 @@ impl DetailSubject {
             DetailSubject::Song(file)
             | DetailSubject::Image(file)
             | DetailSubject::Pdf(file)
-            | DetailSubject::Markdown(file) => file,
+            | DetailSubject::Markdown(file)
+            | DetailSubject::Video(file) => file,
         }
     }
 
@@ -109,18 +113,18 @@ impl DetailSubject {
         match self {
             DetailSubject::Song(_) => &[DetailTab::Text, DetailTab::Notation],
             DetailSubject::Image(_) | DetailSubject::Pdf(_) => &[DetailTab::Preview],
-            DetailSubject::Markdown(_) => &[DetailTab::Preview],
+            DetailSubject::Markdown(_) | DetailSubject::Video(_) => &[DetailTab::Preview],
         }
     }
 
     /// Whether this element can be changed from the detail view.
     ///
-    /// A picture and a PDF are opaque to Cantara — it can show them but has no
-    /// business rewriting them.
+    /// A picture, a PDF and a video are opaque to Cantara — it can show them
+    /// but has no business rewriting them.
     pub fn is_editable(&self) -> bool {
         match self {
             DetailSubject::Song(_) | DetailSubject::Markdown(_) => true,
-            DetailSubject::Image(_) | DetailSubject::Pdf(_) => false,
+            DetailSubject::Image(_) | DetailSubject::Pdf(_) | DetailSubject::Video(_) => false,
         }
     }
 
@@ -193,8 +197,8 @@ mod tests {
     }
 
     /// Every kind the selection view offers has to be openable, otherwise a
-    /// user can pick something the detail view then refuses to show. The two
-    /// types Cantara only recognises by name are deliberately not among them.
+    /// user can pick something the detail view then refuses to show. The one
+    /// type Cantara only recognises by name is deliberately not among them.
     #[test]
     fn test_every_source_type_can_be_opened() {
         for file_type in [
@@ -202,17 +206,16 @@ mod tests {
             SourceFileType::Image,
             SourceFileType::Pdf,
             SourceFileType::Markdown,
+            SourceFileType::Video,
         ] {
             let subject = DetailSubject::of(&file("x", file_type));
             assert!(subject.is_some(), "{file_type:?} cannot be opened");
         }
 
-        for file_type in [SourceFileType::Presentation, SourceFileType::Video] {
-            assert!(
-                DetailSubject::of(&file("x", file_type)).is_none(),
-                "{file_type:?} has no viewer and must not claim to have one"
-            );
-        }
+        assert!(
+            DetailSubject::of(&file("x", SourceFileType::Presentation)).is_none(),
+            "a presentation file has no viewer and must not claim to have one"
+        );
     }
 
     /// A song is worth reading as words and as music.
@@ -236,6 +239,7 @@ mod tests {
         assert!(editable(SourceFileType::Markdown));
         assert!(!editable(SourceFileType::Image));
         assert!(!editable(SourceFileType::Pdf));
+        assert!(!editable(SourceFileType::Video));
     }
 
     /// Every subject has to keep the file it came from — the viewers read it.

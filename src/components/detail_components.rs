@@ -17,7 +17,7 @@ use crate::components::selection_components::source_items::{
     VideoSourceItems,
 };
 use crate::logic::detail::{DetailMode, DetailSubject, DetailTab};
-use crate::logic::presentation::get_markdown_html;
+use crate::logic::presentation::markdown_to_html;
 use crate::logic::settings::SelectionSidebarType;
 use crate::logic::sourcefiles::{read_source_file, SourceFile};
 use crate::logic::states::SelectedItemRepresentation;
@@ -444,10 +444,6 @@ pub fn Detail(element: Vec<String>) -> Element {
                                 click_action: ItemClickAction::OpenDetail,
                             }
                         }
-                        // Listed, though a video has no detail view of its own
-                        // — see `DetailSubject::of`. Leaving it out would make
-                        // the sidebar, which is shared with the selection view,
-                        // show an empty panel when it is on videos.
                         if active_selection_filter() == SelectionSidebarType::Videos {
                             VideoSourceItems {
                                 source_files,
@@ -640,6 +636,7 @@ fn DetailPane(subject: DetailSubject) -> Element {
         match (&subject, mode()) {
             (DetailSubject::Image(file), _) => rsx! { ImageViewer { file: file.clone() } },
             (DetailSubject::Pdf(file), _) => rsx! { PdfViewer { file: file.clone() } },
+            (DetailSubject::Video(file), _) => rsx! { VideoViewer { file: file.clone() } },
             (DetailSubject::Markdown(file), DetailMode::View) => rsx! {
                 MarkdownViewer { file: file.clone() }
             },
@@ -702,6 +699,143 @@ fn PdfViewer(file: SourceFile) -> Element {
     }
 }
 
+/// A video, played from the pane it is opened in.
+///
+/// The same arrangement the presentation uses and for the same reasons: the
+/// web view's own `<video>` element, fed by the handler in
+/// [`crate::logic::video`], commanded by the scripts there, and operated
+/// through the console's controls — see [`PlaybackControls`]. What is different
+/// is that nothing else is watching. There is no second window to keep in step,
+/// no audio to hand to whichever window the room hears, and no running
+/// presentation to report the position into: this playback belongs to the pane
+/// and ends with it.
+///
+/// It does not start by itself. Opening a file to see what is in it is not the
+/// same as asking to hear it, and a library of clips clicked through one after
+/// another would be one burst of sound after another.
+#[component]
+fn VideoViewer(file: SourceFile) -> Element {
+    use crate::logic::states::VideoPlayback;
+    use crate::logic::video::{control_script, reload_script, report_script, video_source_url};
+
+    let mut playback = use_signal(VideoPlayback::default);
+
+    // The last jump that has been carried out. A seek is a command that happens
+    // *once*: the value stays in the playback state after it has been obeyed,
+    // and re-applying it would pull the video back to the mark every time it
+    // played half a second past it. Same reasoning as in the slide's player.
+    let mut applied_seek: Signal<u64> = use_signal(|| 0);
+
+    // Opening a different file starts a fresh playback rather than continuing
+    // the last one's — otherwise the next video would open half-played, at the
+    // position of the one before it.
+    //
+    // And the element has to be told to look at the file it is now pointed at:
+    // the pane is the same component throughout, so opening a second clip
+    // changes an attribute rather than building a new player. See
+    // [`crate::logic::video::reload_script`].
+    use_effect(use_reactive!(|file| {
+        let _ = file;
+        playback.set(VideoPlayback::default());
+        spawn(async move {
+            let _ = document::eval(&reload_script()).await;
+        });
+    }));
+
+    // What has been *asked* of the video, as against where it has got to. A
+    // memo over the four command fields on purpose: reading the playback whole
+    // would subscribe this to the position as well, which is written several
+    // times a second — so the script would be rebuilt and run at that rate.
+    let commands = use_memo(move || {
+        let playback = playback.read();
+        (
+            playback.playing,
+            playback.muted,
+            playback.volume,
+            playback.seek_to,
+        )
+    });
+
+    // Bringing the element into line with what has been asked of it.
+    use_effect(move || {
+        let (playing, muted, volume, seek_to) = commands();
+
+        let seek = match seek_to {
+            Some((seconds, serial)) if serial > *applied_seek.peek() => {
+                applied_seek.set(serial);
+                Some(seconds)
+            }
+            _ => None,
+        };
+
+        let script = control_script(playing, muted, volume, seek);
+        spawn(async move {
+            let _ = document::eval(&script).await;
+        });
+    });
+
+    // …and asking it back where it has got to, so the scrubber and the clock
+    // follow. See [`crate::logic::timer`] for why the wait is not a script.
+    use_hook(move || {
+        spawn(async move {
+            loop {
+                crate::logic::timer::sleep(std::time::Duration::from_millis(250)).await;
+                let Ok(value) = document::eval(&report_script()).await else {
+                    continue;
+                };
+                let Some(report) = value.as_array() else {
+                    // No video on screen any more: the pane has moved on to
+                    // something else, and there is nothing left to ask.
+                    return;
+                };
+                let position = report.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let duration = report.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let playing = report.get(2).and_then(|v| v.as_bool()).unwrap_or(false);
+
+                let mut state = playback.write();
+                state.position = position;
+                state.duration = duration;
+                // A video that ran to its end has stopped by itself, and the
+                // button has to say so rather than offering to pause something
+                // that is not moving. Only that case: mirroring the element's
+                // paused state in general would undo a play that was just asked
+                // for, in the quarter second before the element gets round to
+                // starting.
+                if state.playing && !playing && duration > 0.0 && position >= duration - 0.25 {
+                    state.playing = false;
+                }
+            }
+        });
+    });
+
+    let path = file.path.to_string_lossy().to_string();
+    let source = video_source_url(&path);
+    let mime = crate::logic::sourcefiles::mime_type_of_video(&path);
+
+    rsx! {
+        div { class: "detail-video",
+            video {
+                // The class the scripts find their element by. There is exactly
+                // one in this window: the detail view and a running
+                // presentation are two different routes, so a slide's player is
+                // never on screen beside this one.
+                class: "detail-video-element {crate::logic::video::LIVE_CLASS}",
+                // The controls under it are Cantara's own, so that operating a
+                // clip here looks like operating one during a service.
+                controls: false,
+                playsinline: true,
+                preload: "metadata",
+                source { src: "{source}", r#type: "{mime}" }
+            }
+
+            crate::components::presenter_console_components::PlaybackControls {
+                playback: playback(),
+                on_command: move |command| playback.write().apply(command),
+            }
+        }
+    }
+}
+
 #[component]
 fn MarkdownViewer(file: SourceFile) -> Element {
     let content = use_memo(use_reactive!(|file| read_source_file(&file)));
@@ -709,11 +843,8 @@ fn MarkdownViewer(file: SourceFile) -> Element {
     rsx! {
         match &*content.read() {
             Ok(text) => {
-                let html = get_markdown_html(text).map(|html| html.to_string());
-                match html {
-                    Some(html) => rsx! { div { class: "detail-markdown", dangerous_inner_html: "{html}" } },
-                    None => rsx! { pre { class: "detail-plain", "{text}" } },
-                }
+                let html = markdown_to_html(text);
+                rsx! { div { class: "detail-markdown", dangerous_inner_html: "{html}" } }
             }
             Err(error) => rsx! { p { class: "detail-error", "{error}" } },
         }
@@ -1298,12 +1429,8 @@ fn TextEditor(file: SourceFile, kind: EditorKind) -> Element {
             div { class: "detail-editor-preview scrollable-container",
                 match kind {
                     EditorKind::Markdown => {
-                        let text = draft();
-                        let html = get_markdown_html(&text).map(|html| html.to_string());
-                        match html {
-                            Some(html) => rsx! { div { class: "detail-markdown", dangerous_inner_html: "{html}" } },
-                            None => rsx! { pre { class: "detail-plain", "{text}" } },
-                        }
+                        let html = markdown_to_html(&draft());
+                        rsx! { div { class: "detail-markdown", dangerous_inner_html: "{html}" } }
                     }
                     EditorKind::Song => rsx! {
                         SongDraftPreview { file_name: file.file_name().to_string(), source: draft() }

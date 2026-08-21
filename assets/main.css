@@ -1160,6 +1160,27 @@ div.inline-div {
 
 .detail-image img { max-width: 100%; height: auto; }
 
+/* A video in the detail view: the picture, and the controls under it.
+ *
+ * On a black bed, because a video is letterboxed whenever its shape is not the
+ * pane's, and the bars either side of it should read as part of the picture
+ * rather than as a gap in the page. The height is capped so that the controls
+ * stay in view on a short window — a player whose buttons are below the fold is
+ * one that cannot be stopped.
+ *
+ * The controls are the console's; see `.video-controls` in
+ * `assets/presenter_console.css`. Only their width is different: they sit under
+ * a picture that is as wide as the pane rather than under a fixed preview. */
+.detail-video video {
+    display: block;
+    width: 100%;
+    max-height: min(60vh, 480px);
+    background-color: #000;
+    border-radius: var(--pico-border-radius);
+}
+
+.detail-video .video-controls { width: 100%; }
+
 /* A PDF in the detail view: a column of pages to scroll through, not a slide
  * with buttons under it. The container scrolls rather than the pane, so the
  * pages of the document stay together and the reader's place in one document
