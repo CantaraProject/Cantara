@@ -1090,6 +1090,7 @@ fn OrderList(song: Song, on_changed: EventHandler<Song>) -> Element {
 #[component]
 fn AddTagButton(song: Song, on_changed: EventHandler<Song>) -> Element {
     let mut key = use_signal(String::new);
+    let mut value = use_signal(String::new);
 
     rsx! {
         div { class: "detail-add-row",
@@ -1098,6 +1099,12 @@ fn AddTagButton(song: Song, on_changed: EventHandler<Song>) -> Element {
                 placeholder: t!("detail.new_tag_placeholder").to_string(),
                 value: "{key}",
                 oninput: move |event| key.set(event.value()),
+            }
+            input {
+                r#type: "text",
+                placeholder: t!("detail.new_tag_value_placeholder").to_string(),
+                value: "{value}",
+                oninput: move |event| value.set(event.value()),
             }
             button {
                 r#type: "button",
@@ -1110,9 +1117,11 @@ fn AddTagButton(song: Song, on_changed: EventHandler<Song>) -> Element {
                         if name.is_empty() {
                             return;
                         }
+                        let tag_value = value.read().trim().to_string();
                         let mut updated = song.clone();
-                        updated.set_tag(&name, "");
+                        updated.set_tag(&name, &tag_value);
                         key.set(String::new());
+                        value.set(String::new());
                         on_changed.call(updated);
                     }
                 },

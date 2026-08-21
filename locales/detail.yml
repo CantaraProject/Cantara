@@ -147,6 +147,9 @@ detail:
   new_tag_placeholder:
     en: New tag, e.g. composer
     de: Neues Tag, z. B. composer
+  new_tag_value_placeholder:
+    en: Value, e.g. J. S. Bach
+    de: Wert, z. B. J. S. Bach
   add_part:
     en: "Add part:"
     de: "Teil hinzufügen:"
