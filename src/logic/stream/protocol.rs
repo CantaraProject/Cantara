@@ -354,6 +354,38 @@ impl StreamState {
         }
     }
 
+    /// Fills in where the video on the current slide has actually got to.
+    ///
+    /// [`StreamState::of`] can only report what the running presentation
+    /// carries, and that is not where the video is. The position is a *report*
+    /// rather than a command: it changes several times a second, and it is
+    /// deliberately left out of what the windows push at one another — see
+    /// [`RunningPresentation::eq_ignoring_scroll`](crate::logic::states::RunningPresentation::eq_ignoring_scroll).
+    /// The copy of the presentation this is built from therefore always says
+    /// nought, which is what every viewer was being told: a phone that joined
+    /// in the middle of a video was pulled back to the beginning of it, over
+    /// and over.
+    ///
+    /// The machine's own answer is
+    /// [`crate::logic::video::published_position`], and this is where it is
+    /// put into what a viewer is told. Given rather than read here so that
+    /// this stays a function of what it is handed.
+    ///
+    /// Nothing happens when the slide that is up is not a video, or when
+    /// nothing has been published yet — a video that has not started has
+    /// nowhere to be but the beginning.
+    pub fn with_live_video(mut self, live: Option<(f64, f64, bool)>) -> Self {
+        if let (Some(video), Some((position, duration, playing))) = (self.video.as_mut(), live) {
+            video.position = position;
+            video.duration = duration;
+            // What the element is doing, rather than what it was last asked to
+            // do: a video that has run to its end has stopped, and a viewer
+            // whose own copy is still running should stop with it.
+            video.playing = playing;
+        }
+        self
+    }
+
     /// The slide that is up, if there is one.
     ///
     /// Not read by the program itself — the page works this out for itself
@@ -718,6 +750,79 @@ mod tests {
             None,
             None,
         )
+    }
+
+    /// A viewer is told where the video actually is.
+    ///
+    /// This is what was broken: the running presentation the state is built
+    /// from does not carry the position — it changes several times a second
+    /// and is kept out of what the windows push at one another — so every
+    /// viewer was told "nought, and playing" for the whole length of a video.
+    /// A phone that opened the address in the middle of one obediently seeked
+    /// to the beginning, and went on doing it.
+    #[test]
+    fn a_viewer_is_told_where_the_video_has_got_to() {
+        let presentation = RunningPresentation::new(vec![chapter(
+            "Die Bibel bleibt",
+            vec![Slide::new_video_slide("clip.mp4".to_string(), true, true)],
+        )]);
+
+        let stale = StreamState::of(&presentation, 1);
+        assert_eq!(
+            stale.video.as_ref().map(|video| video.position),
+            Some(0.0),
+            "the presentation itself has nothing to say about this"
+        );
+
+        let told = StreamState::of(&presentation, 1).with_live_video(Some((91.5, 144.0, true)));
+
+        let video = told.video.expect("the slide that is up is a video");
+        assert_eq!(video.position, 91.5);
+        assert_eq!(video.duration, 144.0);
+        assert!(video.playing);
+    }
+
+    /// What the element is doing, rather than what it was last asked to do: a
+    /// video that has run to its end has stopped, and a viewer whose own copy
+    /// is still running should stop with it.
+    #[test]
+    fn a_video_that_has_stopped_is_reported_as_stopped() {
+        let presentation = RunningPresentation::new(vec![chapter(
+            "Die Bibel bleibt",
+            vec![Slide::new_video_slide("clip.mp4".to_string(), true, false)],
+        )]);
+
+        let told = StreamState::of(&presentation, 1).with_live_video(Some((144.0, 144.0, false)));
+
+        assert_eq!(told.video.map(|video| video.playing), Some(false));
+    }
+
+    /// Before anything has been published there is nothing to fill in, and a
+    /// video that has not started has nowhere to be but the beginning.
+    #[test]
+    fn a_video_nobody_has_reported_on_is_left_where_it_is() {
+        let presentation = RunningPresentation::new(vec![chapter(
+            "Die Bibel bleibt",
+            vec![Slide::new_video_slide("clip.mp4".to_string(), true, false)],
+        )]);
+
+        let told = StreamState::of(&presentation, 1).with_live_video(None);
+
+        assert_eq!(told.video.map(|video| video.position), Some(0.0));
+    }
+
+    /// A slide that is not a video has no position to be given one, and must
+    /// not be given the last video's.
+    #[test]
+    fn a_slide_that_is_not_a_video_is_told_nothing_about_one() {
+        let presentation = RunningPresentation::new(vec![chapter(
+            "Amazing Grace",
+            vec![Slide::new_content_slide("Amazing grace".to_string(), None, None)],
+        )]);
+
+        let told = StreamState::of(&presentation, 1).with_live_video(Some((91.5, 144.0, true)));
+
+        assert_eq!(told.video, None);
     }
 
     /// A viewer is sent the whole service, not only the slide that is up. The
