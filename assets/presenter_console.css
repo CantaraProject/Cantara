@@ -280,6 +280,26 @@
 /* Grid view: full-width single column layout */
 .presenter-content-grid {
     grid-template-columns: 1fr;
+    /* No gap between the header and the size slider that sticks below it. The
+       slider is pinned to the top of the panel, so any padding above the panel
+       shows as a strip of background between the two — and with the slider
+       sitting in it, that strip reads as a seam rather than as spacing. */
+    padding-top: 0;
+}
+
+/* Flush under the header for the same reason: the panel's own top border and
+   rounded corners drew a second line under the first. The sides and the bottom
+   keep theirs — it is the top edge alone that meets the header. */
+.presenter-content-grid > .presenter-grid-panel {
+    border-top: none;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    padding-top: 0;
+}
+
+/* The toolbar then has no padding above it to reach back over. */
+.presenter-content-grid .presenter-grid-toolbar {
+    margin-top: 0;
 }
 
 /* Grid panel */
@@ -338,6 +358,28 @@
     cursor: pointer;
     overflow: hidden;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+    /* Off-screen thumbnails cost nothing.
+     *
+     * Every thumbnail here is a live slide, laid out at the *presentation's own
+     * resolution* and shrunk with a transform — that is what makes it a picture
+     * of the slide rather than the slide re-flowed small, and it is why the
+     * line breaks match. The price is that a service on a 4K screen builds a
+     * 3840 × 2160 subtree per slide, and a running order of thirty slides is
+     * thirty of them. Scrolling then repaints work that is measured in the
+     * target screen's area, which is why a large screen crawled and a small one
+     * did not.
+     *
+     * `content-visibility: auto` lets the engine skip layout and painting
+     * entirely for the ones that are not on screen. `contain-intrinsic-size` is
+     * what keeps that from being visible: without it a skipped element measures
+     * zero, the page would collapse and the scrollbar would jump about as
+     * thumbnails came in and out of view. The real size is written inline where
+     * it is known — see `PresenterGridPanel`.
+     *
+     * An engine that does not know the property ignores it and behaves as
+     * before, so this costs nothing where it does not help. */
+    content-visibility: auto;
 }
 
 .presenter-grid-slide:hover {
@@ -375,6 +417,11 @@
 
 .presenter-grid-slide-inner {
     pointer-events: none;
+    /* A change inside one thumbnail cannot reflow or repaint the others. Thirty
+       independent slides have nothing to say about one another's layout, and
+       saying so is what keeps one arriving background picture from touching
+       all of them. */
+    contain: layout paint style;
 }
 
 /* ── The list of elements beside the console ─────────────────────────────── */
@@ -406,4 +453,242 @@
         padding-right: 0.5rem;
         border-right: 1px solid var(--pico-muted-border-color);
     }
+}
+
+/* ── Operating a video ───────────────────────────────────────────────────── */
+/* The shape a media player is usually in, because a moderator who has used any
+   other one should not have to learn this one: the position across the top at
+   full width, and under it the transport, the clock and the sound, left to
+   right.
+ *
+ * Under the live preview and no wider than it. These act on what is *on* the
+ * slide, unlike the buttons in the footer, which move between slides — putting
+ * them across the whole console mixed up the two. The overview, which has no
+ * preview, is the exception; see `.video-controls-footer`.
+ *
+ * The colours are named here and used below, so that the same controls can be
+ * drawn on the console's card and on the dark bar that floats over the
+ * projection without either being a special case. */
+.video-controls {
+    --video-accent: var(--pico-primary);
+    --video-track: var(--pico-muted-border-color);
+    --video-hover: var(--pico-secondary-background);
+    --video-ink: var(--pico-color);
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    width: 480px;
+    max-width: 100%;
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    background-color: var(--pico-background-color);
+    color: var(--video-ink);
+}
+
+.video-controls-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* The two jumps either side of the play button, close enough together to read
+   as one control. */
+.video-transport {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+/* Nothing is a box: Pico draws a `<button>` as a filled block, and five of
+   those in a row is what made this look like a form rather than a player. */
+.video-controls button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.15rem;
+    width: auto;
+    margin: 0;
+    padding: 0.35rem;
+    border: none;
+    border-radius: 999px;
+    background: none;
+    color: inherit;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.video-controls button:hover,
+.video-controls button:focus-visible {
+    background-color: var(--video-hover);
+}
+
+/* The one that is pressed most, and the only one that is filled — which is
+   how a player says which button is the one you want. */
+.video-controls button.video-play {
+    width: 2.3rem;
+    height: 2.3rem;
+    padding: 0;
+    background-color: var(--video-accent);
+    color: var(--pico-primary-inverse);
+}
+
+.video-controls button.video-play:hover,
+.video-controls button.video-play:focus-visible {
+    background-color: var(--video-accent);
+    filter: brightness(1.1);
+}
+
+/* A triangle in a circle looks left-heavy unless it is nudged the way it
+   points. */
+.video-play-glyph {
+    display: inline-flex;
+    transform: translateX(1px);
+}
+
+/* How far each jump goes, small enough to read as a label on the arrow rather
+   than as a word of its own. */
+.video-skip-seconds {
+    font-size: 0.65rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Tabular figures and a fixed shape, so the row does not shuffle sideways
+   every time the seconds tick over. */
+.video-time {
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--pico-muted-color);
+}
+
+/* Where it has got to is the half that is read at a glance; the length beside
+   it is only there to measure it against. */
+.video-time-position {
+    color: var(--video-ink);
+}
+
+.video-time-separator {
+    opacity: 0.6;
+}
+
+/* At the far end of the row, which is where a hand goes looking for it. */
+.video-sound {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+    min-width: 0;
+}
+
+/* ── The two sliders ─────────────────────────────────────────────────────── */
+/* Written out rather than left to Pico, because both of these have to show how
+   far along they are — the part that is behind the thumb is painted in the
+   accent colour, which is what every other player does and what says at a
+   glance how much of a video is left. The percentage arrives as `--played`
+   from the component, since a gradient stop cannot be computed from the
+   value of an input in CSS alone. */
+.video-controls input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 0.9rem;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+}
+
+.video-controls input[type="range"]:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.video-controls input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--video-accent) 0 var(--played, 0%),
+        var(--video-track) var(--played, 0%) 100%
+    );
+}
+
+.video-controls input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    /* Half the thumb above the track, so it sits on the line rather than
+       hanging under it. */
+    margin-top: -4px;
+    border: none;
+    border-radius: 50%;
+    background: var(--video-accent);
+}
+
+.video-controls input[type="range"]::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--video-accent) 0 var(--played, 0%),
+        var(--video-track) var(--played, 0%) 100%
+    );
+}
+
+.video-controls input[type="range"]::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border: none;
+    border-radius: 50%;
+    background: var(--video-accent);
+}
+
+/* The position: the whole width, because it is aimed at rather than pressed. */
+.video-scrubber {
+    width: 100%;
+}
+
+/* The volume: beside the mute button, and no longer than it has to be. */
+.video-volume {
+    flex: 0 1 5.5rem;
+    min-width: 3rem;
+}
+
+/* ── The same controls across the foot of the overview ───────────────────── */
+/* The overview fills the console, so there is no preview for the controls to
+   sit under. They cross the whole width instead, directly above the buttons
+   that move between slides — the one place in that view where the operator's
+   hand already is. */
+.video-controls-footer {
+    flex-shrink: 0;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0.5rem 20px;
+    border: none;
+    border-top: 1px solid var(--pico-muted-border-color);
+    border-radius: 0;
+    background-color: var(--pico-card-background-color);
+}
+
+/* ── The preview while the overview is up ────────────────────────────────── */
+/* Moved off the page rather than taken out of it. The console's own `<video>`
+   element is several layers inside this panel, and an element that leaves the
+   page stops playing: switching to the overview used to stop the video the
+   room was watching, and switching back started it again from the beginning.
+   Off the page it keeps playing and keeps the sound, which is what the console
+   is for. See `PresenterContent`. */
+.presenter-preview-hidden {
+    position: absolute;
+    top: 0;
+    left: -20000px;
+    width: 520px;
+    height: 420px;
+    overflow: hidden;
+    pointer-events: none;
 }

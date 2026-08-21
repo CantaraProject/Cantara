@@ -435,6 +435,12 @@ pub fn PresentationPage() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         BundledFontFaces {}
+        // Serves this window's video files. An asset handler belongs to a web
+        // view, and the presentation window is a window of its own with a web
+        // view of its own — registering one in the main window does nothing
+        // for it. That is why the video played in the presenter console, which
+        // lives in the main window, and showed nothing here.
+        crate::components::video_host::VideoAssetHost {}
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         // The PDF viewer, loaded once per window. Registered *here*, at the
         // root, for the reason written above about the stylesheets: a
@@ -501,6 +507,21 @@ pub fn PresentationPage() -> Element {
                 }
             },
             PresentationRendererComponent { running_presentation }
+
+            // Where a video is operated from when there is no console to
+            // operate it in. A video nobody can pause is not something to put
+            // in front of a congregation — and the console, where these
+            // normally live, may simply not be open.
+            //
+            // The bar floats over the projection and fades out of the way; see
+            // `.presentation-video-controls` in `assets/presentation.css`.
+            if !crate::logic::video::owns_audio(crate::logic::video::AudioOwner::Console) {
+                div { class: "presentation-video-controls",
+                    crate::components::presenter_console_components::VideoControls {
+                        running_presentation,
+                    }
+                }
+            }
 
             // Context menu overlay
             if *show_context_menu.read() {
@@ -579,6 +600,12 @@ pub fn PresentationRendererComponent(
     #[props(default)]
     role: PresentationRole,
 ) -> Element {
+    // Handed down rather than threaded through every slide component between
+    // here and the `<video>` element that needs it. What a rendering is *for*
+    // is the same for everything inside it, and the only thing that asks is
+    // several layers down — see [`VideoSlideComponent`].
+    use_context_provider(|| role);
+
     let current_slide: Memo<Option<Slide>> =
         use_memo(move || running_presentation.read().get_current_slide());
 
@@ -1450,7 +1477,9 @@ fn EmptySlideComponent() -> Element {
 /// so that their content can scroll or scale within a constrained area.
 fn slide_container_style(slide_content: &SlideContent) -> &'static str {
     match slide_content {
-        SlideContent::SimplePicture(_) => "height: 100%;",
+        // A video is fitted into the cell like a picture, so it needs one with
+        // a height: `height: 100%` against a parent that has none is zero.
+        SlideContent::SimplePicture(_) | SlideContent::Video(_) => "height: 100%;",
         // A markdown slide scrolls, so it needs the whole cell to scroll
         // inside; the same slide holding plain lyrics is laid out by the
         // design and must not be stretched.
@@ -1490,7 +1519,11 @@ pub(crate) fn meta_text_of(slide_content: &SlideContent) -> Option<String> {
                         .map(String::from)
                 })
         }
-        SlideContent::Empty(_) | SlideContent::SimplePicture(_) | SlideContent::PdfPage(_) => None,
+        // None of these carry text of their own to say anything about.
+        SlideContent::Empty(_)
+        | SlideContent::SimplePicture(_)
+        | SlideContent::PdfPage(_)
+        | SlideContent::Video(_) => None,
     };
     text.filter(|text| !text.trim().is_empty())
 }
@@ -1638,6 +1671,339 @@ fn slide_body(
                 page_num: pdf_slide.page_number,
             }
         },
+        SlideContent::Video(video_slide) => rsx! {
+            VideoSlideComponent { video_slide: video_slide.clone(), running_presentation }
+        },
+    }
+}
+
+/// Marks a rendering whose video is a *picture of* the one that is playing.
+///
+/// Handed down through the context rather than as a prop for the same reason
+/// [`PresentationRole`] is: the thing that asks sits several layers below the
+/// view that knows the answer, and everything in between has no business
+/// carrying it. Provided by the console's overview around the thumbnail of the
+/// slide that is up; read in [`VideoSlideComponent`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct MirrorsTheVideo;
+
+/// Plays the video of a video slide.
+///
+/// The playing is the web view's own: a `<video>` element, fed by the handler
+/// in [`crate::logic::video`]. Cantara decodes nothing and draws no frames
+/// itself — the engine the rest of the program is drawn by already does that,
+/// with the machine's video hardware behind it.
+///
+/// Which window makes the sound is not a property of the slide but of the
+/// machine: a presenter console and a projection window are two pages playing
+/// the same file, and both unmuted is the same audio twice, a few dozen
+/// milliseconds apart. One of them owns it and the rest are muted; the rule is
+/// in [`crate::logic::video`].
+#[component]
+fn VideoSlideComponent(
+    video_slide: VideoSlide,
+    /// Where the playback of this video stands, shared with every other window
+    /// showing the presentation. `None` for a preview that belongs to no
+    /// running service — the design editor's sample slide.
+    running_presentation: Option<Signal<RunningPresentation>>,
+) -> Element {
+    use crate::logic::video::{AudioOwner, audio_generation, claim_audio, owns_audio};
+
+    let source = crate::logic::video::video_source_url(&video_slide.video_path);
+    let mime = crate::logic::sourcefiles::mime_type_of_video(&video_slide.video_path);
+
+    // What this window is. Anything that did not say — the design selector's
+    // preview, a thumbnail — is a follower and never makes a sound.
+    let role: PresentationRole = try_consume_context().unwrap_or(PresentationRole::Follower);
+
+    // The projection asks for the sound each time it draws a video. It does not
+    // get it while a console is open; see [`crate::logic::video::claim_audio`],
+    // where that rule lives.
+    let mut audio_changed: Signal<u64> = use_signal(audio_generation);
+    use_effect(move || {
+        if role == PresentationRole::Audience {
+            claim_audio(AudioOwner::Projection);
+        }
+        // A console opening or closing changes the answer under a window that
+        // is already showing the video, so it is looked for rather than
+        // assumed. See [`crate::logic::timer`] for why the wait is not a script.
+        spawn(async move {
+            loop {
+                crate::logic::timer::sleep(std::time::Duration::from_millis(250)).await;
+                let generation = audio_generation();
+                if generation != *audio_changed.peek() {
+                    audio_changed.set(generation);
+                }
+            }
+        });
+    });
+    // Read while rendering: that is what subscribes this element to it.
+    let _ = audio_changed();
+
+    let makes_the_sound = match role {
+        PresentationRole::Audience => owns_audio(AudioOwner::Projection),
+        PresentationRole::Follower => owns_audio(AudioOwner::Console),
+        // A preview running by itself is an illustration of a setting, not the
+        // service. It is never the thing the room hears.
+        PresentationRole::SelfRunning => false,
+    };
+
+    // Whether this is the slide the service is on, or a picture of one.
+    //
+    // The overview draws every slide of the whole running order at once, each
+    // through `StaticSlideRendererComponent`, which has no running presentation
+    // to hand down — and that is the difference. Without it every video in the
+    // service began playing the moment the overview was opened, twenty of them
+    // at once, none of them the slide anybody was looking at.
+    let is_live = running_presentation.is_some();
+
+    // …and whether this picture of one is meant to move.
+    //
+    // The thumbnail of the slide that is up, in the console's overview: a
+    // still of a video that is playing says nothing about what the room is
+    // watching, so that one follows the video instead of showing its first
+    // frame. Every other thumbnail is still a still — twenty decoders for
+    // slides nobody is looking at is what the rule above is there to prevent.
+    //
+    // It is not the live element: it takes no commands, makes no sound, and is
+    // not what the console reports the position from. It is pulled onto the
+    // published position a few times a second, exactly as a following *window*
+    // is. See [`crate::logic::video::mirror_script`].
+    let mirrors = !is_live && try_consume_context::<MirrorsTheVideo>().is_some();
+
+    if mirrors {
+        use_effect(move || {
+            spawn(async move {
+                loop {
+                    crate::logic::timer::sleep(std::time::Duration::from_millis(250)).await;
+                    // Nobody is playing anything, so there is nothing to
+                    // follow — the thumbnail keeps the frame it is on.
+                    let Some((position, _, playing)) =
+                        crate::logic::video::published_position()
+                    else {
+                        continue;
+                    };
+                    let script = crate::logic::video::mirror_script(position, playing);
+                    let _ = document::eval(&script).await;
+                }
+            });
+        });
+    }
+
+    // The slide says how the video starts; from then on the running
+    // presentation says what it is doing, and every window follows the same
+    // value. See [`crate::logic::states::VideoPlayback`].
+    if let Some(mut running_presentation) = running_presentation {
+        let autostart = video_slide.autostart;
+
+        // Opening the slide is what starts the video — not the page being
+        // built. The component is created when the presentation reaches this
+        // slide and dropped when it leaves, so those are the two moments.
+        use_hook(move || {
+            spawn(async move {
+                let mut state = running_presentation.write();
+                state.video.playing = autostart;
+                state.video.position = 0.0;
+                state.video.duration = 0.0;
+                // A jump belonging to the video that was up before this one
+                // must not be carried out on this one.
+                state.video.seek_to = None;
+            });
+        });
+
+        // Leaving the slide stops it. A video that went on playing behind the
+        // next slide would still be heard in the room, and would still be
+        // holding the file open.
+        use_drop(move || {
+            if let Ok(mut state) = running_presentation.try_write() {
+                state.video.playing = false;
+                state.video.position = 0.0;
+            }
+            // …and the machine forgets where it was, so the next video does not
+            // start measured against this one's clock.
+            crate::logic::video::forget_position();
+        });
+
+        // What has been *asked* of the video, as against where it has got to.
+        //
+        // A memo over those four fields on purpose. Reading the running
+        // presentation whole would subscribe this to the position as well, and
+        // the position is written several times a second — so the script below
+        // would be built and run at that rate, assigning volume and calling
+        // `play()` on an element that was already doing both.
+        let commands = use_memo(move || {
+            let playback = &running_presentation.read().video;
+            (
+                playback.playing,
+                playback.muted,
+                playback.volume,
+                playback.seek_to,
+            )
+        });
+
+        // The last jump this window has carried out. A seek is a command that
+        // happens *once*: the value stays in the running presentation after it
+        // has been obeyed, and re-applying it would pull the video back to the
+        // mark every time it played half a second past it — which is a video
+        // that will not leave the spot it was sent to.
+        let mut applied_seek: Signal<u64> = use_signal(|| 0);
+
+        // Bringing the element into line with what has been asked of it.
+        use_effect(move || {
+            let (playing, muted, volume, seek_to) = commands();
+
+            let seek = match seek_to {
+                Some((seconds, serial)) if serial > *applied_seek.peek() => {
+                    applied_seek.set(serial);
+                    Some(seconds)
+                }
+                _ => None,
+            };
+
+            let script = crate::logic::video::control_script(
+                playing,
+                // A window that is not the one making the sound is muted
+                // whatever the operator set, so that only one of them is heard.
+                muted || !makes_the_sound,
+                volume,
+                seek,
+            );
+            spawn(async move {
+                let _ = document::eval(&script).await;
+            });
+        });
+
+        // A window that is not the one playing follows the one that is.
+        //
+        // Two `<video>` elements started at the same moment do not stay
+        // together: two decoders on two clocks, one of them a scaled-down
+        // preview. Left alone they are seconds apart within a few minutes, and
+        // the console showing a different moment than the wall is the one thing
+        // the console must not do.
+        use_effect(move || {
+            if makes_the_sound {
+                return;
+            }
+            spawn(async move {
+                loop {
+                    crate::logic::timer::sleep(std::time::Duration::from_millis(500)).await;
+                    let Some((published, _, _)) = crate::logic::video::published_position()
+                    else {
+                        // Nobody is playing, so there is nothing to follow.
+                        continue;
+                    };
+                    let Ok(value) =
+                        document::eval(&crate::logic::video::report_script()).await
+                    else {
+                        continue;
+                    };
+                    let Some(report) = value.as_array() else {
+                        // The slide moved on; this window has no video left.
+                        return;
+                    };
+                    let own = report.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+                    if crate::logic::video::should_correct(own, published) {
+                        let script = crate::logic::video::seek_script(published);
+                        let _ = document::eval(&script).await;
+                    }
+                }
+            });
+        });
+
+        // …and asking it back where it has got to. Only the window that owns
+        // the sound reports: it is the one actually playing, and two windows
+        // writing the position would fight over it several times a second.
+        use_effect(move || {
+            if !makes_the_sound {
+                return;
+            }
+            spawn(async move {
+                loop {
+                    crate::logic::timer::sleep(std::time::Duration::from_millis(250)).await;
+                    let Ok(value) =
+                        document::eval(&crate::logic::video::report_script()).await
+                    else {
+                        continue;
+                    };
+                    let Some(report) = value.as_array() else {
+                        // No video on screen any more: the slide moved on. The
+                        // published position goes with it, so the next video
+                        // does not start against this one's clock.
+                        crate::logic::video::forget_position();
+                        return;
+                    };
+                    let position = report.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let duration = report.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let playing = report.get(2).and_then(|v| v.as_bool()).unwrap_or(false);
+
+                    // For the other windows, which follow this one. Kept out
+                    // of the running presentation on purpose — see
+                    // [`crate::logic::video::publish_position`].
+                    crate::logic::video::publish_position(position, duration, playing);
+
+                    let mut state = running_presentation.write();
+                    state.video.position = position;
+                    state.video.duration = duration;
+                    // A video that ran to its end has stopped by itself, and
+                    // the button in the console has to say so rather than
+                    // offering to pause something that is not moving.
+                    //
+                    // Only that case: mirroring the element's paused state in
+                    // general would undo a play the operator has just asked
+                    // for, in the quarter second before the element gets round
+                    // to starting.
+                    let ran_out =
+                        state.video.playing && !playing && duration > 0.0
+                            && position >= duration - 0.25;
+                    if ran_out {
+                        state.video.playing = false;
+                    }
+                }
+            });
+        });
+    }
+
+    rsx! {
+        video {
+            // The live one is marked apart from the thumbnails: the scripts
+            // that play, pause and seek reach the element by selector, and
+            // the overview puts a `.slide-video` on screen for every slide of
+            // the service. Without this they would command whichever of those
+            // happened to come first in the document. The mirror is marked
+            // apart from both — it is told where to be rather than asked to
+            // go anywhere.
+            class: if is_live {
+                "slide-video slide-video-live"
+            } else if mirrors {
+                "slide-video slide-video-mirror"
+            } else {
+                "slide-video"
+            },
+            // Only where this is the slide the service is on. In the overview
+            // it is a picture of a slide, and a picture does not play — the
+            // one that moves is started by the script that keeps it level with
+            // the video it is a picture of.
+            autoplay: is_live && video_slide.autostart,
+            r#loop: is_live && video_slide.looping,
+            // One window per machine makes the sound, and the rest are silent —
+            // two playing the same file tens of milliseconds apart is a
+            // flanging echo rather than a louder video. A mirror is silent
+            // whatever else is true: it is in the same window as the one that
+            // *is* making the sound.
+            muted: mirrors || !makes_the_sound,
+            // No browser chrome. The presentation is a projection, and a
+            // playback bar across the bottom of it belongs to the operator's
+            // screen rather than to the room's.
+            controls: false,
+            playsinline: true,
+            // A thumbnail wants the first frame and nothing more; the slide
+            // that is up wants to be ready to play, and so does the one
+            // thumbnail that is following it. Twenty thumbnails each fetching
+            // a whole film is what the overview would otherwise cost.
+            preload: if is_live || mirrors { "auto" } else { "metadata" },
+            source { src: "{source}", r#type: "{mime}" }
+        }
     }
 }
 

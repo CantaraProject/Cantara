@@ -210,6 +210,54 @@
 
   #connection[data-state="lost"] { display: block; }
 
+  /* Turning the sound on.
+   *
+   * A video is sent to a viewer as the file itself, sound and all, but it
+   * arrives silent: a browser will not start a video that makes a noise
+   * unless it has been asked to, and a hall in which fifty phones start
+   * playing a service video by themselves is a hall nobody can hear the video
+   * in. So the sound is a viewer's own decision, and this is where it is
+   * made — which matters most for the viewer who is not in the hall at all,
+   * watching at home, for whom a silent video is not a video.
+   *
+   * Only on screen while a video is up. The slide is what a viewer came for,
+   * and the projection carries no chrome either. */
+  #sound {
+    position: fixed;
+    right: calc(env(safe-area-inset-right) + 0.75rem);
+    bottom: calc(env(safe-area-inset-bottom) + 0.75rem);
+    display: none;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.9rem;
+    border: none;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.55);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    line-height: 1;
+    /* Large enough to hit with a thumb without looking. */
+    min-height: 2.5rem;
+    cursor: pointer;
+    z-index: 3;
+  }
+
+  #sound[data-shown="yes"] { display: inline-flex; }
+
+  /* Once the sound is on, the button has said what it had to say and gets out
+     of the way — it is still there to turn it off again. */
+  #sound[data-sound="on"] {
+    opacity: 0.35;
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  #sound[data-sound="on"]:hover,
+  #sound[data-sound="on"]:focus-visible {
+    opacity: 1;
+  }
+
   form {
     display: flex;
     flex-direction: column;
@@ -236,6 +284,7 @@
 <main id="stage"><p class="quiet">…</p></main>
 <div id="meta" class="meta"></div>
 <div id="connection"></div>
+<button id="sound" type="button" data-sound="off"></button>
 
 <script>
 (function () {
@@ -472,7 +521,131 @@
     metaLine.dataset.shown = 'yes';
   }
 
+  // The video element that is on screen, if the slide that is up is a video.
+  // Kept so that an update can adjust it instead of replacing it — replacing
+  // would restart the download and the playback, and updates arrive several
+  // times a second.
+  var currentVideo = null;
+  // What the presentation last said about it.
+  var videoState = null;
+
+  // Whether this viewer has asked for the sound.
+  //
+  // Off until they do, and forgotten on a reload. Not remembered on purpose: a
+  // browser only lets a video make a noise once the page has been touched, and
+  // a page that came back from a reload has not been touched yet. Starting a
+  // video unmuted then does not give a silent viewer their sound — it stops
+  // the video, which is worse than the thing being fixed.
+  var soundWanted = false;
+  var soundButton = document.getElementById('sound');
+
+  function drawSoundButton() {
+    soundButton.dataset.sound = soundWanted ? 'on' : 'off';
+    soundButton.textContent = soundWanted ? '🔊 Sound on' : '🔇 Tap for sound';
+    soundButton.setAttribute(
+      'aria-label',
+      soundWanted ? 'Turn the sound off' : 'Turn the sound on'
+    );
+  }
+
+  function showSoundButton(shown) {
+    soundButton.dataset.shown = shown ? 'yes' : 'no';
+  }
+
+  soundButton.addEventListener('click', function () {
+    soundWanted = !soundWanted;
+    drawSoundButton();
+    if (!currentVideo) { return; }
+
+    var element = currentVideo;
+    element.muted = !soundWanted;
+    // The tap is what a browser was waiting for, so a video that would not
+    // start before may start now.
+    applyVideoState();
+
+    // And a browser that takes the video back to the beginning is put back
+    // where the service is.
+    //
+    // Turning the sound on is the first moment the audio track matters, and
+    // some browsers pick it up by loading the file again — which lands at
+    // nought and looks exactly like the video starting over. The presentation's
+    // position is the truth either way, so it is applied again for a few
+    // seconds afterwards: the reload does not always begin in the same breath
+    // as the tap, and waiting for the next update from the presentation would
+    // leave the beginning of the video on screen in the meantime.
+    var until = Date.now() + 3000;
+    (function keepPlace() {
+      if (element !== currentVideo || !element.isConnected) { return; }
+      applyVideoState();
+      if (Date.now() < until) { setTimeout(keepPlace, 100); }
+    })();
+  });
+
+  drawSoundButton();
+
+  // How far a viewer may drift from the presentation before being pulled back,
+  // in seconds.
+  //
+  // Not zero, and not small: the position travels over a network and a phone
+  // decodes at its own pace, so some difference is permanent and normal.
+  // Correcting it constantly would stutter the picture on every update. Half a
+  // second is close enough that nobody in the room can tell the phone from the
+  // wall, and loose enough to leave an untroubled playback alone.
+  var VIDEO_DRIFT = 0.5;
+
+  function applyVideoState() {
+    if (!currentVideo || !videoState) { return; }
+
+    if (Math.abs(currentVideo.currentTime - videoState.position) > VIDEO_DRIFT) {
+      currentVideo.currentTime = videoState.position;
+    }
+
+    if (videoState.playing) {
+      if (currentVideo.paused) {
+        // A browser refuses to play unprompted unless the video is muted, and
+        // a video nobody has asked for the sound of is. Where it refuses
+        // anyway — some phones want a tap first — the refusal is swallowed
+        // rather than thrown, and the next update tries again.
+        var element = currentVideo;
+        var started = element.play();
+        if (started) {
+          started.catch(function () {
+            // Asked to play with the sound on and refused: this browser wants
+            // a fresh tap for that, and there is nothing here that can give it
+            // one. The picture is what matters more, so it goes back to
+            // silent and the button offers the sound again.
+            if (!element.muted) {
+              element.muted = true;
+              soundWanted = false;
+              drawSoundButton();
+              var again = element.play();
+              if (again) { again.catch(function () {}); }
+            }
+          });
+        }
+      }
+    } else if (!currentVideo.paused) {
+      currentVideo.pause();
+    }
+  }
+
   function draw(state) {
+    drawStage(state);
+
+    // What is on the stage is what says whether a video is up: every branch of
+    // `drawStage` replaces the stage's contents, so an element that is no
+    // longer in it has been left behind. Forgetting it here is what lets the
+    // same video be shown again later — it used to be remembered, found to be
+    // "already the one on screen", and never put back on the stage, so
+    // returning to a video slide showed the slide before it.
+    if (currentVideo && !currentVideo.isConnected) {
+      currentVideo = null;
+    }
+    showSoundButton(!!currentVideo);
+  }
+
+  function drawStage(state) {
+    videoState = state.video || null;
     applyDesign(state.design);
     document.documentElement.dataset.blank = state.blacked_out ? 'yes' : 'no';
 
@@ -552,6 +725,41 @@
       show([picture]);
       return;
     }
+
+    if (slide.kind === 'video') {
+      // The page plays its own copy of the file and is pulled onto the
+      // presentation's position, rather than being sent pictures. That is what
+      // makes it the same video at the same moment without anything being
+      // re-encoded — and it is the only way a phone keeps up at all.
+      //
+      // Reused rather than rebuilt while the same video is up: replacing the
+      // element would restart the download and the playback on every update,
+      // and updates arrive several times a second.
+      var source = 'video/' + encodeURIComponent(slide.media);
+      if (!currentVideo || currentVideo.dataset.media !== slide.media) {
+        currentVideo = document.createElement('video');
+        currentVideo.className = 'picture';
+        currentVideo.dataset.media = slide.media;
+        currentVideo.playsInline = true;
+        currentVideo.preload = 'auto';
+        currentVideo.loop = !!slide.looping;
+        // Silent unless this viewer has asked for the sound. A hall in which
+        // every phone plays the sound of the video by itself is a hall nobody
+        // can hear the video in — and a browser would not have started it
+        // unprompted anyway. Whoever wants it says so; see `#sound`.
+        currentVideo.muted = !soundWanted;
+        // Whenever the element loads the file — when it is first put on the
+        // page, and again if the browser decides to reload it — it starts at
+        // the beginning, which is not where the service is. This is what puts
+        // it back without waiting for the next update to notice.
+        currentVideo.addEventListener('loadedmetadata', applyVideoState);
+        currentVideo.src = source;
+        show([currentVideo]);
+      }
+      applyVideoState();
+      return;
+    }
+    currentVideo = null;
 
     // An empty slide is part of the service — the gap between two songs — so it
     // is shown as one.

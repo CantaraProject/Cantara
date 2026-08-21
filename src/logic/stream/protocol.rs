@@ -53,6 +53,29 @@ pub struct StreamState {
     /// so that a moderator who blanks the projection blanks every phone too
     /// rather than leaving the words up in the room.
     pub blacked_out: bool,
+
+    /// Where the video on the current slide has got to, when the slide is a
+    /// video. `None` otherwise.
+    ///
+    /// Sent with every update so that a phone shows the same moment of the
+    /// video as the room does: the page holds its own copy of the file and is
+    /// pulled onto this position rather than being sent pictures. That is what
+    /// makes it the same video at the same moment without anything being
+    /// re-encoded — and what makes it work at all on a phone, which would drop
+    /// a stream of frames long before it drops a file it is playing itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<StreamVideoState>,
+}
+
+/// Where the video on the current slide stands.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct StreamVideoState {
+    /// Whether it is running.
+    pub playing: bool,
+    /// How far into it the presentation is, in seconds.
+    pub position: f64,
+    /// How long it is, in seconds; `0.0` before that is known.
+    pub duration: f64,
 }
 
 /// Where the presentation stands, as indices into [`StreamState::chapters`].
@@ -93,6 +116,20 @@ pub enum StreamSlide {
     /// page fetches it from the server rather than having it pushed through
     /// every update.
     Picture { media: String },
+    /// A video. `media` names it the way [`StreamSlide::Picture`] does, and the
+    /// page fetches it from the server, which serves it in the parts the
+    /// browser asks for so that it can be played and seeked without the whole
+    /// file arriving first.
+    ///
+    /// How far into it the presentation is does *not* belong here. This is the
+    /// running order, which changes when the service is rebuilt; the playback
+    /// position changes many times a second and is sent separately — see
+    /// [`StreamState::position`] for the same distinction one level up.
+    Video {
+        media: String,
+        autostart: bool,
+        looping: bool,
+    },
     /// Deliberately nothing: the gap between two elements of a service.
     Empty,
 }
@@ -303,7 +340,50 @@ impl StreamState {
             chapters,
             position,
             blacked_out: presentation.is_black_screen,
+            // Only while a video is what is up. Sending the last position of a
+            // video that has been left would have every phone quietly seeking
+            // a file it is no longer showing.
+            video: presentation
+                .get_current_slide()
+                .filter(|slide| matches!(slide.slide_content, SlideContent::Video(_)))
+                .map(|_| StreamVideoState {
+                    playing: presentation.video.playing,
+                    position: presentation.video.position,
+                    duration: presentation.video.duration,
+                }),
         }
+    }
+
+    /// Fills in where the video on the current slide has actually got to.
+    ///
+    /// [`StreamState::of`] can only report what the running presentation
+    /// carries, and that is not where the video is. The position is a *report*
+    /// rather than a command: it changes several times a second, and it is
+    /// deliberately left out of what the windows push at one another — see
+    /// [`RunningPresentation::eq_ignoring_scroll`](crate::logic::states::RunningPresentation::eq_ignoring_scroll).
+    /// The copy of the presentation this is built from therefore always says
+    /// nought, which is what every viewer was being told: a phone that joined
+    /// in the middle of a video was pulled back to the beginning of it, over
+    /// and over.
+    ///
+    /// The machine's own answer is
+    /// [`crate::logic::video::published_position`], and this is where it is
+    /// put into what a viewer is told. Given rather than read here so that
+    /// this stays a function of what it is handed.
+    ///
+    /// Nothing happens when the slide that is up is not a video, or when
+    /// nothing has been published yet — a video that has not started has
+    /// nowhere to be but the beginning.
+    pub fn with_live_video(mut self, live: Option<(f64, f64, bool)>) -> Self {
+        if let (Some(video), Some((position, duration, playing))) = (self.video.as_mut(), live) {
+            video.position = position;
+            video.duration = duration;
+            // What the element is doing, rather than what it was last asked to
+            // do: a video that has run to its end has stopped, and a viewer
+            // whose own copy is still running should stop with it.
+            video.playing = playing;
+        }
+        self
     }
 
     /// The slide that is up, if there is one.
@@ -335,6 +415,26 @@ impl StreamState {
         for chapter in &self.chapters {
             for slide in &chapter.slides {
                 if let StreamSlide::Picture { media } = slide
+                    && !named.contains(media)
+                {
+                    named.push(media.clone());
+                }
+            }
+        }
+        named
+    }
+
+    /// Every video the running order refers to, each named once.
+    ///
+    /// Apart from [`media`](Self::media) because the two are handed over
+    /// differently: a picture is sent as bytes and held in memory, while a
+    /// video is registered by its path and served from there in pieces. See
+    /// [`crate::logic::stream::publish_video`].
+    pub fn videos(&self) -> Vec<String> {
+        let mut named: Vec<String> = Vec::new();
+        for chapter in &self.chapters {
+            for slide in &chapter.slides {
+                if let StreamSlide::Video { media, .. } = slide
                     && !named.contains(media)
                 {
                     named.push(media.clone());
@@ -473,6 +573,12 @@ impl StreamSlide {
 
             SlideContent::PdfPage(page) => StreamSlide::Picture {
                 media: media_id(&format!("{}#page={}", page.pdf_path, page.page_number)),
+            },
+
+            SlideContent::Video(video) => StreamSlide::Video {
+                media: media_id(&video.video_path),
+                autostart: video.autostart,
+                looping: video.looping,
             },
 
             SlideContent::Empty(_) => StreamSlide::Empty,
@@ -644,6 +750,79 @@ mod tests {
             None,
             None,
         )
+    }
+
+    /// A viewer is told where the video actually is.
+    ///
+    /// This is what was broken: the running presentation the state is built
+    /// from does not carry the position — it changes several times a second
+    /// and is kept out of what the windows push at one another — so every
+    /// viewer was told "nought, and playing" for the whole length of a video.
+    /// A phone that opened the address in the middle of one obediently seeked
+    /// to the beginning, and went on doing it.
+    #[test]
+    fn a_viewer_is_told_where_the_video_has_got_to() {
+        let presentation = RunningPresentation::new(vec![chapter(
+            "Die Bibel bleibt",
+            vec![Slide::new_video_slide("clip.mp4".to_string(), true, true)],
+        )]);
+
+        let stale = StreamState::of(&presentation, 1);
+        assert_eq!(
+            stale.video.as_ref().map(|video| video.position),
+            Some(0.0),
+            "the presentation itself has nothing to say about this"
+        );
+
+        let told = StreamState::of(&presentation, 1).with_live_video(Some((91.5, 144.0, true)));
+
+        let video = told.video.expect("the slide that is up is a video");
+        assert_eq!(video.position, 91.5);
+        assert_eq!(video.duration, 144.0);
+        assert!(video.playing);
+    }
+
+    /// What the element is doing, rather than what it was last asked to do: a
+    /// video that has run to its end has stopped, and a viewer whose own copy
+    /// is still running should stop with it.
+    #[test]
+    fn a_video_that_has_stopped_is_reported_as_stopped() {
+        let presentation = RunningPresentation::new(vec![chapter(
+            "Die Bibel bleibt",
+            vec![Slide::new_video_slide("clip.mp4".to_string(), true, false)],
+        )]);
+
+        let told = StreamState::of(&presentation, 1).with_live_video(Some((144.0, 144.0, false)));
+
+        assert_eq!(told.video.map(|video| video.playing), Some(false));
+    }
+
+    /// Before anything has been published there is nothing to fill in, and a
+    /// video that has not started has nowhere to be but the beginning.
+    #[test]
+    fn a_video_nobody_has_reported_on_is_left_where_it_is() {
+        let presentation = RunningPresentation::new(vec![chapter(
+            "Die Bibel bleibt",
+            vec![Slide::new_video_slide("clip.mp4".to_string(), true, false)],
+        )]);
+
+        let told = StreamState::of(&presentation, 1).with_live_video(None);
+
+        assert_eq!(told.video.map(|video| video.position), Some(0.0));
+    }
+
+    /// A slide that is not a video has no position to be given one, and must
+    /// not be given the last video's.
+    #[test]
+    fn a_slide_that_is_not_a_video_is_told_nothing_about_one() {
+        let presentation = RunningPresentation::new(vec![chapter(
+            "Amazing Grace",
+            vec![Slide::new_content_slide("Amazing grace".to_string(), None, None)],
+        )]);
+
+        let told = StreamState::of(&presentation, 1).with_live_video(Some((91.5, 144.0, true)));
+
+        assert_eq!(told.video, None);
     }
 
     /// A viewer is sent the whole service, not only the slide that is up. The

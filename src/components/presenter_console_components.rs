@@ -10,7 +10,7 @@ use crate::logic::sync::{
     SYNC_KEY_QUIT,
 };
 use crate::MAIN_CSS;
-use cantara_songlib::slides::{SlideContent, SlideRow};
+use cantara_songlib::slides::{Slide, SlideContent, SlideRow};
 use dioxus::prelude::*;
 use rust_i18n::t;
 
@@ -40,6 +40,14 @@ pub fn PresenterConsolePage() -> Element {
     // so we can navigate back. In a separate window we close it.
     // We use try_consume_context to safely check for a router context, because calling
     // navigator() directly would panic in standalone desktop windows (no router present).
+
+    // While a console is on screen it is what the room hears: it is where the
+    // operator is, it is where the controls are, and it is the machine's one
+    // sound source. The projection mutes itself while this holds, and gets the
+    // sound back when the console closes — see [`crate::logic::video`].
+    use_hook(|| crate::logic::video::claim_audio(crate::logic::video::AudioOwner::Console));
+    use_drop(|| crate::logic::video::release_audio(crate::logic::video::AudioOwner::Console));
+
     let is_main_window = try_consume_context::<dioxus::router::RouterContext>().is_some();
     // Only acquire the navigator if a router is present to avoid panicking.
     let nav = if is_main_window { Some(navigator()) } else { None };
@@ -276,6 +284,9 @@ pub fn PresenterConsolePage() -> Element {
 
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        // The console is a window of its own on the desktop, so it needs its
+        // own video handler for the same reason the presentation window does.
+        crate::components::video_host::VideoAssetHost {}
         document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }
         // The PDF viewer, loaded once per window. Registered *here*, at the
         // root, for the reason written above about the stylesheets: a
@@ -436,20 +447,39 @@ fn PresenterContent(
         }
     };
 
-    match *view.read() {
-        PresenterConsoleView::Text => rsx! {
-            main { class: "presenter-content presenter-content-with-jumps",
-                { sidebar }
-                PresenterTextPanel { running_presentation }
-                PresenterPreviewPanel { running_presentation }
-            }
-        },
-        PresenterConsoleView::Grid => rsx! {
-            main { class: "presenter-content presenter-content-grid presenter-content-with-jumps",
-                { sidebar }
+    let overview = *view.read() == PresenterConsoleView::Grid;
+
+    // One tree for both views, with the preview panel in the same place in it
+    // either way. That is not tidiness: the console's own `<video>` element
+    // lives several layers inside that panel, and a component that is left out
+    // of a rendering is dropped and built again when it comes back. Dropping it
+    // took the video off the page in the middle of a service — the picture on
+    // the wall stopped with it — and building it again started the file from
+    // the beginning. Out of sight it stays where it is and goes on playing;
+    // see `.presenter-preview-hidden`.
+    rsx! {
+        main {
+            class: if overview {
+                "presenter-content presenter-content-grid presenter-content-with-jumps"
+            } else {
+                "presenter-content presenter-content-with-jumps"
+            },
+            { sidebar }
+            if overview {
                 PresenterGridPanel { running_presentation }
+            } else {
+                PresenterTextPanel { running_presentation }
             }
-        },
+            PresenterPreviewPanel { running_presentation, hidden: overview }
+        }
+
+        // The overview has no preview for the controls to sit under, so in it
+        // they cross the foot of the console instead — above the buttons that
+        // move between slides, which is where the operator's hand already is.
+        // Nothing at all unless the slide that is up is a video.
+        if overview {
+            VideoControls { running_presentation, footer: true }
+        }
     }
 }
 
@@ -578,6 +608,14 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                                             div {
                                                 key: "{ch_idx}-{sl_idx}-{is_active}",
                                                 class: if is_active { "presenter-grid-slide active" } else { "presenter-grid-slide" },
+                                                // What this thumbnail measures
+                                                // while it is off screen and
+                                                // not being drawn. Without it a
+                                                // skipped thumbnail measures
+                                                // nothing and the grid collapses
+                                                // as it scrolls. See
+                                                // `.presenter-grid-slide`.
+                                                style: "contain-intrinsic-size: {size}px {thumb_height}px;",
                                                 onclick: move |_| {
                                                     running_presentation.write().jump_to(ch_idx, sl_idx);
                                                 },
@@ -594,7 +632,21 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                                                     div {
                                                         class: "slide-scale-inner",
                                                         style: "width: {native_w}px; height: {native_h}px; transform: scale({scale});",
-                                                        StaticSlideRendererComponent { slide: slide.clone(), presentation_design: design.clone() }
+                                                        // The thumbnail of the slide that is up shows what
+                                                        // the room is watching, which for a video means the
+                                                        // video and not its first frame. Every other
+                                                        // thumbnail stays a still; see [`MirroredSlide`].
+                                                        if is_active {
+                                                            MirroredSlide {
+                                                                slide: slide.clone(),
+                                                                presentation_design: design.clone(),
+                                                            }
+                                                        } else {
+                                                            StaticSlideRendererComponent {
+                                                                slide: slide.clone(),
+                                                                presentation_design: design.clone(),
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -607,6 +659,30 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                 }
             }
         }
+    }
+}
+
+/// The thumbnail of the slide the service is on.
+///
+/// The same rendering as any other thumbnail, with one thing said around it:
+/// a video in here is a picture of the one that is playing rather than a still
+/// of its opening frame. A still of a video that is running tells the operator
+/// nothing about what the room is watching — not where it has got to, and not
+/// whether it is moving at all.
+///
+/// Only the slide that is up gets this. The overview draws every slide of the
+/// service at once, and a service of twenty videos would otherwise open twenty
+/// decoders for the nineteen nobody is looking at.
+///
+/// The marker travels down through the context; what reads it, and what a
+/// mirrored video does differently, is in
+/// [`VideoSlideComponent`](crate::components::presentation_components).
+#[component]
+fn MirroredSlide(slide: Slide, presentation_design: PresentationDesign) -> Element {
+    use_context_provider(|| crate::components::presentation_components::MirrorsTheVideo);
+
+    rsx! {
+        StaticSlideRendererComponent { slide, presentation_design }
     }
 }
 
@@ -777,6 +853,21 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
                 }
             }
         }
+        // A video has no words to read out. What a moderator needs here is not
+        // text but the playback controls — which is a piece of work of its own;
+        // until then, the name of the file at least says which video is up.
+        SlideContent::Video(video_slide) => {
+            let name = std::path::Path::new(&video_slide.video_path)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| video_slide.video_path.clone());
+
+            rsx! {
+                div { class: "slide-text-content",
+                    em { "🎬 {name}" }
+                }
+            }
+        }
     }
 }
 
@@ -784,7 +875,15 @@ fn PresenterSlideTextContent(slide_content: SlideContent) -> Element {
 /// This uses the actual signal so that clicks inside the preview (next/previous slide)
 /// are synced back to the shared running presentation state.
 #[component]
-fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> Element {
+fn PresenterPreviewPanel(
+    running_presentation: Signal<RunningPresentation>,
+    /// Whether the panel is out of sight because the overview is up.
+    ///
+    /// Moved off the page rather than left out of it: what is inside it has to
+    /// keep running. See [`PresenterContent`].
+    #[props(default)]
+    hidden: bool,
+) -> Element {
     let rp = running_presentation.read();
     let (native_w, native_h) = rp.layout_size();
     // The slide keeps the presentation's own layout and is scaled as a whole
@@ -800,7 +899,15 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
     let total_slides = rp.total_slides();
 
     rsx! {
-        div { class: "presenter-preview-panel",
+        div {
+            class: if hidden {
+                "presenter-preview-panel presenter-preview-hidden"
+            } else {
+                "presenter-preview-panel"
+            },
+            // Off the page but still on it: nothing in here is for reading
+            // while the overview is up.
+            aria_hidden: hidden.to_string(),
             h4 { {t!("presenter.preview").to_string()} }
             div {
                 class: "presentation-preview slide-scale",
@@ -828,6 +935,13 @@ fn PresenterPreviewPanel(running_presentation: Signal<RunningPresentation>) -> E
                     {format!("{} / {}", current_slide + 1, total_slides)}
                 }
             }
+
+            // Directly under the picture it operates, and the same width as it.
+            // These act on what is *on* the slide, unlike the buttons in the
+            // footer, which move between slides — putting them across the whole
+            // console mixed up the two. Renders nothing unless the slide that is
+            // up is a video.
+            VideoControls { running_presentation }
 
             StreamPreview { running_presentation }
         }
@@ -990,6 +1104,174 @@ fn PresenterControlBar(
 mod tests {
     use super::*;
 
+    /// Switching between the text view and the overview must not rebuild the
+    /// preview panel.
+    ///
+    /// This is the whole reason [`PresenterContent`] renders one tree with a
+    /// flag in it rather than one tree per view. The console's `<video>`
+    /// element lives inside that panel; a panel that is left out of a
+    /// rendering is dropped, and an element that leaves the page stops
+    /// playing. Switching to the overview used to stop the video the room was
+    /// watching and switching back started it from the beginning.
+    ///
+    /// The panel is stood in for here by something that counts how often it is
+    /// built: what is being tested is the shape of the tree, and the real
+    /// panel needs a running presentation, a settings signal and a translation
+    /// catalogue to render at all.
+    #[test]
+    fn switching_the_view_does_not_rebuild_the_preview() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static PREVIEW_BUILDS: AtomicUsize = AtomicUsize::new(0);
+        static OVERVIEW_BUILDS: AtomicUsize = AtomicUsize::new(0);
+
+        #[component]
+        fn Preview(hidden: bool) -> Element {
+            use_hook(|| PREVIEW_BUILDS.fetch_add(1, Ordering::Relaxed));
+            rsx! {
+                div { "preview, hidden: {hidden}" }
+            }
+        }
+
+        #[component]
+        fn TextPanel() -> Element {
+            rsx! {
+                div { "the words" }
+            }
+        }
+
+        #[component]
+        fn Overview() -> Element {
+            use_hook(|| OVERVIEW_BUILDS.fetch_add(1, Ordering::Relaxed));
+            rsx! {
+                div { "the thumbnails" }
+            }
+        }
+
+        // The signal that switches the view, handed back out of the tree so
+        // that the test can throw it. A component's own state is the only
+        // place a signal can be made, and this is what the view toggle in the
+        // header writes to.
+        thread_local! {
+            static SWITCH: std::cell::Cell<Option<Signal<bool>>> =
+                const { std::cell::Cell::new(None) };
+        }
+
+        // The shape `PresenterContent` has: the two views swap in one place,
+        // and the preview stands after them in the same tree either way.
+        #[component]
+        fn Harness() -> Element {
+            let switch = use_signal(|| false);
+            SWITCH.with(|held| held.set(Some(switch)));
+            let overview = switch();
+            rsx! {
+                main {
+                    if overview {
+                        Overview {}
+                    } else {
+                        TextPanel {}
+                    }
+                    Preview { hidden: overview }
+                }
+            }
+        }
+
+        let mut dom = VirtualDom::new(Harness);
+        dom.rebuild_in_place();
+        let mut switch = SWITCH.with(|held| held.get()).expect("the harness handed its switch out");
+
+        assert_eq!(PREVIEW_BUILDS.load(Ordering::Relaxed), 1);
+        assert_eq!(OVERVIEW_BUILDS.load(Ordering::Relaxed), 0, "the text view is up");
+
+        // To the overview…
+        dom.in_runtime(|| switch.set(true));
+        dom.render_immediate(&mut dioxus_core::NoOpMutations);
+
+        assert_eq!(
+            OVERVIEW_BUILDS.load(Ordering::Relaxed),
+            1,
+            "the overview replaced the text view, so the switch did happen"
+        );
+        assert_eq!(
+            PREVIEW_BUILDS.load(Ordering::Relaxed),
+            1,
+            "the preview was built again — the video in it would have stopped"
+        );
+
+        // …and back.
+        dom.in_runtime(|| switch.set(false));
+        dom.render_immediate(&mut dioxus_core::NoOpMutations);
+
+        assert_eq!(
+            PREVIEW_BUILDS.load(Ordering::Relaxed),
+            1,
+            "the preview survived the way back as well"
+        );
+    }
+
+    /// …and the shape it replaced does not survive it, which is why the shape
+    /// above is the shape it is.
+    ///
+    /// A tree per view is the obvious way to write two views, and it is what
+    /// the console had. The preview is then in a different tree in each of
+    /// them, so switching builds it again — and with it the `<video>` element
+    /// several layers inside it, from the beginning of the file.
+    #[test]
+    fn a_tree_for_each_view_rebuilds_the_preview() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static PREVIEW_BUILDS: AtomicUsize = AtomicUsize::new(0);
+
+        #[component]
+        fn Preview() -> Element {
+            use_hook(|| PREVIEW_BUILDS.fetch_add(1, Ordering::Relaxed));
+            rsx! {
+                div { "preview" }
+            }
+        }
+
+        thread_local! {
+            static SWITCH: std::cell::Cell<Option<Signal<bool>>> =
+                const { std::cell::Cell::new(None) };
+        }
+
+        #[component]
+        fn Harness() -> Element {
+            let switch = use_signal(|| false);
+            SWITCH.with(|held| held.set(Some(switch)));
+
+            if switch() {
+                rsx! {
+                    main { class: "overview",
+                        div { "the thumbnails" }
+                        Preview {}
+                    }
+                }
+            } else {
+                rsx! {
+                    main { class: "text",
+                        div { "the words" }
+                        Preview {}
+                    }
+                }
+            }
+        }
+
+        let mut dom = VirtualDom::new(Harness);
+        dom.rebuild_in_place();
+        let mut switch = SWITCH.with(|held| held.get()).expect("the harness handed its switch out");
+        assert_eq!(PREVIEW_BUILDS.load(Ordering::Relaxed), 1);
+
+        dom.in_runtime(|| switch.set(true));
+        dom.render_immediate(&mut dioxus_core::NoOpMutations);
+
+        assert_eq!(
+            PREVIEW_BUILDS.load(Ordering::Relaxed),
+            2,
+            "this is the rebuild that stopped the video, and what the one tree above avoids"
+        );
+    }
+
     /// The bug this guards against: a notation slide showed nothing but "..."
     /// in the console, because the lyrics row that carries the words under the
     /// notes is flagged redundant and was being filtered out.
@@ -1042,5 +1324,208 @@ mod tests {
         ];
 
         assert_eq!(readable_rows(&rows), vec!["Sing to the Lord"]);
+    }
+}
+
+/// The playback controls for a video on the current slide.
+///
+/// Shown where the operator is: in the presenter console when there is one, and
+/// in the presentation window itself when there is not — a video nobody can
+/// pause is not something to put in front of a congregation.
+///
+/// Every button writes to the running presentation rather than to an element,
+/// so that the projection follows whatever is pressed here. See
+/// [`crate::logic::states::VideoPlayback`].
+#[component]
+pub fn VideoControls(
+    running_presentation: Signal<RunningPresentation>,
+    /// Whether these are the console's footer controls rather than the ones
+    /// under the live preview. The overview has no preview to sit under; see
+    /// [`PresenterContent`].
+    #[props(default)]
+    footer: bool,
+) -> Element {
+    use crate::logic::video::clock;
+    use dioxus_free_icons::Icon;
+    use dioxus_free_icons::icons::fa_solid_icons::{
+        FaPause, FaPlay, FaRotateLeft, FaRotateRight, FaVolumeHigh, FaVolumeXmark,
+    };
+
+    // Only when the slide that is up is a video.
+    let is_video = use_memo(move || {
+        matches!(
+            running_presentation
+                .read()
+                .get_current_slide()
+                .map(|slide| slide.slide_content),
+            Some(SlideContent::Video(_))
+        )
+    });
+
+    if !is_video() {
+        return rsx! {};
+    }
+
+    let playback = running_presentation.read().video.clone();
+    let duration = playback.duration;
+    // Kept inside the scrubber's own range. A video reports its position a
+    // little past its length as it ends, and a range input handed a value above
+    // its maximum snaps the thumb to the start — the bar would jump back to
+    // zero in the last moment of every video.
+    //
+    // Only once the length is known: before that there is nothing to clamp
+    // against, and clamping to zero would peg the scrubber at the beginning.
+    let position = if duration > 0.0 {
+        playback.position.clamp(0.0, duration)
+    } else {
+        playback.position.max(0.0)
+    };
+
+    // How far through it is, as the filled part of the scrubber's track. A
+    // range input draws one track in one colour, so the part that has been
+    // played is painted in behind the thumb — which is what a player looks
+    // like everywhere else, and what says at a glance how much is left.
+    let played = if duration > 0.0 {
+        (position / duration * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+    let volume_filled = (playback.volume.clamp(0.0, 1.0) * 100.0).round();
+
+    rsx! {
+        div {
+            class: if footer { "video-controls video-controls-footer" } else { "video-controls" },
+
+            // The whole width, above everything else: this is the one control
+            // that is aimed at rather than pressed, and a short one cannot be
+            // aimed. Disabled until the length is known — a slider with no
+            // range to it is a control that lies about what it can do.
+            input {
+                r#type: "range",
+                class: "video-scrubber",
+                style: "--played: {played}%;",
+                min: "0",
+                max: "{duration.max(0.1)}",
+                step: "0.1",
+                value: "{position}",
+                disabled: duration <= 0.0,
+                aria_label: t!("presenter.video.position").to_string(),
+                oninput: move |event| {
+                    if let Ok(seconds) = event.value().parse::<f64>() {
+                        running_presentation.write().video.seek(seconds);
+                    }
+                },
+            }
+
+            div { class: "video-controls-row",
+
+                // The transport, in the order and the shapes a player is
+                // usually in: the two jumps either side of a round play button,
+                // which is the one that is pressed most and the only one that
+                // is filled.
+                div { class: "video-transport",
+                    button {
+                        r#type: "button",
+                        class: "video-skip",
+                        aria_label: t!("presenter.video.back").to_string(),
+                        title: t!("presenter.video.back").to_string(),
+                        onclick: move |_| running_presentation.write().video.skip(-10.0),
+                        Icon { icon: FaRotateLeft, width: 15, height: 15 }
+                        span { class: "video-skip-seconds", "10" }
+                    }
+
+                    button {
+                        r#type: "button",
+                        class: "video-play",
+                        aria_label: if playback.playing {
+                            t!("presenter.video.pause").to_string()
+                        } else {
+                            t!("presenter.video.play").to_string()
+                        },
+                        title: if playback.playing {
+                            t!("presenter.video.pause").to_string()
+                        } else {
+                            t!("presenter.video.play").to_string()
+                        },
+                        onclick: move |_| {
+                            let mut state = running_presentation.write();
+                            let playing = state.video.playing;
+                            state.video.playing = !playing;
+                        },
+                        if playback.playing {
+                            Icon { icon: FaPause, width: 16, height: 16 }
+                        } else {
+                            // A triangle looks left-heavy in a circle unless it
+                            // is nudged the way it points.
+                            span { class: "video-play-glyph",
+                                Icon { icon: FaPlay, width: 16, height: 16 }
+                            }
+                        }
+                    }
+
+                    button {
+                        r#type: "button",
+                        class: "video-skip",
+                        aria_label: t!("presenter.video.forward").to_string(),
+                        title: t!("presenter.video.forward").to_string(),
+                        onclick: move |_| running_presentation.write().video.skip(10.0),
+                        Icon { icon: FaRotateRight, width: 15, height: 15 }
+                        span { class: "video-skip-seconds", "10" }
+                    }
+                }
+
+                // Where it has got to, beside the buttons, as every player
+                // writes it.
+                span { class: "video-time",
+                    span { class: "video-time-position", {clock(position)} }
+                    span { class: "video-time-separator", " / " }
+                    {clock(duration)}
+                }
+
+                // And the sound at the far end, which is where a hand goes
+                // looking for it.
+                div { class: "video-sound",
+                    button {
+                        r#type: "button",
+                        class: "video-mute",
+                        aria_pressed: playback.muted.to_string(),
+                        aria_label: t!("presenter.video.mute").to_string(),
+                        title: t!("presenter.video.mute").to_string(),
+                        onclick: move |_| {
+                            let mut state = running_presentation.write();
+                            let muted = state.video.muted;
+                            state.video.muted = !muted;
+                        },
+                        if playback.muted {
+                            Icon { icon: FaVolumeXmark, width: 16, height: 16 }
+                        } else {
+                            Icon { icon: FaVolumeHigh, width: 16, height: 16 }
+                        }
+                    }
+
+                    input {
+                        r#type: "range",
+                        class: "video-volume",
+                        style: "--played: {volume_filled}%;",
+                        min: "0",
+                        max: "1",
+                        step: "0.05",
+                        value: "{playback.volume}",
+                        aria_label: t!("presenter.video.volume").to_string(),
+                        oninput: move |event| {
+                            if let Ok(volume) = event.value().parse::<f64>() {
+                                let mut state = running_presentation.write();
+                                state.video.volume = volume.clamp(0.0, 1.0);
+                                // Turning it up is also how somebody unmutes; leaving
+                                // it muted while the slider moved would look broken.
+                                if volume > 0.0 {
+                                    state.video.muted = false;
+                                }
+                            }
+                        },
+                    }
+                }
+            }
+        }
     }
 }

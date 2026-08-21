@@ -114,3 +114,24 @@ pub fn publish_media(id: String, bytes: Vec<u8>, content_type: &'static str) {
         running.publish_media(id, bytes, content_type);
     }
 }
+
+/// Whether a video has already been registered with the server.
+pub fn has_video(id: &str) -> bool {
+    server()
+        .lock()
+        .map(|held| held.as_ref().is_some_and(|running| running.has_video(id)))
+        .unwrap_or(false)
+}
+
+/// Says where a video is, so the server can serve it from there.
+///
+/// The path rather than the bytes: a service video is far too large to hold in
+/// memory for the length of a presentation, and a browser asks for it in pieces
+/// anyway.
+pub fn publish_video(id: String, path: std::path::PathBuf) {
+    if let Ok(held) = server().lock()
+        && let Some(running) = held.as_ref()
+    {
+        running.publish_video(id, path);
+    }
+}

@@ -334,7 +334,10 @@ fn App() -> Element {
             }
 
             let state = match presentations.first() {
-                Some(running) => StreamState::of(running, 0),
+                Some(running) => StreamState::of(running, 0)
+                    // Where the video actually is; the running presentation
+                    // does not carry it. See [`StreamState::with_live_video`].
+                    .with_live_video(logic::video::published_position()),
                 // Between services. The address stays open and says so.
                 None => StreamState::waiting(0),
             };
@@ -344,6 +347,17 @@ fn App() -> Element {
             // otherwise a viewer asks for a picture that is not there yet.
             let wanted = state.media();
             let sources = picture_sources(&presentations);
+
+            // A video is registered rather than rendered: the server reads it
+            // from where it is, in whatever piece a viewer's browser asks for.
+            for id in state.videos() {
+                if logic::stream::has_video(&id) {
+                    continue;
+                }
+                if let Some(path) = sources.get(&id) {
+                    logic::stream::publish_video(id, std::path::PathBuf::from(path));
+                }
+            }
 
             spawn(async move {
                 for id in wanted {
@@ -359,6 +373,65 @@ fn App() -> Element {
                 }
                 logic::stream::publish(state);
             });
+        });
+
+        // A video moves by itself, and nothing about the presentation changes
+        // while it does — so the effect above does not run again, and every
+        // viewer is left with the position the slide came up with. That is
+        // what a phone opening the address in the middle of a video was told:
+        // "nought, and playing", which it obediently seeked to.
+        //
+        // Twice a second, and only while there is a video to talk about. The
+        // page leaves its own playback alone until it is more than half a
+        // second out — `VIDEO_DRIFT` in `assets/stream_viewer.html` — so
+        // telling it more often than that is traffic with nothing to show for
+        // it, and every viewer is downloading the video itself at the same
+        // time.
+        use_future(move || async move {
+            use logic::stream::protocol::StreamState;
+
+            // What was last said, so a video that is paused — or a service
+            // with no video in it at all — says nothing at all.
+            let mut last: Option<(u64, bool)> = None;
+
+            loop {
+                logic::timer::sleep(std::time::Duration::from_millis(500)).await;
+
+                if !logic::stream::is_enabled() {
+                    continue;
+                }
+
+                let Some((position, duration, playing)) = logic::video::published_position()
+                else {
+                    last = None;
+                    continue;
+                };
+
+                // Tenths of a second: finer than that is below what the page
+                // acts on, and comparing floats for equality would never find
+                // two the same.
+                let now = ((position * 10.0) as u64, playing);
+                if last == Some(now) {
+                    continue;
+                }
+
+                let presentations = running_presentations.peek().clone();
+                let Some(running) = presentations.first() else {
+                    continue;
+                };
+                let state = StreamState::of(running, 0)
+                    .with_live_video(Some((position, duration, playing)));
+
+                // `of` leaves the video out when the slide that is up is not
+                // one; a position left over from a video that has been left is
+                // not something to send anybody.
+                if state.video.is_none() {
+                    continue;
+                }
+
+                last = Some(now);
+                logic::stream::publish(state);
+            }
         });
     }
 
@@ -469,6 +542,8 @@ fn App() -> Element {
         document::Script { src: crate::logic::pdf::PDF_VIEWER_JS }
         // Makes the fonts shipped in `assets/fonts/` usable by name.
         BundledFontFaces {}
+        // Answers this window's requests for video files.
+        crate::components::video_host::VideoAssetHost {}
         document::Link { rel: "icon", href: FAVICON }
         document::Title { "Cantara" }
 
@@ -524,6 +599,10 @@ fn picture_sources(
                     SlideContent::PdfPage(page) => {
                         format!("{}#page={}", page.pdf_path, page.page_number)
                     }
+                    // A video is named here the same way, though what is done
+                    // with the name differs: it is registered with the server
+                    // rather than rendered into bytes.
+                    SlideContent::Video(video) => video.video_path.clone(),
                     _ => continue,
                 };
                 sources.insert(media_id(&source), source);

@@ -1,4 +1,4 @@
-use crate::components::shared_components::{ImageIcon, MarkdownIcon, MusicIcon, PdfIcon};
+use crate::components::shared_components::{ImageIcon, MarkdownIcon, MusicIcon, PdfIcon, VideoIcon};
 use crate::logic::settings::{default_sidebar_order, use_settings, SelectionSidebarType};
 use dioxus::prelude::*;
 
@@ -90,6 +90,7 @@ pub(crate) fn SelectionFilterSideBar(active_selection: Signal<SelectionSidebarTy
                                 SelectionSidebarType::Pictures => rsx! { ImageIcon {} },
                                 SelectionSidebarType::Pdfs => rsx! { PdfIcon {} },
                                 SelectionSidebarType::Markdown => rsx! { MarkdownIcon {} },
+                                SelectionSidebarType::Videos => rsx! { VideoIcon {} },
                             }
                         }
                     }

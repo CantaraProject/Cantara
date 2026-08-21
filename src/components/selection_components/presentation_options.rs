@@ -110,6 +110,10 @@ fn SpecificOptions(
     // pattern it cannot read is worked out here rather than on every keystroke
     // in the handler, so that the message and the value can never disagree.
     let is_pdf = item.source_file.file_type == SourceFileType::Pdf;
+
+    // …and only a video is played rather than merely shown.
+    let is_video = item.source_file.file_type == SourceFileType::Video;
+    let video_settings = item.video_settings;
     let pdf_pages = item.pdf_pages.clone();
     let pdf_path = item.source_file.path.clone();
 
@@ -270,6 +274,44 @@ fn SpecificOptions(
                             {t!("selection.pdf_pages_hint").to_string()}
                         }
                     },
+                }
+            }
+        }
+
+        if is_video {
+            fieldset {
+                legend { {t!("selection.video.headline").to_string()} }
+
+                label {
+                    input {
+                        r#type: "checkbox",
+                        role: "switch",
+                        checked: video_settings.autostart,
+                        onchange: move |event: Event<FormData>| {
+                            selected_items.write()[item_index].video_settings.autostart = event
+                                .checked();
+                        },
+                    }
+                    {t!("selection.video.autostart").to_string()}
+                }
+                small { class: "video-option-hint",
+                    {t!("selection.video.autostart_hint").to_string()}
+                }
+
+                label {
+                    input {
+                        r#type: "checkbox",
+                        role: "switch",
+                        checked: video_settings.looping,
+                        onchange: move |event: Event<FormData>| {
+                            selected_items.write()[item_index].video_settings.looping = event
+                                .checked();
+                        },
+                    }
+                    {t!("selection.video.loop").to_string()}
+                }
+                small { class: "video-option-hint",
+                    {t!("selection.video.loop_hint").to_string()}
                 }
             }
         }

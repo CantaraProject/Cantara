@@ -56,3 +56,25 @@ presenter:
   progress:
     en: Progress through the presentation
     de: Fortschritt der Präsentation
+  video:
+    play:
+      en: Play
+      de: Abspielen
+    pause:
+      en: Pause
+      de: Pause
+    back:
+      en: Back ten seconds
+      de: Zehn Sekunden zurück
+    forward:
+      en: Forward ten seconds
+      de: Zehn Sekunden vor
+    position:
+      en: Position in the video
+      de: Position im Video
+    mute:
+      en: Mute
+      de: Stummschalten
+    volume:
+      en: Volume
+      de: Lautstärke

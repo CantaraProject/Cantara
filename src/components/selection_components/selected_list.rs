@@ -27,7 +27,7 @@
 //! sibling rows see no events at all. The rows are measured once when the drag
 //! starts; nothing moves during it, so once is enough.
 
-use crate::components::shared_components::{ImageIcon, MarkdownIcon, MusicIcon, PdfIcon};
+use crate::components::shared_components::{ImageIcon, MarkdownIcon, MusicIcon, PdfIcon, VideoIcon};
 use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::SelectedItemRepresentation;
 use dioxus::prelude::*;
@@ -480,6 +480,9 @@ fn SelectedItem(
                         },
                         SourceFileType::Markdown => rsx! {
                             MarkdownIcon {}
+                        },
+                        SourceFileType::Video => rsx! {
+                            VideoIcon {}
                         },
                         _ => rsx! {},
                     }

@@ -296,6 +296,24 @@ fn create_presentation_slides(
         });
     }
 
+    // A video is one slide however long it is. The service moves on when the
+    // person leading it does, not when the file ends — which is also why a
+    // video that is over does not advance anything by itself.
+    if selected_item.source_file.file_type == SourceFileType::Video {
+        let path_str = selected_item
+            .source_file
+            .path
+            .to_str()
+            .unwrap_or("")
+            .to_string();
+
+        presentation.push(Slide::new_video_slide(
+            path_str,
+            selected_item.video_settings.autostart,
+            selected_item.video_settings.looping,
+        ));
+    }
+
     if selected_item.source_file.file_type == SourceFileType::Pdf {
         let path_str = selected_item
             .source_file
@@ -758,6 +776,10 @@ fn apply_presentation_update(
         presentation_resolution: old_rp.presentation_resolution,
         markdown_scroll_position: old_rp.markdown_scroll_position,
         presentation_layout: old_rp.presentation_layout,
+        // Rebuilding the slides is not a reason to stop a video that is
+        // playing: the running order is updated while the service runs, and
+        // the element that is up may well be untouched by the change.
+        video: old_rp.video.clone(),
     }
 }
 
@@ -1049,6 +1071,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
             pdf_pages: String::new(),
+            video_settings: Default::default(),
         };
         assert!(create_presentation_slides(&select_item, &SlideSettings::default(), &[]).is_ok());
     }
@@ -1238,6 +1261,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
             pdf_pages: String::new(),
+            video_settings: Default::default(),
         }
     }
 
@@ -1253,6 +1277,64 @@ mod tests {
             .filter(|line| !line.is_empty())
             .map(str::to_string)
             .collect()
+    }
+
+    /// A video is one slide however long it is: the service moves on when the
+    /// person leading it does, not when the file ends. And the way it is to be
+    /// played travels with the slide, because the projection, the console and
+    /// every phone have to agree on it.
+    #[test]
+    fn test_a_video_becomes_one_slide_carrying_its_settings() {
+        use crate::logic::states::VideoSettings;
+
+        let mut select_item = SelectedItemRepresentation::new_with_sourcefile(SourceFile {
+            name: "Intro".to_string(),
+            path: PathBuf::from_str("testfiles/Intro.mp4").unwrap(),
+            file_type: SourceFileType::Video,
+            md5_hash: None,
+            relative_path: None,
+        });
+        select_item.video_settings = VideoSettings {
+            autostart: false,
+            looping: true,
+        };
+
+        let slides = create_presentation_slides(&select_item, &SlideSettings::default(), &[])
+            .expect("a video makes slides");
+
+        assert_eq!(slides.len(), 1, "a video is one slide, whatever its length");
+        match &slides[0].slide_content {
+            SlideContent::Video(video) => {
+                assert!(video.video_path.ends_with("Intro.mp4"));
+                assert!(!video.autostart);
+                assert!(video.looping);
+            }
+            other => panic!("expected a video slide, got {other:?}"),
+        }
+    }
+
+    /// The ordinary case, and the one an operator gets without touching
+    /// anything: it starts by itself and does not repeat.
+    #[test]
+    fn test_a_video_starts_by_itself_and_does_not_repeat_by_default() {
+        let select_item = SelectedItemRepresentation::new_with_sourcefile(SourceFile {
+            name: "Intro".to_string(),
+            path: PathBuf::from_str("testfiles/Intro.mp4").unwrap(),
+            file_type: SourceFileType::Video,
+            md5_hash: None,
+            relative_path: None,
+        });
+
+        let slides = create_presentation_slides(&select_item, &SlideSettings::default(), &[])
+            .expect("a video makes slides");
+
+        match &slides[0].slide_content {
+            SlideContent::Video(video) => {
+                assert!(video.autostart, "a video on the wall waiting to be started is a pause");
+                assert!(!video.looping);
+            }
+            other => panic!("expected a video slide, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1273,6 +1355,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
             pdf_pages: String::new(),
+            video_settings: Default::default(),
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
@@ -1308,6 +1391,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
             pdf_pages: String::new(),
+            video_settings: Default::default(),
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
@@ -1343,6 +1427,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
             pdf_pages: pattern.to_string(),
+            video_settings: Default::default(),
         };
 
         let pages_of = |pattern: &str| -> Vec<String> {
@@ -1388,6 +1473,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
             pdf_pages: String::new(),
+            video_settings: Default::default(),
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
@@ -1417,6 +1503,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
             pdf_pages: String::new(),
+            video_settings: Default::default(),
         };
         let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
@@ -1522,6 +1609,7 @@ mod tests {
             timer_settings_option: None,
             transition_effect: Default::default(),
             pdf_pages: String::new(),
+            video_settings: Default::default(),
         }
     }
 

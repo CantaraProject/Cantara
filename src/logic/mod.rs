@@ -109,6 +109,18 @@ pub mod search;
 /// Waiting a moment, on the platform's clock rather than the page's.
 pub mod timer;
 
+/// Getting a video file into the page that plays it.
+pub mod video;
+
+/// Handing a video to a web view that will not take one any other way.
+///
+/// Only the WebKitGTK platforms need it — Windows and macOS play a video
+/// straight off the asset handler — and only a desktop build has a web view
+/// of its own to feed. See the module's own documentation for what WebKitGTK
+/// refuses and why the answer is a socket.
+#[cfg(all(feature = "desktop", not(any(target_os = "windows", target_os = "macos"))))]
+pub mod video_server;
+
 /// Reading a library is thousands of independent file reads, and only the
 /// native builds have threads to spread them over.
 #[cfg(not(target_arch = "wasm32"))]

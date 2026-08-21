@@ -389,3 +389,75 @@ html, body {
 .presentation-morph-ghost {
     pointer-events: none;
 }
+
+/* ── A video on a slide ──────────────────────────────────────────────────── */
+/* Fitted inside the slide rather than filling it: a video is whatever shape it
+   was made in, and cropping a title card to the projector's shape cuts the
+   words off it. The letterbox is the slide's own background, so it is the
+   design's colour rather than a black band. */
+.slide-video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    /* A frame is drawn before the browser knows the video's own shape; without
+       this the slide jumps once as it finds out. */
+    background-color: transparent;
+}
+
+/* ── Operating a video from the projection window ────────────────────────── */
+/* Only there when no presenter console is open; see `PresentationPage`. It sits
+   over the picture and stays out of the way until the pointer is near it — the
+   room is looking at this window, and a permanent bar of buttons across the
+   bottom of the projection is part of what a projection must not have. */
+.presentation-video-controls {
+    position: absolute;
+    left: 50%;
+    bottom: 1.5rem;
+    transform: translateX(-50%);
+    z-index: 50;
+    padding: 0.5rem 0.75rem;
+    border-radius: 2rem;
+    background-color: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    opacity: 0.12;
+    transition: opacity 0.2s ease;
+}
+
+.presentation-video-controls:hover,
+.presentation-video-controls:focus-within {
+    opacity: 1;
+}
+
+/* The controls themselves are the console's — see `.video-controls` in
+   `presenter_console.css`. On the projection they are drawn on the dark pill
+   above rather than on a card of their own, so the card is taken off them and
+   the colours are the ones that can be seen on black. */
+.presentation-video-controls .video-controls {
+    --video-accent: #fff;
+    --video-track: rgba(255, 255, 255, 0.35);
+    --video-hover: rgba(255, 255, 255, 0.18);
+    --video-ink: #fff;
+
+    width: 24rem;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: none;
+}
+
+/* Filled in white, so the one button that is filled is still the one that
+   stands out. */
+.presentation-video-controls .video-controls button.video-play {
+    color: #000;
+}
+
+.presentation-video-controls .video-time {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .presentation-video-controls {
+        transition: none;
+    }
+}

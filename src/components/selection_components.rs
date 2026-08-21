@@ -23,6 +23,7 @@ use self::selected_list::SelectedItems;
 use self::sidebar::SelectionFilterSideBar;
 use self::source_items::{
     process_dropped_files, ImageSourceItems, MarkdownSourceItems, PdfSourceItems, SongSourceItems,
+    VideoSourceItems,
     SourceDetailView,
 };
 use crate::logic::presentation;
@@ -369,6 +370,13 @@ pub fn Selection() -> Element {
                         }
                         if active_selection_filter() == SelectionSidebarType::Markdown {
                             MarkdownSourceItems {
+                                source_files,
+                                active_detailed_item_id,
+                                selected_items,
+                            }
+                        }
+                        if active_selection_filter() == SelectionSidebarType::Videos {
+                            VideoSourceItems {
                                 source_files,
                                 active_detailed_item_id,
                                 selected_items,

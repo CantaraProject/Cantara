@@ -407,6 +407,25 @@ selection:
     en: Export
     de: Exportieren
 
+  export_pptx_videos_skipped:
+    en: "%{count} videos could not be put into the deck and were left out."
+    de: "%{count} Videos konnten nicht in die Präsentation übernommen werden und fehlen."
+  video:
+    headline:
+      en: Video
+      de: Video
+    autostart:
+      en: Start automatically
+      de: Automatisch starten
+    autostart_hint:
+      en: Plays as soon as the slide is reached, instead of waiting to be started.
+      de: Spielt, sobald die Folie erreicht ist, statt auf den Start zu warten.
+    loop:
+      en: Repeat
+      de: Wiederholen
+    loop_hint:
+      en: Begins again when it reaches the end — for background scenes and countdowns.
+      de: Beginnt am Ende von vorn – für Hintergrundszenen und Countdowns.
 search:
   en: Search...
   de: Suchen...

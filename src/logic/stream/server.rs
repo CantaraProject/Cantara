@@ -60,6 +60,15 @@ struct Shared {
     /// The pictures the running order refers to, by the name the state gives
     /// them.
     media: RwLock<HashMap<String, Media>>,
+    /// Where the videos are, by the same kind of id the pictures use.
+    ///
+    /// A path rather than the bytes, which every other kind of media is held
+    /// as: a service video is tens or hundreds of megabytes, holding it in
+    /// memory would cost that much for as long as the presentation runs, and
+    /// it is served in pieces anyway — a browser asks for the part it is about
+    /// to play, so the whole file is never wanted at once. See
+    /// [`crate::logic::video::parse_byte_range`].
+    videos: RwLock<HashMap<String, std::path::PathBuf>>,
     /// What a viewer has to know. Empty means anyone may watch.
     password: String,
     /// Handed out when the password is given correctly.
@@ -113,6 +122,7 @@ impl StreamServer {
         let shared = Arc::new(Shared {
             state: watch::channel(Arc::new(StreamState::waiting(0))).0,
             media: RwLock::new(HashMap::new()),
+            videos: RwLock::new(HashMap::new()),
             password,
             session: new_session_token(),
             stopping: watch::channel(false).0,
@@ -293,6 +303,7 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/events", get(events))
         .route("/abcjs.js", get(abcjs))
         .route("/media/{id}", get(media))
+        .route("/video/{id}", get(video))
         .route("/login", post(login))
         .with_state(shared)
 }
@@ -379,6 +390,139 @@ async fn events(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Respon
     Sse::new(updates)
         .keep_alive(KeepAlive::default())
         .into_response()
+}
+
+/// Says where the video with this id is, so it can be served from there.
+///
+/// The path is kept rather than the bytes; see [`Shared::videos`].
+impl StreamServer {
+    pub fn publish_video(&self, id: String, path: std::path::PathBuf) {
+        if let Ok(mut videos) = self.shared.videos.write() {
+            videos.insert(id, path);
+        }
+    }
+
+    /// Whether a video of that id has been published.
+    pub fn has_video(&self, id: &str) -> bool {
+        self.shared
+            .videos
+            .read()
+            .map(|videos| videos.contains_key(id))
+            .unwrap_or(false)
+    }
+}
+
+/// Serves a video, in whatever piece of it the browser asked for.
+///
+/// Range requests are the whole point: without them a phone cannot seek, and
+/// it will not begin playing until the entire file has arrived. The same
+/// parsing as the desktop's own handler, so the two cannot drift apart —
+/// see [`crate::logic::video::parse_byte_range`].
+async fn video(
+    State(shared): State<Arc<Shared>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    use crate::logic::video::{ByteRange, parse_byte_range};
+    use std::io::{Read, Seek, SeekFrom};
+
+    if !shared.may_watch(&headers) {
+        return locked();
+    }
+
+    let found = shared
+        .videos
+        .read()
+        .ok()
+        .and_then(|videos| videos.get(&id).cloned());
+
+    let Some(path) = found else {
+        return (StatusCode::NOT_FOUND, "no such video").into_response();
+    };
+
+    // Only something that is a video by its name, exactly as the desktop's own
+    // handler insists. Both are reached with an id the program registered, so
+    // neither *should* ever be pointed at anything else — but the paths come
+    // from a running order, and a running order can be imported from a file
+    // somebody else wrote. This route is reachable from the network, so the
+    // consequence of being wrong here is worse: every file the user running
+    // Cantara can read, handed to anyone who can open the stream.
+    if crate::logic::sourcefiles::SourceFileType::of(
+        &path.file_name().unwrap_or_default().to_string_lossy(),
+    ) != Some(crate::logic::sourcefiles::SourceFileType::Video)
+    {
+        return (StatusCode::FORBIDDEN, "not a video").into_response();
+    }
+
+    let Ok(mut file) = std::fs::File::open(&path) else {
+        return (StatusCode::NOT_FOUND, "the video is no longer there").into_response();
+    };
+    let Ok(metadata) = file.metadata() else {
+        return (StatusCode::NOT_FOUND, "the video cannot be read").into_response();
+    };
+    let length = metadata.len();
+
+    let content_type = crate::logic::sourcefiles::mime_type_of_video(
+        &path.file_name().unwrap_or_default().to_string_lossy(),
+    );
+
+    let asked = headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+
+    let (wanted, partial) = match &asked {
+        Some(header) => match parse_byte_range(header, length) {
+            Some(wanted) => (wanted, true),
+            None => {
+                // Refused rather than answered with the beginning of the file:
+                // a player that asked to start ten minutes in and silently got
+                // the opening would play the wrong thing.
+                return (
+                    StatusCode::RANGE_NOT_SATISFIABLE,
+                    [(header::CONTENT_RANGE, format!("bytes */{length}"))],
+                )
+                    .into_response();
+            }
+        },
+        None => match ByteRange::whole(length) {
+            Some(whole) => (whole, false),
+            None => return (StatusCode::NOT_FOUND, "the video is empty").into_response(),
+        },
+    };
+
+    let mut body = vec![0u8; wanted.length() as usize];
+    if file.seek(SeekFrom::Start(wanted.start)).is_err()
+        || file.read_exact(&mut body).is_err()
+    {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "the video could not be read")
+            .into_response();
+    }
+
+    let status = if partial {
+        StatusCode::PARTIAL_CONTENT
+    } else {
+        StatusCode::OK
+    };
+
+    let mut response = (status, body).into_response();
+    let response_headers = response.headers_mut();
+    if let Ok(value) = header::HeaderValue::from_str(content_type) {
+        response_headers.insert(header::CONTENT_TYPE, value);
+    }
+    // Without this a browser will not seek at all: it reads the absence of the
+    // header as "the whole file or nothing".
+    response_headers.insert(header::ACCEPT_RANGES, header::HeaderValue::from_static("bytes"));
+    if partial
+        && let Ok(value) = header::HeaderValue::from_str(&format!(
+            "bytes {}-{}/{}",
+            wanted.start, wanted.end, length
+        ))
+    {
+        response_headers.insert(header::CONTENT_RANGE, value);
+    }
+
+    response
 }
 
 async fn media(
@@ -582,6 +726,7 @@ mod tests {
         Shared {
             state: watch::channel(Arc::new(StreamState::waiting(0))).0,
             media: RwLock::new(HashMap::new()),
+            videos: RwLock::new(HashMap::new()),
             password: password.to_string(),
             session: "s3cret-session".to_string(),
             stopping: watch::channel(false).0,
@@ -777,6 +922,82 @@ mod tests {
             .json()
             .expect("with a state");
         assert_eq!(second.revision, 2, "every change counts up");
+    }
+
+    /// A video is served from where it is, in whatever piece the browser asked
+    /// for. Range requests are the whole point: without them a phone will not
+    /// begin playing until the entire file has arrived, and cannot seek at all.
+    #[test]
+    fn a_video_is_served_in_the_pieces_a_browser_asks_for() {
+        let server = serving("");
+        let folder = tempfile::tempdir().expect("a temporary folder");
+        let path = folder.path().join("clip.mp4");
+        let contents: Vec<u8> = (0..=255u8).collect();
+        std::fs::write(&path, &contents).expect("the file can be written");
+
+        assert!(!server.has_video("a-clip"));
+        let missing = client().get(at(&server, "/video/a-clip")).send().expect("answers");
+        assert_eq!(missing.status(), 404, "before it is registered");
+
+        server.publish_video("a-clip".to_string(), path);
+        assert!(server.has_video("a-clip"));
+
+        // The whole thing, and the header without which no browser will seek.
+        let whole = client().get(at(&server, "/video/a-clip")).send().expect("answers");
+        assert_eq!(whole.status(), 200);
+        assert_eq!(
+            whole.headers().get("accept-ranges").and_then(|v| v.to_str().ok()),
+            Some("bytes"),
+            "without this a browser takes it as the whole file or nothing"
+        );
+        assert_eq!(whole.bytes().expect("bytes").as_ref(), contents.as_slice());
+
+        // A piece out of the middle, which is what a seek is.
+        let piece = client()
+            .get(at(&server, "/video/a-clip"))
+            .header("Range", "bytes=10-19")
+            .send()
+            .expect("answers");
+        assert_eq!(piece.status(), 206);
+        assert_eq!(
+            piece.headers().get("content-range").and_then(|v| v.to_str().ok()),
+            Some("bytes 10-19/256")
+        );
+        assert_eq!(piece.bytes().expect("bytes").as_ref(), &contents[10..=19]);
+
+        // And a range that cannot be met is refused rather than answered with
+        // the beginning of the file.
+        let past_the_end = client()
+            .get(at(&server, "/video/a-clip"))
+            .header("Range", "bytes=9999-")
+            .send()
+            .expect("answers");
+        assert_eq!(past_the_end.status(), 416);
+    }
+
+    /// The paths this route serves come from a running order, and a running
+    /// order can be imported from a file somebody else wrote. The route is
+    /// reachable from the network, so anything that is not a video by its name
+    /// is refused however it came to be registered.
+    #[test]
+    fn only_a_video_is_served_to_the_network() {
+        let server = serving("");
+        let folder = tempfile::tempdir().expect("a temporary folder");
+        let secret = folder.path().join("settings.json");
+        std::fs::write(&secret, b"a token nobody should be handed").expect("written");
+
+        server.publish_video("not-a-video".to_string(), secret);
+
+        let refused = client()
+            .get(at(&server, "/video/not-a-video"))
+            .send()
+            .expect("answers");
+
+        assert_eq!(refused.status(), 403);
+        assert!(
+            !refused.text().unwrap_or_default().contains("token"),
+            "the file was served anyway"
+        );
     }
 
     /// A picture is fetched from the server rather than pushed with every
