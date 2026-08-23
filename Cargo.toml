@@ -158,3 +158,11 @@ codegen-units = 1
 panic = "abort"
 strip = true
 incremental = false
+
+# Renders a component to a string without a window, so that a test can assert
+# what a slide actually looks like — and, in particular, that it changes when
+# the design does. See the reactivity tests in
+# `components::presentation_components`. Same family and licence as the rest of
+# Dioxus, and test-only.
+[dev-dependencies]
+dioxus-ssr = "0.7"
