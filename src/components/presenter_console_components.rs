@@ -3,7 +3,7 @@
 
 use crate::logic::presentation::{get_markdown_html, get_picture_path, html_to_plain_text};
 use crate::logic::settings::{PresentationDesign, PresenterConsoleView, use_settings};
-use crate::logic::states::RunningPresentation;
+use crate::logic::states::{RunningPresentation, VideoCommand, VideoPlayback};
 #[cfg(target_arch = "wasm32")]
 use crate::logic::sync::{
     SYNC_KEY_ACTIVE, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE, SYNC_KEY_PRESENTATION,
@@ -1345,12 +1345,6 @@ pub fn VideoControls(
     #[props(default)]
     footer: bool,
 ) -> Element {
-    use crate::logic::video::clock;
-    use dioxus_free_icons::Icon;
-    use dioxus_free_icons::icons::fa_solid_icons::{
-        FaPause, FaPlay, FaRotateLeft, FaRotateRight, FaVolumeHigh, FaVolumeXmark,
-    };
-
     // Only when the slide that is up is a video.
     let is_video = use_memo(move || {
         matches!(
@@ -1367,6 +1361,40 @@ pub fn VideoControls(
     }
 
     let playback = running_presentation.read().video.clone();
+
+    rsx! {
+        PlaybackControls {
+            playback,
+            footer,
+            on_command: move |command| running_presentation.write().video.apply(command),
+        }
+    }
+}
+
+/// The row of buttons itself, for whatever video is being operated.
+///
+/// Split from [`VideoControls`] because the detail view plays a video too, and
+/// that one belongs to no running presentation — a file being looked at is not
+/// a service. What is pressed is reported as a [`VideoCommand`] rather than
+/// written to a state here, so the same controls serve both without knowing
+/// which they are in.
+#[component]
+pub fn PlaybackControls(
+    /// Where the playback stands: what the buttons draw themselves from.
+    playback: VideoPlayback,
+    /// What was pressed.
+    on_command: EventHandler<VideoCommand>,
+    /// Whether these are the console's footer controls rather than the ones
+    /// under the live preview.
+    #[props(default)]
+    footer: bool,
+) -> Element {
+    use crate::logic::video::clock;
+    use dioxus_free_icons::Icon;
+    use dioxus_free_icons::icons::fa_solid_icons::{
+        FaPause, FaPlay, FaRotateLeft, FaRotateRight, FaVolumeHigh, FaVolumeXmark,
+    };
+
     let duration = playback.duration;
     // Kept inside the scrubber's own range. A video reports its position a
     // little past its length as it ends, and a range input handed a value above
@@ -1412,7 +1440,7 @@ pub fn VideoControls(
                 aria_label: t!("presenter.video.position").to_string(),
                 oninput: move |event| {
                     if let Ok(seconds) = event.value().parse::<f64>() {
-                        running_presentation.write().video.seek(seconds);
+                        on_command.call(VideoCommand::Seek(seconds));
                     }
                 },
             }
@@ -1429,7 +1457,7 @@ pub fn VideoControls(
                         class: "video-skip",
                         aria_label: t!("presenter.video.back").to_string(),
                         title: t!("presenter.video.back").to_string(),
-                        onclick: move |_| running_presentation.write().video.skip(-10.0),
+                        onclick: move |_| on_command.call(VideoCommand::Skip(-10.0)),
                         Icon { icon: FaRotateLeft, width: 15, height: 15 }
                         span { class: "video-skip-seconds", "10" }
                     }
@@ -1447,11 +1475,7 @@ pub fn VideoControls(
                         } else {
                             t!("presenter.video.play").to_string()
                         },
-                        onclick: move |_| {
-                            let mut state = running_presentation.write();
-                            let playing = state.video.playing;
-                            state.video.playing = !playing;
-                        },
+                        onclick: move |_| on_command.call(VideoCommand::TogglePlay),
                         if playback.playing {
                             Icon { icon: FaPause, width: 16, height: 16 }
                         } else {
@@ -1468,7 +1492,7 @@ pub fn VideoControls(
                         class: "video-skip",
                         aria_label: t!("presenter.video.forward").to_string(),
                         title: t!("presenter.video.forward").to_string(),
-                        onclick: move |_| running_presentation.write().video.skip(10.0),
+                        onclick: move |_| on_command.call(VideoCommand::Skip(10.0)),
                         Icon { icon: FaRotateRight, width: 15, height: 15 }
                         span { class: "video-skip-seconds", "10" }
                     }
@@ -1491,11 +1515,7 @@ pub fn VideoControls(
                         aria_pressed: playback.muted.to_string(),
                         aria_label: t!("presenter.video.mute").to_string(),
                         title: t!("presenter.video.mute").to_string(),
-                        onclick: move |_| {
-                            let mut state = running_presentation.write();
-                            let muted = state.video.muted;
-                            state.video.muted = !muted;
-                        },
+                        onclick: move |_| on_command.call(VideoCommand::ToggleMute),
                         if playback.muted {
                             Icon { icon: FaVolumeXmark, width: 16, height: 16 }
                         } else {
@@ -1514,13 +1534,7 @@ pub fn VideoControls(
                         aria_label: t!("presenter.video.volume").to_string(),
                         oninput: move |event| {
                             if let Ok(volume) = event.value().parse::<f64>() {
-                                let mut state = running_presentation.write();
-                                state.video.volume = volume.clamp(0.0, 1.0);
-                                // Turning it up is also how somebody unmutes; leaving
-                                // it muted while the slider moved would look broken.
-                                if volume > 0.0 {
-                                    state.video.muted = false;
-                                }
+                                on_command.call(VideoCommand::SetVolume(volume));
                             }
                         },
                     }

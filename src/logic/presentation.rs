@@ -126,6 +126,20 @@ pub fn get_markdown_html(main_text: &str) -> Option<&str> {
     main_text.strip_prefix(MARKDOWN_HTML_PREFIX)
 }
 
+/// Renders Markdown source to HTML for reading it as a document.
+///
+/// Unlike [slides_from_markdown] nothing is split here: a `---` line is a
+/// horizontal rule again, because a document is read as a whole and only a
+/// presentation needs it cut into slides. Text that already carries the
+/// [MARKDOWN_HTML_PREFIX] is passed through, so a slide's stored HTML can be
+/// shown without rendering it twice.
+pub fn markdown_to_html(source: &str) -> String {
+    match get_markdown_html(source) {
+        Some(html) => html.to_string(),
+        None => markdown::to_html(source),
+    }
+}
+
 /// Converts HTML to plain text by stripping tags.
 /// Block-level elements (p, h1-h6, li, br, div, tr) get newline separators.
 pub fn html_to_plain_text(html: &str) -> String {
@@ -1560,6 +1574,21 @@ mod tests {
 
         let without_prefix = "Just plain text";
         assert_eq!(get_markdown_html(without_prefix), None);
+    }
+
+    /// A document is read whole: `---` stays a rule instead of cutting the
+    /// text in two, and already rendered HTML is not run through the renderer
+    /// a second time.
+    #[test]
+    fn test_markdown_to_html_renders_a_document() {
+        let html = markdown_to_html("# Hello\n\n> quoted\n\n---\n\n## World");
+        assert!(html.contains("<h1>Hello</h1>"));
+        assert!(html.contains("<blockquote>"));
+        assert!(html.contains("<hr />"));
+        assert!(html.contains("<h2>World</h2>"));
+
+        let already_rendered = format!("{}<h1>Hello</h1>", MARKDOWN_HTML_PREFIX);
+        assert_eq!(markdown_to_html(&already_rendered), "<h1>Hello</h1>");
     }
 
     #[test]

@@ -361,6 +361,48 @@ impl VideoPlayback {
         };
         self.seek(target);
     }
+
+    /// Carries out what was pressed on a set of playback controls.
+    ///
+    /// The controls themselves know nothing about *whose* playback they are
+    /// operating — the same row of buttons drives the video on the slide of a
+    /// running service and the one being previewed in the detail view. So they
+    /// report what was pressed and this decides what it means, in one place,
+    /// rather than each caller working it out again.
+    pub fn apply(&mut self, command: VideoCommand) {
+        match command {
+            VideoCommand::TogglePlay => self.playing = !self.playing,
+            VideoCommand::Seek(seconds) => self.seek(seconds),
+            VideoCommand::Skip(seconds) => self.skip(seconds),
+            VideoCommand::ToggleMute => self.muted = !self.muted,
+            VideoCommand::SetVolume(volume) => {
+                self.volume = volume.clamp(0.0, 1.0);
+                // Turning it up is also how somebody unmutes; leaving it muted
+                // while the slider moved would look broken.
+                if self.volume > 0.0 {
+                    self.muted = false;
+                }
+            }
+        }
+    }
+}
+
+/// What somebody pressed on a set of video playback controls.
+///
+/// See [`VideoPlayback::apply`] for why this is a message rather than the
+/// controls writing to a playback state directly.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum VideoCommand {
+    /// Play if it is paused, pause if it is playing.
+    TogglePlay,
+    /// Jump to this many seconds from the start.
+    Seek(f64),
+    /// Move this many seconds from where it is now, forwards or backwards.
+    Skip(f64),
+    /// Sound off if it is on, on if it is off.
+    ToggleMute,
+    /// How loud, from 0.0 to 1.0.
+    SetVolume(f64),
 }
 
 impl RunningPresentation {
@@ -825,6 +867,47 @@ mod tests {
 
         assert_ne!(playback.seek_to, first, "the second ask was lost");
         assert_eq!(playback.seek_to.map(|(at, _)| at), Some(30.0));
+    }
+
+    /// Every button on the controls means the same thing wherever they are
+    /// drawn — under the console's preview and in the detail view both.
+    #[test]
+    fn test_what_the_buttons_do() {
+        let mut playback = VideoPlayback::default();
+
+        playback.apply(VideoCommand::TogglePlay);
+        assert!(playback.playing);
+        playback.apply(VideoCommand::TogglePlay);
+        assert!(!playback.playing);
+
+        playback.apply(VideoCommand::Seek(30.0));
+        assert_eq!(playback.position, 30.0);
+        playback.apply(VideoCommand::Skip(-10.0));
+        assert_eq!(playback.position, 20.0);
+
+        playback.apply(VideoCommand::ToggleMute);
+        assert!(playback.muted);
+    }
+
+    /// Turning the sound up is also how somebody unmutes: leaving it muted
+    /// while the slider moved would look broken.
+    #[test]
+    fn test_turning_the_volume_up_unmutes() {
+        let mut playback = VideoPlayback {
+            muted: true,
+            volume: 0.0,
+            ..VideoPlayback::default()
+        };
+
+        playback.apply(VideoCommand::SetVolume(0.5));
+
+        assert_eq!(playback.volume, 0.5);
+        assert!(!playback.muted);
+
+        // …and turning it all the way down does not unmute anything.
+        playback.apply(VideoCommand::SetVolume(0.0));
+        assert!(!playback.muted, "silence is not the same as pressing mute");
+        assert_eq!(playback.volume, 0.0);
     }
 
     /// The scrubber moves under the finger rather than waiting for the window

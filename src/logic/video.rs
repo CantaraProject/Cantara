@@ -433,6 +433,30 @@ pub fn mirror_script(seconds: f64, playing: bool) -> String {
     )
 }
 
+/// The script that makes the element pick up the file it has just been pointed
+/// at.
+///
+/// Changing the `src` of a `<source>` does nothing by itself: a `<video>` reads
+/// its sources once, when it loads, and goes on playing what it already has.
+/// Opening a second clip in the detail view therefore left the first one on
+/// screen — the right name above a picture from the wrong file. `load()` is
+/// what tells it to look again.
+///
+/// It also rewinds, because the element that is being pointed at a new file is
+/// the same one that was some way into the last, and a video that opens at
+/// 0:16 of nothing is worse than one that opens at its beginning.
+pub fn reload_script() -> String {
+    format!(
+        "(function() {{
+            var v = document.querySelector('.{LIVE_CLASS}');
+            if (!v) {{ return; }}
+            v.pause();
+            v.currentTime = 0;
+            v.load();
+        }})();"
+    )
+}
+
 /// The script that asks the element where it has got to.
 ///
 /// Returns `[position, duration, playing]`, or nothing when there is no video
