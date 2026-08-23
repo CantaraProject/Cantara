@@ -223,14 +223,57 @@ fn SingleFontRepresentationComponent(
                 }
             }
 
-            WeightSelector {
-                weight: font.weight,
-                onchange: {
-                    let base = font.clone();
-                    move |new_weight: u16| {
-                        let mut updated = base.clone();
-                        updated.weight = new_weight;
-                        onchange.call(updated);
+            // Bold and italic together, the way every program that sets type
+            // offers them, with the full weight list under them for anyone who
+            // wants light or semibold. The bold switch is a view of the weight
+            // — see [`FontRepresentation::is_bold`] — so there is still only
+            // one thing stored and nothing that can fall out of step.
+            fieldset {
+                legend { { t!("settings.fonts.style").to_string() } }
+                div { class: "grid",
+                    label {
+                        input {
+                            r#type: "checkbox",
+                            role: "switch",
+                            checked: font.is_bold(),
+                            onchange: {
+                                let base = font.clone();
+                                move |event: Event<FormData>| {
+                                    let mut updated = base.clone();
+                                    updated.set_bold(event.checked());
+                                    onchange.call(updated);
+                                }
+                            }
+                        }
+                        { t!("settings.fonts.bold").to_string() }
+                    }
+                    label {
+                        input {
+                            r#type: "checkbox",
+                            role: "switch",
+                            checked: font.italic,
+                            onchange: {
+                                let base = font.clone();
+                                move |event: Event<FormData>| {
+                                    let mut updated = base.clone();
+                                    updated.italic = event.checked();
+                                    onchange.call(updated);
+                                }
+                            }
+                        }
+                        { t!("settings.fonts.italic").to_string() }
+                    }
+                }
+
+                WeightSelector {
+                    weight: font.weight,
+                    onchange: {
+                        let base = font.clone();
+                        move |new_weight: u16| {
+                            let mut updated = base.clone();
+                            updated.weight = new_weight;
+                            onchange.call(updated);
+                        }
                     }
                 }
             }

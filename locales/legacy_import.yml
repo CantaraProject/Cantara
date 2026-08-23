@@ -64,12 +64,11 @@ legacy_import:
     de: "Das Hintergrundbild wurde übernommen."
   not_everything:
     en: |-
-      Italic, underlined and struck-through text has no counterpart in
-      Cantara 3 and was not carried over. Everything can be changed in the
-      settings.
+      Underlined and struck-through text has no counterpart in Cantara 3 and
+      was not carried over. Everything can be changed in the settings.
     de: |-
-      Kursive, unterstrichene und durchgestrichene Schrift hat in Cantara 3
-      keine Entsprechung und wurde nicht übernommen. Alles lässt sich in den
+      Unterstrichene und durchgestrichene Schrift hat in Cantara 3 keine
+      Entsprechung und wurde nicht übernommen. Alles lässt sich in den
       Einstellungen ändern.
   close:
     en: "Get started"

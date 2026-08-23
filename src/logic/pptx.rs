@@ -134,7 +134,12 @@ pub struct PptxText {
     /// Font family. PowerPoint substitutes if the machine lacks it.
     pub font_face: String,
     pub color: PptxColor,
+    /// Whether the run is bold. Taken from the design's weight — see
+    /// [`FontRepresentation::is_bold`] — because PowerPoint has a switch where
+    /// a stylesheet has a scale.
     pub bold: bool,
+    /// Whether the run is slanted.
+    pub italic: bool,
     pub align: PptxAlign,
     pub valign: PptxVAlign,
     /// Shrink the text to fit the box rather than letting it overflow.
@@ -591,7 +596,8 @@ fn text_shape(
         font_size: font_size_in_points(&font.font_size),
         font_face: font_face(font),
         color: PptxColor::rgb(font.color.r, font.color.g, font.color.b),
-        bold: false,
+        bold: font.is_bold(),
+        italic: font.italic,
         align: match font.horizontal_alignment {
             HorizontalAlign::Left => PptxAlign::Left,
             HorizontalAlign::Right => PptxAlign::Right,
@@ -618,7 +624,8 @@ fn meta_corner_shape(deck: &PptxDeck, text: &str, font: &FontRepresentation) -> 
         font_size: font_size_in_points(&font.font_size),
         font_face: font_face(font),
         color: PptxColor::rgb(font.color.r, font.color.g, font.color.b),
-        bold: false,
+        bold: font.is_bold(),
+        italic: font.italic,
         align: PptxAlign::Right,
         valign: PptxVAlign::Bottom,
         shrink_to_fit: true,
@@ -787,6 +794,49 @@ mod tests {
         assert_eq!(deck.slides[0].background.as_hex(), "000000");
         assert!(first_text.font_size >= 8.0 && first_text.font_size <= 200.0);
         assert!(!first_text.font_face.is_empty());
+        // The default design sets neither.
+        assert!(!first_text.bold);
+        assert!(!first_text.italic);
+    }
+
+    /// A design set in bold italic has to export as bold italic. Both used to
+    /// be dropped on the way out: every run was written `bold: false` and
+    /// there was no italic at all, so a deck exported from a heavy design came
+    /// back in regular type.
+    #[test]
+    fn test_the_designs_type_style_survives_the_export() {
+        let mut design = PresentationDesign::default();
+        let PresentationDesignSettings::Template(template) =
+            &mut design.presentation_design_settings
+        else {
+            panic!("the default design is a template");
+        };
+        for font in &mut template.fonts {
+            font.set_bold(true);
+            font.italic = true;
+        }
+
+        let slides = slides_of(
+            "testfiles/Amazing Grace.song.yml",
+            &SlideSettings::default(),
+        );
+        let deck = deck_from_slides(&slides, &design, &HashMap::new()).deck;
+
+        let texts: Vec<&PptxText> = deck
+            .slides
+            .iter()
+            .flat_map(|slide| &slide.shapes)
+            .filter_map(|shape| match shape {
+                PptxShape::Text(text) => Some(text),
+                _ => None,
+            })
+            .collect();
+
+        assert!(!texts.is_empty(), "the deck has no text at all");
+        for text in texts {
+            assert!(text.bold, "{:?} came out in regular weight", text.text);
+            assert!(text.italic, "{:?} came out upright", text.text);
+        }
     }
 
     /// Notation cannot become a PowerPoint shape. The slide keeps its words and
@@ -868,6 +918,7 @@ mod tests {
             font_face: "Arial".to_string(),
             color: PptxColor::rgb(255, 255, 255),
             bold: true,
+            italic: false,
             align: PptxAlign::Center,
             valign: PptxVAlign::Middle,
             shrink_to_fit: true,

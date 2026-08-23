@@ -67,6 +67,7 @@ try {
                     fontFace: shape.font_face,
                     color: shape.color,
                     bold: shape.bold,
+                    italic: shape.italic,
                     align: shape.align,
                     valign: shape.valign,
                     // Keeps a long verse inside its box instead of letting

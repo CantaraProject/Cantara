@@ -1001,7 +1001,7 @@ fn TitleSlideComponent(
         css.z_index(2);
         let mut font = title_font_representation.clone();
         if bold {
-            font.weight = font.weight.max(700);
+            font.weight = font.weight.max(crate::logic::settings::BOLD_WEIGHT);
         }
         css.extend(&CssHandler::from(font));
         css

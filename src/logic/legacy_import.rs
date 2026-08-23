@@ -35,10 +35,10 @@
 //!
 //! # What is not
 //!
-//! Cantara 2 knew italic, underlined and struck-through type; a design here
-//! has a weight and nothing else, so only bold survives. The window geometry
-//! and the export switches under `[Size]` and `[Exporter]` describe a program
-//! that no longer exists.
+//! Cantara 2 knew underlined and struck-through type as well as bold and
+//! italic; a design here has no counterpart for either, so those two are
+//! dropped. The window geometry and the export switches under `[Size]` and
+//! `[Exporter]` describe a program that no longer exists.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -181,9 +181,12 @@ pub struct LegacyConfig {
     /// Its size in points.
     pub font_size: i64,
 
-    /// Bold. Cantara 2's other three styles have nowhere to go — see the
-    /// module documentation.
+    /// Bold.
     pub bold: bool,
+
+    /// Italic. Cantara 2's other two styles have nowhere to go — see the
+    /// module documentation.
+    pub italic: bool,
 
     /// Whether each song opens with a slide carrying its title.
     pub title_slide: bool,
@@ -226,6 +229,14 @@ pub struct LegacyConfig {
 /// What Cantara 2 padded a slide with when the user never said.
 const LEGACY_DEFAULT_PADDING: i64 = 15;
 
+/// One letter of `Font-Style`, which Cantara 2 writes as four of `T` or `F`.
+///
+/// A string that is too short — a hand-edited file, or an empty setting — is
+/// read as "off" rather than as a reason to give up on the whole design.
+fn style_flag(style: &str, position: usize) -> bool {
+    style.chars().nth(position) == Some('T')
+}
+
 impl LegacyConfig {
     /// Reads the `[Config]` section.
     pub fn read(ini: &IniFile) -> LegacyConfig {
@@ -241,9 +252,11 @@ impl LegacyConfig {
             spoiler: ini.boolean(CONFIG_SECTION, "Spoiler", true),
             font_name: ini.string(CONFIG_SECTION, "Font-Name", "default"),
             font_size: ini.integer(CONFIG_SECTION, "Font-Size", 42),
-            // `TTFFF` — bold, italic, underline, struck through. Only the
-            // first has a counterpart here.
-            bold: style.starts_with('T'),
+            // `TTFF` — bold, italic, underline, struck through, one letter
+            // each. The first two have a counterpart here; see the module
+            // documentation for the other two.
+            bold: style_flag(&style, 0),
+            italic: style_flag(&style, 1),
             title_slide: ini.boolean(CONFIG_SECTION, "TitleSlide", false),
             meta_first_slide: ini.boolean(CONFIG_SECTION, "MetaDataFirstSlide", false),
             meta_last_slide: ini.boolean(CONFIG_SECTION, "MetaDataLastSlide", false),
@@ -524,14 +537,15 @@ pub fn design_of(config: &LegacyConfig, name: String) -> PresentationDesign {
     // metadata at a third of it, and those proportions are as much a part of
     // what the user is used to as the size itself.
     let size = config.font_size.clamp(1, 500) as f32;
-    let main = FontRepresentation {
+    let mut main = FontRepresentation {
         font_family: family,
         font_size: CssSize::Pt(size),
         color,
         horizontal_alignment: horizontal,
-        weight: if config.bold { 700 } else { 400 },
+        italic: config.italic,
         ..FontRepresentation::default()
     };
+    main.set_bold(config.bold);
 
     let mut spoiler = main.clone();
     spoiler.font_size = CssSize::Pt(size / 2.0);
@@ -1278,22 +1292,49 @@ HideCursorInPresentation=0
         }
     }
 
-    /// Bold is the one style with a counterpart here; the other three letters
-    /// of `Font-Style` describe things a design cannot say.
+    /// `Font-Style` is four letters — bold, italic, underline, struck through
+    /// — and the first two have a counterpart in a design here.
     #[test]
-    fn bold_becomes_a_weight() {
-        let bold = LegacyConfig::read(&IniFile::parse("[Config]\nFont-Style=TFFF\n"));
-        assert_eq!(template_of(&design_of(&bold, String::new())).fonts[0].weight, 700);
+    fn bold_and_italic_are_read_from_the_four_letters() {
+        for (style, bold, italic) in [
+            ("FFFF", false, false),
+            ("TFFF", true, false),
+            ("FTFF", false, true),
+            ("TTFF", true, true),
+            // The last two letters are underline and struck through, which a
+            // design cannot say — and must not be mistaken for the first two.
+            ("FFTT", false, false),
+        ] {
+            let config =
+                LegacyConfig::read(&IniFile::parse(&format!("[Config]\nFont-Style={style}\n")));
+            assert_eq!(config.bold, bold, "{style} read the wrong bold");
+            assert_eq!(config.italic, italic, "{style} read the wrong italic");
 
-        let italic_only = LegacyConfig::read(&IniFile::parse("[Config]\nFont-Style=FTTT\n"));
-        assert_eq!(
-            template_of(&design_of(&italic_only, String::new())).fonts[0].weight,
-            400
-        );
+            // …and each of the three blocks of the design is set the same way,
+            // as Cantara 2 drew them.
+            for font in template_of(&design_of(&config, String::new())).fonts {
+                assert_eq!(font.is_bold(), bold, "{style}");
+                assert_eq!(font.italic, italic, "{style}");
+                assert_eq!(font.weight, if bold { 700 } else { 400 }, "{style}");
+            }
+        }
+    }
 
-        // A style string that is not four letters must not panic.
-        let short = LegacyConfig::read(&IniFile::parse("[Config]\nFont-Style=\n"));
-        assert!(!short.bold);
+    /// A style string that is missing, empty or too short is read as "nothing
+    /// switched on" rather than being a reason to give up on the design.
+    #[test]
+    fn a_style_that_is_not_four_letters_is_nothing_switched_on() {
+        for line in ["Font-Style=\n", "Font-Style=T\n", "", "Font-Style=nonsense\n"] {
+            let config = LegacyConfig::read(&IniFile::parse(&format!("[Config]\n{line}")));
+            assert!(!config.italic, "{line:?} switched italic on");
+            if line == "Font-Style=T\n" {
+                // One letter is a bold that was written down; the rest is not
+                // there and is off.
+                assert!(config.bold);
+            } else {
+                assert!(!config.bold, "{line:?} switched bold on");
+            }
+        }
     }
 
     /// Nonsense in the file must not produce a design that cannot be rendered:

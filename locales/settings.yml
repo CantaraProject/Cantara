@@ -360,6 +360,15 @@ settings:
     language_hint:
       en: Rows in this language are drawn with this block; other rows fall back to the main block.
       de: Zeilen in dieser Sprache werden mit diesem Block dargestellt; andere Zeilen fallen auf den Hauptblock zurück.
+    style:
+      en: Type style
+      de: Schriftschnitt
+    bold:
+      en: Bold
+      de: Fett
+    italic:
+      en: Italic
+      de: Kursiv
     weight:
       en: Weight
       de: Schriftstärke

@@ -153,6 +153,22 @@ impl CssHandler {
         )
     }
 
+    /// Whether the type is slanted.
+    ///
+    /// Written out either way rather than only when it is on: these
+    /// declarations are also handed to a viewer's browser and merged into
+    /// whatever the page already had, so leaving it out would mean "keep
+    /// whatever was there" rather than "upright".
+    pub fn font_style(&mut self, italic: bool) {
+        self.push(
+            "font-style".to_string(),
+            CssValue::String(match italic {
+                true => "italic".to_string(),
+                false => "normal".to_string(),
+            }),
+        )
+    }
+
     /// An outline around the glyphs.
     ///
     /// `paint-order` goes with it: without it the stroke is drawn on top of the
@@ -285,6 +301,7 @@ impl From<FontRepresentation> for CssHandler {
         css_handler.color(font.color);
         css_handler.text_align(font.horizontal_alignment);
         css_handler.font_weight(font.weight);
+        css_handler.font_style(font.italic);
         if font.horizontal_alignment == HorizontalAlign::JustifyWithHyphenation {
             css_handler.hyphens("auto");
         }
@@ -470,6 +487,30 @@ mod font_color_tests {
         assert!(style.contains("font-size"), "got {style:?}");
         assert!(style.contains("font-weight"), "got {style:?}");
         assert!(style.contains("line-height"), "got {style:?}");
+    }
+
+    /// A design that asks for slanted type has to get it. This used to be the
+    /// bug the shadow had: the flag was in the settings and never reached the
+    /// stylesheet.
+    #[test]
+    fn test_italic_reaches_the_stylesheet() {
+        let upright = FontRepresentation::default();
+        let slanted = FontRepresentation {
+            italic: true,
+            ..FontRepresentation::default()
+        };
+
+        assert!(
+            CssHandler::from(slanted).to_string().contains("font-style:italic"),
+            "a design asking for italic did not get it"
+        );
+        // And "upright" is said out loud rather than left unsaid: these
+        // declarations are merged into a page that may already be slanting
+        // something, and silence there means "leave it as it is".
+        assert!(
+            CssHandler::from(upright).to_string().contains("font-style:normal"),
+            "upright type was left to whatever the page had"
+        );
     }
 
     /// Transparent would have been the obvious shortcut and the wrong one: the

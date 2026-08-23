@@ -1327,7 +1327,8 @@ mod tests {
         assert!(state.media().is_empty());
     }
 
-    /// A design's shadow, outline, weight and alignment reach a viewer. They
+    /// A design's shadow, outline, weight, slant and alignment reach a viewer.
+    /// They
     /// are what makes light text readable over a background picture, and a
     /// page without them is not the presentation the audience is looking at.
     #[test]
@@ -1340,6 +1341,7 @@ mod tests {
         let mut font = FontRepresentation::default();
         font.shadow = true;
         font.weight = 800;
+        font.italic = true;
         font.outline = Some(FontOutline::default());
 
         let mut template = PresentationDesignTemplate::default();
@@ -1359,6 +1361,7 @@ mod tests {
 
         assert!(css.contains("text-shadow"), "got: {css}");
         assert!(css.contains("font-weight"), "got: {css}");
+        assert!(css.contains("font-style:italic"), "the slant too, got: {css}");
         assert!(css.contains("text-stroke"), "the outline too, got: {css}");
     }
 
