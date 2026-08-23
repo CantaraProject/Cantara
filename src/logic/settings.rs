@@ -444,14 +444,31 @@ impl Settings {
             // A settings file that cannot be read or understood is not worth
             // reporting: the defaults are a working configuration, and the
             // wizard picks the user up from there.
-            let mut settings: Settings = get_settings_file()
-                .and_then(|file| std::fs::read_to_string(file).ok())
+            //
+            // Whether there *is* one is a different question from whether it
+            // could be read, and the two are kept apart here: a file that is
+            // there but unreadable is not a first start, and must not lead to
+            // a Cantara 2 configuration being imported over settings that are
+            // merely damaged.
+            let stored = get_settings_file().and_then(|file| std::fs::read_to_string(file).ok());
+            let first_start = stored.is_none();
+            let mut settings: Settings = stored
                 .and_then(|content| serde_json::from_str(&migrate_settings_json(&content)).ok())
                 .unwrap_or_default();
             settings.ensure_default_presentation_design();
             settings.ensure_slide_settings_for_designs();
             settings.ensure_sidebar_order();
             settings.migrate_github_zip_repos();
+
+            // Nobody starts with an empty program if they have been using
+            // Cantara 2: their library, design and metadata line are on this
+            // machine already. See [`crate::logic::legacy_import`].
+            if first_start
+                && let Some(report) = crate::logic::legacy_import::import_from_cantara_2(&mut settings)
+            {
+                crate::logic::legacy_import::leave_notice(report);
+            }
+
             settings
         }
     }

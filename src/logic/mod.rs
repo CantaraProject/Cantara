@@ -97,6 +97,8 @@ pub mod fonts;
 pub mod selection_io;
 /// Handing a single design or slide division to somebody else.
 pub mod settings_io;
+/// Taking a Cantara 2 installation over, the first time Cantara 3 starts.
+pub mod legacy_import;
 /// Saying in words what a slide division does.
 pub mod slide_summary;
 pub mod pptx;

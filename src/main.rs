@@ -558,6 +558,11 @@ fn App() -> Element {
         // navigating away still has somewhere to appear. See
         // [`components::dialogs`].
         DialogHost {}
+
+        // And, on the one start where it happened, what was taken over from a
+        // Cantara 2 installation on this machine. See
+        // [`logic::legacy_import`].
+        crate::components::legacy_import_notice::LegacyImportNotice {}
     }
 }
 
