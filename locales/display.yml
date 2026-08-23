@@ -129,6 +129,22 @@ display:
   meta_syntax_hint:
     en: "Handlebars template, e.g. {{title}} ({{author}})"
     de: "Handlebars-Vorlage, z. B. {{title}} ({{author}})"
+  meta_preview:
+    en: Preview
+    de: Vorschau
+  # What the example song is, so that a template which shows nothing is
+  # understood as "nothing about *this* song" rather than as a fault.
+  meta_preview_song:
+    en: "Tried on %{title} — author: %{author}, bible: %{bible}"
+    de: "Getestet an %{title} – author: %{author}, bible: %{bible}"
+  meta_preview_nothing:
+    en: Nothing would be shown for this song.
+    de: Für dieses Lied würde nichts angezeigt werden.
+  meta_preview_broken:
+    en: This template cannot be read, so no meta information would be shown.
+    de: |-
+      Diese Vorlage kann nicht gelesen werden, es würden keine
+      Metainformationen angezeigt werden.
   meta_where:
     en: Show meta information on
     de: Metainformationen anzeigen auf

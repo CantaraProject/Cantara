@@ -2125,3 +2125,52 @@ div.inline-div {
 .legacy-import-source {
     overflow-wrap: anywhere;
 }
+
+/* The metadata template and what it does, side by side — see
+   `MetaSyntaxEditor`. The field grows with its content (its `rows` follow the
+   line count), so it only needs to be told that a template is code and that
+   dragging it taller is allowed. */
+.meta-syntax-input {
+    font-family: var(--pico-font-family-monospace, monospace);
+    font-size: 0.85em;
+    resize: vertical;
+}
+
+.meta-syntax-preview {
+    margin: 0;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--pico-form-element-border-color);
+    border-radius: var(--pico-border-radius);
+    background: var(--pico-card-sectioning-background-color);
+}
+
+/* The line breaks of the template are the line breaks of the slide. */
+.meta-syntax-preview-line {
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    margin-bottom: 0.5rem;
+}
+
+.meta-syntax-preview-empty {
+    margin-bottom: 0.5rem;
+    color: var(--pico-muted-color);
+    font-style: italic;
+}
+
+.meta-syntax-preview-broken {
+    margin-bottom: 0.5rem;
+    color: var(--pico-del-color, #b3261e);
+}
+
+.meta-syntax-preview-reason {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.8em;
+    overflow-wrap: anywhere;
+}
+
+.meta-syntax-preview figcaption {
+    margin: 0;
+    font-size: 0.8em;
+    color: var(--pico-muted-color);
+}

@@ -659,19 +659,18 @@ fn DisplaySettings(
                     {t!("display.empty_last_slide").to_string()}
                 }
 
-                label {
-                    {t!("display.meta_syntax").to_string()}
-                    input {
-                        r#type: "text",
-                        value: settings().meta_syntax.clone(),
-                        placeholder: t!("display.meta_syntax_hint").to_string(),
-                        onchange: move |event| {
-                            let value = event.value();
-                            update(&|settings: &mut SlideSettings| {
-                                settings.meta_syntax = value.clone()
-                            });
-                        },
-                    }
+                // The template beside what it does. A metadata line is written
+                // by trying it: the conditionals mean the same template says
+                // different things about different songs, and reading one
+                // without seeing the result is guesswork. See
+                // [`MetaSyntaxEditor`].
+                MetaSyntaxEditor {
+                    value: settings().meta_syntax.clone(),
+                    on_changed: move |value: String| {
+                        update(&|settings: &mut SlideSettings| {
+                            settings.meta_syntax = value.clone()
+                        });
+                    },
                 }
             }
 
@@ -711,6 +710,92 @@ fn DisplaySettings(
                             let value = raw.trim().parse::<usize>().ok().filter(|lines| *lines > 0);
                             update(&|settings: &mut SlideSettings| settings.max_lines = value);
                         },
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The metadata template, beside what it does.
+///
+/// A metadata line is not written, it is *tried*: `{{#if author}}` means the
+/// same template says one thing about a hymn with an author and another about
+/// a hymn without, and a template that Handlebars cannot read shows nothing at
+/// all — silently, in the middle of a service. So the template is on the left
+/// and the result of it on the right, on one well-known song. See
+/// [`crate::logic::slide_summary::meta_preview`].
+///
+/// The field is a `textarea` rather than a line: a real template has a line per
+/// piece of information, and a single-line field showed one long run of text
+/// with the breaks invisible. It grows with what is in it, up to the point
+/// where growing further would push the preview off the screen.
+#[component]
+fn MetaSyntaxEditor(
+    /// The template as the division holds it.
+    value: String,
+
+    /// Called with the template as it is typed. The page keeps the settings up
+    /// to date as it goes and writes them out when it is left, so there is
+    /// nothing to commit here.
+    on_changed: EventHandler<String>,
+) -> Element {
+    use crate::logic::slide_summary::{
+        MetaPreview, PREVIEW_AUTHOR, PREVIEW_BIBLE, PREVIEW_TITLE, meta_preview,
+    };
+
+    // Tall enough to show that this holds more than one line, and never so
+    // tall that the preview beside it is pushed out of view.
+    let rows = value.lines().count().clamp(3, 12);
+    let preview = meta_preview(&value);
+
+    rsx! {
+        div { class: "grid",
+            label {
+                {t!("display.meta_syntax").to_string()}
+                textarea {
+                    class: "meta-syntax-input",
+                    rows: "{rows}",
+                    // A template is code, and every web view's spell checker
+                    // underlines all of it.
+                    spellcheck: false,
+                    value: "{value}",
+                    placeholder: t!("display.meta_syntax_hint").to_string(),
+                    oninput: move |event| on_changed.call(event.value()),
+                }
+            }
+
+            div {
+                label { {t!("display.meta_preview").to_string()} }
+                figure { class: "meta-syntax-preview",
+                    match preview {
+                        // `pre-line` in the stylesheet, because the line breaks
+                        // of the template are what the slide will show.
+                        MetaPreview::Line(line) => rsx! {
+                            p { class: "meta-syntax-preview-line", "{line}" }
+                        },
+                        MetaPreview::Nothing => rsx! {
+                            p { class: "meta-syntax-preview-empty",
+                                {t!("display.meta_preview_nothing").to_string()}
+                            }
+                        },
+                        MetaPreview::Broken(reason) => rsx! {
+                            p { class: "meta-syntax-preview-broken",
+                                {t!("display.meta_preview_broken").to_string()}
+                            }
+                            code { class: "meta-syntax-preview-reason", "{reason}" }
+                        },
+                    }
+                    figcaption {
+                        {
+                            t!(
+                                "display.meta_preview_song",
+                                title = PREVIEW_TITLE,
+                                author = PREVIEW_AUTHOR,
+                                bible = PREVIEW_BIBLE,
+                            )
+                                .to_string()
+                        }
                     }
                 }
             }
