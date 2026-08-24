@@ -11,6 +11,8 @@
 //! — so there is nothing here to agree to, only something to have read.
 
 use dioxus::prelude::*;
+// The browser's notice is the empty one below, which has nothing to say.
+#[cfg(not(target_arch = "wasm32"))]
 use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -19,15 +21,13 @@ rust_i18n::i18n!("locales", fallback = "en");
 ///
 /// Mounted once, at the root of the app, beside the dialog host. Renders
 /// nothing at all on every other start.
+#[cfg(not(target_arch = "wasm32"))]
 #[component]
 pub fn LegacyImportNotice() -> Element {
     // Taken in a hook rather than in the body: the body runs again on every
     // redraw, and the second run would find the letterbox empty and close the
     // dialog the user is reading.
-    #[cfg(not(target_arch = "wasm32"))]
     let report = use_hook(crate::logic::legacy_import::take_notice);
-    #[cfg(target_arch = "wasm32")]
-    let report: Option<crate::logic::legacy_import::LegacyImportReport> = None;
 
     let mut open = use_signal(|| report.is_some());
 
@@ -101,4 +101,11 @@ pub fn LegacyImportNotice() -> Element {
             }
         }
     }
+}
+
+/// There is no Cantara 2 installation a browser could have taken over.
+#[cfg(target_arch = "wasm32")]
+#[component]
+pub fn LegacyImportNotice() -> Element {
+    rsx! {}
 }

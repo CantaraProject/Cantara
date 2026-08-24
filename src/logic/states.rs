@@ -4,7 +4,11 @@
 //! navigation behavior. Persistent application configuration is implemented in
 //! [`crate::logic::settings`].
 
-use dioxus::prelude::{ReadableExt, Signal, WritableExt};
+use dioxus::prelude::Signal;
+// Only [`LibraryRefresh::request`] needs them, and only the builds that can
+// change the library on disk have that.
+#[cfg(not(target_arch = "wasm32"))]
+use dioxus::prelude::{ReadableExt, WritableExt};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -79,6 +83,10 @@ impl LibraryRefresh {
     }
 
     /// Asks for a fresh scan.
+    ///
+    /// Only the builds that can change the library on disk have anything to
+    /// ask about — see [`crate::components::element_creation`].
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn request(&mut self) {
         let next = *self.generation.peek() + 1;
         self.generation.set(next);

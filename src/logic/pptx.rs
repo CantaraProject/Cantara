@@ -188,6 +188,10 @@ pub enum PptxShape {
 ///
 /// 64 MB is roughly a few minutes of ordinary service video, and comfortably
 /// more than the clips these decks are usually made of.
+///
+/// Only where a video can reach a deck at all: the web build has no library on
+/// disk to read one from.
+#[cfg(not(target_arch = "wasm32"))]
 pub const MAX_EMBEDDED_VIDEO_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Whether PowerPoint can play a video of this name at all.
@@ -197,6 +201,7 @@ pub const MAX_EMBEDDED_VIDEO_BYTES: u64 = 64 * 1024 * 1024;
 /// a deck is a rectangle with an error in it, so those are exported as their
 /// still frame instead — which is what a deck of a video can honestly be
 /// without the video.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn powerpoint_can_play(file_name: &str) -> bool {
     let lower = file_name.to_lowercase();
     [".mp4", ".m4v", ".mov"].iter().any(|suffix| lower.ends_with(suffix))

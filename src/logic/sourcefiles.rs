@@ -332,6 +332,9 @@ pub fn count_source_files(start_dir: &Path) -> usize {
 /// ever says whether two files are the same file.
 ///
 /// Sixteen megabytes leaves every document Cantara can open well inside it.
+///
+/// Only where there are files to read: the web build's library is in memory.
+#[cfg(not(target_arch = "wasm32"))]
 pub const MAX_FINGERPRINTED_BYTES: u64 = 16 * 1024 * 1024;
 
 #[cfg(not(target_arch = "wasm32"))]

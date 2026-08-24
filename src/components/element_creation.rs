@@ -10,12 +10,19 @@
 //! Neither appears in the web build. A browser has no folders to write into,
 //! and a button that can only report that is worse than no button.
 
+// The web build keeps nothing of this module but the two components that say
+// so — see the stubs below — and everything the asking needs is unused there.
+#[cfg(not(target_arch = "wasm32"))]
 use crate::logic::settings::{Settings, use_settings};
 use crate::logic::sourcefiles::SourceFile;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::logic::states::LibraryRefresh;
 use dioxus::prelude::*;
+#[cfg(not(target_arch = "wasm32"))]
 use dioxus_free_icons::Icon;
+#[cfg(not(target_arch = "wasm32"))]
 use dioxus_free_icons::icons::fa_solid_icons::FaPlus;
+#[cfg(not(target_arch = "wasm32"))]
 use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -25,6 +32,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 /// A repository that is not a local folder, or one the user has marked
 /// read-only, cannot be a target — see
 /// [`Settings::writable_repositories`](crate::logic::settings::Settings::writable_repositories).
+#[cfg(not(target_arch = "wasm32"))]
 fn writable(settings: &Settings) -> Vec<(usize, String)> {
     settings
         .writable_repositories()
