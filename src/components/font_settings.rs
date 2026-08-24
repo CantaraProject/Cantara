@@ -537,7 +537,7 @@ fn WeightSelector(weight: u16, onchange: EventHandler<u16>) -> Element {
 /// design import brings a font of its own, and a memo keyed on the signal below
 /// would go on showing the catalogue as it was before the import, because that
 /// signal only moves while the installed families are still being read.
-fn use_font_families() -> (Arc<Vec<FontFamily>>, Memo<bool>) {
+fn use_font_families() -> (Arc<Vec<FontFamily>>, Signal<bool>) {
     // Counts up when the installed families land. Read below, while
     // rendering, because that is what subscribes this selector to it.
     let mut families_ready: Signal<u64> = use_signal(fonts::catalog_generation);
@@ -578,7 +578,6 @@ fn use_font_families() -> (Arc<Vec<FontFamily>>, Memo<bool>) {
     // it: without it, the families that land on the background thread would
     // never reach a selector that is already on the screen.
     let _ = families_ready();
-    let pending = use_memo(move || pending());
 
     (fonts::available_now(), pending)
 }

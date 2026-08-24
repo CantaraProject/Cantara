@@ -449,9 +449,15 @@ impl Settings {
             // could be read, and the two are kept apart here: a file that is
             // there but unreadable is not a first start, and must not lead to
             // a Cantara 2 configuration being imported over settings that are
-            // merely damaged.
-            let stored = get_settings_file().and_then(|file| std::fs::read_to_string(file).ok());
-            let first_start = stored.is_none();
+            // merely damaged. Only a file which is plainly not there is a
+            // first start; if not even the path can be determined, nothing
+            // could be written out afterwards either, so no import is run.
+            let read = get_settings_file().map(std::fs::read_to_string);
+            let first_start = matches!(
+                &read,
+                Some(Err(error)) if error.kind() == std::io::ErrorKind::NotFound
+            );
+            let stored = read.and_then(|result| result.ok());
             let mut settings: Settings = stored
                 .and_then(|content| serde_json::from_str(&migrate_settings_json(&content)).ok())
                 .unwrap_or_default();

@@ -499,56 +499,158 @@ pub fn translate(key: &str, parameters: &[(&str, String)]) -> String {
 // view's `alert()`, `confirm()` and `prompt()`. They are Dioxus components now;
 // see [`crate::components::dialogs`].
 
+/// A length: a number with a stepper, and the unit it is in.
+///
+/// The number is an ordinary `type="number"` field, which is where its up and
+/// down arrows come from — the same field, and so the same arrows, as
+/// "maximum lines per slide" and every other number in the settings. A pair of
+/// buttons of its own was tried and looked exactly like what it was: a control
+/// this program does not otherwise have.
+///
+/// `min` is what keeps the arrows from running past nothing. There is no type
+/// of a negative size and no margin that pushes text off its own slide, and an
+/// arrow that produces one has to be undone by hand.
+///
+/// The value is read straight from the prop rather than copied into a signal
+/// on the first render. A copy would freeze at whatever the design said when
+/// the field first appeared, so anything that changed the length elsewhere —
+/// importing a design, an edit to another block — would leave this showing the
+/// old number. It is the same mistake that stopped the design preview
+/// following the font settings; see the note in
+/// [`crate::components::presentation_components`].
 #[component]
 pub fn NumberedValidatedLengthInput(
     value: CssSize,
     placeholder: String,
     onchange: EventHandler<CssSize>,
 ) -> Element {
-    let mut value_signal = use_signal(|| value);
+    // Each handler needs its own, since a closure cannot borrow from the render.
+    let for_input = value.clone();
+    let for_unit = value.clone();
+
     rsx! {
         input {
+            r#type: "number",
+            min: "0",
+            // One press, one point or one pixel.
+            step: "1",
             placeholder,
-            value: value_signal.read().get_float(),
-            inputmode: "numeric",
-            onchange: move |event| {
-                value_signal.write().set_float(event.value().parse().unwrap_or(0.0));
-                onchange.call(value_signal());
+            value: value.get_float(),
+            onchange: move |event: Event<FormData>| {
+                let mut updated = for_input.clone();
+                updated.set_float(event.value().parse().unwrap_or(0.0));
+                onchange.call(updated);
             }
         }
+
         select {
             name: "unit",
             required: true,
             onchange: move |event: Event<FormData>| {
-                match event.value().as_str() {
-                    "px" => value_signal.set(CssSize::Px(value_signal().get_float())),
-                    "pt" => value_signal.set(CssSize::Pt(value_signal().get_float())),
-                    "em" => value_signal.set(CssSize::Em(value_signal().get_float())),
-                    "%"  => value_signal.set(CssSize::Percentage(value_signal().get_float())),
-                    _    => value_signal.set(CssSize::Px(value_signal().get_float()))
-                };
-                onchange.call(value_signal());
+                let number = for_unit.get_float();
+                onchange.call(match event.value().as_str() {
+                    "pt" => CssSize::Pt(number),
+                    "em" => CssSize::Em(number),
+                    "%" => CssSize::Percentage(number),
+                    // `px` and anything unrecognised.
+                    _ => CssSize::Px(number),
+                });
             },
             option {
                 key: "px",
-                selected: matches!(value_signal(), CssSize::Px(_)) || value_signal() == CssSize::Null,
+                selected: matches!(value, CssSize::Px(_)) || value == CssSize::Null,
                 "px"
             }
             option {
                 key: "pt",
-                selected: matches!(value_signal(), CssSize::Pt(_)),
+                selected: matches!(value, CssSize::Pt(_)),
                 "pt"
             }
             option {
                 key: "em",
-                selected: matches!(value_signal(), CssSize::Em(_)),
+                selected: matches!(value, CssSize::Em(_)),
                 "em"
             }
             option {
                 key: "%",
-                selected: matches!(value_signal(), CssSize::Percentage(_)),
+                selected: matches!(value, CssSize::Percentage(_)),
                 "%"
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod length_field_tests {
+    use super::*;
+
+    /// The number is a `type="number"` field that steps by one and stops at
+    /// nothing — which is where its up and down arrows come from, and why they
+    /// are the same arrows as everywhere else in the settings rather than a
+    /// pair of buttons this program has nowhere else.
+    #[test]
+    fn the_field_is_an_ordinary_number_field_with_a_step_of_one() {
+        #[component]
+        fn Harness() -> Element {
+            rsx! {
+                NumberedValidatedLengthInput {
+                    value: CssSize::Pt(31.5),
+                    placeholder: "",
+                    onchange: |_| {},
+                }
+            }
+        }
+
+        let mut dom = VirtualDom::new(Harness);
+        dom.rebuild_in_place();
+        let html = dioxus_ssr::render(&dom);
+
+        assert!(html.contains(r#"type="number""#), "got {html}");
+        assert!(html.contains(r#"step="1""#), "one press is one unit: {html}");
+        // No arrow may take a size below nothing.
+        assert!(html.contains(r#"min="0""#), "got {html}");
+        assert!(html.contains("31.5"), "the number is not shown: {html}");
+        // The unit it is in is the one that comes up selected.
+        assert!(html.contains("<option selected=true>pt"), "got {html}");
+    }
+
+    /// The field follows the value it is given rather than the one it was
+    /// first given. It used to copy the prop into a signal on the first
+    /// render, which froze it: editing one font block would leave every other
+    /// field showing its original number until the page was left and reopened.
+    #[test]
+    fn the_field_follows_a_value_that_changes_underneath_it() {
+        use std::cell::RefCell;
+
+        thread_local! {
+            static VALUE: RefCell<CssSize> = const { RefCell::new(CssSize::Pt(31.5)) };
+        }
+
+        #[component]
+        fn Harness() -> Element {
+            rsx! {
+                NumberedValidatedLengthInput {
+                    value: VALUE.with(|value| value.borrow().clone()),
+                    placeholder: "",
+                    onchange: |_| {},
+                }
+            }
+        }
+
+        let mut dom = VirtualDom::new(Harness);
+        dom.rebuild_in_place();
+        assert!(dioxus_ssr::render(&dom).contains("31.5"));
+
+        VALUE.with(|value| *value.borrow_mut() = CssSize::Px(32.5));
+        dom.mark_dirty(ScopeId::APP);
+        dom.render_immediate(&mut dioxus::dioxus_core::NoOpMutations);
+
+        let html = dioxus_ssr::render(&dom);
+        assert!(
+            html.contains("32.5") && !html.contains("31.5"),
+            "the field kept the number it was first given: {html}"
+        );
+        // …and the unit follows with it.
+        assert!(html.contains("<option selected=true>px"), "got {html}");
     }
 }

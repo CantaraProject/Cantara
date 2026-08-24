@@ -349,7 +349,7 @@ pub fn deck_from_slides(
                 pptx_slide = pptx_slide.with(text_shape(
                     &deck,
                     &title.title_text,
-                    &template.get_default_headline_font(),
+                    &title_font(&template),
                     0.30,
                     0.30,
                 ));
@@ -580,6 +580,22 @@ pub struct PptxConversion {
     /// was left of that: a file that could not be read, or one from which no
     /// frame could be taken either.
     pub skipped_videos: usize,
+}
+
+/// The headline font as a title slide actually shows it.
+///
+/// The bold of a title slide lives beside the headline font rather than in it:
+/// [`PresentationDesignTemplate::title_bold`] is a switch of its own, and the
+/// on-screen title turns the weight up by it (see `TitleSlideComponent`).
+/// Taking only the font here would export a design with the switch on in
+/// regular type, so the deck and the screen would disagree about the one line
+/// everybody reads first.
+fn title_font(template: &PresentationDesignTemplate) -> FontRepresentation {
+    let mut font = template.get_default_headline_font();
+    if template.title_bold {
+        font.weight = font.weight.max(crate::logic::settings::BOLD_WEIGHT);
+    }
+    font
 }
 
 /// A text box spanning the slide width at the given vertical band.
@@ -837,6 +853,36 @@ mod tests {
             assert!(text.bold, "{:?} came out in regular weight", text.text);
             assert!(text.italic, "{:?} came out upright", text.text);
         }
+    }
+
+    /// The title slide's bold is a switch beside the headline font, not a
+    /// weight in it. It used to be read off the font alone on the way out, so
+    /// a design with the switch on and a regular headline font exported a
+    /// title in regular type while the screen showed it heavy.
+    #[test]
+    fn test_the_title_bold_switch_survives_the_export() {
+        let mut design = PresentationDesign::default();
+        let PresentationDesignSettings::Template(template) =
+            &mut design.presentation_design_settings
+        else {
+            panic!("the default design is a template");
+        };
+        template.title_bold = true;
+        for font in &mut template.fonts {
+            font.set_bold(false);
+        }
+
+        let slides = vec![Slide::new_title_slide("Amazing Grace".to_string(), None)];
+        let deck = deck_from_slides(&slides, &design, &HashMap::new()).deck;
+
+        let PptxShape::Text(title) = &deck.slides[0].shapes[0] else {
+            panic!("the title is a text shape");
+        };
+        assert_eq!(title.text, "Amazing Grace");
+        assert!(
+            title.bold,
+            "the title slide's bold switch was dropped on the way out"
+        );
     }
 
     /// Notation cannot become a PowerPoint shape. The slide keeps its words and

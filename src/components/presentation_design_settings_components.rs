@@ -484,17 +484,21 @@ fn DesignTemplateSettings(
 
                 label {
                     {t!("settings.notation.font_size").to_string()}
-                    NumberedValidatedLengthInput {
-                        value: pdt.notation.font_size.clone(),
-                        placeholder: "",
-                        onchange: {
-                            let base = pdt.clone();
-                            move |value: CssSize| {
-                                let mut updated = base.clone();
-                                updated.notation.font_size = value;
-                                onchange.call(updated);
-                            }
-                        },
+                    // Grouped like every other length field, so the number,
+                    // its stepper and its unit read as one control.
+                    fieldset { role: "group",
+                        NumberedValidatedLengthInput {
+                            value: pdt.notation.font_size.clone(),
+                            placeholder: "",
+                            onchange: {
+                                let base = pdt.clone();
+                                move |value: CssSize| {
+                                    let mut updated = base.clone();
+                                    updated.notation.font_size = value;
+                                    onchange.call(updated);
+                                }
+                            },
+                        }
                     }
                 }
 

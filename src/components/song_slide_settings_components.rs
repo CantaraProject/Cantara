@@ -498,7 +498,18 @@ fn DisplaySettings(
     /// A closure which is called each time when the slide settings have been changed
     on_settings_changed: EventHandler<SlideSettings>,
 ) -> Element {
-    let mut settings = use_signal(|| slide_settings);
+    let mut settings = use_signal(|| slide_settings.clone());
+
+    // The signal is initialised once, but the route can switch to another
+    // division while this component stays alive and is handed the new
+    // division's settings as a prop. Without following the prop, the fields
+    // would keep showing — and, on the next edit, write back — the settings of
+    // the division that was open before, over the one now selected.
+    use_effect(use_reactive!(|slide_settings| {
+        if *settings.peek() != slide_settings {
+            settings.set(slide_settings);
+        }
+    }));
 
     let max_lines_display = move || match settings().max_lines {
         Some(lines) => lines.to_string(),

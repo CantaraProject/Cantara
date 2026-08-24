@@ -136,7 +136,7 @@ display:
   # understood as "nothing about *this* song" rather than as a fault.
   meta_preview_song:
     en: "Tried on %{title} — author: %{author}, bible: %{bible}"
-    de: "Getestet an %{title} – author: %{author}, bible: %{bible}"
+    de: "Getestet an %{title} – Autor: %{author}, Bibelstelle: %{bible}"
   meta_preview_nothing:
     en: Nothing would be shown for this song.
     de: Für dieses Lied würde nichts angezeigt werden.
