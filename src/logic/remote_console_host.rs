@@ -38,6 +38,8 @@ struct Helper {
     to_child: TcpStream,
     /// Where the console is being served.
     address: String,
+    /// What the helper was last told, so that the same news is not sent twice.
+    last_sent: Option<RunningPresentation>,
 }
 
 impl Drop for Helper {
@@ -150,6 +152,7 @@ pub fn enable(port: u16, password: String) -> Result<String, String> {
         },
         to_child,
         address: address.clone(),
+        last_sent: None,
     };
 
     *held = Some(helper);
@@ -284,8 +287,10 @@ pub fn connected() -> usize {
 
 /// Hands the presentation to the helper, if one is running.
 ///
-/// Called on every change, and cheap when there is no helper: nothing is
-/// encoded until there is somebody to send it to.
+/// Safe to call as often as anything likes — on every change, from a poll,
+/// from the switch — because it sends only what is new. Everything that can
+/// notice a change calls this, and the ones that notice the same change twice
+/// cost a comparison.
 pub fn publish(presentation: Option<RunningPresentation>) {
     let Ok(mut held) = helper().lock() else {
         return;
@@ -293,6 +298,19 @@ pub fn publish(presentation: Option<RunningPresentation>) {
     let Some(helper) = held.as_mut() else {
         return;
     };
+
+    // Only what is new. The scroll position is excluded for the reason
+    // [`RunningPresentation::eq_ignoring_scroll`] gives — it is reported
+    // several times a second by whoever is scrolling and is not news.
+    let unchanged = match (&helper.last_sent, &presentation) {
+        (Some(sent), Some(now)) => sent.eq_ignoring_scroll(now),
+        (None, None) => true,
+        _ => false,
+    };
+    if unchanged {
+        return;
+    }
+    helper.last_sent = presentation.clone();
 
     let Ok(encoded) = serde_json::to_string(&ToChild::Presentation(Box::new(presentation))) else {
         log::warn!("the presentation could not be sent to the console helper");

@@ -116,6 +116,14 @@ pub fn PresenterConsolePage() -> Element {
         // A remote console has nowhere to go and says so instead. The address
         // stays open, and the next presentation appears on it.
         if host.is_remote() {
+            // Read rather than peeked, on purpose. `peek` above deliberately
+            // does not subscribe, which is right for the consoles that are
+            // told what happened by a sync loop — but a remote console has
+            // only this render to learn from. Without the subscription the
+            // page says that nothing is running for the rest of the service,
+            // however many presentations start on the machine.
+            let _ = running_presentations.read().len();
+
             return rsx! {
                 document::Link { rel: "stylesheet", href: MAIN_CSS }
                 document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }

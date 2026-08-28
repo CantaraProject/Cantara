@@ -297,15 +297,41 @@ impl Drop for StreamServer {
 }
 
 fn router(shared: Arc<Shared>) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/", get(page))
         .route("/state", get(state))
         .route("/events", get(events))
         .route("/abcjs.js", get(abcjs))
         .route("/media/{id}", get(media))
         .route("/video/{id}", get(video))
-        .route("/login", post(login))
-        .with_state(shared)
+        .route("/login", post(login));
+
+    // One address to type, even though the console is served by a process of
+    // its own on a port of its own — see [`crate::logic::remote_console_child`]
+    // for why it has to be. Somebody who was given the streaming address and
+    // adds `/console` is sent where the console actually is, rather than being
+    // told there is nothing here.
+    #[cfg(feature = "desktop")]
+    let router = router.route("/console", get(to_the_console));
+
+    router.with_state(shared)
+}
+
+/// Sends a browser on to the console, wherever it is being served.
+///
+/// A temporary redirect on purpose: the console's port is not a fact about
+/// this address, and a browser that remembered it would go to the wrong place
+/// the next time the console is switched on.
+#[cfg(feature = "desktop")]
+async fn to_the_console() -> Response {
+    match crate::logic::remote_console_host::address() {
+        Some(address) => axum::response::Redirect::temporary(&address).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            "the presenter console is not being offered",
+        )
+            .into_response(),
+    }
 }
 
 async fn page() -> impl IntoResponse {

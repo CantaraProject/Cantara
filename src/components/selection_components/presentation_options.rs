@@ -837,6 +837,13 @@ fn RemoteConsoleSwitch() -> Element {
     // panel comes and goes, the server does not.
     let mut enabled = use_signal(crate::logic::remote_console_host::is_enabled);
     let mut address = use_signal(crate::logic::remote_console_host::address);
+    // What is running now, to hand over the moment the helper is up. Switching
+    // this on is not a change to the presentation, so the publisher in `App`
+    // will not come round by itself — the same trap the streaming switch
+    // documents next door, and the reason a console switched on mid-service
+    // used to say that nothing was running.
+    let running_presentations: Signal<Vec<crate::logic::states::RunningPresentation>> =
+        use_context();
     let mut failure: Signal<Option<String>> = use_signal(|| None);
     let mut copied: Signal<Option<bool>> = use_signal(|| None);
 
@@ -877,6 +884,9 @@ fn RemoteConsoleSwitch() -> Element {
                             Ok(reachable_at) => {
                                 enabled.set(true);
                                 address.set(Some(reachable_at));
+                                crate::logic::remote_console_host::publish(
+                                    running_presentations.read().first().cloned(),
+                                );
                             }
                             Err(reason) => {
                                 enabled.set(false);

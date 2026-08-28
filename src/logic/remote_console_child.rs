@@ -54,6 +54,22 @@ const CONSOLE_COOKIE: &str = "cantara_console";
 /// The page that asks for the password.
 const LOGIN_PAGE: &str = include_str!("../../assets/console_login.html");
 
+/// The program's stylesheets, put straight into the page.
+///
+/// The console asks for these itself, with the `document::Link` elements every
+/// other window uses, and LiveView does inject them — as a `<link>` pointing at
+/// the hashed asset URL, which the browser then has to fetch back through
+/// `/assets/…`. That is one more thing that has to be right in a process that
+/// was not started by the bundler, and when it is not right the console arrives
+/// unstyled, which is what happened.
+///
+/// Compiled in instead. Eighty kilobytes on the first load of a page that is
+/// then live for the whole service, no second request, and nothing to resolve:
+/// the console is styled or the binary does not build. Neither sheet refers to
+/// a font or a picture by URL, so there is nothing left dangling.
+const MAIN_CSS: &str = include_str!("../../assets/main.css");
+const CONSOLE_CSS: &str = include_str!("../../assets/presenter_console.css");
+
 /// How long a wrong password is answered with nothing.
 ///
 /// Guessing at a password over a network is the one attack this feature has,
@@ -102,6 +118,12 @@ pub enum ToParent {
 /// Called from `main` before anything else has a chance to start a window, and
 /// never returns to it.
 pub fn run(ipc_port: u16, token: &str) -> Result<(), String> {
+    // The helper never runs `App`, which is where Cantara picks its language,
+    // so it would otherwise serve an English console to a German operator.
+    if let Some(locale) = sys_locale::get_locale() {
+        rust_i18n::set_locale(&locale);
+    }
+
     let mut socket = TcpStream::connect(("127.0.0.1", ipc_port))
         .map_err(|error| format!("the console helper could not reach Cantara: {error}"))?;
 
@@ -409,6 +431,8 @@ async fn page(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Response
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Cantara</title>
+        <style>{MAIN_CSS}</style>
+        <style>{CONSOLE_CSS}</style>
     </head>
     <body><div id="main"></div></body>
     {glue}

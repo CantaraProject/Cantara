@@ -364,6 +364,12 @@ fn App() -> Element {
             let _ = stream_generation();
             let presentations = running_presentations.read().clone();
 
+            // The remote console, first and unconditionally: it is a switch of
+            // its own, and returning here because *streaming* is off would
+            // leave a console that is on with nothing to show.
+            #[cfg(feature = "desktop")]
+            logic::remote_console_host::publish(presentations.first().cloned());
+
             if !logic::stream::is_enabled() {
                 return;
             }
@@ -412,22 +418,17 @@ fn App() -> Element {
 
         // ── The remote console ───────────────────────────────────────────
         //
-        // Both directions of the bridge in [`logic::remote_console`], and both
-        // of them cheap when nobody is connected: publishing to a `watch` with
-        // no receivers is a store, and the command channel stays empty.
+        // A slide change reaches the helper by two roads, because one of them
+        // is not enough. The effect above is woken by whatever wakes the
+        // streaming publisher — the same signal, the same subscription — and
+        // that is the road that carries a change the moment it happens. But
+        // the presentation is driven from *other* windows, each with a
+        // VirtualDom of its own, and the whole reason those windows keep in
+        // step by polling is that a write from one is not a reliable wake-up
+        // in another (see `PresenterConsolePage`). So there is also a watch
+        // below, which notices anything the effect slept through.
         //
-        // Unconditional on whether remote control is switched on, for the
-        // reason the streaming publisher above gives about reading before
-        // deciding: an effect subscribes to what it reads, and one that
-        // returns early on "the switch is off" would never run again after the
-        // switch went on.
-        use_effect(move || {
-            let presentations = running_presentations.read().clone();
-            #[cfg(feature = "desktop")]
-            logic::remote_console_host::publish(presentations.first().cloned());
-            #[cfg(not(feature = "desktop"))]
-            let _ = presentations;
-        });
+        // Sending twice costs nothing: `publish` compares before it writes.
 
         // What a remote console did, applied here — this is the window that
         // owns the presentation. Taken once; a second caller would get
@@ -444,6 +445,21 @@ fn App() -> Element {
                 if logic::remote_console::apply(command, &mut presentations) {
                     running_presentations.set(presentations);
                 }
+            }
+        });
+
+        // The second road to the helper. Only while a console is actually
+        // connected, and a comparison in `publish` keeps it from writing
+        // anything the effect above has already sent.
+        #[cfg(feature = "desktop")]
+        use_future(move || async move {
+            loop {
+                let _ = document::eval("await new Promise(r => setTimeout(r, 200))").await;
+                if !logic::remote_console_host::is_enabled() {
+                    continue;
+                }
+                let now = running_presentations.peek().first().cloned();
+                logic::remote_console_host::publish(now);
             }
         });
 
