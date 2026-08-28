@@ -1,8 +1,11 @@
 use crate::components::shared_components::SelectedItemPreview;
-use crate::logic::settings::{use_settings, AfterLastSlide, SlideTimerSettings, SlideTransition};
+use crate::logic::settings::{
+    use_settings, AfterLastSlide, PresentationDesign, Settings, SlideTimerSettings, SlideTransition,
+};
 use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::stream_view::reconcile_max_lines;
 use crate::logic::states::SelectedItemRepresentation;
+use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
 use rust_i18n::t;
 
@@ -10,6 +13,95 @@ use rust_i18n::t;
 enum PresentationOptionTabState {
     General,
     Specific,
+}
+
+/// One choice out of the configured presentation designs.
+///
+/// Every panel that offers this choice offers the same list, differing only in
+/// what an unmade choice means — the general setting, the projection's design,
+/// or nothing at all where the choice cannot be left open. That difference is
+/// the `fallback` label; the list itself is written once, here, so that the
+/// names on offer cannot drift apart between the panels.
+#[component]
+fn DesignSelect(
+    label: String,
+    fallback: Option<String>,
+    selected: Option<usize>,
+    onselect: EventHandler<Option<usize>>,
+) -> Element {
+    let settings = use_settings();
+
+    rsx! {
+        div {
+            label { {label} }
+            select {
+                onchange: move |event| onselect.call(event.value().parse::<usize>().ok()),
+                if let Some(fallback) = fallback {
+                    option { value: "", selected: selected.is_none(), {fallback} }
+                }
+                for (index , design) in settings.read().presentation_designs.iter().enumerate() {
+                    option {
+                        value: "{index}",
+                        selected: selected == Some(index),
+                        "{design.name}"
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One choice out of the configured slide settings — the counterpart to
+/// [`DesignSelect`], and written once for the same reason: an entry is named by
+/// the user, and a panel that made up its own label for it would show a
+/// different name for the very same thing.
+#[component]
+fn SlideSettingsSelect(
+    label: String,
+    fallback: Option<String>,
+    selected: Option<usize>,
+    onselect: EventHandler<Option<usize>>,
+) -> Element {
+    let settings = use_settings();
+
+    rsx! {
+        div {
+            label { {label} }
+            select {
+                onchange: move |event| onselect.call(event.value().parse::<usize>().ok()),
+                if let Some(fallback) = fallback {
+                    option { value: "", selected: selected.is_none(), {fallback} }
+                }
+                for (index , named) in settings.read().song_slide_settings.iter().enumerate() {
+                    option {
+                        value: "{index}",
+                        selected: selected == Some(index),
+                        {named.display_name(index)}
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Where a design an element carries sits in the configured list, if it is
+/// still one of them. Matched by name, as the rest of the program does.
+fn design_position(settings: &Settings, chosen: &Option<PresentationDesign>) -> Option<usize> {
+    let chosen = chosen.as_ref()?;
+    settings
+        .presentation_designs
+        .iter()
+        .position(|design| design.name == chosen.name)
+}
+
+/// The same for slide settings, which carry no name of their own once chosen
+/// and so are matched on what they say.
+fn slide_settings_position(settings: &Settings, chosen: &Option<SlideSettings>) -> Option<usize> {
+    let chosen = chosen.as_ref()?;
+    settings
+        .song_slide_settings
+        .iter()
+        .position(|named| named.settings == *chosen)
 }
 
 #[component]
@@ -162,70 +254,37 @@ fn SpecificOptions(
             crate::components::shared_components::translate(key, &parameters)
         });
 
+    // The element keeps what it was given, not where it came from; the lists
+    // are addressed by position, so a choice is looked back up here. An entry
+    // that has since been edited away no longer matches, and the element then
+    // reads as following the general setting — which is what it now does.
+    let design_choice = design_position(&settings.read(), &item.presentation_design_option);
+    let stream_design_choice = design_position(&settings.read(), &item.stream_design_option);
+    let slide_settings_choice =
+        slide_settings_position(&settings.read(), &item.slide_settings_option);
+    let stream_slide_settings_choice =
+        slide_settings_position(&settings.read(), &item.stream_slide_settings_option);
+
     rsx! {
         div { class: "grid",
-            div {
-                label { {t!("selection.presentation_options.design").to_string()} }
-                select {
-                    onchange: move |evt| {
-                        let val = evt.value();
-                        let mut items = selected_items.write();
-                        if val == "default" {
-                            items[item_index].presentation_design_option = None;
-                        } else if let Ok(idx) = val.parse::<usize>() {
-                            items[item_index].presentation_design_option = Some(
-                                settings.read().presentation_designs[idx].clone(),
-                            );
-                        }
-                    },
-                    option {
-                        value: "default",
-                        selected: item.presentation_design_option.is_none(),
-                        {t!("selection.presentation_options.default").to_string()}
-                    }
-                    for (idx , pd) in settings.read().presentation_designs.iter().enumerate() {
-                        option {
-                            value: "{idx}",
-                            selected: item
-                                                                        .presentation_design_option
-                                                                        .as_ref()
-                                                                        .is_some_and(|p| p.name == pd.name),
-                            "{pd.name}"
-                        }
-                    }
-                }
+            DesignSelect {
+                label: t!("selection.presentation_options.design").to_string(),
+                fallback: t!("selection.presentation_options.default").to_string(),
+                selected: design_choice,
+                onselect: move |chosen: Option<usize>| {
+                    let picked = chosen.map(|index| settings.read().presentation_designs[index].clone());
+                    selected_items.write()[item_index].presentation_design_option = picked;
+                },
             }
-            div {
-                label { {t!("selection.presentation_options.slide_settings").to_string()} }
-                select {
-                    onchange: move |evt| {
-                        let val = evt.value();
-                        let mut items = selected_items.write();
-                        if val == "default" {
-                            items[item_index].slide_settings_option = None;
-                        } else if let Ok(idx) = val.parse::<usize>() {
-                            items[item_index].slide_settings_option = Some(
-                                settings.read().song_slide_settings[idx].settings.clone(),
-                            );
-                        }
-                    },
-                    option {
-                        value: "default",
-                        selected: item.slide_settings_option.is_none(),
-                        {t!("selection.presentation_options.default").to_string()}
-                    }
-                    for (idx , named) in settings.read().song_slide_settings.iter().enumerate() {
-                        option {
-                            value: "{idx}",
-                            selected: item.slide_settings_option
-                                .as_ref()
-                                .is_some_and(|s| {
-                                    *s == settings.read().song_slide_settings[idx].settings
-                                }),
-                            {named.display_name(idx)}
-                        }
-                    }
-                }
+            SlideSettingsSelect {
+                label: t!("selection.presentation_options.slide_settings").to_string(),
+                fallback: t!("selection.presentation_options.default").to_string(),
+                selected: slide_settings_choice,
+                onselect: move |chosen: Option<usize>| {
+                    let picked = chosen
+                        .map(|index| settings.read().song_slide_settings[index].settings.clone());
+                    selected_items.write()[item_index].slide_settings_option = picked;
+                },
             }
         }
 
@@ -326,68 +385,24 @@ fn SpecificOptions(
             h6 { {t!("selection.presentation_options.stream_view.headline").to_string()} }
         }
         div { class: "grid",
-            div {
-                label { {t!("selection.presentation_options.stream_view.design").to_string()} }
-                select {
-                    onchange: move |evt| {
-                        let val = evt.value();
-                        let mut items = selected_items.write();
-                        if val == "default" {
-                            items[item_index].stream_design_option = None;
-                        } else if let Ok(idx) = val.parse::<usize>() {
-                            items[item_index].stream_design_option = Some(
-                                settings.read().presentation_designs[idx].clone(),
-                            );
-                        }
-                    },
-                    option {
-                        value: "default",
-                        selected: item.stream_design_option.is_none(),
-                        {t!("selection.presentation_options.default").to_string()}
-                    }
-                    for (idx , pd) in settings.read().presentation_designs.iter().enumerate() {
-                        option {
-                            value: "{idx}",
-                            selected: item
-                                .stream_design_option
-                                .as_ref()
-                                .is_some_and(|p| p.name == pd.name),
-                            "{pd.name}"
-                        }
-                    }
-                }
+            DesignSelect {
+                label: t!("selection.presentation_options.stream_view.design").to_string(),
+                fallback: t!("selection.presentation_options.default").to_string(),
+                selected: stream_design_choice,
+                onselect: move |chosen: Option<usize>| {
+                    let picked = chosen.map(|index| settings.read().presentation_designs[index].clone());
+                    selected_items.write()[item_index].stream_design_option = picked;
+                },
             }
-            div {
-                label { {t!("selection.presentation_options.stream_view.slide_settings").to_string()} }
-                select {
-                    onchange: move |evt| {
-                        let val = evt.value();
-                        let mut items = selected_items.write();
-                        if val == "default" {
-                            items[item_index].stream_slide_settings_option = None;
-                        } else if let Ok(idx) = val.parse::<usize>() {
-                            items[item_index].stream_slide_settings_option = Some(
-                                settings.read().song_slide_settings[idx].settings.clone(),
-                            );
-                        }
-                    },
-                    option {
-                        value: "default",
-                        selected: item.stream_slide_settings_option.is_none(),
-                        {t!("selection.presentation_options.default").to_string()}
-                    }
-                    for (idx , named) in settings.read().song_slide_settings.iter().enumerate() {
-                        option {
-                            value: "{idx}",
-                            selected: item.stream_slide_settings_option
-                                .as_ref()
-                                .is_some_and(|s| {
-                                    *s == settings.read().song_slide_settings[idx].settings
-                                }),
-                            {named.display_name(idx)}
-                        }
-                    }
-                }
+            SlideSettingsSelect {
+                label: t!("selection.presentation_options.stream_view.slide_settings").to_string(),
+                fallback: t!("selection.presentation_options.default").to_string(),
+                selected: stream_slide_settings_choice,
+                onselect: move |chosen: Option<usize>| {
+                    let picked = chosen
+                        .map(|index| settings.read().song_slide_settings[index].settings.clone());
+                    selected_items.write()[item_index].stream_slide_settings_option = picked;
+                },
             }
         }
 
@@ -579,49 +594,25 @@ fn StreamViewSettings() -> Element {
             h6 { {t!("selection.presentation_options.stream_view.headline").to_string()} }
         }
         div { class: "grid",
-            div {
-                label { {t!("selection.presentation_options.stream_view.design").to_string()} }
-                select {
-                    onchange: move |event| {
-                        let chosen = event.value().parse::<usize>().ok();
-                        settings.write().stream.design_index = chosen;
-                        settings.read().save();
-                    },
-                    option {
-                        value: "",
-                        selected: design_index.is_none(),
-                        {t!("selection.presentation_options.stream_view.same_as_presentation").to_string()}
-                    }
-                    for (index , design) in settings.read().presentation_designs.iter().enumerate() {
-                        option {
-                            value: "{index}",
-                            selected: design_index == Some(index),
-                            "{design.name}"
-                        }
-                    }
-                }
+            DesignSelect {
+                label: t!("selection.presentation_options.stream_view.design").to_string(),
+                fallback: t!("selection.presentation_options.stream_view.same_as_presentation")
+                    .to_string(),
+                selected: design_index,
+                onselect: move |chosen: Option<usize>| {
+                    settings.write().stream.design_index = chosen;
+                    settings.read().save();
+                },
             }
-            div {
-                label { {t!("selection.presentation_options.stream_view.slide_settings").to_string()} }
-                select {
-                    onchange: move |event| {
-                        let chosen = event.value().parse::<usize>().ok();
-                        settings.write().stream.slide_settings_index = chosen;
-                        settings.read().save();
-                    },
-                    option {
-                        value: "",
-                        selected: slide_settings_index.is_none(),
-                        {t!("selection.presentation_options.stream_view.same_as_presentation").to_string()}
-                    }
-                    for (index , named) in settings.read().song_slide_settings.iter().enumerate() {
-                        option {
-                            value: "{index}",
-                            selected: slide_settings_index == Some(index),
-                            {named.display_name(index)}
-                        }
-                    }
-                }
+            SlideSettingsSelect {
+                label: t!("selection.presentation_options.stream_view.slide_settings").to_string(),
+                fallback: t!("selection.presentation_options.stream_view.same_as_presentation")
+                    .to_string(),
+                selected: slide_settings_index,
+                onselect: move |chosen: Option<usize>| {
+                    settings.write().stream.slide_settings_index = chosen;
+                    settings.read().save();
+                },
             }
         }
 
@@ -673,52 +664,28 @@ fn DefaultDesignSettings() -> Element {
 
     let design_index = use_memo(move || settings.read().default_design_index);
     let slide_settings_index = use_memo(move || settings.read().default_slide_settings_index);
-    let designs = use_memo(move || settings.read().presentation_designs.clone());
-    let slide_settings = use_memo(move || settings.read().song_slide_settings.clone());
 
     rsx! {
         div { class: "grid",
-            div {
-                label { {t!("selection.presentation_options.design").to_string()} }
-                select {
-                    onchange: move |evt| {
-                        if let Ok(index) = evt.value().parse::<usize>() {
-                            settings.write().default_design_index = index;
-                            settings.read().save();
-                        }
-                    },
-                    for (index , design) in designs().iter().enumerate() {
-                        option {
-                            value: "{index}",
-                            selected: index == design_index(),
-                            "{design.name}"
-                        }
+            DesignSelect {
+                label: t!("selection.presentation_options.design").to_string(),
+                selected: Some(design_index()),
+                onselect: move |chosen: Option<usize>| {
+                    if let Some(index) = chosen {
+                        settings.write().default_design_index = index;
+                        settings.read().save();
                     }
-                }
+                },
             }
-            div {
-                label { {t!("selection.presentation_options.slide_settings").to_string()} }
-                select {
-                    onchange: move |evt| {
-                        if let Ok(index) = evt.value().parse::<usize>() {
-                            settings.write().default_slide_settings_index = index;
-                            settings.read().save();
-                        }
-                    },
-                    for (index , _) in slide_settings().iter().enumerate() {
-                        option {
-                            value: "{index}",
-                            selected: index == slide_settings_index(),
-                            {
-                                format!(
-                                    "{} {}",
-                                    t!("selection.presentation_options.slide_settings"),
-                                    index + 1,
-                                )
-                            }
-                        }
+            SlideSettingsSelect {
+                label: t!("selection.presentation_options.slide_settings").to_string(),
+                selected: Some(slide_settings_index()),
+                onselect: move |chosen: Option<usize>| {
+                    if let Some(index) = chosen {
+                        settings.write().default_slide_settings_index = index;
+                        settings.read().save();
                     }
-                }
+                },
             }
         }
     }
