@@ -1,0 +1,75 @@
+# The notice shown once, when a Cantara 2 installation was taken over on the
+# first start.
+#
+# Every file under `locales/` is read and merged, so this one is
+# reached without being registered anywhere. The version has to be a
+# whole number: `2.0` is read as version 1 and the file silently
+# stops working.
+_version: 2
+legacy_import:
+  # What the imported design and slide division are called in the lists.
+  design_name:
+    en: "Cantara 2"
+    de: "Cantara 2"
+  division_name:
+    en: "Cantara 2"
+    de: "Cantara 2"
+  title:
+    en: "Your Cantara 2 settings have been taken over"
+    de: "Ihre Cantara-2-Einstellungen wurden übernommen"
+  explanation:
+    en: |-
+      Cantara found a configuration of Cantara 2 on this computer and set
+      itself up from it, so you can carry on where you left off. The welcome
+      assistant was skipped.
+    de: |-
+      Cantara hat auf diesem Computer eine Konfiguration von Cantara 2
+      gefunden und sich danach eingerichtet, damit Sie dort weitermachen
+      können, wo Sie aufgehört haben. Der Begrüßungsassistent wurde
+      übersprungen.
+  source:
+    en: "Read from %{path}"
+    de: "Gelesen aus %{path}"
+  repository:
+    en: "Song library “%{name}” was added."
+    de: "Das Liederverzeichnis „%{name}“ wurde hinzugefügt."
+  missing_repository:
+    en: |-
+      The song library %{path} is no longer there. Please choose it again in
+      the settings.
+    de: |-
+      Das Liederverzeichnis %{path} ist nicht mehr vorhanden. Bitte wählen Sie
+      es in den Einstellungen erneut aus.
+  design:
+    en: |-
+      Your colours, font, alignment and margins became the presentation design
+      “%{name}”. Cantara's own design is right behind it, so you can switch at
+      any time.
+    de: |-
+      Ihre Farben, Schrift, Ausrichtung und Ränder wurden zum
+      Präsentationsdesign „%{name}“. Cantaras eigenes Design steht direkt
+      dahinter, Sie können also jederzeit umschalten.
+  division:
+    en: |-
+      Your title slide, spoiler, metadata line and line wrapping became the
+      slide division “%{name}”.
+    de: |-
+      Ihre Titelfolie, Vorschau, Metadatenzeile und Zeilenumbrüche wurden zur
+      Folienaufteilung „%{name}“.
+  font:
+    en: "The font %{name} was kept."
+    de: "Die Schriftart %{name} wurde übernommen."
+  background_image:
+    en: "The background picture was kept."
+    de: "Das Hintergrundbild wurde übernommen."
+  not_everything:
+    en: |-
+      Underlined and struck-through text has no counterpart in Cantara 3 and
+      was not carried over. Everything can be changed in the settings.
+    de: |-
+      Unterstrichene und durchgestrichene Schrift hat in Cantara 3 keine
+      Entsprechung und wurde nicht übernommen. Alles lässt sich in den
+      Einstellungen ändern.
+  close:
+    en: "Get started"
+    de: "Los geht's"

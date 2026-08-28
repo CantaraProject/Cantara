@@ -440,9 +440,13 @@ pub fn available_now() -> Arc<Vec<FontFamily>> {
     Arc::new(with_installed(system_ready().unwrap_or_default()))
 }
 
+/// A built list of families together with the [`catalog_generation`] it was
+/// built from, so [`available_now`] can tell whether it is still current.
+type CachedFamilies = Option<(u64, Arc<Vec<FontFamily>>)>;
+
 /// The list [`available_now`] last built, and what the catalogue looked like
 /// when it did.
-static AVAILABLE: OnceLock<Mutex<Option<(u64, Arc<Vec<FontFamily>>)>>> = OnceLock::new();
+static AVAILABLE: OnceLock<Mutex<CachedFamilies>> = OnceLock::new();
 
 /// Changes whenever the set of offered families can have changed: the installed
 /// ones arriving, or an import bringing one of its own.

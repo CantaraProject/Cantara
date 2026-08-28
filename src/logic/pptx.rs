@@ -134,7 +134,12 @@ pub struct PptxText {
     /// Font family. PowerPoint substitutes if the machine lacks it.
     pub font_face: String,
     pub color: PptxColor,
+    /// Whether the run is bold. Taken from the design's weight — see
+    /// [`FontRepresentation::is_bold`] — because PowerPoint has a switch where
+    /// a stylesheet has a scale.
     pub bold: bool,
+    /// Whether the run is slanted.
+    pub italic: bool,
     pub align: PptxAlign,
     pub valign: PptxVAlign,
     /// Shrink the text to fit the box rather than letting it overflow.
@@ -183,6 +188,10 @@ pub enum PptxShape {
 ///
 /// 64 MB is roughly a few minutes of ordinary service video, and comfortably
 /// more than the clips these decks are usually made of.
+///
+/// Only where a video can reach a deck at all: the web build has no library on
+/// disk to read one from.
+#[cfg(not(target_arch = "wasm32"))]
 pub const MAX_EMBEDDED_VIDEO_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Whether PowerPoint can play a video of this name at all.
@@ -192,6 +201,7 @@ pub const MAX_EMBEDDED_VIDEO_BYTES: u64 = 64 * 1024 * 1024;
 /// a deck is a rectangle with an error in it, so those are exported as their
 /// still frame instead — which is what a deck of a video can honestly be
 /// without the video.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn powerpoint_can_play(file_name: &str) -> bool {
     let lower = file_name.to_lowercase();
     [".mp4", ".m4v", ".mov"].iter().any(|suffix| lower.ends_with(suffix))
@@ -344,7 +354,7 @@ pub fn deck_from_slides(
                 pptx_slide = pptx_slide.with(text_shape(
                     &deck,
                     &title.title_text,
-                    &template.get_default_headline_font(),
+                    &title_font(&template),
                     0.30,
                     0.30,
                 ));
@@ -577,6 +587,22 @@ pub struct PptxConversion {
     pub skipped_videos: usize,
 }
 
+/// The headline font as a title slide actually shows it.
+///
+/// The bold of a title slide lives beside the headline font rather than in it:
+/// [`PresentationDesignTemplate::title_bold`] is a switch of its own, and the
+/// on-screen title turns the weight up by it (see `TitleSlideComponent`).
+/// Taking only the font here would export a design with the switch on in
+/// regular type, so the deck and the screen would disagree about the one line
+/// everybody reads first.
+fn title_font(template: &PresentationDesignTemplate) -> FontRepresentation {
+    let mut font = template.get_default_headline_font();
+    if template.title_bold {
+        font.weight = font.weight.max(crate::logic::settings::BOLD_WEIGHT);
+    }
+    font
+}
+
 /// A text box spanning the slide width at the given vertical band.
 fn text_shape(
     deck: &PptxDeck,
@@ -591,7 +617,8 @@ fn text_shape(
         font_size: font_size_in_points(&font.font_size),
         font_face: font_face(font),
         color: PptxColor::rgb(font.color.r, font.color.g, font.color.b),
-        bold: false,
+        bold: font.is_bold(),
+        italic: font.italic,
         align: match font.horizontal_alignment {
             HorizontalAlign::Left => PptxAlign::Left,
             HorizontalAlign::Right => PptxAlign::Right,
@@ -618,7 +645,8 @@ fn meta_corner_shape(deck: &PptxDeck, text: &str, font: &FontRepresentation) -> 
         font_size: font_size_in_points(&font.font_size),
         font_face: font_face(font),
         color: PptxColor::rgb(font.color.r, font.color.g, font.color.b),
-        bold: false,
+        bold: font.is_bold(),
+        italic: font.italic,
         align: PptxAlign::Right,
         valign: PptxVAlign::Bottom,
         shrink_to_fit: true,
@@ -787,6 +815,79 @@ mod tests {
         assert_eq!(deck.slides[0].background.as_hex(), "000000");
         assert!(first_text.font_size >= 8.0 && first_text.font_size <= 200.0);
         assert!(!first_text.font_face.is_empty());
+        // The default design sets neither.
+        assert!(!first_text.bold);
+        assert!(!first_text.italic);
+    }
+
+    /// A design set in bold italic has to export as bold italic. Both used to
+    /// be dropped on the way out: every run was written `bold: false` and
+    /// there was no italic at all, so a deck exported from a heavy design came
+    /// back in regular type.
+    #[test]
+    fn test_the_designs_type_style_survives_the_export() {
+        let mut design = PresentationDesign::default();
+        let PresentationDesignSettings::Template(template) =
+            &mut design.presentation_design_settings
+        else {
+            panic!("the default design is a template");
+        };
+        for font in &mut template.fonts {
+            font.set_bold(true);
+            font.italic = true;
+        }
+
+        let slides = slides_of(
+            "testfiles/Amazing Grace.song.yml",
+            &SlideSettings::default(),
+        );
+        let deck = deck_from_slides(&slides, &design, &HashMap::new()).deck;
+
+        let texts: Vec<&PptxText> = deck
+            .slides
+            .iter()
+            .flat_map(|slide| &slide.shapes)
+            .filter_map(|shape| match shape {
+                PptxShape::Text(text) => Some(text),
+                _ => None,
+            })
+            .collect();
+
+        assert!(!texts.is_empty(), "the deck has no text at all");
+        for text in texts {
+            assert!(text.bold, "{:?} came out in regular weight", text.text);
+            assert!(text.italic, "{:?} came out upright", text.text);
+        }
+    }
+
+    /// The title slide's bold is a switch beside the headline font, not a
+    /// weight in it. It used to be read off the font alone on the way out, so
+    /// a design with the switch on and a regular headline font exported a
+    /// title in regular type while the screen showed it heavy.
+    #[test]
+    fn test_the_title_bold_switch_survives_the_export() {
+        let mut design = PresentationDesign::default();
+        let PresentationDesignSettings::Template(template) =
+            &mut design.presentation_design_settings
+        else {
+            panic!("the default design is a template");
+        };
+        template.title_bold = true;
+        for font in &mut template.fonts {
+            font.set_bold(false);
+        }
+
+        let slides = vec![Slide::new_title_slide("Amazing Grace".to_string(), None)];
+        let deck = deck_from_slides(&slides, &design, &HashMap::new()).deck;
+
+        let PptxShape::Text(title) = &deck.slides[0].shapes[0] else {
+            panic!("the title is a text shape");
+        };
+        assert_eq!(title.text, "Amazing Grace");
+        assert!(
+            title.bold,
+            "the title slide's bold switch was dropped on the way out"
+        );
     }
 
     /// Notation cannot become a PowerPoint shape. The slide keeps its words and
@@ -868,6 +969,7 @@ mod tests {
             font_face: "Arial".to_string(),
             color: PptxColor::rgb(255, 255, 255),
             bold: true,
+            italic: false,
             align: PptxAlign::Center,
             valign: PptxVAlign::Middle,
             shrink_to_fit: true,

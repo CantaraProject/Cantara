@@ -72,6 +72,7 @@ pub fn video_source_url(path: &str) -> String {
 
 /// The path a [`video_url`] was built from, or `None` when the URL is not one
 /// of ours.
+#[cfg(feature = "desktop")]
 pub fn path_of_video_url(url: &str) -> Option<String> {
     let prefix = format!("/{VIDEO_HANDLER}/");
     let encoded = url.strip_prefix(&prefix).or_else(|| {
@@ -108,6 +109,7 @@ fn encode_path(path: &str) -> String {
 ///
 /// `None` when the text is not something that function produced: a truncated
 /// escape, or bytes that are not UTF-8 once put back together.
+#[cfg(feature = "desktop")]
 fn decode_path(encoded: &str) -> Option<String> {
     let bytes = encoded.as_bytes();
     let mut decoded: Vec<u8> = Vec::with_capacity(bytes.len());
@@ -130,6 +132,7 @@ fn decode_path(encoded: &str) -> Option<String> {
 // ── Serving the file in pieces ───────────────────────────────────────────────
 
 /// The piece of a file a `Range` header asks for, as inclusive byte offsets.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ByteRange {
     pub start: u64,
@@ -137,6 +140,7 @@ pub struct ByteRange {
     pub end: u64,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ByteRange {
     /// How many bytes this covers.
     pub fn length(self) -> u64 {
@@ -164,6 +168,7 @@ impl ByteRange {
 /// deliberately does *not* mean "send the whole thing" — a player that asked to
 /// start at ten minutes and silently got the beginning would play the wrong
 /// part of the video.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn parse_byte_range(header: &str, length: u64) -> Option<ByteRange> {
     if length == 0 {
         return None;
@@ -221,7 +226,7 @@ pub fn parse_byte_range(header: &str, length: u64) -> Option<ByteRange> {
 /// [`crate::components::video_host`] and the loopback server in
 /// [`crate::logic::video_server`]. Deciding *what* to send in one place is the
 /// only way the two cannot answer the same request differently.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "desktop")]
 pub struct VideoAnswer {
     pub status: u16,
     /// Complete, in the order they should be written.
@@ -229,7 +234,7 @@ pub struct VideoAnswer {
     pub body: Vec<u8>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "desktop")]
 impl VideoAnswer {
     /// An answer that is nothing but its status.
     fn status(code: u16) -> VideoAnswer {
@@ -245,7 +250,7 @@ impl VideoAnswer {
 ///
 /// `url_path` is the path a [`video_url`] produced, with or without an origin
 /// in front of it; `range` is the request's `Range` header, if it carried one.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "desktop")]
 pub fn answer_video_request(url_path: &str, range: Option<&str>) -> VideoAnswer {
     use std::io::{Read, Seek, SeekFrom};
 
@@ -503,6 +508,7 @@ pub fn clock(seconds: f64) -> String {
 ///
 /// `None` when the video could not be read or the frame could not be taken.
 /// Callers treat that as "no picture", not as an error worth stopping for.
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn still_frame(path: &str) -> Option<String> {
     let url = video_source_url(path);
     // Reading a frame back out of a canvas is refused when what was drawn into

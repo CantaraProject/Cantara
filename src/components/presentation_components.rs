@@ -994,19 +994,26 @@ fn TitleSlideComponent(
     /// consistent rhythm and needs no setting of its own for this.
     meta_distance: CssSize,
 ) -> Element {
-    // Build the CSS
-    let css_handler: Memo<CssHandler> = use_memo(move || {
+    // Built on every render rather than memoised. A `use_memo` closure is
+    // created once and captures the props of the render that created it, so a
+    // memo over nothing but props never runs again — the design could change
+    // underneath it and the slide would keep the type it was first drawn with.
+    // That is what stopped the design editor's preview following the font
+    // settings; the meta line below did follow, because it was built here.
+    //
+    // There is nothing to save by memoising it either: this is a handful of
+    // string pushes, against a render that is already laying out a slide.
+    let css_handler_string = {
         let mut css = CssHandler::new();
         css.opacity(1.0);
         css.z_index(2);
         let mut font = title_font_representation.clone();
         if bold {
-            font.weight = font.weight.max(700);
+            font.weight = font.weight.max(crate::logic::settings::BOLD_WEIGHT);
         }
         css.extend(&CssHandler::from(font));
-        css
-    });
-    let css_handler_string: Memo<String> = use_memo(move || css_handler.to_string());
+        css.to_string()
+    };
 
     let meta_style = {
         let mut css = CssHandler::new();
@@ -1022,8 +1029,8 @@ fn TitleSlideComponent(
         .filter(|text| !text.trim().is_empty());
 
     rsx! {
-        div { class: "headline", style: css_handler_string(),
-            p { style: css_handler_string(), {title_slide.title_text} }
+        div { class: "headline", style: "{css_handler_string}",
+            p { style: "{css_handler_string}", {title_slide.title_text} }
             // On the title slide the meta information belongs under the
             // headline, in the normal flow, so it reads as part of the title.
             if let Some(text) = meta_text {
@@ -1054,39 +1061,42 @@ fn SingleLanguageMainContentSlideRenderer(
         lines.len()
     };
 
-    let main_css: Memo<CssHandler> = use_memo(move || {
+    // Built on every render rather than memoised — see the note in
+    // [`TitleSlideComponent`] for why a memo over nothing but props is a memo
+    // that never runs again.
+    let main_css = {
         let mut css = CssHandler::new();
 
         css.set_important(true);
         css.opacity(1.0);
         css.z_index(2);
         css.extend(&CssHandler::from(main_content_font.clone()));
-        css
-    });
+        css.to_string()
+    };
 
-    let distance_css: Memo<CssHandler> = use_memo(move || {
+    let distance_css = {
         let mut css = CssHandler::new();
 
         css.set_important(true);
         css.min_height(distance.clone().unwrap_or(CssSize::Em(4.0)));
 
-        css
-    });
+        css.to_string()
+    };
 
-    let spoiler_css: Memo<CssHandler> = use_memo(move || {
+    let spoiler_css = {
         let mut css = CssHandler::new();
 
         css.set_important(true);
         css.opacity(1.0);
         css.z_index(2);
         css.extend(&CssHandler::from(spoiler_content_font.clone()));
-        css
-    });
+        css.to_string()
+    };
 
     rsx! {
         div {
-            div { class: "main-content", style: main_css.read().to_string(),
-                p { style: main_css.read().to_string(),
+            div { class: "main-content", style: "{main_css}",
+                p { style: "{main_css}",
                     for (num , line) in main_slide.clone().main_text().split("\n").enumerate() {
                         {line}
                         if num < number_of_main_content_lines - 1 {
@@ -1096,11 +1106,11 @@ fn SingleLanguageMainContentSlideRenderer(
                 }
             }
             if let Some(spoiler_content) = main_slide.spoiler_text() {
-                div { class: "distance", style: distance_css.read().to_string() }
+                div { class: "distance", style: "{distance_css}" }
                 div {
                     class: "spoiler-content",
-                    style: spoiler_css.read().to_string(),
-                    p { style: spoiler_css.read().to_string(),
+                    style: "{spoiler_css}",
+                    p { style: "{spoiler_css}",
                         for (num , line) in spoiler_content.split("\n").enumerate() {
                             {line}
                             if num < spoiler_content.split("\n").count() - 1 {
@@ -1129,21 +1139,23 @@ fn MultiLanguageMainContentSlideRenderer(
     /// The distance between sections, default is `4 em`.
     distance: Option<CssSize>,
 ) -> Element {
-    let main_css: Memo<CssHandler> = use_memo(move || {
+    // Built on every render rather than memoised — see the note in
+    // [`TitleSlideComponent`].
+    let main_css = {
         let mut css = CssHandler::new();
         css.set_important(true);
         css.opacity(1.0);
         css.z_index(2);
         css.extend(&CssHandler::from(main_content_font.clone()));
-        css
-    });
+        css.to_string()
+    };
 
-    let distance_css: Memo<CssHandler> = use_memo(move || {
+    let distance_css = {
         let mut css = CssHandler::new();
         css.set_important(true);
         css.min_height(distance.clone().unwrap_or(CssSize::Em(4.0)));
-        css
-    });
+        css.to_string()
+    };
 
     rsx! {
         div {
@@ -1154,7 +1166,7 @@ fn MultiLanguageMainContentSlideRenderer(
                         style: "font-weight: bold; margin-top: 0.5em;",
                         {format!("Language {}", lang_idx + 1)}
                     }
-                    p { style: main_css.read().to_string(),
+                    p { style: "{main_css}",
                         for (num , line) in text.split("\n").enumerate() {
                             {line}
                             if num < text.split("\n").count() - 1 {
@@ -1166,12 +1178,12 @@ fn MultiLanguageMainContentSlideRenderer(
                 if lang_idx < multi_slide.main_text_list.len() - 1 {
                     div {
                         class: "distance",
-                        style: distance_css.read().to_string(),
+                        style: "{distance_css}",
                     }
                 }
             }
             if !multi_slide.spoiler_text_vector.is_empty() {
-                div { class: "distance", style: distance_css.read().to_string() }
+                div { class: "distance", style: "{distance_css}" }
                 div { class: "spoiler-content",
                     p {
                         style: {
@@ -2735,5 +2747,175 @@ mod notation_tests {
             ..NotationSettings::default()
         };
         assert!(notation_block_style(&huge).contains("width: 100%"));
+    }
+}
+
+/// Does a slide follow the design it is drawn with?
+///
+/// These render a slide twice — once with a design, once with the design after
+/// an edit — and assert that what comes out is different. That is the one
+/// question the rest of the suite cannot answer: everything else here checks
+/// what a *function* returns, and the bug this guards against was that a
+/// perfectly correct stylesheet was built once and then never again.
+///
+/// A `use_memo` closure is created on the first render and captures that
+/// render's props. A memo over nothing but props therefore never recomputes,
+/// however often the props change. Three slide renderers were written that
+/// way, and the symptom was the design editor's live preview: switching a font
+/// to italic left the title exactly as it was, while the meta line underneath
+/// — built without a memo — followed at once.
+#[cfg(test)]
+mod design_follows_tests {
+    use super::*;
+    use crate::logic::settings::PresentationDesign;
+    use cantara_songlib::slides::Slide;
+
+    /// Renders a slide with `design`, without a window.
+    ///
+    /// The design goes in through a signal that is written *between* renders,
+    /// which is what a settings page does — a component rendered once with two
+    /// different sets of props would not reproduce the bug, since the fault is
+    /// in what a hook remembers across renders.
+    fn render_twice(
+        slide: Slide,
+        first: PresentationDesign,
+        second: PresentationDesign,
+    ) -> (String, String) {
+        use std::cell::RefCell;
+
+        // A thread local rather than a signal, so that the test can change
+        // what the harness renders without needing to be inside the Dioxus
+        // runtime — and so that tests running side by side cannot see each
+        // other's design.
+        thread_local! {
+            static INPUT: RefCell<Option<(Slide, PresentationDesign)>> =
+                const { RefCell::new(None) };
+        }
+
+        #[component]
+        fn Harness() -> Element {
+            let Some((slide, design)) = INPUT.with(|input| input.borrow().clone()) else {
+                return rsx! {};
+            };
+            rsx! {
+                StaticSlideRendererComponent { slide, presentation_design: design }
+            }
+        }
+
+        INPUT.with(|input| *input.borrow_mut() = Some((slide.clone(), first)));
+        let mut dom = VirtualDom::new(Harness);
+        dom.rebuild_in_place();
+        let before = dioxus_ssr::render(&dom);
+
+        // The design is edited and the page redrawn — the path a settings page
+        // takes, and the one the memos did not survive.
+        INPUT.with(|input| *input.borrow_mut() = Some((slide, second)));
+        // `APP`, not `ROOT`: `ScopeId::ROOT` is the virtual DOM's own base
+        // scope, and the component passed to `VirtualDom::new` is `APP`.
+        dom.mark_dirty(ScopeId::APP);
+        dom.render_immediate(&mut dioxus::dioxus_core::NoOpMutations);
+        let after = dioxus_ssr::render(&dom);
+
+        (before, after)
+    }
+
+    /// A design with every text block set the given way.
+    fn design_with(change: impl Fn(&mut FontRepresentation)) -> PresentationDesign {
+        let mut design = PresentationDesign::default();
+        let PresentationDesignSettings::Template(template) =
+            &mut design.presentation_design_settings
+        else {
+            panic!("the default design is a template");
+        };
+        for font in &mut template.fonts {
+            change(font);
+        }
+        design
+    }
+
+    /// The title slide is what the design editor's preview opens on, and the
+    /// one the bug was reported against.
+    #[test]
+    fn a_title_slide_follows_the_design() {
+        let slide = Slide::new_title_slide("Amazing Grace".to_string(), None);
+
+        let (upright, slanted) = render_twice(
+            slide.clone(),
+            design_with(|font| font.italic = false),
+            design_with(|font| font.italic = true),
+        );
+
+        assert!(
+            upright.contains("font-style:normal"),
+            "the first render was not upright: {upright}"
+        );
+        assert!(
+            slanted.contains("font-style:italic"),
+            "switching the design to italic left the slide unchanged: {slanted}"
+        );
+
+        // …and back again, since a switch has two directions and only one of
+        // them was ever exercised by hand.
+        let (slanted, upright) = render_twice(
+            slide,
+            design_with(|font| font.italic = true),
+            design_with(|font| font.italic = false),
+        );
+        assert!(slanted.contains("font-style:italic"), "got {slanted}");
+        assert!(
+            !upright.contains("font-style:italic"),
+            "switching italic off left the slide slanted: {upright}"
+        );
+    }
+
+    /// The same for the slide the congregation actually sings from, which is
+    /// drawn by a different renderer that had the same three memos.
+    #[test]
+    fn a_content_slide_follows_the_design() {
+        let slide = Slide::new_content_slide(
+            "Amazing grace, how sweet the sound".to_string(),
+            Some("That saved a wretch like me".to_string()),
+            None,
+        );
+
+        let (light, heavy) = render_twice(
+            slide.clone(),
+            design_with(|font| font.set_bold(false)),
+            design_with(|font| font.set_bold(true)),
+        );
+
+        assert!(light.contains("font-weight:400"), "got {light}");
+        assert!(
+            heavy.contains("font-weight:700"),
+            "switching the design to bold left the slide unchanged: {heavy}"
+        );
+
+        // The spoiler is drawn from a font block of its own and had a memo of
+        // its own, so it is worth its own turn.
+        let (upright, slanted) = render_twice(
+            slide,
+            design_with(|font| font.italic = false),
+            design_with(|font| font.italic = true),
+        );
+        assert!(
+            slanted.matches("font-style:italic").count()
+                > upright.matches("font-style:italic").count(),
+            "the spoiler did not follow the design: {slanted}"
+        );
+    }
+
+    /// The colour was never memoised and so never broke. It is asserted here
+    /// so that a future tidy-up that "helpfully" wraps it in a memo is caught
+    /// by this file rather than by somebody at a projector.
+    #[test]
+    fn the_colour_follows_the_design_too() {
+        let (white, red) = render_twice(
+            Slide::new_content_slide("Amazing grace".to_string(), None, None),
+            design_with(|font| font.color = rgb::Rgba::new(255, 255, 255, 255)),
+            design_with(|font| font.color = rgb::Rgba::new(255, 0, 0, 255)),
+        );
+
+        assert!(white.contains("255, 255, 255"), "got {white}");
+        assert!(red.contains("255, 0, 0"), "got {red}");
     }
 }

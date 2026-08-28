@@ -138,6 +138,61 @@ fn meta_line(settings: &SlideSettings) -> Option<SummaryLine> {
 /// contain one.
 pub const POSITION_SEPARATOR: char = '\u{1f}';
 
+// ── The metadata line, tried out ────────────────────────────────────────────
+
+/// What a metadata template would print, or why it would not.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum MetaPreview {
+    /// Nothing would be shown. Either the template is empty, or nothing in it
+    /// applies to the song it was tried on — which is the whole point of the
+    /// conditionals, and so is worth saying rather than showing as a blank.
+    Nothing,
+
+    /// What would be printed.
+    Line(String),
+
+    /// Handlebars cannot read it, and this is what it said.
+    ///
+    /// A template that does not compile shows *no* metadata at all in a
+    /// presentation, silently. Saying so while it is being typed is the
+    /// difference between a typo and a service without copyright lines.
+    Broken(String),
+}
+
+/// The song the preview is tried on.
+///
+/// A hymn everybody in the room already knows, so that what is being looked at
+/// is the *template* and not the example. Two tags, because a template worth
+/// previewing has conditionals in it and one tag cannot show both branches.
+pub const PREVIEW_TITLE: &str = "Amazing Grace";
+pub const PREVIEW_AUTHOR: &str = "John Newton";
+pub const PREVIEW_BIBLE: &str = "John 3:16";
+
+/// What a metadata template would say about [`PREVIEW_TITLE`].
+///
+/// The same code path a presentation takes — compiled by
+/// [`cantara_songlib::templating::MetaTemplate`] and rendered against a real
+/// [`Song`](cantara_songlib::song::Song) — rather than a description of it, so
+/// that what the settings page shows is what the projector will show.
+pub fn meta_preview(source: &str) -> MetaPreview {
+    use cantara_songlib::song::Song;
+    use cantara_songlib::templating::MetaTemplate;
+
+    let template = match MetaTemplate::parse(source) {
+        Ok(template) => template,
+        Err(error) => return MetaPreview::Broken(error.to_string()),
+    };
+
+    let mut song = Song::new(PREVIEW_TITLE);
+    song.set_tag("author", PREVIEW_AUTHOR);
+    song.set_tag("bible", PREVIEW_BIBLE);
+
+    match template.render_song(&song) {
+        Some(line) => MetaPreview::Line(line),
+        None => MetaPreview::Nothing,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,6 +379,87 @@ mod tests {
         assert_eq!(
             positions,
             vec!["display.summary.meta_title", "display.summary.meta_last"]
+        );
+    }
+
+    // ── The metadata line, tried out ────────────────────────────────────────
+
+    /// The plain case: a template that names the song and who wrote it.
+    #[test]
+    fn a_template_is_shown_filled_in() {
+        assert_eq!(
+            meta_preview("{{title}} ({{author}})"),
+            MetaPreview::Line("Amazing Grace (John Newton)".to_string())
+        );
+    }
+
+    /// The example carries an author and a bible reference on purpose: a
+    /// template worth previewing has conditionals in it, and one tag cannot
+    /// show both branches.
+    #[test]
+    fn both_branches_of_a_conditional_can_be_seen() {
+        assert_eq!(
+            meta_preview(
+                "{{#if author}}Autor: {{author}}{{/if}}\n\
+                 {{#if bible}}Bibelstelle: {{bible}}{{/if}}\n\
+                 {{#if copyright}}Copyright: {{copyright}}{{/if}}"
+            ),
+            MetaPreview::Line("Autor: John Newton\nBibelstelle: John 3:16".to_string())
+        );
+    }
+
+    /// A template that says nothing about this song is not a fault, and must
+    /// not be shown as a blank the user reads as one.
+    #[test]
+    fn a_template_that_says_nothing_says_so() {
+        assert_eq!(meta_preview(""), MetaPreview::Nothing);
+        assert_eq!(meta_preview("   \n  "), MetaPreview::Nothing);
+        assert_eq!(
+            meta_preview("{{#if copyright}}Copyright: {{copyright}}{{/if}}"),
+            MetaPreview::Nothing
+        );
+        // A tag the song does not have renders as nothing, which leaves the
+        // line empty and so shows nothing at all.
+        assert_eq!(meta_preview("{{ccli}}"), MetaPreview::Nothing);
+    }
+
+    /// A template that does not compile shows no metadata at all in a
+    /// presentation, and says nothing about why. Here it has to say why.
+    #[test]
+    fn a_template_that_cannot_be_read_says_why() {
+        let MetaPreview::Broken(reason) = meta_preview("{{#if author}}unclosed") else {
+            panic!("an unclosed block was accepted");
+        };
+        assert!(!reason.trim().is_empty(), "no reason was given");
+
+        assert!(matches!(meta_preview("{{"), MetaPreview::Broken(_)));
+    }
+
+    /// The names the Cantara 2 import produces have to work here too — that is
+    /// what the preview is for on the first start after an import.
+    #[test]
+    fn a_bracketed_name_is_previewed_like_any_other() {
+        assert_eq!(
+            meta_preview("{{#if [ccli-songnumber]}}CCLI: {{[ccli-songnumber]}}{{/if}}"),
+            MetaPreview::Nothing
+        );
+        assert_eq!(
+            meta_preview("{{#if [author]}}Autor: {{[author]}}{{/if}}"),
+            MetaPreview::Line("Autor: John Newton".to_string())
+        );
+    }
+
+    /// The song's real title wins over a tag of the same name, as it does in a
+    /// presentation — so the preview cannot show a title the projector would
+    /// not.
+    #[test]
+    fn the_preview_is_the_song_the_caption_names() {
+        let MetaPreview::Line(line) = meta_preview("{{title}}|{{author}}|{{bible}}") else {
+            panic!("nothing was rendered");
+        };
+        assert_eq!(
+            line,
+            format!("{PREVIEW_TITLE}|{PREVIEW_AUTHOR}|{PREVIEW_BIBLE}")
         );
     }
 }

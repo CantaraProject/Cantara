@@ -734,9 +734,14 @@ fn VideoViewer(file: SourceFile) -> Element {
     // the pane is the same component throughout, so opening a second clip
     // changes an attribute rather than building a new player. See
     // [`crate::logic::video::reload_script`].
+    // The count of jumps starts again with the fresh playback, so the mark of
+    // which one has been carried out has to start again with it. Left as it was,
+    // it would stand above every serial the new clip can produce and swallow its
+    // seeks — the scrubber would move and the video would not.
     use_effect(use_reactive!(|file| {
         let _ = file;
         playback.set(VideoPlayback::default());
+        applied_seek.set(0);
         spawn(async move {
             let _ = document::eval(&reload_script()).await;
         });

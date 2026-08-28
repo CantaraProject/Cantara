@@ -71,6 +71,11 @@ pub mod detail;
 /// Reading one source's tag names as another's, without changing a file.
 pub mod tag_mapping;
 /// Making a song out of text somebody pasted in.
+///
+/// Only the builds that can write the song out afterwards: the text is pasted
+/// into the dialog in [`crate::components::element_creation`], and a browser
+/// has no folder to put the file in.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod song_text;
 /// Putting a file into a repository, and moving it between them.
 /// A browser has no folders to move anything between.
@@ -97,6 +102,12 @@ pub mod fonts;
 pub mod selection_io;
 /// Handing a single design or slide division to somebody else.
 pub mod settings_io;
+/// Taking a Cantara 2 installation over, the first time Cantara 3 starts.
+///
+/// A browser can reach neither the old configuration file nor the song folder
+/// it points at, so there is nothing there to take over.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod legacy_import;
 /// Saying in words what a slide division does.
 pub mod slide_summary;
 pub mod pptx;

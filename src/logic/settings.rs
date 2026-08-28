@@ -444,14 +444,37 @@ impl Settings {
             // A settings file that cannot be read or understood is not worth
             // reporting: the defaults are a working configuration, and the
             // wizard picks the user up from there.
-            let mut settings: Settings = get_settings_file()
-                .and_then(|file| std::fs::read_to_string(file).ok())
+            //
+            // Whether there *is* one is a different question from whether it
+            // could be read, and the two are kept apart here: a file that is
+            // there but unreadable is not a first start, and must not lead to
+            // a Cantara 2 configuration being imported over settings that are
+            // merely damaged. Only a file which is plainly not there is a
+            // first start; if not even the path can be determined, nothing
+            // could be written out afterwards either, so no import is run.
+            let read = get_settings_file().map(std::fs::read_to_string);
+            let first_start = matches!(
+                &read,
+                Some(Err(error)) if error.kind() == std::io::ErrorKind::NotFound
+            );
+            let stored = read.and_then(|result| result.ok());
+            let mut settings: Settings = stored
                 .and_then(|content| serde_json::from_str(&migrate_settings_json(&content)).ok())
                 .unwrap_or_default();
             settings.ensure_default_presentation_design();
             settings.ensure_slide_settings_for_designs();
             settings.ensure_sidebar_order();
             settings.migrate_github_zip_repos();
+
+            // Nobody starts with an empty program if they have been using
+            // Cantara 2: their library, design and metadata line are on this
+            // machine already. See [`crate::logic::legacy_import`].
+            if first_start
+                && let Some(report) = crate::logic::legacy_import::import_from_cantara_2(&mut settings)
+            {
+                crate::logic::legacy_import::leave_notice(report);
+            }
+
             settings
         }
     }
@@ -1910,6 +1933,15 @@ pub struct FontRepresentation {
     #[serde(default = "default_font_weight")]
     pub weight: u16,
 
+    /// Whether the type is slanted.
+    ///
+    /// A switch rather than a degree, unlike [`weight`](Self::weight): a face
+    /// either has an italic or it does not, and where it does not the browser
+    /// slants the upright one — which is the same thing every other program
+    /// does with the same button.
+    #[serde(default)]
+    pub italic: bool,
+
     /// An outline drawn around the glyphs. Keeps light text readable on a busy
     /// background image without darkening the whole slide.
     #[serde(default)]
@@ -1974,7 +2006,41 @@ fn default_font_weight() -> u16 {
     400
 }
 
+/// The weight the bold switch turns type up to.
+pub const BOLD_WEIGHT: u16 = 700;
+
+/// From where up type reads as bold rather than merely a little heavier.
+///
+/// Semibold is included: a design set to 600 has a bold switch that says so,
+/// which is less surprising than a switch that is off while the text on the
+/// slide is plainly heavy.
+const BOLD_THRESHOLD: u16 = 600;
+
 impl FontRepresentation {
+    /// Whether this block reads as bold.
+    ///
+    /// Derived from [`weight`](Self::weight) rather than kept beside it: two
+    /// fields saying the same thing is two fields that can disagree, and the
+    /// weight is the one a stylesheet is written from. The bold switch in the
+    /// settings is a view of this and of [`set_bold`](Self::set_bold).
+    pub fn is_bold(&self) -> bool {
+        self.weight >= BOLD_THRESHOLD
+    }
+
+    /// Turns the weight up to bold, or back down to regular.
+    ///
+    /// Turning it off lands on regular even from light, which is the one place
+    /// this loses something the weight list can say. The alternative —
+    /// remembering what it was before — makes a switch whose off position
+    /// depends on history, and there is a weight list right beside it for
+    /// anyone who wants light.
+    pub fn set_bold(&mut self, bold: bool) {
+        self.weight = match bold {
+            true => BOLD_WEIGHT,
+            false => default_font_weight(),
+        };
+    }
+
     pub fn default_spoiler() -> Self {
         let mut default = Self::default();
         default
@@ -2002,6 +2068,7 @@ impl Default for FontRepresentation {
             color: Rgba::new(255, 255, 255, 255),
             horizontal_alignment: HorizontalAlign::default(),
             weight: default_font_weight(),
+            italic: false,
             outline: None,
             shadow_style: FontShadow::default(),
             language: None,
@@ -2802,8 +2869,39 @@ mod design_block_tests {
         let font: FontRepresentation = serde_json::from_str(json).expect("old settings must load");
 
         assert_eq!(font.weight, 400);
+        assert!(!font.italic);
         assert!(font.outline.is_none());
         assert!(font.language.is_none());
+    }
+
+    /// The bold switch in the settings is a view of the weight, so that there
+    /// is one thing stored and not two that can disagree.
+    #[test]
+    fn test_bold_is_the_weight_read_as_a_switch() {
+        let mut font = FontRepresentation::default();
+        assert!(!font.is_bold(), "regular type is not bold");
+
+        font.set_bold(true);
+        assert_eq!(font.weight, BOLD_WEIGHT);
+        assert!(font.is_bold());
+
+        font.set_bold(false);
+        assert_eq!(font.weight, 400);
+        assert!(!font.is_bold());
+
+        // Semibold reads as bold: a switch that is off while the text on the
+        // slide is plainly heavy is the more surprising answer.
+        font.weight = 600;
+        assert!(font.is_bold());
+        font.weight = 500;
+        assert!(!font.is_bold());
+
+        // Turning it off from light lands on regular. The weight list beside
+        // the switch is there for anyone who wants light back.
+        font.weight = 300;
+        assert!(!font.is_bold());
+        font.set_bold(false);
+        assert_eq!(font.weight, 400);
     }
 
     /// The same for a design written before the notation had settings.

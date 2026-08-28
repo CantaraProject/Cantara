@@ -80,6 +80,9 @@ pub mod directory_browser;
 /// view's.
 pub mod dialogs;
 
+/// Saying, once, that a Cantara 2 installation was taken over.
+pub mod legacy_import_notice;
+
 /// Serving video files to the window that plays them.
 pub mod video_host;
 
