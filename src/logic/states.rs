@@ -208,6 +208,25 @@ impl SelectedItemRepresentation {
             video_settings: VideoSettings::default(),
         }
     }
+
+    /// An element of a given kind at a given path, with nothing chosen for it.
+    ///
+    /// For tests, and here rather than in each of them: an element written out
+    /// field by field has to be revisited by everyone who adds a field, which
+    /// is the friction that keeps a field out of the place it belongs. A test
+    /// that is *about* an unusual combination still says so in its own words.
+    #[cfg(test)]
+    pub fn for_test(name: &str, path: &str, file_type: crate::logic::sourcefiles::SourceFileType) -> Self {
+        use std::path::PathBuf;
+
+        Self::new_with_sourcefile(SourceFile {
+            name: name.to_string(),
+            path: PathBuf::from(path),
+            file_type,
+            md5_hash: None,
+            relative_path: None,
+        })
+    }
 }
 
 /// A running presentation that holds all state needed to display and navigate slides.

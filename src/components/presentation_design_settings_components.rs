@@ -4,7 +4,8 @@ use crate::components::font_settings::FontRepresentationsComponent;
 use crate::components::presentation_components::StaticSlideRendererComponent;
 use crate::components::dialogs::message_box;
 use crate::components::shared_components::{
-    NumberedValidatedLengthInput, SettingsSkeleton, use_after_first_paint,
+    MetadataFieldset, NumberedValidatedLengthInput, RangeInput, SettingsSkeleton,
+    use_after_first_paint,
 };
 use cantara_songlib::slides::{Slide, SlideSettings};
 use crate::logic::settings::{
@@ -92,16 +93,17 @@ pub fn PresentationDesignSettingsPage(
 
                 div { class: "design-editor-settings",
 
-                MetaSettings {
-                    presentation_design: selected_presentation_design(),
-                    on_pd_changed: move |pd: PresentationDesign| {
+                MetadataFieldset {
+                    name: selected_presentation_design().name,
+                    description: selected_presentation_design().description,
+                    on_changed: move |(name, description): (String, String)| {
                         let mut settings_write = settings.write();
                         if let Some(origin_pd) = settings_write
                             .presentation_designs
                             .get_mut(index as usize)
                         {
-                            origin_pd.name = pd.name;
-                            origin_pd.description = pd.description;
+                            origin_pd.name = name;
+                            origin_pd.description = description;
                         }
                     },
                 }
@@ -195,56 +197,6 @@ pub fn PresentationDesignSettingsPage(
     }
 }
 
-/// This component allow the setting up of meta settings for presentation designs
-#[component]
-fn MetaSettings(
-    /// The presentation design which Meta information should be able to be edited
-    presentation_design: PresentationDesign,
-
-    /// A closure which is called each time when the presentation design has been changed
-    on_pd_changed: EventHandler<PresentationDesign>,
-) -> Element {
-    // Driven by the prop rather than by a copy taken on the first render: the
-    // design belongs to the settings, and a copy here would go stale as soon as
-    // anything else touched it.
-    rsx! {
-        h3 { {t!("general.meta_information").to_string()} }
-        form {
-            fieldset {
-                label {
-                    {t!("general.name").to_string()}
-                    input {
-                        value: presentation_design.name.clone(),
-                        onchange: {
-                            let base = presentation_design.clone();
-                            move |event: Event<FormData>| {
-                                let mut updated = base.clone();
-                                updated.name = event.value();
-                                on_pd_changed.call(updated);
-                            }
-                        },
-                    }
-                }
-
-                label {
-                    {t!("general.description").to_string()}
-                    input {
-                        value: presentation_design.description.clone(),
-                        onchange: {
-                            let base = presentation_design.clone();
-                            move |event: Event<FormData>| {
-                                let mut updated = base.clone();
-                                updated.description = event.value();
-                                on_pd_changed.call(updated);
-                            }
-                        },
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// This component implements the actual settings for any presentation design which is a
 /// design template.
 /// Include further settings components here.
@@ -328,31 +280,24 @@ fn DesignTemplateSettings(
                     }
 
                     // Adjust the background image transparency over a range input
-                    label {
-                        span {
-                            {
-                                format!(
-                                    "{}: {}%",
-                                    t!("settings.background_image_transparency"),
-                                    pdt.background_transparency,
-                                )
+                    RangeInput {
+                        label: t!("settings.background_image_transparency").to_string(),
+                        unit: "%",
+                        min: 0.0,
+                        max: 100.0,
+                        step: 1.0,
+                        value: pdt.background_transparency as f64,
+                        onchange: {
+                            let base = pdt.clone();
+                            move |transparency: f64| {
+                                let mut updated = base.clone();
+                                // Stored as a percentage in a byte; the slider
+                                // cannot leave the range, but the cast must not
+                                // wrap if it ever does.
+                                updated.background_transparency = transparency.round().clamp(0.0, 100.0) as u8;
+                                onchange.call(updated);
                             }
-                        }
-                        input {
-                            r#type: "range",
-                            min: 0,
-                            max: 100,
-                            value: pdt.background_transparency,
-                            oninput: {
-                                let base = pdt.clone();
-                                move |event: Event<FormData>| {
-                                    let mut updated = base.clone();
-                                    updated.background_transparency = event.value().parse().unwrap_or(0);
-                                    onchange.call(updated);
-                                }
-                            },
-                        }
-
+                        },
                     }
                 }
             }
@@ -432,54 +377,37 @@ fn DesignTemplateSettings(
         h4 { {t!("settings.notation.title").to_string()} }
         form {
             fieldset {
-                label {
-                    {
-                        format!(
-                            "{}: {} %",
-                            t!("settings.notation.width"),
-                            pdt.notation.width_percent,
-                        )
-                    }
-                    input {
-                        r#type: "range",
-                        min: "10",
-                        max: "100",
-                        step: "5",
-                        value: "{pdt.notation.width_percent}",
-                        oninput: {
-                            let base = pdt.clone();
-                            move |event: Event<FormData>| {
-                                let mut updated = base.clone();
-                                updated.notation.width_percent = event.value().parse::<f64>().unwrap_or(100.0);
-                                onchange.call(updated);
-                            }
-                        },
-                    }
+                RangeInput {
+                    label: t!("settings.notation.width").to_string(),
+                    unit: " %",
+                    min: 10.0,
+                    max: 100.0,
+                    step: 5.0,
+                    value: pdt.notation.width_percent,
+                    onchange: {
+                        let base = pdt.clone();
+                        move |width: f64| {
+                            let mut updated = base.clone();
+                            updated.notation.width_percent = width;
+                            onchange.call(updated);
+                        }
+                    },
                 }
 
-                label {
-                    {
-                        format!(
-                            "{}: {}",
-                            t!("settings.notation.staff_line_height"),
-                            pdt.notation.staff_line_height,
-                        )
-                    }
-                    input {
-                        r#type: "range",
-                        min: "0.5",
-                        max: "3",
-                        step: "0.1",
-                        value: "{pdt.notation.staff_line_height}",
-                        oninput: {
-                            let base = pdt.clone();
-                            move |event: Event<FormData>| {
-                                let mut updated = base.clone();
-                                updated.notation.staff_line_height = event.value().parse::<f64>().unwrap_or(1.0);
-                                onchange.call(updated);
-                            }
-                        },
-                    }
+                RangeInput {
+                    label: t!("settings.notation.staff_line_height").to_string(),
+                    min: 0.5,
+                    max: 3.0,
+                    step: 0.1,
+                    value: pdt.notation.staff_line_height,
+                    onchange: {
+                        let base = pdt.clone();
+                        move |height: f64| {
+                            let mut updated = base.clone();
+                            updated.notation.staff_line_height = height;
+                            onchange.call(updated);
+                        }
+                    },
                 }
 
                 label {

@@ -38,6 +38,8 @@ use crate::logic::sync::{
     SYNC_KEY_ACTIVE, SYNC_KEY_FILES, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE,
     SYNC_KEY_PRESENTATION, SYNC_KEY_QUIT,
 };
+#[cfg(target_arch = "wasm32")]
+use crate::logic::web_storage;
 use crate::Route;
 use crate::logic::export::{ExportError, ExportFormat, ExportedFile, song_from_content};
 
@@ -665,15 +667,13 @@ fn start_presentation(
         #[cfg(target_arch = "wasm32")]
         {
             if let Ok(json) = serde_json::to_string(&rp) {
-                let _ = web_sys::window()
-                    .and_then(|w| w.local_storage().ok().flatten())
-                    .map(|s| {
-                        let _ = s.set_item(SYNC_KEY_PRESENTATION, &json);
-                        let _ = s.set_item(SYNC_KEY_ACTIVE, "true");
-                        let _ = s.remove_item(SYNC_KEY_QUIT);
-                        let _ = s.remove_item(SYNC_KEY_POSITION);
-                        let _ = s.remove_item(SYNC_KEY_POSITION_FROM_CONSOLE);
-                    });
+                web_storage::write_text(SYNC_KEY_PRESENTATION, &json);
+                web_storage::write_text(SYNC_KEY_ACTIVE, "true");
+                web_storage::remove_all(&[
+                    SYNC_KEY_QUIT,
+                    SYNC_KEY_POSITION,
+                    SYNC_KEY_POSITION_FROM_CONSOLE,
+                ]);
             }
 
             // Collect VFS files (e.g. PDFs) needed by the presentation and store
@@ -704,12 +704,9 @@ fn start_presentation(
                         }
                     }
                 }
-                if !files.is_empty()
-                    && let Ok(files_json) = serde_json::to_string(&files) {
-                        let _ = web_sys::window()
-                            .and_then(|w| w.local_storage().ok().flatten())
-                            .map(|s| s.set_item(SYNC_KEY_FILES, &files_json));
-                    }
+                if !files.is_empty() {
+                    web_storage::write(SYNC_KEY_FILES, &files);
+                }
             }
             // Open the presentation in a new browser tab.
             // This MUST happen before the signal write below — see comment above.

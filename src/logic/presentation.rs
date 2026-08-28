@@ -469,6 +469,141 @@ fn stream_view_of(
     }
 }
 
+/// Whether a chapter is built with a view for the network stream.
+///
+/// The only thing that separates the three places a chapter is built. A
+/// preview of one element, shown beside the settings that made it, has no
+/// stream to serve: what the stream would do with the same element is
+/// previewed in the presenter console, next to the slide it would differ from.
+enum StreamView<'a> {
+    Build(&'a StreamDefaults),
+    Skip,
+}
+
+/// The design and the division an element is actually shown with: its own
+/// where it names one, and the service's general choice where it does not.
+///
+/// One rule, in one place, because the panels in the presentation options
+/// *describe* this rule to the user — see
+/// [`crate::components::selection_components`] — and a description that has
+/// drifted from what the program does is worse than none.
+fn used_design_and_settings(
+    selected_item: &SelectedItemRepresentation,
+    default_presentation_design: &PresentationDesign,
+    default_slide_settings: &SlideSettings,
+) -> (PresentationDesign, SlideSettings) {
+    (
+        selected_item
+            .presentation_design_option
+            .clone()
+            .unwrap_or_else(|| default_presentation_design.clone()),
+        selected_item
+            .slide_settings_option
+            .clone()
+            .unwrap_or_else(|| default_slide_settings.clone()),
+    )
+}
+
+/// The chapter an element and its slides come to, once everything about it has
+/// been decided.
+///
+/// Separate from [`chapter_for`] only so that a preview, which shows an
+/// element that cannot be read as an element with no slides rather than
+/// dropping it, does not have to write the chapter out a second time.
+fn assemble_chapter(
+    selected_item: &SelectedItemRepresentation,
+    used_presentation_design: PresentationDesign,
+    used_slide_settings: SlideSettings,
+    slides: Vec<Slide>,
+    tag_mappings: &[TagMapping],
+    stream: StreamView<'_>,
+) -> SlideChapter {
+    let (stream_design_option, stream_slides, stream_slide_map) = match stream {
+        StreamView::Build(stream_defaults) => stream_view_of(
+            selected_item,
+            stream_defaults,
+            &used_presentation_design,
+            &slides,
+            &used_slide_settings,
+            tag_mappings,
+        ),
+        StreamView::Skip => (None, None, Vec::new()),
+    };
+
+    SlideChapter {
+        id: Uuid::new_v4(),
+        slides,
+        source_file: selected_item.source_file.clone(),
+        presentation_design_option: Some(used_presentation_design),
+        slide_settings_option: Some(used_slide_settings),
+        stream_design_option,
+        stream_slides,
+        stream_slide_map,
+        timer_settings_option: selected_item.timer_settings_option.clone(),
+        transition_option: selected_item.transition_effect,
+        inline_markdown: selected_item.inline_markdown.clone(),
+    }
+}
+
+/// One element of the service, as a chapter of the presentation.
+///
+/// An element whose slides cannot be made is an error here and is left out of
+/// the presentation by both callers that run one. A preview says the same
+/// thing differently — see [`preview_chapter`].
+fn chapter_for(
+    selected_item: &SelectedItemRepresentation,
+    default_presentation_design: &PresentationDesign,
+    default_slide_settings: &SlideSettings,
+    tag_mappings: &[TagMapping],
+    stream: StreamView<'_>,
+) -> Result<SlideChapter, Box<dyn Error>> {
+    let (used_presentation_design, used_slide_settings) = used_design_and_settings(
+        selected_item,
+        default_presentation_design,
+        default_slide_settings,
+    );
+    let slides = create_presentation_slides(selected_item, &used_slide_settings, tag_mappings)?;
+
+    Ok(assemble_chapter(
+        selected_item,
+        used_presentation_design,
+        used_slide_settings,
+        slides,
+        tag_mappings,
+        stream,
+    ))
+}
+
+/// The same chapter, for a preview of a single element.
+///
+/// An element that cannot be read keeps its place here and shows nothing,
+/// rather than disappearing: the preview sits beside the settings for *this*
+/// element, and an empty frame beside them is the honest answer to settings
+/// that produce no slides.
+fn preview_chapter(
+    selected_item: &SelectedItemRepresentation,
+    default_presentation_design: &PresentationDesign,
+    default_slide_settings: &SlideSettings,
+    tag_mappings: &[TagMapping],
+) -> SlideChapter {
+    let (used_presentation_design, used_slide_settings) = used_design_and_settings(
+        selected_item,
+        default_presentation_design,
+        default_slide_settings,
+    );
+    let slides = create_presentation_slides(selected_item, &used_slide_settings, tag_mappings)
+        .unwrap_or_default();
+
+    assemble_chapter(
+        selected_item,
+        used_presentation_design,
+        used_slide_settings,
+        slides,
+        tag_mappings,
+        StreamView::Skip,
+    )
+}
+
 /// Adds a presentation to the global running presentations signal
 /// Returns the number (id) of the created presentation
 /// Builds a [RunningPresentation] from the selected items without writing to
@@ -485,40 +620,14 @@ pub fn build_presentation(
     let mut presentation: Vec<SlideChapter> = vec![];
 
     for selected_item in selected_items {
-        let used_presentation_design = selected_item
-            .presentation_design_option
-            .clone()
-            .unwrap_or(default_presentation_design.clone());
-
-        let used_slide_settings = selected_item
-            .slide_settings_option
-            .clone()
-            .unwrap_or(default_slide_settings.clone());
-
-        match create_presentation_slides(selected_item, &used_slide_settings, tag_mappings) {
-            Ok(slides) => {
-                let (stream_design, stream_slides, stream_slide_map) = stream_view_of(
-                    selected_item,
-                    stream_defaults,
-                    &used_presentation_design,
-                    &slides,
-                    &used_slide_settings,
-                    tag_mappings,
-                );
-                presentation.push(SlideChapter {
-                    id: Uuid::new_v4(),
-                    slides,
-                    source_file: selected_item.source_file.clone(),
-                    presentation_design_option: Some(used_presentation_design),
-                    slide_settings_option: Some(used_slide_settings),
-                    stream_design_option: stream_design,
-                    stream_slides,
-                    stream_slide_map,
-                    timer_settings_option: selected_item.timer_settings_option.clone(),
-                    transition_option: selected_item.transition_effect,
-                    inline_markdown: selected_item.inline_markdown.clone(),
-                })
-            }
+        match chapter_for(
+            selected_item,
+            default_presentation_design,
+            default_slide_settings,
+            tag_mappings,
+            StreamView::Build(stream_defaults),
+        ) {
+            Ok(chapter) => presentation.push(chapter),
             Err(_) => {
                 // TODO: Implement error handling, the user should get a message if an error occurs...
             }
@@ -571,35 +680,12 @@ pub fn create_single_item_presentation(
     default_slide_settings: &SlideSettings,
     tag_mappings: &[TagMapping],
 ) -> RunningPresentation {
-    let used_presentation_design = selected_item
-        .presentation_design_option
-        .clone()
-        .unwrap_or(default_presentation_design.clone());
-
-    let used_slide_settings = selected_item
-        .slide_settings_option
-        .clone()
-        .unwrap_or(default_slide_settings.clone());
-
-    let slides = create_presentation_slides(selected_item, &used_slide_settings, tag_mappings)
-        .unwrap_or_default();
-
-    let chapter = SlideChapter {
-        id: Uuid::new_v4(),
-        slides,
-        source_file: selected_item.source_file.clone(),
-        presentation_design_option: Some(used_presentation_design),
-        slide_settings_option: Some(used_slide_settings),
-        // A preview of one element, shown beside the settings that made it.
-        // What the network stream would do with the same element is previewed
-        // in the presenter console, next to the slide it would differ from.
-        stream_design_option: None,
-        stream_slides: None,
-        stream_slide_map: Vec::new(),
-        timer_settings_option: selected_item.timer_settings_option.clone(),
-        transition_option: selected_item.transition_effect,
-        inline_markdown: selected_item.inline_markdown.clone(),
-    };
+    let chapter = preview_chapter(
+        selected_item,
+        default_presentation_design,
+        default_slide_settings,
+        tag_mappings,
+    );
 
     RunningPresentation::new(vec![chapter])
 }
@@ -694,52 +780,28 @@ fn apply_presentation_update(
     }
 
     for selected_item in selected_items {
-        let used_presentation_design = selected_item
-            .presentation_design_option
-            .clone()
-            .unwrap_or(default_presentation_design.clone());
-
-        let used_slide_settings = selected_item
-            .slide_settings_option
-            .clone()
-            .unwrap_or(default_slide_settings.clone());
-
-        match create_presentation_slides(selected_item, &used_slide_settings, tag_mappings) {
-            Ok(slides) => {
+        match chapter_for(
+            selected_item,
+            default_presentation_design,
+            default_slide_settings,
+            tag_mappings,
+            StreamView::Build(stream_defaults),
+        ) {
+            Ok(mut chapter) => {
                 // Carry the old UUID for this content fingerprint (FIFO within
-                // identical fingerprints) so we can restore the viewing position.
+                // identical fingerprints) so we can restore the viewing
+                // position. Temporary: a fresh UUID is assigned once the
+                // position-restore step below has found the chapter again.
                 let key: ChapterKey = (
                     selected_item.source_file.path.clone(),
                     selected_item.source_file.md5_hash.clone(),
                     selected_item.inline_markdown.clone(),
                 );
-                let carried_id = old_key_ids.get_mut(&key).and_then(|q| q.pop_front());
+                if let Some(carried_id) = old_key_ids.get_mut(&key).and_then(|q| q.pop_front()) {
+                    chapter.id = carried_id;
+                }
 
-                let (stream_design, stream_slides, stream_slide_map) = stream_view_of(
-                    selected_item,
-                    stream_defaults,
-                    &used_presentation_design,
-                    &slides,
-                    &used_slide_settings,
-                    tag_mappings,
-                );
-
-                new_chapters.push(SlideChapter {
-                    // Temporarily use the carried old UUID so we can find this
-                    // chapter in the position-restore step below. A fresh UUID is
-                    // assigned after that step completes.
-                    id: carried_id.unwrap_or_else(Uuid::new_v4),
-                    slides,
-                    source_file: selected_item.source_file.clone(),
-                    presentation_design_option: Some(used_presentation_design),
-                    slide_settings_option: Some(used_slide_settings),
-                    stream_design_option: stream_design,
-                    stream_slides,
-                    stream_slide_map,
-                    timer_settings_option: selected_item.timer_settings_option.clone(),
-                    transition_option: selected_item.transition_effect,
-                    inline_markdown: selected_item.inline_markdown.clone(),
-                });
+                new_chapters.push(chapter);
             }
             Err(_) => { /* skip failed items */ }
         }
@@ -837,6 +899,7 @@ pub fn update_presentation(
     {
         use super::settings::RepositoryType;
         use super::sync::{SYNC_KEY_FILES, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE};
+        use super::web_storage;
         use std::collections::HashMap;
 
         if let Some(rp) = running_presentations.peek().first()
@@ -863,17 +926,12 @@ pub fn update_presentation(
                     }
                 }
 
-                let _ = web_sys::window()
-                    .and_then(|w| w.local_storage().ok().flatten())
-                    .map(|s| {
-                        let _ = s.set_item(SYNC_KEY_POSITION_FROM_CONSOLE, &json);
-                        let _ = s.remove_item(SYNC_KEY_POSITION);
-                        // Sync VFS files if there are any PDFs
-                        if !files.is_empty()
-                            && let Ok(files_json) = serde_json::to_string(&files) {
-                                let _ = s.set_item(SYNC_KEY_FILES, &files_json);
-                            }
-                    });
+                web_storage::write_text(SYNC_KEY_POSITION_FROM_CONSOLE, &json);
+                web_storage::remove(SYNC_KEY_POSITION);
+                // Sync VFS files if there are any PDFs
+                if !files.is_empty() {
+                    web_storage::write(SYNC_KEY_FILES, &files);
+                }
             }
     }
 }
@@ -1069,24 +1127,11 @@ mod tests {
 
     #[test]
     fn test_presentation_creation_from_amazing_grace() {
-        let select_item = SelectedItemRepresentation {
-            source_file: SourceFile {
-                name: "Amazing Grace".to_string(),
-                path: PathBuf::from_str("testfiles/Amazing Grace.song").unwrap(),
-                file_type: SourceFileType::Song,
-                md5_hash: None,
-                relative_path: None,
-            },
-            presentation_design_option: None,
-            slide_settings_option: None,
-            stream_design_option: None,
-            stream_slide_settings_option: None,
-            inline_markdown: None,
-            timer_settings_option: None,
-            transition_effect: Default::default(),
-            pdf_pages: String::new(),
-            video_settings: Default::default(),
-        };
+        let select_item = SelectedItemRepresentation::for_test(
+            "Amazing Grace",
+            "testfiles/Amazing Grace.song",
+            SourceFileType::Song,
+        );
         assert!(create_presentation_slides(&select_item, &SlideSettings::default(), &[]).is_ok());
     }
 
@@ -1259,24 +1304,11 @@ mod tests {
     }
 
     fn amazing_grace() -> SelectedItemRepresentation {
-        SelectedItemRepresentation {
-            source_file: SourceFile {
-                name: "Amazing Grace".to_string(),
-                path: PathBuf::from_str("testfiles/Amazing Grace.song").unwrap(),
-                file_type: SourceFileType::Song,
-                md5_hash: None,
-                relative_path: None,
-            },
-            presentation_design_option: None,
-            slide_settings_option: None,
-            stream_design_option: None,
-            stream_slide_settings_option: None,
-            inline_markdown: None,
-            timer_settings_option: None,
-            transition_effect: Default::default(),
-            pdf_pages: String::new(),
-            video_settings: Default::default(),
-        }
+        SelectedItemRepresentation::for_test(
+            "Amazing Grace",
+            "testfiles/Amazing Grace.song",
+            SourceFileType::Song,
+        )
     }
 
     /// The words a slide shows, for comparing one against another.
@@ -1353,24 +1385,11 @@ mod tests {
 
     #[test]
     fn test_presentation_creation_from_pdf() {
-        let select_item = SelectedItemRepresentation {
-            source_file: SourceFile {
-                name: "Example".to_string(),
-                path: PathBuf::from_str("testfiles/Example.pdf").unwrap(),
-                file_type: SourceFileType::Pdf,
-                md5_hash: None,
-                relative_path: None,
-            },
-            presentation_design_option: None,
-            slide_settings_option: None,
-            stream_design_option: None,
-            stream_slide_settings_option: None,
-            inline_markdown: None,
-            timer_settings_option: None,
-            transition_effect: Default::default(),
-            pdf_pages: String::new(),
-            video_settings: Default::default(),
-        };
+        let select_item = SelectedItemRepresentation::for_test(
+            "Example",
+            "testfiles/Example.pdf",
+            SourceFileType::Pdf,
+        );
         let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
         let slides = result.unwrap();
@@ -1389,24 +1408,11 @@ mod tests {
 
     #[test]
     fn test_presentation_creation_from_multipage_pdf() {
-        let select_item = SelectedItemRepresentation {
-            source_file: SourceFile {
-                name: "MultiPage".to_string(),
-                path: PathBuf::from_str("testfiles/MultiPage.pdf").unwrap(),
-                file_type: SourceFileType::Pdf,
-                md5_hash: None,
-                relative_path: None,
-            },
-            presentation_design_option: None,
-            slide_settings_option: None,
-            stream_design_option: None,
-            stream_slide_settings_option: None,
-            inline_markdown: None,
-            timer_settings_option: None,
-            transition_effect: Default::default(),
-            pdf_pages: String::new(),
-            video_settings: Default::default(),
-        };
+        let select_item = SelectedItemRepresentation::for_test(
+            "MultiPage",
+            "testfiles/MultiPage.pdf",
+            SourceFileType::Pdf,
+        );
         let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
         let slides = result.unwrap();
@@ -1471,24 +1477,11 @@ mod tests {
 
     #[test]
     fn test_presentation_creation_from_image() {
-        let select_item = SelectedItemRepresentation {
-            source_file: SourceFile {
-                name: "test_image".to_string(),
-                path: PathBuf::from_str("testfiles/test.png").unwrap(),
-                file_type: SourceFileType::Image,
-                md5_hash: None,
-                relative_path: None,
-            },
-            presentation_design_option: None,
-            slide_settings_option: None,
-            stream_design_option: None,
-            stream_slide_settings_option: None,
-            inline_markdown: None,
-            timer_settings_option: None,
-            transition_effect: Default::default(),
-            pdf_pages: String::new(),
-            video_settings: Default::default(),
-        };
+        let select_item = SelectedItemRepresentation::for_test(
+            "test_image",
+            "testfiles/test.png",
+            SourceFileType::Image,
+        );
         let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
         let slides = result.unwrap();
@@ -1501,24 +1494,11 @@ mod tests {
 
     #[test]
     fn test_presentation_creation_from_markdown() {
-        let select_item = SelectedItemRepresentation {
-            source_file: SourceFile {
-                name: "example".to_string(),
-                path: PathBuf::from_str("testfiles/example.md").unwrap(),
-                file_type: SourceFileType::Markdown,
-                md5_hash: None,
-                relative_path: None,
-            },
-            presentation_design_option: None,
-            slide_settings_option: None,
-            stream_design_option: None,
-            stream_slide_settings_option: None,
-            inline_markdown: None,
-            timer_settings_option: None,
-            transition_effect: Default::default(),
-            pdf_pages: String::new(),
-            video_settings: Default::default(),
-        };
+        let select_item = SelectedItemRepresentation::for_test(
+            "example",
+            "testfiles/example.md",
+            SourceFileType::Markdown,
+        );
         let result = create_presentation_slides(&select_item, &SlideSettings::default(), &[]);
         assert!(result.is_ok());
         let slides = result.unwrap();
@@ -1622,23 +1602,14 @@ mod tests {
     // -------------------------------------------------------------------------
 
     fn inline_md_item(path: &str, markdown: &str) -> SelectedItemRepresentation {
-        SelectedItemRepresentation {
-            source_file: SourceFile {
-                name: path.to_string(),
-                path: PathBuf::from_str(path).unwrap(),
-                file_type: crate::logic::sourcefiles::SourceFileType::Markdown,
-                md5_hash: None,
-                relative_path: None,
-            },
-            presentation_design_option: None,
-            slide_settings_option: None,
-            stream_design_option: None,
-            stream_slide_settings_option: None,
-            inline_markdown: Some(markdown.to_string()),
-            timer_settings_option: None,
-            transition_effect: Default::default(),
-            pdf_pages: String::new(),
-            video_settings: Default::default(),
+        {
+            let mut item = SelectedItemRepresentation::for_test(
+                path,
+                path,
+                SourceFileType::Markdown,
+            );
+            item.inline_markdown = Some(markdown.to_string());
+            item
         }
     }
 

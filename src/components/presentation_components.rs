@@ -15,6 +15,8 @@ use crate::logic::sync::{
     SYNC_KEY_ACTIVE, SYNC_KEY_FILES, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE,
     SYNC_KEY_PRESENTATION, SYNC_KEY_QUIT,
 };
+#[cfg(target_arch = "wasm32")]
+use crate::logic::web_storage;
 use crate::{
     MAIN_CSS,
     logic::{
@@ -22,6 +24,34 @@ use crate::{
         states::RunningPresentation,
     },
 };
+
+/// Puts the files a synced presentation needs — PDFs, so far — into this tab's
+/// virtual file system, and forgets them again.
+///
+/// The presentation tab has no disk to read from: whatever it is to show came
+/// across in local storage, base64-encoded, and has to be unpacked before the
+/// first render. Forgotten afterwards because local storage is small and a PDF
+/// is not, and because the tab that wrote it writes it again whenever it
+/// changes.
+#[cfg(target_arch = "wasm32")]
+fn restore_synced_files() {
+    use crate::logic::settings::RepositoryType;
+    use std::collections::HashMap;
+
+    let Some(files) = web_storage::read::<HashMap<String, String>>(SYNC_KEY_FILES) else {
+        return;
+    };
+
+    for (path, encoded) in &files {
+        if let Ok(bytes) =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+        {
+            RepositoryType::store_web_file(path, bytes);
+        }
+    }
+    web_storage::remove(SYNC_KEY_FILES);
+}
+
 
 /// The stylesheet and the scripts of the presentation.
 ///
@@ -83,33 +113,9 @@ pub fn PresentationPage() -> Element {
             // Restore VFS file data (e.g. PDFs) from localStorage so that
             // PdfPageCanvas can read them. This must happen before the
             // presentation renders.
-            if let Some(files_json) = web_sys::window()
-                .and_then(|w| w.local_storage().ok().flatten())
-                .and_then(|s| s.get_item(SYNC_KEY_FILES).ok().flatten())
-            {
-                use crate::logic::settings::RepositoryType;
-                use std::collections::HashMap;
+            restore_synced_files();
 
-                if let Ok(files) = serde_json::from_str::<HashMap<String, String>>(&files_json) {
-                    for (path, b64) in &files {
-                        if let Ok(bytes) = base64::Engine::decode(
-                            &base64::engine::general_purpose::STANDARD,
-                            b64,
-                        ) {
-                            RepositoryType::store_web_file(path, bytes);
-                        }
-                    }
-                }
-                // Clean up to free localStorage space
-                let _ = web_sys::window()
-                    .and_then(|w| w.local_storage().ok().flatten())
-                    .map(|s| s.remove_item(SYNC_KEY_FILES));
-            }
-
-            web_sys::window()
-                .and_then(|w| w.local_storage().ok().flatten())
-                .and_then(|s| s.get_item(SYNC_KEY_PRESENTATION).ok().flatten())
-                .and_then(|json| serde_json::from_str(&json).ok())
+            web_storage::read(SYNC_KEY_PRESENTATION)
         } else {
             None
         }
@@ -127,11 +133,7 @@ pub fn PresentationPage() -> Element {
     let is_routed = nav.can_go_back();
     // On web, detect if this is a synced tab by checking localStorage flag
     #[cfg(target_arch = "wasm32")]
-    let is_synced_tab = web_sys::window()
-        .and_then(|w| w.local_storage().ok().flatten())
-        .and_then(|s| s.get_item(SYNC_KEY_ACTIVE).ok().flatten())
-        .map(|v| v == "true")
-        .unwrap_or(false);
+    let is_synced_tab = web_storage::flag(SYNC_KEY_ACTIVE);
     #[cfg(all(not(target_arch = "wasm32"), not(feature = "desktop")))]
     let is_synced_tab = false;
 
@@ -323,12 +325,7 @@ pub fn PresentationPage() -> Element {
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
         if is_synced_tab {
-            let rp = running_presentation.read();
-            if let Ok(json) = serde_json::to_string(&*rp) {
-                let _ = web_sys::window()
-                    .and_then(|w| w.local_storage().ok().flatten())
-                    .map(|s| s.set_item(SYNC_KEY_POSITION, &json));
-            }
+            web_storage::write(SYNC_KEY_POSITION, &*running_presentation.read());
         }
     });
 
@@ -346,12 +343,7 @@ pub fn PresentationPage() -> Element {
                 let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
 
                 // Check if the presentation was quit by the presenter console
-                let quit = web_sys::window()
-                    .and_then(|w| w.local_storage().ok().flatten())
-                    .and_then(|s| s.get_item(SYNC_KEY_QUIT).ok().flatten())
-                    .map(|v| v == "true")
-                    .unwrap_or(false);
-                if quit {
+                if web_storage::flag(SYNC_KEY_QUIT) {
                     running_presentations.write().clear();
                     // Close this tab
                     let _ = document::eval("window.close()").await;
@@ -359,36 +351,14 @@ pub fn PresentationPage() -> Element {
                 }
 
                 // Read position updates from the presenter console
-                if let Some(json) = web_sys::window()
-                    .and_then(|w| w.local_storage().ok().flatten())
-                    .and_then(|s| s.get_item(SYNC_KEY_POSITION_FROM_CONSOLE).ok().flatten())
+                if let Some(json) = web_storage::text(SYNC_KEY_POSITION_FROM_CONSOLE)
                     && !json.is_empty() && json != *last_sync_json.peek() {
                         last_sync_json.set(json.clone());
                         if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json)
                             && *running_presentation.peek() != rp {
                                 // Load any new VFS files (e.g. PDFs) that the
                                 // update_presentation call stored in localStorage
-                                if let Some(files_json) = web_sys::window()
-                                    .and_then(|w| w.local_storage().ok().flatten())
-                                    .and_then(|s| s.get_item(SYNC_KEY_FILES).ok().flatten())
-                                {
-                                    use crate::logic::settings::RepositoryType;
-                                    use std::collections::HashMap;
-
-                                    if let Ok(files) = serde_json::from_str::<HashMap<String, String>>(&files_json) {
-                                        for (path, b64) in &files {
-                                            if let Ok(bytes) = base64::Engine::decode(
-                                                &base64::engine::general_purpose::STANDARD,
-                                                b64,
-                                            ) {
-                                                RepositoryType::store_web_file(path, bytes);
-                                            }
-                                        }
-                                    }
-                                    let _ = web_sys::window()
-                                        .and_then(|w| w.local_storage().ok().flatten())
-                                        .map(|s| s.remove_item(SYNC_KEY_FILES));
-                                }
+                                restore_synced_files();
                                 running_presentation.set(rp);
                             }
                     }
@@ -405,18 +375,16 @@ pub fn PresentationPage() -> Element {
         // Clean up sync state on web
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = web_sys::window()
-                .and_then(|w| w.local_storage().ok().flatten())
-                .map(|s| {
-                    // Signal quit to any synced tabs
-                    let _ = s.set_item(SYNC_KEY_QUIT, "true");
-                    // Perform full cleanup of sync-related keys to avoid stale state
-                    let _ = s.remove_item(SYNC_KEY_ACTIVE);
-                    let _ = s.remove_item(SYNC_KEY_PRESENTATION);
-                    let _ = s.remove_item(SYNC_KEY_POSITION);
-                    let _ = s.remove_item(SYNC_KEY_POSITION_FROM_CONSOLE);
-                    let _ = s.remove_item(SYNC_KEY_FILES);
-                });
+            // Signal quit to any synced tabs, then clear the rest so that
+            // nothing stale is read back.
+            web_storage::write_text(SYNC_KEY_QUIT, "true");
+            web_storage::remove_all(&[
+                SYNC_KEY_ACTIVE,
+                SYNC_KEY_PRESENTATION,
+                SYNC_KEY_POSITION,
+                SYNC_KEY_POSITION_FROM_CONSOLE,
+                SYNC_KEY_FILES,
+            ]);
         }
         running_presentations.write().clear();
         #[cfg(feature = "desktop")]

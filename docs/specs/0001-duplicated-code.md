@@ -1,7 +1,10 @@
 # 0001 — Duplicated code
 
-Status: proposal. Written after fixing one bug that duplication had caused, in
-order to find the rest of the same kind before they are found by a user.
+Status: **implemented, except item 6**, which is deferred for the reason given
+under it. Written after fixing one bug that duplication had caused, in order to
+find the rest of the same kind before they are found by a user; each item below
+records what was actually done, including where the analysis turned out to be
+wrong.
 
 The language of this document is English, as the rest of `docs/` is.
 
@@ -96,6 +99,16 @@ rebuilds, not about the chapter's content.
 
 **Effort.** Medium. Well covered by the existing tests in the same file.
 
+**Done.** `used_design_and_settings` holds the fallback rule, `assemble_chapter`
+holds the single `SlideChapter` literal, and `chapter_for` puts the two
+together for the two callers that build a running presentation.
+`StreamView::Build`/`Skip` names the one real difference, as proposed. The
+preview needed one thing the proposal had not accounted for: it keeps an
+element that cannot be read, showing it with no slides, where the other two
+drop it — so it calls `preview_chapter`, which differs from `chapter_for` only
+in that. The rebuild's carried UUID stayed with the rebuild: it now overwrites
+`chapter.id` after the fact rather than being threaded through.
+
 ---
 
 ## 2. The `<select>` over a named settings list (fixed here, still open elsewhere)
@@ -153,6 +166,20 @@ right everywhere: an unreadable event should change nothing.
 
 **Effort.** Low, and each conversion is independently verifiable by eye.
 
+**Done — and the count above was wrong.** There are six of these, not nine:
+three in `font_settings.rs` and three in
+`presentation_design_settings_components.rs`. The three in
+`presenter_console_components.rs` that were counted are a different control —
+the thumbnail size, the video scrubber, the volume — with no visible label, a
+class and a style of their own, and an `if let Ok(…)` that already does the
+right thing with an unreadable value. They were left alone.
+
+The six now call `RangeInput` in `shared_components.rs`, which takes the value
+as `f64` and hands it back the same way; the byte-wide transparency setting
+converts at its own call site. An unparseable event calls nothing at all, which
+is the "resolves to the current value" above, said in the way Dioxus makes
+natural.
+
 ---
 
 ## 4. Browser local storage — `cfg(target_arch = "wasm32")`
@@ -181,6 +208,32 @@ just the three calls this program actually makes.
 
 **Effort.** Low. Entirely `wasm32`-gated, so the desktop build is unaffected and
 the web build either finds its data or does not, exactly as now.
+
+**Done, with one claim withdrawn.** The sync keys were *not* tied together by
+grep alone — they have lived in `logic/sync.rs` since they were introduced, and
+they stay there. The only loose literal was `"cantara-settings"`, written out
+in both `Settings::load` and `Settings::try_save`; it is now a `SETTINGS_KEY`
+constant beside them.
+
+`logic/web_storage.rs` holds `storage`, `text`, `read`, `flag`, `write_text`,
+`write`, `remove` and `remove_all`. All eighteen chains are gone. Two call
+sites did not simply collapse:
+
+- Unpacking the synced PDFs was written out twice inside
+  `presentation_components.rs`, once before the first render and once when an
+  update arrives. That is now `restore_synced_files`, a file-local function —
+  it belongs to the presentation tab, not to storage.
+- `start_presentation` still guards the "a synced tab is running" flag behind
+  the presentation having been encoded. Setting the flag with no presentation
+  behind it would open an empty tab, and `write` cannot express that condition
+  because it swallows the encoding failure by design.
+
+**Not compiled locally.** All of this is `wasm32`-gated, and a local web build
+needs clang for `zstd-sys`, which this machine has not got. The module itself
+was type-checked against `web-sys` for `wasm32` in isolation, the call sites
+were checked by eye against it, and the whole file parses in the desktop build
+— but the compiler has not seen the call sites. CI's web build is the check
+that matters here.
 
 ---
 
@@ -215,6 +268,11 @@ of them happened to be copied.
 
 **Effort.** Step 1 low, step 2 medium.
 
+**Done: step 1 only,** as proposed. `MetadataFieldset` in
+`shared_components.rs` replaces both `MetaSettings` and `SlideSettingsMetadata`,
+which are gone; the placeholder is a prop that defaults to empty. Step 2 waits
+for the third editor, as it should.
+
 ---
 
 ## 6. The two named lists in `Settings`
@@ -246,6 +304,14 @@ turn out to be unnecessary.
 migration path in `settings_io.rs` and the tests that pin the on-disk shape.
 Worth scheduling deliberately, not doing in passing.
 
+**Deferred, deliberately.** This is the only item not implemented. Everything
+above is a refactor the compiler and the existing tests can vouch for; this one
+changes what is written to disk, and doing it in the same pass as six others
+would mean shipping a settings migration nobody had looked at on its own. The
+blank-option gap in `PresentationDesign` noted above is real and still open —
+it is small enough to fix without the rest of this item, and worth doing
+whether or not `NamedList<T>` ever happens.
+
 ---
 
 ## 7. Test fixtures
@@ -267,6 +333,17 @@ combination.
 
 **Effort.** Low, mechanical, and failures are compile errors rather than
 behaviour changes.
+
+**Done for `presentation.rs`.** `SelectedItemRepresentation::for_test(name,
+path, file_type)` sits next to the type under `#[cfg(test)]`, and the seven
+literals in `presentation.rs` are gone. `selection_io.rs` keeps its own
+`item_of`, which is not the same helper: it names an element the way the
+library names it, with the suffix stripped, and two of its tests are about
+exactly that name surviving a round trip. Moving it to `for_test` made them
+fail, which is the helper earning its keep.
+
+`logic/stream/protocol.rs` was left alone — it builds presentations, not
+selected items, and shares nothing with these.
 
 ---
 
@@ -290,3 +367,11 @@ behaviour changes.
 4. Item 6 — plan it; it needs a settings migration.
 
 Item 2 needs nothing further.
+
+## What is left
+
+- **Item 6**, the two named lists in `Settings`, and with it the blank option a
+  design with a cleared name shows.
+- **Item 5 step 2**, the editor-page wrapper, when a third editor appears.
+- The `wasm32` half of item 4 wants a look from CI, or from a machine that can
+  build for the web.

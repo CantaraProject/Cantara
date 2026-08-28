@@ -140,6 +140,10 @@ pub mod parallel;
 #[cfg(target_arch = "wasm32")]
 pub mod sync;
 
+/// The browser's local storage. Only the web build has one.
+#[cfg(target_arch = "wasm32")]
+pub mod web_storage;
+
 #[cfg(feature = "desktop")]
 pub mod screens;
 
