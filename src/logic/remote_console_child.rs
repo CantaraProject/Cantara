@@ -81,6 +81,46 @@ const MAIN_CSS: &str = include_str!("../../assets/main.css");
 const PRESENTATION_CSS: &str = include_str!("../../assets/presentation.css");
 const CONSOLE_CSS: &str = include_str!("../../assets/presenter_console.css");
 
+/// What the bundled `pdf.js` expects a browser to have and some browsers do
+/// not yet.
+///
+/// `Map.prototype.getOrInsertComputed` is new — new enough that the Chromium
+/// web view Cantara draws its own windows in has it and a current Firefox does
+/// not. Without it every PDF slide in a remote console is a black rectangle
+/// and the only sign of why is `TypeError: this[#Ar].getOrInsertComputed is
+/// not a function` in a console nobody is looking at.
+///
+/// Written to the specification's behaviour and only where it is missing, so a
+/// browser that has the real thing is untouched. It goes in ahead of
+/// everything else on the page, because `pdf.js` is loaded on demand and may
+/// arrive at any moment after that.
+const MAP_POLYFILL: &str = r#"
+(function () {
+    function define(prototype, name, implementation) {
+        if (typeof prototype[name] !== "function") {
+            Object.defineProperty(prototype, name, {
+                value: implementation,
+                writable: true,
+                configurable: true,
+                enumerable: false,
+            });
+        }
+    }
+    function getOrInsert(key, value) {
+        if (!this.has(key)) { this.set(key, value); }
+        return this.get(key);
+    }
+    function getOrInsertComputed(key, compute) {
+        if (!this.has(key)) { this.set(key, compute(key)); }
+        return this.get(key);
+    }
+    for (const prototype of [Map.prototype, WeakMap.prototype]) {
+        define(prototype, "getOrInsert", getOrInsert);
+        define(prototype, "getOrInsertComputed", getOrInsertComputed);
+    }
+})();
+"#;
+
 /// How long a wrong password is answered with nothing.
 ///
 /// Guessing at a password over a network is the one attack this feature has,
@@ -442,6 +482,7 @@ async fn page(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Response
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Cantara</title>
+        <script>{MAP_POLYFILL}</script>
         <style>{PICO_CSS}</style>
         <style>{MAIN_CSS}</style>
         <style>{PRESENTATION_CSS}</style>

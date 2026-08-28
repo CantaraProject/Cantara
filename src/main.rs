@@ -430,36 +430,37 @@ fn App() -> Element {
         //
         // Sending twice costs nothing: `publish` compares before it writes.
 
-        // What a remote console did, applied here — this is the window that
-        // owns the presentation. Taken once; a second caller would get
-        // nothing, which is why this is in `App` and not in a view that comes
-        // and goes.
-        use_future(move || async move {
-            let Some(mut commands) = logic::remote_console::take_commands() else {
-                return;
-            };
-            let mut running_presentations: Signal<Vec<RunningPresentation>> = running_presentations;
-
-            while let Some(command) = commands.recv().await {
-                let mut presentations = running_presentations.peek().clone();
-                if logic::remote_console::apply(command, &mut presentations) {
-                    running_presentations.set(presentations);
-                }
-            }
-        });
-
-        // The second road to the helper. Only while a console is actually
-        // connected, and a comparison in `publish` keeps it from writing
-        // anything the effect above has already sent.
+        // Both directions, in one loop, polled rather than woken.
+        //
+        // Awaiting the command channel was the obvious way to write this half
+        // and it did not work: a message sent from the thread that reads the
+        // helper wakes the task's `Waker`, and whether that reaches a
+        // VirtualDom driven by a window's event loop is exactly the question
+        // every other cross-window path in this program answers by polling
+        // instead (see the loops in `PresentationPage` and
+        // `PresenterConsolePage`). What the operator saw was a remote console
+        // that showed everything and changed nothing.
+        //
+        // So: fifty milliseconds, the same interval those loops use. Draining
+        // is `try_recv` until empty — a burst of clicks is one write to the
+        // signal — and publishing is guarded by a comparison inside
+        // `publish`, so a quiet loop costs a lock and two `peek`s.
         #[cfg(feature = "desktop")]
         use_future(move || async move {
+            let mut running_presentations = running_presentations;
+
             loop {
-                let _ = document::eval("await new Promise(r => setTimeout(r, 200))").await;
-                if !logic::remote_console_host::is_enabled() {
-                    continue;
+                let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
+
+                let mut presentations = running_presentations.peek().clone();
+                if logic::remote_console::drain(&mut presentations) {
+                    running_presentations.set(presentations);
                 }
-                let now = running_presentations.peek().first().cloned();
-                logic::remote_console_host::publish(now);
+
+                if logic::remote_console_host::is_enabled() {
+                    let now = running_presentations.peek().first().cloned();
+                    logic::remote_console_host::publish(now);
+                }
             }
         });
 

@@ -118,10 +118,41 @@ pub fn send(command: ConsoleCommand) {
 
 /// The receiving end of the command channel, once.
 ///
-/// The main window takes it when it starts and drains it for the rest of the
-/// session. A second caller gets `None`: there is one program to command.
+/// For the helper process, which waits on it. The program itself uses
+/// [`drain`] instead — see there for why it does not wait.
 pub fn take_commands() -> Option<mpsc::UnboundedReceiver<ConsoleCommand>> {
     commands().1.lock().ok().and_then(|mut held| held.take())
+}
+
+/// Applies everything a remote console has done since this was last called,
+/// and says whether any of it changed anything.
+///
+/// Called from a polling loop rather than woken by the channel, and that is
+/// the point of it. Awaiting the receiver in the main window looked right and
+/// did nothing: a message sent from the thread that reads the helper wakes a
+/// `Waker`, and whether that reaches a `VirtualDom` driven by a window's event
+/// loop is the very question every other cross-window path in this program
+/// answers by polling. What it looked like from the pew was a remote console
+/// that showed everything and changed nothing.
+///
+/// A burst — somebody pressing *next* three times while the projection catches
+/// up — is drained in one go, so it costs one write to the signal rather than
+/// three.
+pub fn drain(presentations: &mut Vec<RunningPresentation>) -> bool {
+    let Ok(mut held) = commands().1.lock() else {
+        return false;
+    };
+    let Some(receiver) = held.as_mut() else {
+        // The helper process took the receiver: this is that process, and
+        // there is nothing here for it to apply.
+        return false;
+    };
+
+    let mut changed = false;
+    while let Ok(command) = receiver.try_recv() {
+        changed |= apply(command, presentations);
+    }
+    changed
 }
 
 /// Applies what a remote console did to the running presentations.
@@ -266,6 +297,30 @@ mod tests {
         ));
         assert!(presentations.is_empty());
         assert!(!apply(ConsoleCommand::Quit, &mut presentations));
+    }
+
+    /// What the program does with a remote console's commands, from the
+    /// channel to the presentation — the half that cannot be seen from the
+    /// helper's side of the socket.
+    #[test]
+    fn a_burst_of_commands_is_drained_into_one_change() {
+        let mut presentations = vec![presentation_of(4)];
+
+        let mut moved = presentations[0].clone();
+        moved.next_slide();
+        let mut moved_again = moved.clone();
+        moved_again.next_slide();
+
+        send(ConsoleCommand::Update(Box::new(moved)));
+        send(ConsoleCommand::Update(Box::new(moved_again.clone())));
+
+        assert!(drain(&mut presentations), "the commands were applied");
+        assert_eq!(
+            presentations[0].position, moved_again.position,
+            "the last one wins, and the projection is written once"
+        );
+
+        assert!(!drain(&mut presentations), "an empty channel changes nothing");
     }
 
     #[test]
