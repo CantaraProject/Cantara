@@ -63,11 +63,22 @@ const LOGIN_PAGE: &str = include_str!("../../assets/console_login.html");
 /// was not started by the bundler, and when it is not right the console arrives
 /// unstyled, which is what happened.
 ///
-/// Compiled in instead. Eighty kilobytes on the first load of a page that is
-/// then live for the whole service, no second request, and nothing to resolve:
-/// the console is styled or the binary does not build. Neither sheet refers to
-/// a font or a picture by URL, so there is nothing left dangling.
+/// Compiled in instead. A couple of hundred kilobytes on the first load of a
+/// page that is then live for the whole service, no second request, and
+/// nothing to resolve: the console is styled or the binary does not build.
+/// None of these sheets refers to a font or a picture by URL, so there is
+/// nothing left dangling.
+///
+/// All four of them, and that took a second try. `main.css` holds Cantara's
+/// own rules *on top of* PicoCSS, which `App` registers separately — and the
+/// helper never runs `App`. With only Cantara's own rules the console arrived
+/// looking like an unstyled document with a few things in the right places,
+/// which is exactly what was reported. `presentation.css` is here for the
+/// same reason: the console previews slides with the renderer the projection
+/// uses, and that renderer's stylesheet is registered by whoever hosts it.
+const PICO_CSS: &str = include_str!("../../node_modules/@picocss/pico/css/pico.min.css");
 const MAIN_CSS: &str = include_str!("../../assets/main.css");
+const PRESENTATION_CSS: &str = include_str!("../../assets/presentation.css");
 const CONSOLE_CSS: &str = include_str!("../../assets/presenter_console.css");
 
 /// How long a wrong password is answered with nothing.
@@ -431,7 +442,9 @@ async fn page(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Response
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Cantara</title>
+        <style>{PICO_CSS}</style>
         <style>{MAIN_CSS}</style>
+        <style>{PRESENTATION_CSS}</style>
         <style>{CONSOLE_CSS}</style>
     </head>
     <body><div id="main"></div></body>

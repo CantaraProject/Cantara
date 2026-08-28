@@ -111,27 +111,35 @@ pub fn enable(port: u16, password: String) -> Result<String, String> {
     // Wait to be told that it is up, so that a port already in use is reported
     // here — beside the switch that did not go on — rather than as a browser
     // failing to connect later.
-    let reader = BufReader::new(
+    let mut reader = BufReader::new(
         to_child
             .try_clone()
             .map_err(|error| format!("the console helper could not be read: {error}"))?,
     );
-    let mut lines = reader.lines();
-    let port = match lines.next() {
-        Some(Ok(line)) => match serde_json::from_str::<ToParent>(&line) {
-            Ok(ToParent::Serving { port }) => port,
-            Ok(ToParent::Failed { reason }) => return Err(reason),
-            Ok(_) => return Err("the console helper said something unexpected".to_string()),
-            Err(error) => return Err(format!("the console helper could not be read: {error}")),
-        },
-        Some(Err(error)) => return Err(format!("the console helper could not be read: {error}")),
-        None => return Err("the console helper stopped before it started".to_string()),
+
+    let mut line = String::new();
+    if reader.read_line(&mut line).is_err() || line.is_empty() {
+        return Err("the console helper stopped before it started".to_string());
+    }
+    let port = match serde_json::from_str::<ToParent>(line.trim()) {
+        Ok(ToParent::Serving { port }) => port,
+        Ok(ToParent::Failed { reason }) => return Err(reason),
+        Ok(_) => return Err("the console helper said something unexpected".to_string()),
+        Err(error) => return Err(format!("the console helper could not be read: {error}")),
     };
 
     // The handshake is over; from here the socket is read until Cantara or the
     // helper goes away, and a deadline on that would be a disconnection every
     // time nothing happened for a while.
-    to_child
+    //
+    // On *this* handle, which is the one the pump below reads from. Clearing
+    // it on the socket it was cloned from is not enough — a clone carries the
+    // timeout it was made with, and its own from then on. That mistake was
+    // silent and complete: the pump gave up five seconds after the console
+    // opened, so every button pressed on it after that reached nothing, while
+    // the console itself went on looking as though it had worked.
+    reader
+        .get_ref()
         .set_read_timeout(None)
         .map_err(|error| format!("the console helper could not be read: {error}"))?;
 
@@ -139,7 +147,7 @@ pub fn enable(port: u16, password: String) -> Result<String, String> {
 
     std::thread::Builder::new()
         .name("cantara-console-host".to_string())
-        .spawn(move || pump(lines))
+        .spawn(move || pump(reader))
         .map_err(|error| format!("no thread for the console helper: {error}"))?;
 
     let helper = Helper {
@@ -161,12 +169,20 @@ pub fn enable(port: u16, password: String) -> Result<String, String> {
 
 /// Reads the helper's stream until it ends, applying what the remote operator
 /// does.
-fn pump(lines: std::io::Lines<BufReader<TcpStream>>) {
-    for line in lines {
-        let Ok(line) = line else {
-            return;
-        };
-        match serde_json::from_str::<ToParent>(&line) {
+///
+/// A read that fails ends this: the helper has gone, and there is nothing left
+/// to listen to. That is only true because the socket has no read timeout —
+/// with one, "nothing was said for a while" would look exactly the same as
+/// "the helper has gone", which is the bug this function was fixed for.
+fn pump(mut reader: BufReader<TcpStream>) {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {}
+        }
+        match serde_json::from_str::<ToParent>(line.trim()) {
             Ok(ToParent::Update(presentation)) => {
                 remote_console::send(ConsoleCommand::Update(presentation));
             }
@@ -336,3 +352,63 @@ fn no_console_window(command: &mut Command) {
 
 #[cfg(not(target_os = "windows"))]
 fn no_console_window(_command: &mut Command) {}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::{Ipv4Addr, TcpListener, TcpStream};
+
+    /// A clone of a socket carries the read timeout the original had, and
+    /// clearing it on the original does *not* clear it on the clone.
+    ///
+    /// This is the whole of the bug that made the remote console look as
+    /// though it worked and do nothing: the handshake gave the socket a
+    /// deadline, the thread that reads the console's commands read through a
+    /// clone made while that deadline was set, and five seconds later its
+    /// first quiet moment looked exactly like the helper having gone. It gave
+    /// up, and every button pressed after that reached nothing.
+    ///
+    /// Written as a test of the platform rather than of Cantara, because that
+    /// is where the surprise was.
+    #[test]
+    fn a_cloned_socket_keeps_its_own_read_timeout() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a port");
+        let port = listener.local_addr().expect("an address").port();
+
+        let writer = std::thread::spawn(move || {
+            let (mut sender, _) = listener.accept().expect("a connection");
+            writeln!(sender, "first").expect("the first line");
+            // Longer than the deadline below: this is the quiet the pump used
+            // to mistake for the end.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            writeln!(sender, "second").expect("the second line");
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        });
+
+        let original = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).expect("a connection");
+        original
+            .set_read_timeout(Some(std::time::Duration::from_millis(100)))
+            .expect("a deadline for the handshake");
+
+        let mut reader = BufReader::new(original.try_clone().expect("a clone"));
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("the first line");
+        assert_eq!(line.trim(), "first");
+
+        // What the code used to do: clear it on the original only.
+        original.set_read_timeout(None).expect("cleared");
+        line.clear();
+        assert!(
+            reader.read_line(&mut line).is_err(),
+            "the clone still has its own deadline; clearing the original did nothing"
+        );
+
+        // What it does now.
+        reader.get_ref().set_read_timeout(None).expect("cleared");
+        line.clear();
+        reader.read_line(&mut line).expect("the second line");
+        assert_eq!(line.trim(), "second");
+
+        writer.join().expect("the writer finishes");
+    }
+}

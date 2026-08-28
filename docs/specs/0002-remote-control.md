@@ -538,6 +538,50 @@ reactive shared↔local effects — the ones the web build uses — run against 
 because a remote console is one `VirtualDom` exactly as the web build is. What
 the bridge keeps in step is that root signal.
 
+### Three bugs the browser found
+
+The compiler, the unit tests and the socket harness all passed before any of
+these; every one of them needed the thing actually running.
+
+1. **The console said nothing was running.** `PresenterConsolePage` asks
+   `running_presentations.peek()` whether there is anything to show, and `peek`
+   deliberately does not subscribe — right for the consoles that are told what
+   happened by a sync loop, wrong for a remote one, which has only its own
+   render to learn from. It said "no presentation is running" for the rest of
+   the service, whatever started on the machine. It now reads that signal.
+   (Confirmed by removing the fix again and watching the console fail to
+   appear: the harness only ever received an `eval` frame.)
+
+2. **A console switched on mid-service got nothing**, because switching a
+   switch is not a change to the presentation and the publisher is woken by
+   changes to the presentation. The streaming switch has the same problem and
+   solves it with a counter; this one hands over what is running the moment the
+   helper is up. The presentation is also published from the streaming
+   publisher's own effect and from a 200 ms watch, because the presentation is
+   driven from windows whose writes are not a reliable wake-up elsewhere —
+   `publish` compares before it writes, so saying it three times costs three
+   comparisons.
+
+3. **Every button on the console did nothing, five seconds in.** The thread
+   that reads the helper's messages read through a *clone* of the socket, made
+   while the handshake had a five-second read timeout on it. A clone carries
+   the timeout it was made with and keeps its own from then on, so clearing it
+   on the original — which is what the code did — changed nothing. Five seconds
+   of quiet then looked exactly like the helper having gone, the thread
+   returned, and everything the operator pressed after that reached nothing
+   while the console went on looking as though it had worked. That is the
+   symptom that was reported: the console on slide 4, the projection on slide
+   1, and no complaint from either.
+
+   `a_cloned_socket_keeps_its_own_read_timeout` pins the platform behaviour
+   that caused it.
+
+And one thing that was not a bug but looked like one: **the console arrived
+unstyled**, because `main.css` holds Cantara's own rules on top of PicoCSS,
+which `App` registers separately and the helper never runs. All four
+stylesheets — Pico, `main.css`, `presentation.css`, `presenter_console.css` —
+are now compiled into the page it serves.
+
 ### Verified
 
 - `cargo test`: 594 pass, including six for the bridge (echo suppression, a
@@ -553,6 +597,10 @@ the bridge keeps in step is that root signal.
   running", and when a presentation is pushed down the IPC socket it redraws
   with 2321 bytes and reports one connected console. That is the real
   `PresenterConsolePage`, in a `VirtualDom`, over LiveView.
+- **A click in the console reaches Cantara.** A harness opens the console over
+  a real WebSocket, sends genuine LiveView click events, and watches the IPC
+  socket: a click on the console's own controls comes back as an `Update`. This
+  is the direction the compiler cannot check at all.
 - **The helper dies with Cantara.** A second harness starts one, checks the
   console is up, closes the socket the way a closing or killed Cantara would,
   and watches: it exits on its own within 0.2 s and gives the port back. This
