@@ -538,7 +538,7 @@ reactive shared↔local effects — the ones the web build uses — run against 
 because a remote console is one `VirtualDom` exactly as the web build is. What
 the bridge keeps in step is that root signal.
 
-### Three bugs the browser found
+### Five bugs the browser found
 
 The compiler, the unit tests and the socket harness all passed before any of
 these; every one of them needed the thing actually running.
@@ -576,6 +576,28 @@ these; every one of them needed the thing actually running.
    `a_cloned_socket_keeps_its_own_read_timeout` pins the platform behaviour
    that caused it.
 
+4. **Every button did nothing, again — for a second reason.** With the socket
+   fixed the commands reached the program and stopped there. The main window
+   *awaited* the command channel, and a message sent from the thread that reads
+   the helper wakes a `Waker`; whether that reaches a `VirtualDom` driven by a
+   window's event loop is the very question every other cross-window path here
+   answers by polling. It is now drained by a fifty-millisecond loop —
+   `remote_console::drain` — beside the publishing that goes the other way. The
+   giveaway was that the *other* direction worked perfectly: driving from the
+   native console updated the remote one, because that road was already a poll.
+
+5. **PDF slides were black rectangles.** Not our plumbing at all:
+   `Map.prototype.getOrInsertComputed` is new enough that the Chromium web view
+   Cantara draws its own windows in has it and a current Firefox does not, and
+   the bundled `pdf.js` uses it — `TypeError: this[#Ar].getOrInsertComputed is
+   not a function`, in a browser console nobody was looking at. The page now
+   carries a small polyfill for `Map` and `WeakMap`, written to the
+   specification's behaviour, ahead of everything else and only where the real
+   thing is missing.
+
+   Worth remembering for the rest of this feature: the web view Cantara draws
+   its own windows in is *newer* than the browsers the console is aimed at.
+
 And one thing that was not a bug but looked like one: **the console arrived
 unstyled**, because `main.css` holds Cantara's own rules on top of PicoCSS,
 which `App` registers separately and the helper never runs. All four
@@ -597,6 +619,9 @@ are now compiled into the page it serves.
   running", and when a presentation is pushed down the IPC socket it redraws
   with 2321 bytes and reports one connected console. That is the real
   `PresenterConsolePage`, in a `VirtualDom`, over LiveView.
+- **A burst of commands is drained into one change** — the program's half of
+  the control direction, which cannot be seen from the helper's side of the
+  socket.
 - **A click in the console reaches Cantara.** A harness opens the console over
   a real WebSocket, sends genuine LiveView click events, and watches the IPC
   socket: a click on the console's own controls comes back as an `Update`. This
@@ -617,22 +642,39 @@ are now compiled into the page it serves.
 
 ### Not verified
 
-**No real browser has opened the page.** The socket has been spoken to by hand
-and the console demonstrably renders and redraws, but what it *looks* like —
-the grid, the slide preview, the video controls, the keyboard — has not been
-seen by a human. That is the next thing to do, with the manual matrix in
-"Testing" above.
+A browser has now opened the page, on the hall's own network, and driven a
+service with it: the console renders, follows the projection, and drives it.
+The bugs listed above are what that produced, and all of them are fixed.
 
-Three things to watch for when it is:
+What is still unproven:
 
-- **Assets.** In the end-to-end run the helper served the page and rendered,
-  but its stylesheets were not fetched by anything. Whether `serve_asset`
-  resolves the bundle from a helper process in a packaged build is unproven.
-- **PDF pages.** They cross the socket base64-encoded inside an `eval`. It
-  works in principle; whether a large document is *pleasant* over wifi is
-  unknown.
+- **A packaged build.** Everything so far is `dx serve` and `cargo build`.
+  `serve_asset` does resolve from the helper process — `pdf.js` and the PDF
+  viewer are fetched through `/assets/…` and run — but whether it resolves from
+  a *bundled* application on each platform has not been tried.
+- **Video over the socket.** The route is there and answers with ranges; no
+  service video has been played through a remote console yet.
 - **The audio rule.** `ConsoleHost::Remote` does not claim the machine's audio,
   which is right, but it means opening a remote console does not mute the
   projection either. If an operator uses the remote console *as* their console,
   the room keeps making the sound — which is what should happen, and is worth
   confirming with a video.
+
+## One port
+
+Asked once the console was running: can the console and the viewer stream not
+share a port? They cannot share a *process* — that is the crash above — and two
+processes cannot share a listening socket. What is possible:
+
+- **A. Move the viewer stream into the helper.** One process, one port, one
+  server, and the two axum servers that exist today become one. The blocker is
+  that stream media for PDF slides is rendered through `document::eval` in the
+  web view (`logic::pdf::page_image`), which the helper has not got: the parent
+  would keep rendering those and ship the bytes over the IPC socket it already
+  has. **Agreed as the next step**, after the bugs.
+- **B. Proxy `/console/*`** from the parent to the helper, WebSocket upgrade
+  included. Everything stays where it is; every DOM patch takes an extra hop.
+
+Meanwhile the stream's own port answers `/console` with a redirect to wherever
+the console is, so there is one address to read out even though there are two
+ports.

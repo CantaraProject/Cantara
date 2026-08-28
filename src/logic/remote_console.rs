@@ -320,7 +320,10 @@ mod tests {
             "the last one wins, and the projection is written once"
         );
 
-        assert!(!drain(&mut presentations), "an empty channel changes nothing");
+        assert!(
+            !drain(&mut presentations),
+            "an empty channel changes nothing"
+        );
     }
 
     #[test]
