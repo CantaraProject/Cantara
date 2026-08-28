@@ -1,6 +1,6 @@
 //! This module contains the functions for changing the font settings as defined in the [FontRepresentation] struct.
 
-use crate::components::shared_components::NumberedValidatedLengthInput;
+use crate::components::shared_components::{NumberedValidatedLengthInput, RangeInput};
 use crate::logic::css::CssFontFamily;
 use crate::logic::fonts::{self, FontFamily, FontSource};
 use crate::logic::settings::{CssSize, FontOutline, FontRepresentation, HorizontalAlign};
@@ -334,24 +334,22 @@ fn SingleFontRepresentationComponent(
                                 }
                             }
                         }
-                        label {
-                            { format!("{}: {}", t!("settings.fonts.outline_width"), outline.width) }
-                            input {
-                                r#type: "range",
-                                min: "0.5", max: "4", step: "0.5",
-                                value: "{outline.width}",
-                                oninput: {
-                                    let base = font.clone();
-                                    move |event: Event<FormData>| {
-                                        let width = event.value().parse::<f64>().unwrap_or(1.0);
-                                        let mut updated = base.clone();
-                                        if let Some(o) = updated.outline.as_mut() {
-                                            o.width = width;
-                                        }
-                                        onchange.call(updated);
+                        RangeInput {
+                            label: t!("settings.fonts.outline_width").to_string(),
+                            min: 0.5,
+                            max: 4.0,
+                            step: 0.5,
+                            value: outline.width,
+                            onchange: {
+                                let base = font.clone();
+                                move |width: f64| {
+                                    let mut updated = base.clone();
+                                    if let Some(o) = updated.outline.as_mut() {
+                                        o.width = width;
                                     }
+                                    onchange.call(updated);
                                 }
-                            }
+                            },
                         }
                     }
                 }
@@ -393,40 +391,36 @@ fn SingleFontRepresentationComponent(
                                 }
                             }
                         }
-                        label {
-                            { format!("{}: {}", t!("settings.fonts.shadow_blur"), font.shadow_style.blur) }
-                            input {
-                                r#type: "range",
-                                min: "0", max: "24", step: "1",
-                                value: "{font.shadow_style.blur}",
-                                oninput: {
-                                    let base = font.clone();
-                                    move |event: Event<FormData>| {
-                                        let blur = event.value().parse::<f64>().unwrap_or(6.0);
-                                        let mut updated = base.clone();
-                                        updated.shadow_style.blur = blur;
-                                        onchange.call(updated);
-                                    }
+                        RangeInput {
+                            label: t!("settings.fonts.shadow_blur").to_string(),
+                            min: 0.0,
+                            max: 24.0,
+                            step: 1.0,
+                            value: font.shadow_style.blur,
+                            onchange: {
+                                let base = font.clone();
+                                move |blur: f64| {
+                                    let mut updated = base.clone();
+                                    updated.shadow_style.blur = blur;
+                                    onchange.call(updated);
                                 }
-                            }
+                            },
                         }
-                        label {
-                            { format!("{}: {}", t!("settings.fonts.shadow_offset"), font.shadow_style.offset_x) }
-                            input {
-                                r#type: "range",
-                                min: "-10", max: "10", step: "1",
-                                value: "{font.shadow_style.offset_x}",
-                                oninput: {
-                                    let base = font.clone();
-                                    move |event: Event<FormData>| {
-                                        let offset = event.value().parse::<f64>().unwrap_or(2.0);
-                                        let mut updated = base.clone();
-                                        updated.shadow_style.offset_x = offset;
-                                        updated.shadow_style.offset_y = offset;
-                                        onchange.call(updated);
-                                    }
+                        RangeInput {
+                            label: t!("settings.fonts.shadow_offset").to_string(),
+                            min: -10.0,
+                            max: 10.0,
+                            step: 1.0,
+                            value: font.shadow_style.offset_x,
+                            onchange: {
+                                let base = font.clone();
+                                move |offset: f64| {
+                                    let mut updated = base.clone();
+                                    updated.shadow_style.offset_x = offset;
+                                    updated.shadow_style.offset_y = offset;
+                                    onchange.call(updated);
                                 }
-                            }
+                            },
                         }
                     }
                 }

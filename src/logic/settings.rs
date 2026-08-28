@@ -418,15 +418,18 @@ fn shift_default(chosen: &mut usize, removed: usize) {
     }
 }
 
+/// Where the settings live in the browser's local storage. The desktop keeps
+/// them in a file instead, whose location `get_settings_file` decides.
+#[cfg(target_arch = "wasm32")]
+const SETTINGS_KEY: &str = "cantara-settings";
+
 impl Settings {
     /// Load settings from storage or creates a new default settings if
     /// the program is run for the first time.
     pub fn load() -> Self {
         #[cfg(target_arch = "wasm32")]
         {
-            let json = web_sys::window()
-                .and_then(|w| w.local_storage().ok().flatten())
-                .and_then(|s| s.get_item("cantara-settings").ok().flatten());
+            let json = crate::logic::web_storage::text(SETTINGS_KEY);
             let mut settings = match json {
                 Some(j) => serde_json::from_str(&migrate_settings_json(&j)).unwrap_or_default(),
                 None => Self::default(),
@@ -503,11 +506,10 @@ impl Settings {
 
         #[cfg(target_arch = "wasm32")]
         {
-            let storage = web_sys::window()
-                .and_then(|window| window.local_storage().ok().flatten())
+            let storage = crate::logic::web_storage::storage()
                 .ok_or_else(|| "this browser offers no local storage".to_string())?;
             storage
-                .set_item("cantara-settings", &json)
+                .set_item(SETTINGS_KEY, &json)
                 .map_err(|_| "the browser refused to store the settings".to_string())?;
             Ok(())
         }

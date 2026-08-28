@@ -1,6 +1,6 @@
 //! This module provides components for adjusting the song slide settings
 
-use crate::components::shared_components::translate;
+use crate::components::shared_components::{MetadataFieldset, translate};
 use crate::logic::settings::{SongSlideSettings, use_settings};
 use crate::logic::slide_summary::{POSITION_SEPARATOR, summary_lines};
 use cantara_songlib::slides::{LanguageConfiguration, ShowMetaInformation, SlideElement, SlideSettings};
@@ -69,8 +69,10 @@ pub fn SongSlideSettingsPage(
             }
             main { class: "container-fluid content height-100",
 
-                SlideSettingsMetadata {
-                    division: division(),
+                MetadataFieldset {
+                    name: division().name,
+                    description: division().description,
+                    name_placeholder: t!("settings.slide_settings_name_placeholder").to_string(),
                     on_changed: move |(name, description): (String, String)| {
                         update(&|current: &mut SongSlideSettings| {
                             current.name = name.clone();
@@ -97,52 +99,6 @@ pub fn SongSlideSettingsPage(
                         nav.replace(crate::Route::SettingsPage {});
                     },
                     {t!("settings.close").to_string()}
-                }
-            }
-        }
-    }
-}
-
-/// What the division is called and what it is for.
-///
-/// The same two fields a presentation design has, and for the same reason: a
-/// list of "Slide Setting 1, 2, 3" tells nobody which one is the one with the
-/// notation in it.
-#[component]
-fn SlideSettingsMetadata(
-    division: SongSlideSettings,
-    /// Called with the name and the description whenever either changes.
-    on_changed: EventHandler<(String, String)>,
-) -> Element {
-    rsx! {
-        h3 { {t!("general.meta_information").to_string()} }
-        form {
-            fieldset {
-                label {
-                    {t!("general.name").to_string()}
-                    input {
-                        value: division.name.clone(),
-                        placeholder: t!("settings.slide_settings_name_placeholder").to_string(),
-                        onchange: {
-                            let description = division.description.clone();
-                            move |event: Event<FormData>| {
-                                on_changed.call((event.value(), description.clone()));
-                            }
-                        },
-                    }
-                }
-
-                label {
-                    {t!("general.description").to_string()}
-                    input {
-                        value: division.description.clone(),
-                        onchange: {
-                            let name = division.name.clone();
-                            move |event: Event<FormData>| {
-                                on_changed.call((name.clone(), event.value()));
-                            }
-                        },
-                    }
                 }
             }
         }

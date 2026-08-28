@@ -171,6 +171,104 @@ fn SelectablePresentationViewer(
     }
 }
 
+/// What an entry in a settings list is called and what it is for.
+///
+/// A presentation design and a slide division are different things, but a list
+/// of either is unusable without these two fields, and they were written out
+/// once for each. `on_changed` is given both every time — the two are edited
+/// together and stored together, and a caller that has to remember which of
+/// the pair it just received is a caller waiting to write the wrong one.
+#[component]
+pub fn MetadataFieldset(
+    name: String,
+    description: String,
+    /// Shown in the name field while it is empty. The name may be left empty —
+    /// the list then falls back to the entry's position — so this is where a
+    /// list says what it will call the entry until it is named.
+    #[props(default)]
+    name_placeholder: String,
+    on_changed: EventHandler<(String, String)>,
+) -> Element {
+    rsx! {
+        h3 { {t!("general.meta_information").to_string()} }
+        form {
+            fieldset {
+                label {
+                    {t!("general.name").to_string()}
+                    input {
+                        value: name.clone(),
+                        placeholder: name_placeholder,
+                        onchange: {
+                            let description = description.clone();
+                            move |event: Event<FormData>| {
+                                on_changed.call((event.value(), description.clone()));
+                            }
+                        },
+                    }
+                }
+
+                label {
+                    {t!("general.description").to_string()}
+                    input {
+                        value: description.clone(),
+                        onchange: {
+                            let name = name.clone();
+                            move |event: Event<FormData>| {
+                                on_changed.call((name.clone(), event.value()));
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A slider with the value it stands for written beside its name.
+///
+/// Every setting that is a number within known bounds is offered this way, and
+/// each one used to answer for itself what an unreadable event means - one
+/// snapped to `1.0`, the next to `100.0`, a third to the field's default. The
+/// answer that is right everywhere is *nothing*: a value that cannot be read
+/// is not a value the user asked for, so `onchange` is simply not called and
+/// the setting keeps what it had.
+///
+/// The value goes in and comes out as `f64`; a setting stored as something
+/// narrower converts at the call site, where the field being written is in
+/// view.
+#[component]
+pub fn RangeInput(
+    /// What the setting is called. The current value is appended to it.
+    label: String,
+    /// What the value is measured in, written straight after it. Empty for a
+    /// bare number.
+    #[props(default)]
+    unit: String,
+    min: f64,
+    max: f64,
+    step: f64,
+    value: f64,
+    onchange: EventHandler<f64>,
+) -> Element {
+    rsx! {
+        label {
+            {format!("{label}: {value}{unit}")}
+            input {
+                r#type: "range",
+                min: "{min}",
+                max: "{max}",
+                step: "{step}",
+                value: "{value}",
+                oninput: move |event: Event<FormData>| {
+                    if let Ok(value) = event.value().parse::<f64>() {
+                        onchange.call(value);
+                    }
+                },
+            }
+        }
+    }
+}
+
 #[component]
 pub fn PresentationViewer(
     presentation: RunningPresentation,

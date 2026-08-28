@@ -9,6 +9,8 @@ use crate::logic::sync::{
     SYNC_KEY_ACTIVE, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE, SYNC_KEY_PRESENTATION,
     SYNC_KEY_QUIT,
 };
+#[cfg(target_arch = "wasm32")]
+use crate::logic::web_storage;
 use crate::MAIN_CSS;
 use cantara_songlib::slides::{Slide, SlideContent, SlideRow};
 use dioxus::prelude::*;
@@ -205,22 +207,13 @@ pub fn PresenterConsolePage() -> Element {
 
     // On web: detect if a synced presentation tab is active
     #[cfg(target_arch = "wasm32")]
-    let is_sync_active = web_sys::window()
-        .and_then(|w| w.local_storage().ok().flatten())
-        .and_then(|s| s.get_item(SYNC_KEY_ACTIVE).ok().flatten())
-        .map(|v| v == "true")
-        .unwrap_or(false);
+    let is_sync_active = web_storage::flag(SYNC_KEY_ACTIVE);
 
     // On web: write position changes to localStorage for the synced presentation tab
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
         if is_sync_active {
-            let rp = running_presentation.read();
-            if let Ok(json) = serde_json::to_string(&*rp) {
-                let _ = web_sys::window()
-                    .and_then(|w| w.local_storage().ok().flatten())
-                    .map(|s| s.set_item(SYNC_KEY_POSITION_FROM_CONSOLE, &json));
-            }
+            web_storage::write(SYNC_KEY_POSITION_FROM_CONSOLE, &*running_presentation.read());
         }
     });
 
@@ -235,9 +228,7 @@ pub fn PresenterConsolePage() -> Element {
             }
             loop {
                 let _ = document::eval("await new Promise(r => setTimeout(r, 150))").await;
-                if let Some(json) = web_sys::window()
-                    .and_then(|w| w.local_storage().ok().flatten())
-                    .and_then(|s| s.get_item(SYNC_KEY_POSITION).ok().flatten())
+                if let Some(json) = web_storage::text(SYNC_KEY_POSITION)
                     && !json.is_empty() && json != *last_sync_json.peek() {
                         last_sync_json.set(json.clone());
                         if let Ok(rp) = serde_json::from_str::<RunningPresentation>(&json)
@@ -261,15 +252,13 @@ pub fn PresenterConsolePage() -> Element {
         // Clean up sync state on web
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = web_sys::window()
-                .and_then(|w| w.local_storage().ok().flatten())
-                .map(|s| {
-                    let _ = s.set_item(SYNC_KEY_QUIT, "true");
-                    let _ = s.remove_item(SYNC_KEY_ACTIVE);
-                    let _ = s.remove_item(SYNC_KEY_PRESENTATION);
-                    let _ = s.remove_item(SYNC_KEY_POSITION);
-                    let _ = s.remove_item(SYNC_KEY_POSITION_FROM_CONSOLE);
-                });
+            web_storage::write_text(SYNC_KEY_QUIT, "true");
+            web_storage::remove_all(&[
+                SYNC_KEY_ACTIVE,
+                SYNC_KEY_PRESENTATION,
+                SYNC_KEY_POSITION,
+                SYNC_KEY_POSITION_FROM_CONSOLE,
+            ]);
         }
         running_presentations.write().clear();
         if is_main_window {

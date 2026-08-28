@@ -1152,6 +1152,9 @@ mod tests {
     }
 
     fn item_of(name: &str, path: &str) -> SelectedItemRepresentation {
+        // Not `for_test`: an element in the library is named the way the
+        // library names it, with the suffix stripped, and these tests check
+        // exactly that name across a round trip.
         SelectedItemRepresentation::new_with_sourcefile(song_file(name, path))
     }
 
