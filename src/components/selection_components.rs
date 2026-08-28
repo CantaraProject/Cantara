@@ -620,8 +620,12 @@ fn start_presentation(
                         .with_maximized(true);
                 }
 
-                let console_dom =
-                    VirtualDom::new(PresenterConsolePage).with_root_context(*running_presentations);
+                let console_dom = VirtualDom::new(PresenterConsolePage)
+                    .with_root_context(*running_presentations)
+                    // Which console this is. Without it the console would take
+                    // itself for the routed one and navigate a router that is
+                    // not there. See [`crate::logic::console_host`].
+                    .with_root_context(crate::logic::console_host::ConsoleHost::SeparateWindow);
 
                 dioxus::desktop::window().new_window(
                     console_dom,

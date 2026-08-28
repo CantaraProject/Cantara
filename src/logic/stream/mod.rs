@@ -22,6 +22,7 @@
 pub mod protocol;
 pub mod server;
 
+pub use server::local_address;
 pub use server::StreamServer;
 
 use std::sync::{Mutex, OnceLock};

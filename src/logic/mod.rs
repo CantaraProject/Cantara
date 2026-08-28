@@ -140,6 +140,22 @@ pub mod parallel;
 #[cfg(target_arch = "wasm32")]
 pub mod sync;
 
+/// Where a presenter console is being shown, which a handful of its
+/// behaviours depend on.
+pub mod console_host;
+
+/// The bridge to a presenter console running in a browser on the network.
+/// There is no server inside a browser, so the web build has no bridge.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod remote_console;
+
+/// The helper process that serves that console, and the half of Cantara that
+/// starts and feeds it. Only the desktop has a console to offer.
+#[cfg(feature = "desktop")]
+pub mod remote_console_child;
+#[cfg(feature = "desktop")]
+pub mod remote_console_host;
+
 /// The browser's local storage. Only the web build has one.
 #[cfg(target_arch = "wasm32")]
 pub mod web_storage;

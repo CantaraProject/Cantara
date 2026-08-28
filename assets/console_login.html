@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cantara</title>
+<!--
+  The page that asks for the console password.
+
+  Self-contained on purpose, like the stream viewer's own login: it is served
+  before anybody has proved anything, and every asset of the program — the
+  stylesheets included — is behind the password this page exists to ask for.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #14161a;
+    color: #f3f4f6;
+  }
+  form {
+    width: min(22rem, calc(100vw - 3rem));
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  h1 { font-size: 1.25rem; margin: 0 0 0.5rem; font-weight: 600; }
+  input, button {
+    font: inherit;
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.4rem;
+    border: 1px solid #3f4652;
+  }
+  input { background: #1d2027; color: inherit; }
+  button { background: #2f6feb; color: #fff; border-color: transparent; cursor: pointer; }
+  button:disabled { opacity: 0.6; cursor: default; }
+  p.problem { color: #ff8a8a; margin: 0; min-height: 1.2em; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+  <form id="login">
+    <h1>Cantara</h1>
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" autofocus>
+    <button type="submit" id="submit">Open the console</button>
+    <p class="problem" id="problem"></p>
+  </form>
+<script>
+  const form = document.getElementById("login");
+  const password = document.getElementById("password");
+  const submit = document.getElementById("submit");
+  const problem = document.getElementById("problem");
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    problem.textContent = "";
+    submit.disabled = true;
+    try {
+      const answer = await fetch("/console/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: password.value }),
+      });
+      if (answer.ok) {
+        // The cookie is set; the same address now serves the console itself.
+        window.location.replace("/console");
+        return;
+      }
+      problem.textContent = "That is not the password.";
+    } catch (error) {
+      problem.textContent = "The console could not be reached.";
+    }
+    submit.disabled = false;
+    password.select();
+  });
+</script>
+</body>
+</html>

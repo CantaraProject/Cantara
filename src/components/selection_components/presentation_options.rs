@@ -813,7 +813,163 @@ fn StreamSwitch() -> Element {
         if let Some(reason) = failure() {
             p { style: "color: var(--pico-del-color, #b3261e);", { reason } }
         }
+
+        RemoteConsoleSwitch {}
     }
+}
+
+/// Offers the presenter console to a browser on the network.
+///
+/// Beside the streaming switch because it is the same kind of decision about
+/// the same service, and — like it — not remembered between services: a
+/// program that was driven from a tablet once must not quietly offer that
+/// again next Sunday. The password is a setting; the switch is a decision
+/// about this service.
+///
+/// Independent of streaming. A service can be remote-controlled without being
+/// streamed, and streamed without being remote-controlled; both switches feed
+/// one server on one port.
+#[cfg(all(not(target_arch = "wasm32"), feature = "desktop"))]
+#[component]
+fn RemoteConsoleSwitch() -> Element {
+    let settings = use_settings();
+    // Asked of the server, for the reason the streaming switch gives: this
+    // panel comes and goes, the server does not.
+    let mut enabled = use_signal(crate::logic::remote_console_host::is_enabled);
+    let mut address = use_signal(crate::logic::remote_console_host::address);
+    let mut failure: Signal<Option<String>> = use_signal(|| None);
+    let mut copied: Signal<Option<bool>> = use_signal(|| None);
+
+    // Whether anyone who reaches the address may drive the presentation. Said
+    // plainly beside the switch rather than prevented: a locked room on a
+    // network with nothing else on it is a real situation, and the person
+    // running the service is the one who knows which network they are on.
+    let open_to_anyone = use_memo(move || settings.read().stream.remote_password.is_empty());
+
+    rsx! {
+        hgroup { style: "margin-top: 1.5rem;",
+            h6 { { t!("selection.remote_headline").to_string() } }
+            p { { t!("selection.remote_description").to_string() } }
+        }
+        label {
+            class: "switch",
+            input {
+                r#type: "checkbox",
+                role: "switch",
+                checked: enabled(),
+                onchange: move |event| {
+                    // A checkbox that says something other than "true" or
+                    // "false" is not a checkbox; off is the safe reading of
+                    // anything else.
+                    let wanted = event.value().parse::<bool>().unwrap_or(false);
+                    failure.set(None);
+                    if wanted {
+                        let stream = settings.read().stream.clone();
+                        // Its own port, next to the stream's: the console is
+                        // served by a helper process, which cannot share the
+                        // stream's socket. See
+                        // [`crate::logic::remote_console_child`].
+                        let port = stream.port.saturating_add(1);
+                        match crate::logic::remote_console_host::enable(
+                            port,
+                            stream.remote_password,
+                        ) {
+                            Ok(reachable_at) => {
+                                enabled.set(true);
+                                address.set(Some(reachable_at));
+                            }
+                            Err(reason) => {
+                                enabled.set(false);
+                                address.set(None);
+                                failure.set(Some(
+                                    t!("selection.remote_failed", reason = reason).to_string(),
+                                ));
+                            }
+                        }
+                    } else {
+                        crate::logic::remote_console_host::disable();
+                        enabled.set(false);
+                        address.set(None);
+                    }
+                },
+            }
+            span { class: "slider" }
+            { t!("selection.remote_enable").to_string() }
+        }
+
+        if open_to_anyone() {
+            p { style: "margin-top: 0.5rem;",
+                { t!("selection.remote_no_password").to_string() }
+            }
+        }
+
+        if let Some(reachable_at) = address() {
+            p {
+                style: "margin-top: 0.5rem;",
+                { t!("selection.remote_address_hint").to_string() }
+                br {}
+                code {
+                    class: "stream-address",
+                    title: t!("selection.stream_copy_hint").to_string(),
+                    onclick: {
+                        let address = reachable_at.clone();
+                        move |_| {
+                            let address = address.clone();
+                            spawn(async move {
+                                copied.set(copy_to_clipboard(&address).await);
+                                let _ = document::eval(
+                                    "await new Promise(r => setTimeout(r, 3000))",
+                                )
+                                .await;
+                                copied.set(None);
+                            });
+                        }
+                    },
+                    { reachable_at.clone() }
+                }
+                match copied() {
+                    Some(true) => rsx! {
+                        span {
+                            class: "stream-copied",
+                            { t!("selection.stream_copied").to_string() }
+                        }
+                    },
+                    Some(false) => rsx! {
+                        span {
+                            class: "stream-copy-failed",
+                            { t!("selection.stream_copy_failed").to_string() }
+                        }
+                    },
+                    None => rsx! {},
+                }
+            }
+            // How many browsers have it open. Several are allowed — a phone
+            // that locked and was opened again is a second connection for a
+            // while — and the last thing anyone did is what the presentation
+            // shows.
+            p { style: "margin-top: 0.25rem; opacity: 0.8;",
+                {
+                    t!(
+                        "selection.remote_connected",
+                        count = crate::logic::remote_console_host::connected(),
+                    )
+                        .to_string()
+                }
+            }
+        }
+
+        if let Some(reason) = failure() {
+            p { style: "color: var(--pico-del-color, #b3261e);", { reason } }
+        }
+    }
+}
+
+/// A build without a desktop has no console to offer and no server to offer it
+/// from.
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "desktop")))]
+#[component]
+fn RemoteConsoleSwitch() -> Element {
+    rsx! {}
 }
 
 /// Puts `text` on the system clipboard, reporting whether it got there.

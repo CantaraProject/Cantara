@@ -9,6 +9,16 @@
 //!
 //! ## Additional crates
 //! The parsing of the song files, the song structures and the side generation are part of the [cantara_songlib] crate.
+//!
+//! ## A rule the compiler keeps
+//! Nothing outside the tests may `unwrap` or `expect`. A panic in a program
+//! that is running a service is a black screen in front of a congregation,
+//! and there is always something better to do with a failure: say it in the
+//! panel, write it to the log, or carry on without the part that failed. The
+//! lint below is what keeps that true as the program grows; tests are exempt,
+//! where panicking *is* how a failure is reported.
+
+#![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used))]
 
 // Make sure that no terminal window is shown on windows
 #![windows_subsystem = "windows"]
@@ -111,6 +121,31 @@ pub enum Route {
 }
 
 fn main() {
+    // Started as the console helper rather than as Cantara itself? Then this
+    // process serves the presenter console to a browser and never opens a
+    // window — see [`logic::remote_console_child`], which explains why that
+    // has to be a process of its own.
+    #[cfg(feature = "desktop")]
+    {
+        let arguments: Vec<String> = std::env::args().collect();
+        if arguments.get(1).map(String::as_str) == Some(logic::remote_console_child::FLAG) {
+            let port = arguments.get(2).and_then(|port| port.parse::<u16>().ok());
+            match (port, arguments.get(3)) {
+                (Some(port), Some(token)) => {
+                    if let Err(reason) = logic::remote_console_child::run(port, token) {
+                        eprintln!("{reason}");
+                        std::process::exit(1);
+                    }
+                }
+                _ => {
+                    eprintln!("the console helper needs a port and a token");
+                    std::process::exit(2);
+                }
+            }
+            return;
+        }
+    }
+
     #[cfg(feature = "desktop")]
     fn launch_app() {
         #[cfg(target_os = "linux")]
@@ -373,6 +408,43 @@ fn App() -> Element {
                 }
                 logic::stream::publish(state);
             });
+        });
+
+        // ── The remote console ───────────────────────────────────────────
+        //
+        // Both directions of the bridge in [`logic::remote_console`], and both
+        // of them cheap when nobody is connected: publishing to a `watch` with
+        // no receivers is a store, and the command channel stays empty.
+        //
+        // Unconditional on whether remote control is switched on, for the
+        // reason the streaming publisher above gives about reading before
+        // deciding: an effect subscribes to what it reads, and one that
+        // returns early on "the switch is off" would never run again after the
+        // switch went on.
+        use_effect(move || {
+            let presentations = running_presentations.read().clone();
+            #[cfg(feature = "desktop")]
+            logic::remote_console_host::publish(presentations.first().cloned());
+            #[cfg(not(feature = "desktop"))]
+            let _ = presentations;
+        });
+
+        // What a remote console did, applied here — this is the window that
+        // owns the presentation. Taken once; a second caller would get
+        // nothing, which is why this is in `App` and not in a view that comes
+        // and goes.
+        use_future(move || async move {
+            let Some(mut commands) = logic::remote_console::take_commands() else {
+                return;
+            };
+            let mut running_presentations: Signal<Vec<RunningPresentation>> = running_presentations;
+
+            while let Some(command) = commands.recv().await {
+                let mut presentations = running_presentations.peek().clone();
+                if logic::remote_console::apply(command, &mut presentations) {
+                    running_presentations.set(presentations);
+                }
+            }
         });
 
         // A video moves by itself, and nothing about the presentation changes

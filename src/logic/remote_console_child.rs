@@ -1,0 +1,622 @@
+//! The helper process that serves the presenter console to a browser.
+//!
+//! # Why a process of its own
+//!
+//! Because `dioxus_html` keeps *one* event converter for the whole process —
+//! `EVENT_CONVERTER`, a global — and the two renderers disagree about what an
+//! event is. `dioxus_desktop` installs a converter that reads a mounted
+//! element as its `DesktopElement` and a form event as its `DesktopFormData`;
+//! `dioxus_liveview::LiveViewPool::new` overwrites it with one that reads the
+//! same events as its own types. Neither tolerates the other's: both
+//! `unwrap()` the downcast, in a place that cannot unwind.
+//!
+//! In one process the last one installed wins and the other aborts the
+//! program. Cantara's own crash was the plainest possible version of it —
+//! creating the pool switched the converter, the main window mounted an
+//! element, and the process died at `events.rs:91`.
+//!
+//! So the console runs where nothing has installed a desktop converter: a
+//! second copy of this binary, started with `--remote-console`, which never
+//! calls [`dioxus::launch`] and therefore never gets one. It holds no state of
+//! its own — it is given the presentation over a socket and sends back what
+//! the operator does with it, which is the bridge in
+//! [`crate::logic::remote_console`] with a process boundary in the middle.
+//!
+//! # What it is given
+//!
+//! Nothing on the command line but a port and a token, because a command line
+//! is readable by everything on the machine. It connects to the parent on the
+//! loopback interface, proves it is the child that was started, and is then
+//! told which port to serve on and what password to ask for. The same
+//! reasoning, and the same shape, as [`crate::logic::video_server`].
+
+use std::io::Write;
+use std::net::TcpStream;
+use std::sync::{Arc, RwLock};
+
+use axum::extract::{Path, State, WebSocketUpgrade};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
+
+use super::remote_console::{self, ConsoleCommand};
+use super::states::RunningPresentation;
+
+/// The argument that turns this binary into the console helper.
+pub const FLAG: &str = "--remote-console";
+
+/// The name of the cookie a browser is given once it has proved it may drive
+/// the presentation.
+const CONSOLE_COOKIE: &str = "cantara_console";
+
+/// The page that asks for the password.
+const LOGIN_PAGE: &str = include_str!("../../assets/console_login.html");
+
+/// How long a wrong password is answered with nothing.
+///
+/// Guessing at a password over a network is the one attack this feature has,
+/// and it costs nothing to make it slow.
+const WRONG_PASSWORD_DELAY: std::time::Duration = std::time::Duration::from_millis(750);
+
+/// What the parent tells the child once it has proved itself.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Configuration {
+    /// The port to serve the console on.
+    pub port: u16,
+    /// What a browser has to type first.
+    ///
+    /// Empty means the console is open to anyone who can reach the address.
+    /// That is the operator's decision to make: a locked room on a network
+    /// with nothing else on it is a real situation, and a program that insists
+    /// on a password there is in the way rather than being careful. The note
+    /// beside the switch says plainly what an empty one means.
+    pub password: String,
+}
+
+/// What travels from the parent to the child.
+#[derive(Serialize, Deserialize)]
+pub enum ToChild {
+    /// The presentation as it now stands, or nothing between services.
+    Presentation(Box<Option<RunningPresentation>>),
+}
+
+/// What travels back.
+#[derive(Serialize, Deserialize)]
+pub enum ToParent {
+    /// The presentation as a remote console now has it.
+    Update(Box<RunningPresentation>),
+    /// End the presentation.
+    Quit,
+    /// How many browsers have the console open.
+    Connections(usize),
+    /// The console is being served, at this address.
+    Serving { port: u16 },
+    /// It could not be, and why.
+    Failed { reason: String },
+}
+
+/// Runs the helper. Returns when the parent goes away.
+///
+/// Called from `main` before anything else has a chance to start a window, and
+/// never returns to it.
+pub fn run(ipc_port: u16, token: &str) -> Result<(), String> {
+    let mut socket = TcpStream::connect(("127.0.0.1", ipc_port))
+        .map_err(|error| format!("the console helper could not reach Cantara: {error}"))?;
+
+    writeln!(socket, "{token}")
+        .map_err(|error| format!("the console helper could not announce itself: {error}"))?;
+
+    // The configuration, read a byte at a time rather than through a buffered
+    // reader: whatever the buffer took past the end of the line would be lost
+    // when the socket is handed to the runtime below, and the first thing
+    // Cantara sends after it is the presentation.
+    let line = read_line(&socket)?;
+
+    let configuration: Configuration = serde_json::from_str(line.trim()).map_err(|error| {
+        format!("the console helper was told something it cannot read: {error}")
+    })?;
+
+    serve(configuration, socket)
+}
+
+/// Reads one line from `socket`.
+///
+/// A byte at a time, which is slow and does not matter: this is one line, once,
+/// at startup. A buffered reader would be faster and would swallow whatever
+/// came after the line into a buffer that is dropped when the socket is handed
+/// to the runtime — and what comes after it is the presentation.
+fn read_line(socket: &TcpStream) -> Result<String, String> {
+    use std::io::Read;
+
+    let mut reader = socket;
+    let mut line = Vec::new();
+    let mut byte = [0u8; 1];
+
+    loop {
+        match reader.read(&mut byte) {
+            Ok(0) => return Err("Cantara said nothing to the console helper".to_string()),
+            Ok(_) => {
+                if byte[0] == b'\n' {
+                    break;
+                }
+                line.push(byte[0]);
+            }
+            Err(error) => {
+                return Err(format!(
+                    "the console helper could not be told what to do: {error}"
+                ))
+            }
+        }
+    }
+
+    String::from_utf8(line).map_err(|error| format!("Cantara said something unreadable: {error}"))
+}
+
+/// Puts the console up and pumps the socket until it closes.
+///
+/// Everything inside the runtime is an ordinary async task, deliberately.
+/// Blocking tasks cannot be cancelled, and dropping a runtime *waits* for
+/// them: a helper whose command pump was blocked on a channel that never
+/// closes kept the process alive after Cantara had gone, still serving the
+/// console. One was found running an hour later, which is exactly the kind of
+/// thing a helper process must never do.
+fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .map_err(|error| format!("no runtime for the console: {error}"))?;
+
+    let shared = Arc::new(Shared {
+        password: RwLock::new(configuration.password),
+        session: new_session_token(),
+    });
+
+    socket
+        .set_nonblocking(true)
+        .map_err(|error| format!("the console helper could not be made async: {error}"))?;
+
+    runtime.block_on(async move {
+        let socket = tokio::net::TcpStream::from_std(socket)
+            .map_err(|error| format!("the console helper could not be made async: {error}"))?;
+        let (from_parent, mut to_parent) = socket.into_split();
+
+        // One writer, so that the three things which report to Cantara — what
+        // the operator did, how many are connected, and whether this started
+        // at all — cannot interleave halfway through a line.
+        let (say, mut said) = tokio::sync::mpsc::unbounded_channel::<ToParent>();
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            while let Some(message) = said.recv().await {
+                let Ok(encoded) = serde_json::to_string(&message) else {
+                    continue;
+                };
+                if to_parent
+                    .write_all(format!("{encoded}\n").as_bytes())
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        });
+
+        // The port asked for, or any free one. A port that is taken is not a
+        // reason to leave the operator without a console: the address is read
+        // off the panel either way, and the panel is told which port it got.
+        let listener = match tokio::net::TcpListener::bind((
+            std::net::Ipv4Addr::UNSPECIFIED,
+            configuration.port,
+        ))
+        .await
+        {
+            Ok(listener) => listener,
+            Err(first) => {
+                log::warn!(
+                    "the console could not take port {}: {first}",
+                    configuration.port
+                );
+                match tokio::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, 0)).await {
+                    Ok(listener) => listener,
+                    Err(error) => {
+                        let reason = format!("the console has no port to serve on: {error}");
+                        let _ = say.send(ToParent::Failed {
+                            reason: reason.clone(),
+                        });
+                        // Long enough for the writer to get it out before the
+                        // runtime goes.
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        return Err(reason);
+                    }
+                }
+            }
+        };
+
+        let port = match listener.local_addr() {
+            Ok(address) => address.port(),
+            Err(error) => {
+                let reason = format!("the console has no address: {error}");
+                let _ = say.send(ToParent::Failed {
+                    reason: reason.clone(),
+                });
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                return Err(reason);
+            }
+        };
+        let _ = say.send(ToParent::Serving { port });
+
+        // What the operator does, on its way back to the program.
+        {
+            let say = say.clone();
+            tokio::spawn(async move {
+                let Some(mut commands) = remote_console::take_commands() else {
+                    return;
+                };
+                while let Some(command) = commands.recv().await {
+                    let message = match command {
+                        ConsoleCommand::Update(presentation) => ToParent::Update(presentation),
+                        ConsoleCommand::Quit => ToParent::Quit,
+                    };
+                    if say.send(message).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+
+        // How many browsers are on it, whenever that changes.
+        {
+            let say = say.clone();
+            tokio::spawn(async move {
+                let mut last = usize::MAX;
+                loop {
+                    let now = remote_console::connected();
+                    if now != last {
+                        last = now;
+                        if say.send(ToParent::Connections(now)).is_err() {
+                            return;
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+            });
+        }
+
+        let served = tokio::spawn(async move {
+            let app = router(shared);
+            if let Err(error) = axum::serve(listener, app).await {
+                log::error!("the console server stopped: {error}");
+            }
+        });
+
+        // The presentation, as the program has it. Reading this is also how the
+        // helper notices that Cantara has gone: the socket ends, and so does
+        // the console.
+        let listening = tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+
+            let mut reader = tokio::io::BufReader::new(from_parent);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    // The socket ended: Cantara has gone.
+                    Ok(0) | Err(_) => return,
+                    Ok(_) => {}
+                }
+                match serde_json::from_str::<ToChild>(line.trim()) {
+                    Ok(ToChild::Presentation(presentation)) => {
+                        remote_console::publish(*presentation);
+                    }
+                    Err(error) => {
+                        log::warn!("the console helper could not read a message: {error}")
+                    }
+                }
+            }
+        });
+
+        // Whichever ends first ends the helper: without Cantara there is
+        // nothing to drive, and without the server there is nothing to drive
+        // it from.
+        tokio::select! {
+            _ = listening => {}
+            _ = served => {}
+        }
+
+        Ok(())
+    })
+}
+
+/// What the console's routes share.
+struct Shared {
+    /// What a browser has to type. Empty means anyone who can reach the
+    /// address may drive the presentation — see [`Configuration::password`].
+    password: RwLock<String>,
+    /// Handed out once it has been typed.
+    session: String,
+}
+
+impl Shared {
+    /// Whether a request may drive the presentation.
+    fn may_control(&self, headers: &HeaderMap) -> bool {
+        let Ok(password) = self.password.read() else {
+            // The lock is only ever taken to read a string. If it is poisoned
+            // something has already gone very wrong, and the safe answer is no.
+            return false;
+        };
+        if password.is_empty() {
+            return true;
+        }
+        drop(password);
+
+        headers
+            .get_all(header::COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(';'))
+            .filter_map(|cookie| cookie.trim().split_once('='))
+            .any(|(name, value)| name == CONSOLE_COOKIE && value == self.session)
+    }
+}
+
+fn router(shared: Arc<Shared>) -> Router {
+    let pool = Arc::new(dioxus_liveview::LiveViewPool::new());
+
+    Router::new()
+        .route("/console", get(page))
+        .route("/console/login", post(login))
+        .route(
+            "/console/ws",
+            get(
+                move |upgrade: WebSocketUpgrade, headers: HeaderMap, State(shared)| {
+                    socket(pool, shared, upgrade, headers)
+                },
+            ),
+        )
+        .route("/assets/{*path}", get(asset))
+        .route(
+            &format!("/{}/{{*path}}", crate::logic::video::VIDEO_HANDLER),
+            get(video),
+        )
+        // A browser asked for the bare address gets the console rather than a
+        // 404: `/console` is what is written on the panel, but nobody types a
+        // path they were not shown.
+        .route(
+            "/",
+            get(|| async { axum::response::Redirect::to("/console") }),
+        )
+        .with_state(shared)
+}
+
+/// The console page: the glue that connects the browser to the socket, or the
+/// form that asks for the password first.
+async fn page(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Response {
+    if !shared.may_control(&headers) {
+        return (
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            LOGIN_PAGE,
+        )
+            .into_response();
+    }
+
+    let glue = dioxus_liveview::interpreter_glue("/console/ws");
+    let page = format!(
+        r#"<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Cantara</title>
+    </head>
+    <body><div id="main"></div></body>
+    {glue}
+</html>"#
+    );
+
+    ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], page).into_response()
+}
+
+#[derive(Deserialize)]
+struct Password {
+    password: String,
+}
+
+/// Takes the password and, if it is the right one, hands out a session.
+async fn login(State(shared): State<Arc<Shared>>, Json(given): Json<Password>) -> Response {
+    let Ok(password) = shared.password.read().map(|password| password.clone()) else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+
+    if !constant_time_eq(given.password.as_bytes(), password.as_bytes()) {
+        // After the comparison rather than before it, so that the delay says
+        // nothing about the password either.
+        tokio::time::sleep(WRONG_PASSWORD_DELAY).await;
+        return (StatusCode::UNAUTHORIZED, "wrong password").into_response();
+    }
+
+    let cookie = format!(
+        "{CONSOLE_COOKIE}={}; Path=/; SameSite=Lax; HttpOnly",
+        shared.session
+    );
+    match HeaderValue::from_str(&cookie) {
+        Ok(cookie) => ([(header::SET_COOKIE, cookie)], "welcome").into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// One browser, one console.
+async fn socket(
+    pool: Arc<dioxus_liveview::LiveViewPool>,
+    shared: Arc<Shared>,
+    upgrade: WebSocketUpgrade,
+    headers: HeaderMap,
+) -> Response {
+    if !shared.may_control(&headers) {
+        return locked();
+    }
+
+    upgrade.on_upgrade(move |socket| async move {
+        // Counted for as long as the socket is open, so the panel with the
+        // switch in it can say how many consoles are out there.
+        let _connected = remote_console::Connection::open();
+
+        let _ = pool
+            .launch_virtualdom(dioxus_liveview::axum_socket(socket), move || {
+                dioxus::prelude::VirtualDom::new(
+                    crate::components::remote_console::RemoteConsoleRoot,
+                )
+            })
+            .await;
+    })
+}
+
+/// A file of the program's own: a stylesheet, a font, the PDF viewer.
+async fn asset(
+    State(shared): State<Arc<Shared>>,
+    headers: HeaderMap,
+    Path(path): Path<String>,
+) -> Response {
+    if !shared.may_control(&headers) {
+        return locked();
+    }
+
+    match dioxus::asset_resolver::native::serve_asset(&format!("/assets/{path}")) {
+        Ok(response) => {
+            let (parts, body) = response.into_parts();
+            (parts.status, parts.headers, body).into_response()
+        }
+        Err(_) => (StatusCode::NOT_FOUND, "not found").into_response(),
+    }
+}
+
+/// A video of the running service.
+///
+/// The same answer the window gets, from the same function — see
+/// [`crate::logic::video::answer_video_request`], where the rules about ranges
+/// and about which files may be served at all are written down.
+async fn video(
+    State(shared): State<Arc<Shared>>,
+    headers: HeaderMap,
+    Path(path): Path<String>,
+) -> Response {
+    if !shared.may_control(&headers) {
+        return locked();
+    }
+
+    let range = headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok());
+    let answer = crate::logic::video::answer_video_request(
+        &format!("/{}/{}", crate::logic::video::VIDEO_HANDLER, path),
+        range,
+    );
+
+    let mut response = Response::builder().status(answer.status);
+    for (name, value) in &answer.headers {
+        response = response.header(*name, value);
+    }
+    match response.body(axum::body::Body::from(answer.body)) {
+        Ok(response) => response,
+        Err(error) => {
+            log::error!("a video could not be answered: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+fn locked() -> Response {
+    (StatusCode::UNAUTHORIZED, "a password is needed").into_response()
+}
+
+/// Compares two secrets without giving away where they first differ.
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0u8, |differences, (a, b)| differences | (a ^ b))
+        == 0
+}
+
+/// A token nobody can guess, for the session cookie.
+fn new_session_token() -> String {
+    uuid::Uuid::new_v4().as_simple().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shared_with(password: &str) -> Shared {
+        Shared {
+            password: RwLock::new(password.to_string()),
+            session: "c0nsole-session".to_string(),
+        }
+    }
+
+    fn cookies(value: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        match HeaderValue::from_str(value) {
+            Ok(value) => {
+                headers.insert(header::COOKIE, value);
+            }
+            Err(error) => panic!("a cookie header that cannot be built: {error}"),
+        }
+        headers
+    }
+
+    /// An empty password is the operator's decision, and it means what it
+    /// says: anyone who can reach the address may drive the presentation.
+    #[test]
+    fn without_a_password_anyone_who_reaches_it_may_drive() {
+        let shared = shared_with("");
+
+        assert!(shared.may_control(&HeaderMap::new()));
+        assert!(shared.may_control(&cookies("something=else")));
+    }
+
+    /// With one set, nothing is answered until it has been given.
+    #[test]
+    fn with_a_password_a_session_is_needed() {
+        let shared = shared_with("control");
+
+        assert!(!shared.may_control(&HeaderMap::new()));
+        assert!(!shared.may_control(&cookies("cantara_console=guessed")));
+        assert!(shared.may_control(&cookies("cantara_console=c0nsole-session")));
+    }
+
+    /// A browser sends every cookie it has for the address, so the right one
+    /// has to be found among the others rather than assumed to be alone.
+    #[test]
+    fn the_session_is_found_among_other_cookies() {
+        let shared = shared_with("control");
+
+        assert!(shared.may_control(&cookies("theme=dark; cantara_console=c0nsole-session; a=b")));
+        assert!(!shared.may_control(&cookies("cantara_console_x=c0nsole-session")));
+    }
+
+    /// The viewer's stream cookie is a different cookie, and must not open
+    /// this.
+    #[test]
+    fn a_viewer_session_is_not_a_console_session() {
+        let shared = shared_with("control");
+
+        assert!(!shared.may_control(&cookies("cantara_stream=c0nsole-session")));
+    }
+
+    #[test]
+    fn passwords_are_compared_without_leaking_them() {
+        assert!(constant_time_eq(b"open sesame", b"open sesame"));
+        assert!(!constant_time_eq(b"open sesame", b"open sesamf"));
+        assert!(!constant_time_eq(b"open", b"open sesame"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn two_sessions_are_never_the_same() {
+        assert_ne!(new_session_token(), new_session_token());
+    }
+}

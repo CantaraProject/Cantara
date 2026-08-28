@@ -1,6 +1,7 @@
 //! This module contains the components for the Presenter Console window.
 //! The presenter console shows the current slide text, a live preview, and navigation controls.
 
+use crate::logic::console_host::ConsoleHost;
 use crate::logic::presentation::{get_markdown_html, get_picture_path, html_to_plain_text};
 use crate::logic::settings::{PresentationDesign, PresenterConsoleView, use_settings};
 use crate::logic::states::{RunningPresentation, VideoCommand, VideoPlayback};
@@ -30,6 +31,46 @@ pub const PRESENTER_CONSOLE_CSS: Asset = asset!("/assets/presenter_console.css")
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+/// Leaves the console, in the way its host is left.
+///
+/// Three hosts, three answers, and getting them the wrong way round is how a
+/// remote browser would close a window on somebody else's desk.
+fn leave(host: ConsoleHost, nav: Option<&dioxus::router::Navigator>) {
+    match host {
+        ConsoleHost::MainWindow => {
+            if let Some(nav) = nav {
+                nav.replace(crate::Route::Selection {});
+            }
+        }
+        #[cfg(feature = "desktop")]
+        ConsoleHost::SeparateWindow => dioxus::desktop::window().close(),
+        #[cfg(not(feature = "desktop"))]
+        ConsoleHost::SeparateWindow => {}
+        // Nothing to close and nowhere to go: the page says the presentation
+        // has ended and waits for the next one.
+        ConsoleHost::Remote => {}
+    }
+}
+
+/// Applies a change the console makes to its own settings, and writes it out
+/// where that is this machine's business.
+///
+/// A remote console is someone else, on someone else's screen. Their choice of
+/// the grid view and the size of their thumbnails holds for as long as their
+/// page is open and is then forgotten — it is not a change to how Cantara
+/// opens next Sunday on the machine at the front. See
+/// [`ConsoleHost::persists_settings`].
+fn remember(
+    host: ConsoleHost,
+    settings: &mut Signal<crate::logic::settings::Settings>,
+    change: impl FnOnce(&mut crate::logic::settings::Settings),
+) {
+    change(&mut settings.write());
+    if host.persists_settings() {
+        settings.read().save();
+    }
+}
+
 /// The entry point for the presenter console window.
 /// Works both as a routed page in the main window and as a standalone window
 /// (via `with_root_context`).
@@ -37,31 +78,51 @@ rust_i18n::i18n!("locales", fallback = "en");
 pub fn PresenterConsolePage() -> Element {
     let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
-    // Detect whether we are hosted in the main window (router available with known routes)
-    // vs. a separate window. In the main window the presenter console is reached via a route,
-    // so we can navigate back. In a separate window we close it.
-    // We use try_consume_context to safely check for a router context, because calling
-    // navigator() directly would panic in standalone desktop windows (no router present).
+    // Where this console is being shown: a page in the main window, a window
+    // of its own, or a browser on the network. Three things below depend on
+    // it, and none of them can be decided by the build — the remote console is
+    // in the same binary as the desktop one. See [`ConsoleHost`].
+    let host = ConsoleHost::current();
 
     // While a console is on screen it is what the room hears: it is where the
     // operator is, it is where the controls are, and it is the machine's one
     // sound source. The projection mutes itself while this holds, and gets the
     // sound back when the console closes — see [`crate::logic::video`].
-    use_hook(|| crate::logic::video::claim_audio(crate::logic::video::AudioOwner::Console));
-    use_drop(|| crate::logic::video::release_audio(crate::logic::video::AudioOwner::Console));
+    //
+    // Except a remote one, which is not where the machine's speakers are:
+    // somebody opening a console on a tablet at the back must not silence the
+    // room. The hook is claimed either way, because a hook that is sometimes
+    // taken and sometimes not is a different component from one render to the
+    // next.
+    use_hook(move || {
+        if host.claims_audio() {
+            crate::logic::video::claim_audio(crate::logic::video::AudioOwner::Console);
+        }
+    });
+    use_drop(move || {
+        if host.claims_audio() {
+            crate::logic::video::release_audio(crate::logic::video::AudioOwner::Console);
+        }
+    });
 
-    let is_main_window = try_consume_context::<dioxus::router::RouterContext>().is_some();
-    // Only acquire the navigator if a router is present to avoid panicking.
+    let is_main_window = host == ConsoleHost::MainWindow;
+    // Only acquire the navigator if a router is present to avoid panicking:
+    // a window of its own has none, and neither has a browser at the far end
+    // of a socket.
     let nav = if is_main_window { Some(navigator()) } else { None };
 
     if running_presentations.peek().is_empty() {
-        if is_main_window {
-            if let Some(nav) = &nav {
-                nav.replace(crate::Route::Selection {});
-            }
-        } else {
-            #[cfg(feature = "desktop")]
-            dioxus::desktop::window().close();
+        leave(host, nav.as_ref());
+        // A remote console has nowhere to go and says so instead. The address
+        // stays open, and the next presentation appears on it.
+        if host.is_remote() {
+            return rsx! {
+                document::Link { rel: "stylesheet", href: MAIN_CSS }
+                document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }
+                main { class: "container",
+                    p { {t!("presenter.remote.nothing_running").to_string()} }
+                }
+            };
         }
         return rsx! {};
     }
@@ -104,6 +165,14 @@ pub fn PresenterConsolePage() -> Element {
     // and navigates back or closes the window accordingly.
     #[cfg(feature = "desktop")]
     use_future(move || async move {
+        // Not for a remote console. Its "shared" signal and its own are in the
+        // one VirtualDom, so the reactive effects below do the same work
+        // without a `document::eval` twenty times a second — which over a
+        // socket is twenty round trips a second, per browser.
+        if host.is_remote() {
+            return;
+        }
+
         let mut last_seen_shared = running_presentations.peek()
             .first().cloned().unwrap_or_else(|| running_presentation.peek().clone());
         let mut last_seen_local = running_presentation.peek().clone();
@@ -113,13 +182,7 @@ pub fn PresenterConsolePage() -> Element {
 
             // Presentation ended (signal cleared by PresentationPage's use_drop)
             if running_presentations.peek().is_empty() {
-                if is_main_window {
-                    if let Some(nav) = &nav {
-                        nav.replace(crate::Route::Selection {});
-                    }
-                } else {
-                    dioxus::desktop::window().close();
-                }
+                leave(host, nav.as_ref());
                 return;
             }
 
@@ -154,24 +217,29 @@ pub fn PresenterConsolePage() -> Element {
         }
     });
 
-    // ── Web: reactive bidirectional sync ─────────────────────────────────
+    // ── One VirtualDom: reactive bidirectional sync ──────────────────────
     //
-    // On the web there is only a single VirtualDom, so reactive use_effect
-    // hooks work correctly and no polling is needed.
+    // On the web, and for a remote console, both signals live in the same
+    // VirtualDom, so reactive `use_effect` hooks work correctly and no polling
+    // is needed.
+    //
+    // On the desktop the polling loop above is what runs, and these two must
+    // not: they return before reading anything, which — an effect subscribing
+    // to what it reads — is what keeps them from ever running again.
+    let reactive_sync = cfg!(not(feature = "desktop")) || host.is_remote();
 
     // shared→local: propagate changes and handle presentation-ended navigation.
-    #[cfg(not(feature = "desktop"))]
     use_effect(move || {
+        if !reactive_sync {
+            return;
+        }
         let current = running_presentations.read();
         if current.is_empty() {
             // Drop the read guard BEFORE navigating — on web (single VirtualDom),
             // nav.replace() triggers a synchronous re-render/diff that would
             // attempt to borrow the same RefCell, causing a panic.
             drop(current);
-            if is_main_window
-                && let Some(nav) = &nav {
-                    nav.replace(crate::Route::Selection {});
-                }
+            leave(host, nav.as_ref());
             return;
         }
         if let Some(rp) = current.first()
@@ -183,8 +251,10 @@ pub fn PresenterConsolePage() -> Element {
     });
 
     // local→shared: push local changes back to the shared signal.
-    #[cfg(not(feature = "desktop"))]
     use_effect(move || {
+        if !reactive_sync {
+            return;
+        }
         let local = running_presentation.read().clone();
         let shared = running_presentations.peek();
         if let Some(first) = shared.first()
@@ -261,14 +331,17 @@ pub fn PresenterConsolePage() -> Element {
             ]);
         }
         running_presentations.write().clear();
-        if is_main_window {
-            if let Some(nav) = nav.as_ref() {
-                nav.replace(crate::Route::Selection {});
-            }
-        } else {
-            #[cfg(feature = "desktop")]
-            dioxus::desktop::window().close();
+        // A remote console may end the presentation — it is the console, and
+        // half a console is harder to explain than the button being there. The
+        // bridge carries the decision to the machine; see
+        // [`crate::logic::remote_console`].
+        #[cfg(not(target_arch = "wasm32"))]
+        if host.is_remote() {
+            crate::logic::remote_console::send(
+                crate::logic::remote_console::ConsoleCommand::Quit,
+            );
         }
+        leave(host, nav.as_ref());
     };
 
     rsx! {
@@ -381,8 +454,9 @@ fn PresenterHeader(
                     class: if current_view == PresenterConsoleView::Text { "view-toggle-btn active" } else { "view-toggle-btn" },
                     onclick: move |_| {
                         view.set(PresenterConsoleView::Text);
-                        settings.write().presenter_console_view = PresenterConsoleView::Text;
-                        settings.read().save();
+                        remember(ConsoleHost::current(), &mut settings, |settings| {
+                            settings.presenter_console_view = PresenterConsoleView::Text;
+                        });
                     },
                     {t!("presenter.view_text").to_string()}
                 }
@@ -390,8 +464,9 @@ fn PresenterHeader(
                     class: if current_view == PresenterConsoleView::Grid { "view-toggle-btn active" } else { "view-toggle-btn" },
                     onclick: move |_| {
                         view.set(PresenterConsoleView::Grid);
-                        settings.write().presenter_console_view = PresenterConsoleView::Grid;
-                        settings.read().save();
+                        remember(ConsoleHost::current(), &mut settings, |settings| {
+                            settings.presenter_console_view = PresenterConsoleView::Grid;
+                        });
                     },
                     {t!("presenter.view_grid").to_string()}
                 }
@@ -572,8 +647,9 @@ fn PresenterGridPanel(running_presentation: Signal<RunningPresentation>) -> Elem
                     oninput: move |evt| {
                         if let Ok(val) = evt.value().parse::<u32>() {
                             grid_size.set(val);
-                            settings.write().presenter_console_grid_size = val;
-                            settings.read().save();
+                            remember(ConsoleHost::current(), &mut settings, |settings| {
+                                settings.presenter_console_grid_size = val;
+                            });
                         }
                     },
                 }

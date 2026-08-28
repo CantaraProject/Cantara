@@ -14,6 +14,10 @@ presenter:
   title:
     en: Presenter Console
     de: Moderatorenkonsole
+  remote:
+    nothing_running:
+      en: "No presentation is running. This page stays open; the next one appears here."
+      de: "Es läuft keine Präsentation. Diese Seite bleibt offen, die nächste erscheint hier." 
   status_running:
     en: The presentation is running
     de: Die Präsentation läuft

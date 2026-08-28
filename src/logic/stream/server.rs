@@ -669,7 +669,7 @@ fn describe_bind_failure(port: u16, error: &std::io::Error) -> String {
 /// showing it and nowhere else, which is precisely the network a church is
 /// most likely to be on. So the interfaces are then listed and a private
 /// address taken from them.
-fn local_address() -> IpAddr {
+pub fn local_address() -> IpAddr {
     if let Some(routed) = address_by_route() {
         return routed;
     }
