@@ -147,9 +147,7 @@ fn start(
         .port();
     let token = uuid::Uuid::new_v4().as_simple().to_string();
 
-    let executable =
-        std::env::current_exe().map_err(|error| format!("Cantara cannot find itself: {error}"))?;
-    let mut command = Command::new(executable);
+    let mut command = Command::new(helper_executable()?);
     command
         .arg(FLAG)
         .arg(ipc_port.to_string())
@@ -264,6 +262,21 @@ fn pump(mut reader: BufReader<TcpStream>) {
             Err(error) => log::warn!("the console helper said something unreadable: {error}"),
         }
     }
+}
+
+/// Which program to start as the helper.
+///
+/// Cantara itself, with a flag — one binary, two jobs. A test may point this
+/// somewhere else, which is what lets the half of this module that starts and
+/// speaks to a real helper be tested at all: under a test harness
+/// `current_exe` is the harness, and it has never heard of `--remote-console`.
+fn helper_executable() -> Result<std::path::PathBuf, String> {
+    #[cfg(test)]
+    if let Ok(path) = std::env::var("CANTARA_TEST_HELPER") {
+        return Ok(std::path::PathBuf::from(path));
+    }
+
+    std::env::current_exe().map_err(|error| format!("Cantara cannot find itself: {error}"))
 }
 
 /// A spawned process that is killed unless somebody takes responsibility for
@@ -512,8 +525,75 @@ fn no_console_window(_command: &mut Command) {}
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::io::{BufRead, BufReader, Write};
     use std::net::{Ipv4Addr, TcpListener, TcpStream};
+
+    /// Cantara's own half of starting the network server: the switch is
+    /// thrown, a helper appears, and the address it reports answers.
+    ///
+    /// The half that had never been tested — under a test harness
+    /// `current_exe` is the harness — and the half that has since broken
+    /// twice. It starts the real binary, so it is skipped where that has not
+    /// been built.
+    #[test]
+    fn a_switch_puts_a_server_on_the_network() {
+        let helper = std::path::Path::new("target/debug/cantara.exe");
+        let helper = if helper.exists() {
+            helper
+        } else {
+            let unix = std::path::Path::new("target/debug/cantara");
+            if !unix.exists() {
+                eprintln!("skipped: the binary has not been built");
+                return;
+            }
+            unix
+        };
+        // SAFETY: single-threaded at this point in the test, and read only by
+        // `helper_executable` below.
+        unsafe { std::env::set_var("CANTARA_TEST_HELPER", helper) };
+
+        // Port 0: whatever is free, so that a machine already running Cantara
+        // does not fail this.
+        let address = match enable_viewer(0, String::new()) {
+            Ok(address) => address,
+            Err(reason) => panic!("the switch did not go on: {reason}"),
+        };
+        assert!(is_viewer_enabled(), "the switch says it is on");
+        assert_eq!(viewer_address().as_deref(), Some(address.as_str()));
+
+        let port = address
+            .rsplit(':')
+            .next()
+            .and_then(|port| port.parse::<u16>().ok())
+            .unwrap_or_else(|| panic!("no port in {address}"));
+
+        // The address is the one to read out, so it is the one that has to
+        // answer.
+        let answered = std::net::TcpStream::connect_timeout(
+            &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+            std::time::Duration::from_secs(5),
+        );
+        assert!(
+            answered.is_ok(),
+            "nothing is listening on the address the panel shows: {address}"
+        );
+
+        // And the console shares it, rather than taking one of its own.
+        let console = enable_console(0, "control".to_string()).expect("the console goes on");
+        assert_eq!(console, format!("{address}/console"));
+
+        disable_viewer();
+        assert!(!is_viewer_enabled());
+        assert!(is_console_enabled(), "the console is left running");
+
+        disable_console();
+        assert!(!is_console_enabled());
+        assert!(
+            viewer_address().is_none(),
+            "with both switches off there is no address"
+        );
+    }
 
     /// A clone of a socket carries the read timeout the original had, and
     /// clearing it on the original does *not* clear it on the clone.

@@ -724,3 +724,18 @@ with the stream's own page, and axum answers two handlers for one path with a
 panic **in the server thread** — the helper went on reporting itself as up
 while answering nothing. The route is gone, and the reason is written where it
 was.
+
+### Cantara's own half, at last
+
+`a_switch_puts_a_server_on_the_network` throws the switch the way the panel
+does and checks that a helper appears and that **the address the panel shows
+answers**. It also checks that the console shares that address rather than
+taking one of its own, and that switching one service off leaves the other
+serving.
+
+This half had never been tested, because under a test harness `current_exe` is
+the harness and it has never heard of `--remote-console`. That is why
+`helper_executable` exists: one `#[cfg(test)]` line that lets a test point the
+helper at the real binary. It is worth the hook — every bug this feature has
+had since the first browser opened it lived in the two places no test could
+reach, and this was one of them.
