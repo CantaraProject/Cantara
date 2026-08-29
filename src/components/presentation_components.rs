@@ -468,7 +468,7 @@ pub fn PresentationPage() -> Element {
                     Key::Escape => {
                         quit_presentation();
                     }
-                    Key::Character(ref c) if c == "b" || c == "B" => {
+                    Key::Character(ref c) if c == "b" || c == "B" || c == "." => {
                         running_presentation.write().toggle_black_screen();
                     }
                     _ => {}
@@ -898,9 +898,9 @@ pub fn PresentationRendererComponent(
             onkeydown: move |event: Event<KeyboardData>| {
                 let key = event.key();
                 match key {
-                    Key::ArrowRight | Key::Enter => go_to_next_slide(),
+                    Key::ArrowRight | Key::ArrowDown | Key::PageDown | Key::Enter => go_to_next_slide(),
                     Key::Character(ref c) if c == " " => go_to_next_slide(),
-                    Key::ArrowLeft => go_to_previous_slide(),
+                    Key::ArrowLeft | Key::ArrowUp | Key::PageUp => go_to_previous_slide(),
                     _ => {}
                 }
             },
