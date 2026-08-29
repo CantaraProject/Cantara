@@ -151,18 +151,13 @@ four questions, all of which have to be yes:
                    a browser on the network
 ```
 
-### Two servers, because they cannot be one
+### One server, in the helper
 
 The design here was one server with two switches: same port, same address,
-different path. It could not be built — not for want of trying, but because
-the console cannot run in this process at all, and a process cannot share
-another's listening socket.
-
-So `logic/stream` is untouched, still doing exactly what it did for viewers,
-and the console is served by the helper process on **its own port**: the
-stream's port plus one, or any free port if that is taken. Two addresses to
-read off the panel instead of one. That is the price of the crash below, and
-it is worth being explicit that it is a price rather than a design.
+different path. That is what there is — but not in this process. The console
+cannot run in Cantara at all (the crash below), and a process cannot share
+another's listening socket, so the helper owns the socket and serves both. See
+"One port — done" at the end.
 
 ### Routes (all served by the helper)
 
@@ -173,10 +168,10 @@ it is worth being explicit that it is a price rather than a design.
 | `WS /console/ws` | The LiveView socket. Refused without the cookie |
 | `GET /assets/*` | The program's own stylesheets, fonts and scripts |
 | `GET /cantara-video/*` | The videos of the running service |
-| `GET /` | Redirects to `/console`, for anyone who typed the bare address |
+| `GET /` | The stream's own page, for a phone in a pew |
+| `GET /state`, `/events`, `/media/…`, `/video/…`, `/login` | The viewer's, unchanged |
 
-The viewer's `/`, `/state`, `/events`, `/media`, `/video` and `/login` are on
-the other port and do not change.
+The viewer's routes are unchanged in every respect but where they run.
 
 ### The host adapter (stage 1)
 
@@ -660,21 +655,72 @@ What is still unproven:
   the room keeps making the sound — which is what should happen, and is worth
   confirming with a video.
 
-## One port
+## One port — done
 
 Asked once the console was running: can the console and the viewer stream not
 share a port? They cannot share a *process* — that is the crash above — and two
-processes cannot share a listening socket. What is possible:
+processes cannot share a listening socket. So the question became which process
+should own the socket, and the answer is the helper: **it now serves both.**
 
-- **A. Move the viewer stream into the helper.** One process, one port, one
-  server, and the two axum servers that exist today become one. The blocker is
-  that stream media for PDF slides is rendered through `document::eval` in the
-  web view (`logic::pdf::page_image`), which the helper has not got: the parent
-  would keep rendering those and ship the bytes over the IPC socket it already
-  has. **Agreed as the next step**, after the bugs.
+The two alternatives were:
+
+- **A. Move the viewer stream into the helper.** Chosen and built.
 - **B. Proxy `/console/*`** from the parent to the helper, WebSocket upgrade
   included. Everything stays where it is; every DOM patch takes an extra hop.
+  Not built.
 
-Meanwhile the stream's own port answers `/console` with a redirect to wherever
-the console is, so there is one address to read out even though there are two
-ports.
+### What moved
+
+Cantara no longer serves anything. `logic::stream` is now the viewer's
+*protocol and routes*, and `logic::stream::mod` is four lines: the process-wide
+server handle it used to hold is gone, along with `enable`, `disable`,
+`publish`, `publish_media`, `publish_video` and the rest — one `OnceLock`, a
+`Mutex` and eight functions deleted rather than reimplemented on the far side
+of a socket.
+
+What the helper does now:
+
+- Binds one port and serves **both** route sets. `StreamServer::start_with`
+  takes the console's router and merges it onto the same listener.
+- **Works out what a viewer sees itself**, from the presentation it already had
+  for the console — `StreamState::of`, the same function Cantara used to call.
+  A viewer's state and a console's presentation are now one thing travelling
+  one way down one socket, which is the duplication this feature had quietly
+  introduced and has now paid back.
+- Finds the service's videos from the presentation, through
+  `stream::protocol::media_sources` — moved out of `main.rs`, where only
+  Cantara could reach it.
+
+What Cantara still does, and why:
+
+- **Renders pictures.** A PDF page is drawn by the web view through
+  `document::eval` (`logic::pdf::page_image`), and the helper has no web view.
+  Cantara renders and sends the bytes; `media_wanted` keeps it from rendering
+  the same page twice.
+- **Reports where a video has got to**, twice a second while one is playing.
+  What is made of that — whether the slide that is up is a video at all — is
+  decided in the helper, where the state is built.
+- **Throws the switches.** Either one starts the helper, the last one off stops
+  it, and in between a switch is one message rather than a restart: a service
+  being streamed does not stop being streamed because somebody opened the
+  console.
+
+### Verified
+
+`one_port.py` drives the real helper over the real IPC protocol and then asks
+that one port for everything:
+
+- the stream's page, its state behind the stream password, and a login that
+  hands out `cantara_stream`;
+- a presentation pushed down the socket appearing in the viewer's state;
+- a picture Cantara rendered, served verbatim with its content type;
+- the console page behind its *own* password, and its WebSocket upgrading to
+  `101` — on the same port;
+- neither cookie opening the other's half;
+- streaming switched off mid-session while the console carries on serving.
+
+One thing the run found immediately: the console's old `/` redirect collided
+with the stream's own page, and axum answers two handlers for one path with a
+panic **in the server thread** — the helper went on reporting itself as up
+while answering nothing. The route is gone, and the reason is written where it
+was.

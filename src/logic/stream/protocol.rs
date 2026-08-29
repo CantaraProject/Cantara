@@ -709,6 +709,55 @@ fn non_empty(text: Option<String>) -> Option<String> {
     text.filter(|text| !text.trim().is_empty())
 }
 
+/// Where every picture in a running order came from, by the name the stream
+/// gives it.
+///
+/// The state a viewer receives names its pictures but does not say where they
+/// are — a viewer has no file system and no business knowing about one. This
+/// is the other half of that mapping, kept on this side.
+pub fn media_sources(
+    running: &[crate::logic::states::RunningPresentation],
+) -> std::collections::HashMap<String, String> {
+    use cantara_songlib::slides::SlideContent;
+
+    let mut sources = std::collections::HashMap::new();
+    for presentation in running {
+        for chapter in &presentation.presentation {
+            // The design's background picture, which is as much a part of what
+            // a viewer sees as any slide. The design the *stream* uses, which
+            // is the projection's unless the service asked for another.
+            if let Some(design) = chapter.design_for_stream()
+                && let crate::logic::settings::PresentationDesignSettings::Template(template) =
+                    &design.presentation_design_settings
+                && let Some(picture) = &template.background_image
+            {
+                let path = picture.as_source().path.to_string_lossy().to_string();
+                sources.insert(media_id(&path), path);
+            }
+
+            // Likewise the slides: where the stream has a division of its own,
+            // those are the pictures a viewer will ask for.
+            for slide in chapter.slides_for_stream() {
+                let source = match &slide.slide_content {
+                    SlideContent::SimplePicture(picture) => {
+                        crate::logic::presentation::get_picture_path(picture)
+                    }
+                    SlideContent::PdfPage(page) => {
+                        format!("{}#page={}", page.pdf_path, page.page_number)
+                    }
+                    // A video is named here the same way, though what is done
+                    // with the name differs: it is registered with the server
+                    // rather than rendered into bytes.
+                    SlideContent::Video(video) => video.video_path.clone(),
+                    _ => continue,
+                };
+                sources.insert(media_id(&source), source);
+            }
+        }
+    }
+    sources
+}
+
 #[cfg(test)]
 #[allow(
     clippy::field_reassign_with_default,

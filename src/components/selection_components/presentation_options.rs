@@ -705,8 +705,8 @@ fn StreamSwitch() -> Element {
     let settings = use_settings();
     // Read from the server rather than remembered here: this panel is built
     // and thrown away as the user moves about, and the server is not.
-    let mut enabled = use_signal(crate::logic::stream::is_enabled);
-    let mut address = use_signal(crate::logic::stream::address);
+    let mut enabled = use_signal(crate::logic::network_host::is_viewer_enabled);
+    let mut address = use_signal(crate::logic::network_host::viewer_address);
     let mut failure: Signal<Option<String>> = use_signal(|| None);
     // `None` while nothing has been clicked, then whether it worked.
     let mut copied: Signal<Option<bool>> = use_signal(|| None);
@@ -731,7 +731,10 @@ fn StreamSwitch() -> Element {
                     failure.set(None);
                     if wanted {
                         let stream = settings.read().stream.clone();
-                        match crate::logic::stream::enable(stream.port, stream.password) {
+                        match crate::logic::network_host::enable_viewer(
+                            stream.port,
+                            stream.password,
+                        ) {
                             Ok(reachable_at) => {
                                 enabled.set(true);
                                 address.set(Some(reachable_at));
@@ -749,7 +752,7 @@ fn StreamSwitch() -> Element {
                             }
                         }
                     } else {
-                        crate::logic::stream::disable();
+                        crate::logic::network_host::disable_viewer();
                         enabled.set(false);
                         address.set(None);
                         stream_generation += 1;
@@ -835,8 +838,8 @@ fn RemoteConsoleSwitch() -> Element {
     let settings = use_settings();
     // Asked of the server, for the reason the streaming switch gives: this
     // panel comes and goes, the server does not.
-    let mut enabled = use_signal(crate::logic::remote_console_host::is_enabled);
-    let mut address = use_signal(crate::logic::remote_console_host::address);
+    let mut enabled = use_signal(crate::logic::network_host::is_console_enabled);
+    let mut address = use_signal(crate::logic::network_host::console_address);
     // What is running now, to hand over the moment the helper is up. Switching
     // this on is not a change to the presentation, so the publisher in `App`
     // will not come round by itself — the same trap the streaming switch
@@ -872,19 +875,18 @@ fn RemoteConsoleSwitch() -> Element {
                     failure.set(None);
                     if wanted {
                         let stream = settings.read().stream.clone();
-                        // Its own port, next to the stream's: the console is
-                        // served by a helper process, which cannot share the
-                        // stream's socket. See
-                        // [`crate::logic::remote_console_child`].
-                        let port = stream.port.saturating_add(1);
-                        match crate::logic::remote_console_host::enable(
-                            port,
+                        // The same port the stream uses, because it is the
+                        // same server: both are served by the helper process
+                        // in [`crate::logic::network_server`]. Whichever
+                        // switch goes on first starts it.
+                        match crate::logic::network_host::enable_console(
+                            stream.port,
                             stream.remote_password,
                         ) {
                             Ok(reachable_at) => {
                                 enabled.set(true);
                                 address.set(Some(reachable_at));
-                                crate::logic::remote_console_host::publish(
+                                crate::logic::network_host::publish(
                                     running_presentations.read().first().cloned(),
                                 );
                             }
@@ -897,7 +899,7 @@ fn RemoteConsoleSwitch() -> Element {
                             }
                         }
                     } else {
-                        crate::logic::remote_console_host::disable();
+                        crate::logic::network_host::disable_console();
                         enabled.set(false);
                         address.set(None);
                     }
@@ -961,7 +963,7 @@ fn RemoteConsoleSwitch() -> Element {
                 {
                     t!(
                         "selection.remote_connected",
-                        count = crate::logic::remote_console_host::connected(),
+                        count = crate::logic::network_host::connected(),
                     )
                         .to_string()
                 }

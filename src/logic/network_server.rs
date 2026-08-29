@@ -1,4 +1,14 @@
-//! The helper process that serves the presenter console to a browser.
+//! Cantara's network side: one process, one socket, both services.
+//!
+//! A browser on the hall's network reaches the presenter console here, and so
+//! does a phone in a pew reaching the stream. They are one address and one
+//! port because they are one server — the viewer's routes come from
+//! [`crate::logic::stream::server`] and are merged with the console's onto the
+//! same listener.
+//!
+//! Nothing here decides anything. What is offered, to whom, and what there is
+//! to show all arrive over a socket from Cantara itself; this process serves
+//! them. See [`crate::logic::network_host`] for the other half.
 //!
 //! # Why a process of its own
 //!
@@ -43,6 +53,8 @@ use serde::{Deserialize, Serialize};
 
 use super::remote_console::{self, ConsoleCommand};
 use super::states::RunningPresentation;
+use super::stream::protocol::StreamState;
+use super::stream::StreamServer;
 
 /// The argument that turns this binary into the console helper.
 pub const FLAG: &str = "--remote-console";
@@ -130,23 +142,54 @@ const WRONG_PASSWORD_DELAY: std::time::Duration = std::time::Duration::from_mill
 /// What the parent tells the child once it has proved itself.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Configuration {
-    /// The port to serve the console on.
+    /// The port to serve on. Both services share it.
     pub port: u16,
-    /// What a browser has to type first.
-    ///
-    /// Empty means the console is open to anyone who can reach the address.
-    /// That is the operator's decision to make: a locked room on a network
-    /// with nothing else on it is a real situation, and a program that insists
-    /// on a password there is in the way rather than being careful. The note
-    /// beside the switch says plainly what an empty one means.
-    pub password: String,
+    /// What is on offer to begin with.
+    pub offer: Offer,
+}
+
+/// Which of the two services are being offered, and what each asks for.
+///
+/// `None` means switched off. An empty password means no password: for the
+/// stream that is the ordinary case in a hall, and for the console it is the
+/// operator's decision — a locked room on a network with nothing else on it is
+/// a real situation, and a program that insists on a password there is in the
+/// way rather than being careful. The panel with the switches says plainly
+/// what an empty one means.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct Offer {
+    pub viewer: Option<String>,
+    pub console: Option<String>,
 }
 
 /// What travels from the parent to the child.
 #[derive(Serialize, Deserialize)]
 pub enum ToChild {
     /// The presentation as it now stands, or nothing between services.
+    ///
+    /// Everything a viewer is shown is worked out from this, here — see
+    /// [`crate::logic::stream::protocol::StreamState::of`]. The console gets
+    /// the same value, because it is the same presentation.
     Presentation(Box<Option<RunningPresentation>>),
+
+    /// A picture a slide refers to, rendered into bytes.
+    ///
+    /// Rendered by Cantara rather than here, because a PDF page is drawn by
+    /// the web view Cantara has and this process has not — see
+    /// [`crate::logic::pdf::page_image`]. Everything else about serving it
+    /// belongs here.
+    Media {
+        id: String,
+        bytes: Vec<u8>,
+        content_type: String,
+    },
+
+    /// Where the video on the current slide has got to, so that a phone shows
+    /// the same moment of it as the room does.
+    VideoPosition(Option<(f64, f64, bool)>),
+
+    /// A switch was thrown.
+    Offering(Offer),
 }
 
 /// What travels back.
@@ -240,25 +283,25 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
         .worker_threads(2)
         .enable_all()
         .build()
-        .map_err(|error| format!("no runtime for the console: {error}"))?;
+        .map_err(|error| format!("no runtime for the network server: {error}"))?;
 
     let shared = Arc::new(Shared {
-        password: RwLock::new(configuration.password),
+        password: RwLock::new(configuration.offer.console),
         session: new_session_token(),
     });
 
     socket
         .set_nonblocking(true)
-        .map_err(|error| format!("the console helper could not be made async: {error}"))?;
+        .map_err(|error| format!("the helper could not be made async: {error}"))?;
 
     runtime.block_on(async move {
         let socket = tokio::net::TcpStream::from_std(socket)
-            .map_err(|error| format!("the console helper could not be made async: {error}"))?;
+            .map_err(|error| format!("the helper could not be made async: {error}"))?;
         let (from_parent, mut to_parent) = socket.into_split();
 
-        // One writer, so that the three things which report to Cantara — what
-        // the operator did, how many are connected, and whether this started
-        // at all — cannot interleave halfway through a line.
+        // One writer, so that the things which report to Cantara — what the
+        // operator did, how many are connected, whether this started at all —
+        // cannot interleave halfway through a line.
         let (say, mut said) = tokio::sync::mpsc::unbounded_channel::<ToParent>();
         tokio::spawn(async move {
             use tokio::io::AsyncWriteExt;
@@ -276,25 +319,32 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
             }
         });
 
-        // The port asked for, or any free one. A port that is taken is not a
-        // reason to leave the operator without a console: the address is read
-        // off the panel either way, and the panel is told which port it got.
-        let listener = match tokio::net::TcpListener::bind((
-            std::net::Ipv4Addr::UNSPECIFIED,
+        // One server, both services. The stream's routes come from
+        // [`crate::logic::stream::server`] exactly as they always have; the
+        // console's are handed to it to serve from the same socket.
+        //
+        // The port asked for, or any free one: a port that is taken is not a
+        // reason to leave the service without a console, and the panel is told
+        // which port it got either way.
+        let server = match StreamServer::start_with(
             configuration.port,
-        ))
-        .await
-        {
-            Ok(listener) => listener,
+            configuration.offer.viewer.clone(),
+            router(Arc::clone(&shared)),
+        ) {
+            Ok(server) => server,
             Err(first) => {
                 log::warn!(
-                    "the console could not take port {}: {first}",
+                    "the network server could not take port {}: {first}",
                     configuration.port
                 );
-                match tokio::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, 0)).await {
-                    Ok(listener) => listener,
+                match StreamServer::start_with(
+                    0,
+                    configuration.offer.viewer.clone(),
+                    router(Arc::clone(&shared)),
+                ) {
+                    Ok(server) => server,
                     Err(error) => {
-                        let reason = format!("the console has no port to serve on: {error}");
+                        let reason = format!("there is no port to serve on: {error}");
                         let _ = say.send(ToParent::Failed {
                             reason: reason.clone(),
                         });
@@ -306,21 +356,12 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
                 }
             }
         };
+        let _ = say.send(ToParent::Serving {
+            port: server.port(),
+        });
 
-        let port = match listener.local_addr() {
-            Ok(address) => address.port(),
-            Err(error) => {
-                let reason = format!("the console has no address: {error}");
-                let _ = say.send(ToParent::Failed {
-                    reason: reason.clone(),
-                });
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                return Err(reason);
-            }
-        };
-        let _ = say.send(ToParent::Serving { port });
-
-        // What the operator does, on its way back to the program.
+        // What the operator does on the console, on its way back to the
+        // program.
         {
             let say = say.clone();
             tokio::spawn(async move {
@@ -339,7 +380,7 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
             });
         }
 
-        // How many browsers are on it, whenever that changes.
+        // How many browsers have a console open, whenever that changes.
         {
             let say = say.clone();
             tokio::spawn(async move {
@@ -357,21 +398,18 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
             });
         }
 
-        let served = tokio::spawn(async move {
-            let app = router(shared);
-            if let Err(error) = axum::serve(listener, app).await {
-                log::error!("the console server stopped: {error}");
-            }
-        });
-
-        // The presentation, as the program has it. Reading this is also how the
-        // helper notices that Cantara has gone: the socket ends, and so does
-        // the console.
+        // Everything Cantara has to say. Reading this is also how the helper
+        // notices that Cantara has gone: the socket ends, and so does the
+        // helper — see [`crate::logic::network_host`], which is the only thing
+        // that ever stops it deliberately.
         let listening = tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
 
+            let mut server = server;
+            let mut shown = Shown::default();
             let mut reader = tokio::io::BufReader::new(from_parent);
             let mut line = String::new();
+
             loop {
                 line.clear();
                 match reader.read_line(&mut line).await {
@@ -379,34 +417,124 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
                     Ok(0) | Err(_) => return,
                     Ok(_) => {}
                 }
+
                 match serde_json::from_str::<ToChild>(line.trim()) {
-                    Ok(ToChild::Presentation(presentation)) => {
-                        remote_console::publish(*presentation);
-                    }
-                    Err(error) => {
-                        log::warn!("the console helper could not read a message: {error}")
-                    }
+                    Ok(message) => shown.apply(message, &mut server, &shared),
+                    Err(error) => log::warn!("Cantara said something unreadable: {error}"),
                 }
             }
         });
 
-        // Whichever ends first ends the helper: without Cantara there is
-        // nothing to drive, and without the server there is nothing to drive
-        // it from.
-        tokio::select! {
-            _ = listening => {}
-            _ = served => {}
-        }
-
+        let _ = listening.await;
         Ok(())
     })
+}
+
+/// What the network side is currently showing, and what it does with each
+/// thing Cantara says.
+///
+/// Held here rather than asked for: a viewer's state is worked out from the
+/// presentation and the video's position together, and either of them can
+/// arrive without the other.
+#[derive(Default)]
+struct Shown {
+    presentation: Option<RunningPresentation>,
+    /// Where the video on the current slide has got to. Sent several times a
+    /// second while one is playing and not at all otherwise.
+    video: Option<(f64, f64, bool)>,
+}
+
+impl Shown {
+    fn apply(&mut self, message: ToChild, server: &mut StreamServer, console: &Arc<Shared>) {
+        match message {
+            ToChild::Presentation(presentation) => {
+                self.presentation = *presentation;
+                // The console works on the presentation itself; the viewers
+                // are shown what is made of it below.
+                remote_console::publish(self.presentation.clone());
+                self.register_videos(server);
+                self.publish(server);
+            }
+
+            ToChild::VideoPosition(position) => {
+                if self.video == position {
+                    return;
+                }
+                self.video = position;
+                self.publish(server);
+            }
+
+            ToChild::Media {
+                id,
+                bytes,
+                content_type,
+            } => {
+                // The content type crosses the socket as a `String` and is
+                // served as a `&'static str`; only the two Cantara renders to
+                // are accepted, which is also what keeps a header from being
+                // whatever a message said it was.
+                let content_type = match content_type.as_str() {
+                    "image/jpeg" => "image/jpeg",
+                    "image/png" => "image/png",
+                    other => {
+                        log::warn!("a picture arrived as {other}, which is not served");
+                        return;
+                    }
+                };
+                server.publish_media(id, bytes, content_type);
+            }
+
+            ToChild::Offering(offer) => {
+                server.set_viewer(offer.viewer);
+                if let Ok(mut password) = console.password.write() {
+                    *password = offer.console;
+                }
+            }
+        }
+    }
+
+    /// Tells the viewers where things stand.
+    fn publish(&self, server: &mut StreamServer) {
+        let state = match &self.presentation {
+            Some(running) => StreamState::of(running, 0).with_live_video(self.video),
+            // Between services. The address stays open and says so.
+            None => StreamState::waiting(0),
+        };
+        server.publish(state);
+    }
+
+    /// Says where the videos of this service are, so the server can serve them
+    /// from where they lie.
+    ///
+    /// The paths come out of the presentation itself, which is the same list
+    /// Cantara renders pictures from — see
+    /// [`crate::logic::stream::protocol::media_sources`]. A video is far too
+    /// large to send over the socket and does not need to be: this process can
+    /// read the file.
+    fn register_videos(&self, server: &StreamServer) {
+        let Some(running) = &self.presentation else {
+            return;
+        };
+        let state = StreamState::of(running, 0);
+        let sources = crate::logic::stream::protocol::media_sources(std::slice::from_ref(running));
+
+        for id in state.videos() {
+            if server.has_video(&id) {
+                continue;
+            }
+            if let Some(path) = sources.get(&id) {
+                server.publish_video(id, std::path::PathBuf::from(path));
+            }
+        }
+    }
 }
 
 /// What the console's routes share.
 struct Shared {
     /// What a browser has to type. Empty means anyone who can reach the
-    /// address may drive the presentation — see [`Configuration::password`].
-    password: RwLock<String>,
+    /// address may drive the presentation, and `None` means the console is
+    /// switched off — see [`Offer`].
+    password: RwLock<Option<String>>,
     /// Handed out once it has been typed.
     session: String,
 }
@@ -419,9 +547,14 @@ impl Shared {
             // something has already gone very wrong, and the safe answer is no.
             return false;
         };
+        let Some(password) = password.as_ref() else {
+            // Switched off: there is no console here to drive.
+            return false;
+        };
         if password.is_empty() {
             return true;
         }
+        let password = password.clone();
         drop(password);
 
         headers
@@ -437,6 +570,11 @@ impl Shared {
 fn router(shared: Arc<Shared>) -> Router {
     let pool = Arc::new(dioxus_liveview::LiveViewPool::new());
 
+    // No `/` here: the bare address belongs to the stream's own page, which is
+    // served from this same socket — see [`crate::logic::stream::server`]. The
+    // console is at `/console`, which is what the panel shows. Two handlers
+    // for one path is a panic in the server thread, and the helper goes on
+    // reporting itself as up while answering nothing.
     Router::new()
         .route("/console", get(page))
         .route("/console/login", post(login))
@@ -452,13 +590,6 @@ fn router(shared: Arc<Shared>) -> Router {
         .route(
             &format!("/{}/{{*path}}", crate::logic::video::VIDEO_HANDLER),
             get(video),
-        )
-        // A browser asked for the bare address gets the console rather than a
-        // 404: `/console` is what is written on the panel, but nobody types a
-        // path they were not shown.
-        .route(
-            "/",
-            get(|| async { axum::response::Redirect::to("/console") }),
         )
         .with_state(shared)
 }
@@ -503,8 +634,8 @@ struct Password {
 
 /// Takes the password and, if it is the right one, hands out a session.
 async fn login(State(shared): State<Arc<Shared>>, Json(given): Json<Password>) -> Response {
-    let Ok(password) = shared.password.read().map(|password| password.clone()) else {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    let Some(password) = shared.password.read().ok().and_then(|held| held.clone()) else {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
     };
 
     if !constant_time_eq(given.password.as_bytes(), password.as_bytes()) {
@@ -630,7 +761,16 @@ mod tests {
 
     fn shared_with(password: &str) -> Shared {
         Shared {
-            password: RwLock::new(password.to_string()),
+            password: RwLock::new(Some(password.to_string())),
+            session: "c0nsole-session".to_string(),
+        }
+    }
+
+    /// A console that is switched off is not there for anybody, cookie or no
+    /// cookie — the stream may still be being served from the same socket.
+    fn shared_switched_off() -> Shared {
+        Shared {
+            password: RwLock::new(None),
             session: "c0nsole-session".to_string(),
         }
     }
@@ -683,6 +823,14 @@ mod tests {
         let shared = shared_with("control");
 
         assert!(!shared.may_control(&cookies("cantara_stream=c0nsole-session")));
+    }
+
+    #[test]
+    fn a_console_that_is_switched_off_answers_nobody() {
+        let shared = shared_switched_off();
+
+        assert!(!shared.may_control(&HeaderMap::new()));
+        assert!(!shared.may_control(&cookies("cantara_console=c0nsole-session")));
     }
 
     #[test]

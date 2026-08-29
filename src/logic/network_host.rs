@@ -1,10 +1,13 @@
-//! Starting, feeding and stopping the console helper.
+//! Starting, feeding and stopping Cantara's network side.
 //!
-//! The counterpart to [`crate::logic::remote_console_child`], which explains
-//! why the console is a process of its own. This half is what the switch in
-//! the presentation options talks to: it starts the helper, hands it the
-//! presentation whenever it changes, applies what the remote operator does,
-//! and stops it again.
+//! The counterpart to [`crate::logic::network_server`], which explains why
+//! that is a process of its own. This half is what the two switches in the
+//! presentation options talk to: it starts the helper, tells it what to offer,
+//! hands it the presentation and the pictures whenever they change, applies
+//! what a remote operator does, and stops it again.
+//!
+//! Both services — the stream to the pews and the console — are one helper on
+//! one port. Either switch starts it; the last one to go off stops it.
 //!
 //! Everything here is best-effort by design. A helper that will not start is
 //! reported to the user and changes nothing else; a helper that dies mid
@@ -18,8 +21,8 @@ use std::process::{Child, Command};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+use super::network_server::{Configuration, Offer, ToChild, ToParent, FLAG};
 use super::remote_console::{self, ConsoleCommand};
-use super::remote_console_child::{Configuration, ToChild, ToParent, FLAG};
 use super::states::RunningPresentation;
 
 /// The running helper, if there is one.
@@ -36,10 +39,18 @@ struct Helper {
     process: Child,
     /// The writing half. The reading half belongs to the thread that pumps it.
     to_child: TcpStream,
-    /// Where the console is being served.
+    /// Where it is being served: the address a browser is given, without a
+    /// path.
     address: String,
     /// What the helper was last told, so that the same news is not sent twice.
     last_sent: Option<RunningPresentation>,
+    /// The pictures it already has, so that none is rendered or sent twice.
+    /// A picture is named after its content, so a name it has seen is a
+    /// picture it has.
+    sent_media: std::collections::HashSet<String>,
+    /// What it is offering. Kept here so that throwing one switch does not
+    /// disturb the other.
+    offer: Offer,
 }
 
 impl Drop for Helper {
@@ -54,21 +65,77 @@ impl Drop for Helper {
     }
 }
 
+/// Starts offering the stream to viewers, and says where to find it.
+pub fn enable_viewer(port: u16, password: String) -> Result<String, String> {
+    offer(port, |offer| offer.viewer = Some(password.clone()))
+}
+
+/// Stops offering it. The helper stays up while the console is still on.
+pub fn disable_viewer() {
+    let _ = offer(0, |offer| offer.viewer = None);
+}
+
 /// Starts offering the presenter console, and says where to find it.
 ///
 /// `password` may be empty. What that means is the operator's decision — see
-/// [`Configuration::password`] — and the panel with the switch says it plainly
-/// rather than refusing to switch on.
-pub fn enable(port: u16, password: String) -> Result<String, String> {
+/// [`Offer`] — and the panel with the switch says it plainly rather than
+/// refusing to switch on.
+pub fn enable_console(port: u16, password: String) -> Result<String, String> {
+    offer(port, |offer| offer.console = Some(password.clone()))
+        .map(|address| format!("{address}/console"))
+}
+
+/// Stops offering it. The helper stays up while the stream is still on.
+pub fn disable_console() {
+    let _ = offer(0, |offer| offer.console = None);
+}
+
+/// Changes what is on offer, starting or stopping the helper as that requires.
+///
+/// One function for both switches, because they are one server: the first one
+/// on starts it, the last one off stops it, and in between a switch is a
+/// message rather than a restart — a service being streamed does not stop
+/// being streamed because somebody opened the console.
+fn offer(port: u16, change: impl FnOnce(&mut Offer)) -> Result<String, String> {
     let mut held = helper()
         .lock()
-        .map_err(|_| "the console helper is in a bad state".to_string())?;
+        .map_err(|_| "the network server is in a bad state".to_string())?;
 
-    // Switching on twice is not an error, it is the same answer twice.
-    if let Some(running) = held.as_ref() {
-        return Ok(running.address.clone());
+    if let Some(running) = held.as_mut() {
+        change(&mut running.offer);
+
+        if running.offer.viewer.is_none() && running.offer.console.is_none() {
+            // Nothing left to serve. Dropping the helper stops it and gives
+            // the port back.
+            held.take();
+            return Ok(String::new());
+        }
+
+        let offer = running.offer.clone();
+        let address = running.address.clone();
+        if !tell(running, ToChild::Offering(offer)) {
+            held.take();
+            return Err("the network server stopped listening".to_string());
+        }
+        return Ok(address);
     }
 
+    let mut wanted = Offer::default();
+    change(&mut wanted);
+    if wanted.viewer.is_none() && wanted.console.is_none() {
+        // Switching off something that was never on.
+        return Ok(String::new());
+    }
+
+    start(port, wanted, held)
+}
+
+/// Starts the helper, with what it is to offer.
+fn start(
+    port: u16,
+    wanted: Offer,
+    mut held: std::sync::MutexGuard<'_, Option<Helper>>,
+) -> Result<String, String> {
     // The helper connects back to this, on the loopback interface, and proves
     // it is the process that was started. The password never goes on a command
     // line, where every other program on the machine could read it.
@@ -102,7 +169,10 @@ pub fn enable(port: u16, password: String) -> Result<String, String> {
 
     let mut to_child = accept_helper(&listener, &token)?;
 
-    let configuration = Configuration { port, password };
+    let configuration = Configuration {
+        port,
+        offer: wanted.clone(),
+    };
     let encoded = serde_json::to_string(&configuration)
         .map_err(|error| format!("the console helper cannot be configured: {error}"))?;
     writeln!(to_child, "{encoded}")
@@ -143,7 +213,7 @@ pub fn enable(port: u16, password: String) -> Result<String, String> {
         .set_read_timeout(None)
         .map_err(|error| format!("the console helper could not be read: {error}"))?;
 
-    let address = format!("http://{}:{}/console", super::stream::local_address(), port);
+    let address = format!("http://{}:{}", super::stream::local_address(), port);
 
     std::thread::Builder::new()
         .name("cantara-console-host".to_string())
@@ -156,11 +226,13 @@ pub fn enable(port: u16, password: String) -> Result<String, String> {
             // Unreachable: nothing takes it before this line. Reported rather
             // than unwrapped, because a panic here would be in the middle of
             // preparing a service.
-            None => return Err("the console helper was lost while starting".to_string()),
+            None => return Err("the network server was lost while starting".to_string()),
         },
         to_child,
         address: address.clone(),
         last_sent: None,
+        sent_media: std::collections::HashSet::new(),
+        offer: wanted,
     };
 
     *held = Some(helper);
@@ -276,24 +348,55 @@ fn proves_itself(stream: &TcpStream, token: &str) -> Result<bool, std::io::Error
     Ok(given.trim() == token)
 }
 
-/// Stops offering it. Doing this when nothing is running is not an error.
-pub fn disable() {
-    if let Ok(mut held) = helper().lock() {
-        held.take();
-    }
+/// Whether the stream is being offered to viewers.
+pub fn is_viewer_enabled() -> bool {
+    with_helper(|helper| helper.offer.viewer.is_some()).unwrap_or(false)
 }
 
 /// Whether the console is being offered.
-pub fn is_enabled() -> bool {
-    helper().lock().map(|held| held.is_some()).unwrap_or(false)
+pub fn is_console_enabled() -> bool {
+    with_helper(|helper| helper.offer.console.is_some()).unwrap_or(false)
 }
 
-/// Where the console is, if it is being offered.
-pub fn address() -> Option<String> {
+/// The address a viewer types, if there is one to type.
+pub fn viewer_address() -> Option<String> {
+    with_helper(|helper| {
+        helper
+            .offer
+            .viewer
+            .is_some()
+            .then(|| helper.address.clone())
+    })
+    .flatten()
+}
+
+/// The address the console is at, if it is being offered.
+pub fn console_address() -> Option<String> {
+    with_helper(|helper| {
+        helper
+            .offer
+            .console
+            .is_some()
+            .then(|| format!("{}/console", helper.address))
+    })
+    .flatten()
+}
+
+fn with_helper<T>(read: impl FnOnce(&Helper) -> T) -> Option<T> {
     helper()
         .lock()
         .ok()
-        .and_then(|held| held.as_ref().map(|helper| helper.address.clone()))
+        .and_then(|held| held.as_ref().map(read))
+}
+
+/// Says one thing to the helper, reporting whether it got there.
+fn tell(helper: &mut Helper, message: ToChild) -> bool {
+    let Ok(encoded) = serde_json::to_string(&message) else {
+        log::warn!("something could not be encoded for the network server");
+        // Not the helper's fault, and not a reason to take it down.
+        return true;
+    };
+    writeln!(helper.to_child, "{encoded}").is_ok()
 }
 
 /// How many browsers have it open.
@@ -328,15 +431,69 @@ pub fn publish(presentation: Option<RunningPresentation>) {
     }
     helper.last_sent = presentation.clone();
 
-    let Ok(encoded) = serde_json::to_string(&ToChild::Presentation(Box::new(presentation))) else {
-        log::warn!("the presentation could not be sent to the console helper");
+    // A helper that will not take it is a helper that has gone. Dropping it
+    // here is what puts the switches back to where the truth is.
+    if !tell(helper, ToChild::Presentation(Box::new(presentation))) {
+        log::warn!("the network server stopped listening; it is off");
+        held.take();
+    }
+}
+
+/// Which pictures the helper has not been given yet.
+///
+/// Asked before rendering rather than after, because rendering a PDF page is
+/// the expensive part and doing it twice for the same picture is the thing
+/// worth avoiding.
+pub fn media_wanted(ids: impl IntoIterator<Item = String>) -> Vec<String> {
+    let Ok(held) = helper().lock() else {
+        return Vec::new();
+    };
+    let Some(helper) = held.as_ref() else {
+        return Vec::new();
+    };
+
+    ids.into_iter()
+        .filter(|id| !helper.sent_media.contains(id))
+        .collect()
+}
+
+/// Hands over a picture, under the name the state gives it.
+pub fn publish_media(id: String, bytes: Vec<u8>, content_type: &'static str) {
+    let Ok(mut held) = helper().lock() else {
+        return;
+    };
+    let Some(helper) = held.as_mut() else {
         return;
     };
 
-    // A helper that will not take it is a helper that has gone. Dropping it
-    // here is what puts the switch back to where the truth is.
-    if writeln!(helper.to_child, "{encoded}").is_err() {
-        log::warn!("the console helper stopped listening; the remote console is off");
+    if !helper.sent_media.insert(id.clone()) {
+        return;
+    }
+    if !tell(
+        helper,
+        ToChild::Media {
+            id,
+            bytes,
+            content_type: content_type.to_string(),
+        },
+    ) {
+        held.take();
+    }
+}
+
+/// Says where the video on the current slide has got to.
+///
+/// Sent as it changes and not oftener: a phone leaves its own playback alone
+/// until it is more than half a second out.
+pub fn publish_video_position(position: Option<(f64, f64, bool)>) {
+    let Ok(mut held) = helper().lock() else {
+        return;
+    };
+    let Some(helper) = held.as_mut() else {
+        return;
+    };
+
+    if !tell(helper, ToChild::VideoPosition(position)) {
         held.take();
     }
 }
