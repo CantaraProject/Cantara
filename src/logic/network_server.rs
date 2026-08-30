@@ -59,6 +59,47 @@ use super::stream::StreamServer;
 /// The argument that turns this binary into the console helper.
 pub const FLAG: &str = "--remote-console";
 
+/// What this process is serving, for the console it is serving it to.
+///
+/// The other half of [`crate::logic::network_host::viewer_address`], which
+/// answers out of the handle Cantara holds on the helper. A remote console
+/// runs *inside* the helper, where there is no such handle: asked there, that
+/// function says nothing is being streamed however busy the server around it
+/// is. This is the same question asked of the process that knows.
+static SERVED: RwLock<Served> = RwLock::new(Served {
+    address: None,
+    viewers: false,
+});
+
+struct Served {
+    /// Where this server answers, once it has a port.
+    address: Option<String>,
+    /// Whether the stream for viewers is among what it offers. Cantara may
+    /// turn this on and off while the server stays up — see [`Offer`].
+    viewers: bool,
+}
+
+/// The address a viewer types, as this process serves it, or `None` when the
+/// stream is not being offered.
+pub fn served_viewer_address() -> Option<String> {
+    let served = SERVED.read().ok()?;
+    served.viewers.then(|| served.address.clone()).flatten()
+}
+
+/// Notes where this server ended up answering.
+fn serving_at(address: String) {
+    if let Ok(mut served) = SERVED.write() {
+        served.address = Some(address);
+    }
+}
+
+/// Notes whether viewers are among what is on offer.
+fn offering_viewers(viewers: bool) {
+    if let Ok(mut served) = SERVED.write() {
+        served.viewers = viewers;
+    }
+}
+
 /// The name of the cookie a browser is given once it has proved it may drive
 /// the presentation.
 const CONSOLE_COOKIE: &str = "cantara_console";
@@ -362,6 +403,16 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
             port: server.port(),
         });
 
+        // The same address Cantara shows beside the switch, worked out from
+        // the port that was actually taken — the console served from here
+        // offers it to whoever is driving from a browser. See [`SERVED`].
+        serving_at(format!(
+            "http://{}:{}",
+            crate::logic::stream::local_address(),
+            server.port()
+        ));
+        offering_viewers(configuration.offer.viewer.is_some());
+
         // What the operator does on the console, on its way back to the
         // program.
         {
@@ -492,6 +543,11 @@ impl Shown {
             }
 
             ToChild::Offering(offer) => {
+                // The operator threw one of the switches. The server stays up
+                // either way; what changes is what it answers, and a console
+                // being driven from a browser has to hear about it — it shows
+                // the stream only while there is one.
+                offering_viewers(offer.viewer.is_some());
                 server.set_viewer(offer.viewer);
                 if let Ok(mut password) = console.password.write() {
                     *password = offer.console;

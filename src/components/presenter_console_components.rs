@@ -4,7 +4,7 @@
 use crate::logic::console_host::ConsoleHost;
 use crate::logic::presentation::{get_markdown_html, get_picture_path, html_to_plain_text};
 use crate::logic::settings::{PresentationDesign, PresenterConsoleView, use_settings};
-use crate::logic::states::{RunningPresentation, VideoCommand, VideoPlayback};
+use crate::logic::states::{Division, RunningPresentation, VideoCommand, VideoPlayback};
 #[cfg(target_arch = "wasm32")]
 use crate::logic::sync::{
     SYNC_KEY_ACTIVE, SYNC_KEY_POSITION, SYNC_KEY_POSITION_FROM_CONSOLE, SYNC_KEY_PRESENTATION,
@@ -17,7 +17,7 @@ use cantara_songlib::slides::{Slide, SlideContent, SlideRow};
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_solid_icons::{
-    FaChevronLeft, FaChevronRight, FaEyeSlash, FaPenToSquare, FaXmark,
+    FaChevronLeft, FaChevronRight, FaCopy, FaEyeSlash, FaPenToSquare, FaXmark,
 };
 use rust_i18n::t;
 
@@ -466,15 +466,10 @@ fn PresenterHeader(
     // How far through the service the presentation is. The counter in the
     // control bar says it in numbers; this says it at a glance, which is what
     // is wanted from across a room while something else is being read.
-    let (slides_done, total_slides) = {
-        let rp = running_presentation.read();
-        let done = rp
-            .position
-            .as_ref()
-            .map(|position| position.slide_total() + 1)
-            .unwrap_or(0);
-        (done, rp.total_slides())
-    };
+    let (slides_done, total_slides) = running_presentation
+        .read()
+        .counter_in(Division::Projection)
+        .unwrap_or((0, 0));
 
     rsx! {
         header { class: "presenter-header",
@@ -1004,8 +999,9 @@ fn PresenterPreviewPanel(
     let preview_height = (PREVIEW_WIDTH * native_h / native_w).round();
 
     let timer_seconds = rp.get_current_timer_settings().map(|t| t.timer_seconds);
-    let current_slide = rp.position.as_ref().map(|p| p.slide_total()).unwrap_or(0);
-    let total_slides = rp.total_slides();
+    // Which slide of the service is on the wall — the same count the header
+    // and the control bar show. See [`RunningPresentation::counter_in`].
+    let (current_slide, total_slides) = rp.counter_in(Division::Projection).unwrap_or((0, 0));
 
     rsx! {
         div {
@@ -1041,7 +1037,7 @@ fn PresenterPreviewPanel(
                     }
                 }
                 div { style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.9rem; z-index: 100;",
-                    {format!("{} / {}", current_slide + 1, total_slides)}
+                    {format!("{current_slide} / {total_slides}")}
                 }
             }
 
@@ -1067,19 +1063,43 @@ fn PresenterPreviewPanel(
 /// *which* slide it is on, since a wall going two lines at a time and phones
 /// going four do not change together.
 ///
-/// Nothing at all where the two agree, which is the ordinary case: a second
-/// picture of the same slide is clutter beside the first.
+/// Nothing at all unless a stream is actually being served: a console for a
+/// service nobody is watching on a phone has nothing to say about phones. And
+/// where a stream *is* being served but shows exactly what the wall shows —
+/// the ordinary case — the address is offered without a second picture of the
+/// slide already above it.
 #[component]
 fn StreamPreview(running_presentation: Signal<RunningPresentation>) -> Element {
-    let rp = running_presentation.read();
-    if !rp.current_stream_differs() {
-        return rsx! {};
-    }
+    let host = ConsoleHost::current();
 
-    let Some(slide) = rp.get_current_stream_slide() else {
+    // Where the stream can be watched, and whether there is one at all.
+    //
+    // Polled, and for the reason the count of connected consoles is polled in
+    // the options panel: the answer lives outside Dioxus — in the handle on
+    // the helper process, or in the helper itself — and nothing about reading
+    // it tells this component to draw itself again. The operator can throw the
+    // switch in the middle of a service, and this is what notices.
+    let mut address: Signal<Option<String>> = use_signal(move || stream_address(host));
+    use_future(move || async move {
+        loop {
+            crate::logic::timer::sleep(std::time::Duration::from_secs(1)).await;
+            let now = stream_address(host);
+            if now != *address.peek() {
+                address.set(now);
+            }
+        }
+    });
+    let mut copied: Signal<Option<bool>> = use_signal(|| None);
+
+    let Some(watch_at) = address() else {
         return rsx! {};
     };
+
+    let rp = running_presentation.read();
+    let differs = rp.current_stream_differs();
+    let slide = rp.get_current_stream_slide();
     let design = rp.get_current_stream_design();
+    let blacked_out = rp.is_black_screen;
 
     // Laid out at the projection's size and scaled down, exactly as the
     // preview above it is. The two then sit one under the other at the same
@@ -1099,29 +1119,114 @@ fn StreamPreview(running_presentation: Signal<RunningPresentation>) -> Element {
 
     // Which slide the phones are on, counted in their own division — the whole
     // point of showing this is that it is not the projection's number.
-    let position = rp.stream_position();
-    let counter = position.and_then(|(chapter, slide)| {
-        let chapter = rp.presentation.get(chapter)?;
-        Some(format!("{} / {}", slide + 1, chapter.slides_for_stream().len()))
-    });
+    //
+    // Counted over the service, exactly as the number above it is. This used
+    // to count within the song: beside a projection reading "3 / 17" the
+    // stream read "3 / 11", which is the length of the song and not of
+    // anything the other number was measuring. Two counters side by side are
+    // read as the same kind of thing, and they now are — see
+    // [`RunningPresentation::counter_in`].
+    let counter = rp
+        .counter_in(Division::Stream)
+        .map(|(slide, total)| format!("{slide} / {total}"));
 
     rsx! {
-        h4 { style: "margin-top: 1rem;", {t!("presenter.stream_preview").to_string()} }
-        div {
-            class: "presentation-preview slide-scale",
-            style: "width: {PREVIEW_WIDTH}px; height: {preview_height}px; border-radius: 4px;",
-            div {
-                class: "slide-scale-inner",
-                style: "width: {native_w}px; height: {native_h}px; transform: scale({scale});",
-                StaticSlideRendererComponent { slide, presentation_design: design }
+        div { class: "presenter-stream-head",
+            h4 { {t!("presenter.stream_preview").to_string()} }
+            // The address, one click away rather than read off the options
+            // panel and typed out again. It is what somebody at the front is
+            // asked for — "where do I watch this?" — while the service is
+            // running and the panel is two windows away.
+            button {
+                class: "outline secondary presenter-stream-copy",
+                title: format!("{} ({watch_at})", t!("presenter.stream_copy").to_string()),
+                aria_label: t!("presenter.stream_copy").to_string(),
+                onclick: {
+                    let watch_at = watch_at.clone();
+                    move |_| {
+                        let watch_at = watch_at.clone();
+                        async move {
+                            copied.set(Some(crate::logic::clipboard::copy(&watch_at).await));
+                            crate::logic::timer::sleep(std::time::Duration::from_secs(3)).await;
+                            copied.set(None);
+                        }
+                    }
+                },
+                Icon { icon: FaCopy, width: 14, height: 14 }
             }
-            if let Some(counter) = counter {
-                div { style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.9rem; z-index: 100;",
-                    { counter }
+            match copied() {
+                Some(true) => rsx! {
+                    span { class: "stream-copied", {t!("presenter.stream_copied").to_string()} }
+                },
+                // Worth saying: a webview without clipboard access leaves the
+                // operator clicking something that appears to do nothing.
+                Some(false) => rsx! {
+                    span { class: "stream-copy-failed", {t!("presenter.stream_copy_failed").to_string()} }
+                },
+                None => rsx! {},
+            }
+        }
+
+        if differs {
+            if let Some(slide) = slide {
+                div {
+                    class: "presentation-preview slide-scale",
+                    style: "width: {PREVIEW_WIDTH}px; height: {preview_height}px; border-radius: 4px;",
+                    div {
+                        class: "slide-scale-inner",
+                        style: "width: {native_w}px; height: {native_h}px; transform: scale({scale});",
+                        // Blacked out where the projection is: the phones go
+                        // black with the wall, so a preview of them that did
+                        // not would be showing the operator something nobody
+                        // can see. See [`StreamState::blacked_out`](crate::logic::stream::protocol::StreamState).
+                        StaticSlideRendererComponent {
+                            slide,
+                            presentation_design: design,
+                            blacked_out,
+                        }
+                    }
+                    if let Some(counter) = counter {
+                        div { style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.9rem; z-index: 100;",
+                            { counter }
+                        }
+                    }
                 }
+            }
+        } else {
+            // Streaming, and showing what the wall shows. A second picture of
+            // the slide already above would say nothing; that it is the same
+            // picture is what there is to say.
+            p { class: "presenter-stream-same",
+                {t!("presenter.stream_same_as_projection").to_string()}
             }
         }
     }
+}
+
+/// Where the stream can be watched, or `None` when none is being served.
+///
+/// Two places hold the answer and neither can be asked from the other. In
+/// Cantara itself it is the handle on the helper process
+/// ([`crate::logic::network_host::viewer_address`]); in a remote console it is
+/// the helper's own record of what it is serving
+/// ([`crate::logic::network_server::served_viewer_address`]), because that
+/// console is running inside the helper and Cantara's handle is in the other
+/// process entirely.
+#[cfg(feature = "desktop")]
+fn stream_address(host: ConsoleHost) -> Option<String> {
+    if host.is_remote() {
+        crate::logic::network_server::served_viewer_address()
+    } else {
+        crate::logic::network_host::viewer_address()
+    }
+}
+
+/// A build with no server in it has no stream to show. The web build's console
+/// drives a second browser tab, which is not something anybody can be sent the
+/// address of.
+#[cfg(not(feature = "desktop"))]
+fn stream_address(_host: ConsoleHost) -> Option<String> {
+    None
 }
 
 /// Bottom control bar with navigation buttons, chapter jump dropdown, and black screen toggle
@@ -1133,12 +1238,9 @@ fn PresenterControlBar(
     on_edit_selection: Option<EventHandler<()>>,
 ) -> Element {
     let rp = running_presentation.read();
-    let current_total = rp
-        .position
-        .as_ref()
-        .map(|p| p.slide_total() + 1)
-        .unwrap_or(0);
-    let total_slides = rp.total_slides();
+    // The same count as the header's bar and the preview's corner. See
+    // [`RunningPresentation::counter_in`].
+    let (current_total, total_slides) = rp.counter_in(Division::Projection).unwrap_or((0, 0));
     let is_black = rp.is_black_screen;
     let current_chapter = rp.position.as_ref().map(|p| p.chapter()).unwrap_or(0);
     let chapters: Vec<(usize, String)> = rp

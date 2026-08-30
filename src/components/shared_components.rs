@@ -457,16 +457,16 @@ pub fn SelectedItemPreview(
         presentation_signal.set(presentation.clone());
     }
 
-    let current_slide_number = use_memo(move || {
+    // Which slide of how many, counted the way every other counter in the
+    // program counts — see [`crate::logic::states::RunningPresentation::counter_in`].
+    let counter = use_memo(move || {
         presentation_signal
             .read()
-            .position
-            .as_ref()
-            .map(|p| p.slide_total())
-            .unwrap_or(0)
+            .counter_in(crate::logic::states::Division::Projection)
+            .unwrap_or((0, 0))
     });
-
-    let total_slides = use_memo(move || presentation_signal.read().total_slides());
+    let current_slide_number = use_memo(move || counter().0);
+    let total_slides = use_memo(move || counter().1);
 
     // The frame at its finished size, with the full-size slide scaled down
     // inside it. See `PresentationViewer` for why this is a `transform` and
@@ -518,7 +518,7 @@ pub fn SelectedItemPreview(
             } else {
                 div {
                     style: "position: absolute; bottom: 8px; right: 8px; background: rgba(0, 0, 0, 0.6); color: white; padding: 2px 8px; border-radius: 4px; font-size: 20px; z-index: 100;",
-                    { format!("{} / {}", current_slide_number() + 1, total_slides()) }
+                    { format!("{} / {}", current_slide_number(), total_slides()) }
                 }
             }
             }

@@ -852,7 +852,7 @@ fn StreamSwitch() -> Element {
                         move |_| {
                             let address = address.clone();
                             spawn(async move {
-                                copied.set(copy_to_clipboard(&address).await);
+                                copied.set(Some(crate::logic::clipboard::copy(&address).await));
                                 // Long enough to be read, short enough that the
                                 // panel does not keep saying it forever.
                                 //
@@ -1047,7 +1047,7 @@ fn RemoteConsoleSwitch() -> Element {
                         move |_| {
                             let address = address.clone();
                             spawn(async move {
-                                copied.set(copy_to_clipboard(&address).await);
+                                copied.set(Some(crate::logic::clipboard::copy(&address).await));
                                 let _ = document::eval(
                                     "await new Promise(r => setTimeout(r, 3000))",
                                 )
@@ -1097,44 +1097,6 @@ fn RemoteConsoleSwitch() -> Element {
     rsx! {}
 }
 
-/// Puts `text` on the system clipboard, reporting whether it got there.
-///
-/// Two ways, because one is not enough. `navigator.clipboard` is the right
-/// one and is refused outside a secure context — which is exactly what a
-/// desktop webview serving from a custom scheme is on some platforms. The
-/// fallback is the old trick of selecting a throwaway textarea, which is
-/// deprecated everywhere and works everywhere.
-#[cfg(not(target_arch = "wasm32"))]
-async fn copy_to_clipboard(text: &str) -> Option<bool> {
-    // Through JSON rather than quoted by hand: the address is ours today, but
-    // a string spliced into a script is a hole waiting for the day it is not.
-    let literal = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string());
-    let mut script = document::eval(&format!(
-        r#"
-        const text = {literal};
-        let done = false;
-        try {{
-            if (navigator.clipboard && window.isSecureContext) {{
-                await navigator.clipboard.writeText(text);
-                done = true;
-            }}
-        }} catch (error) {{ done = false; }}
-        if (!done) {{
-            const area = document.createElement("textarea");
-            area.value = text;
-            area.setAttribute("readonly", "");
-            area.style.position = "fixed";
-            area.style.top = "-1000px";
-            document.body.appendChild(area);
-            area.select();
-            try {{ done = document.execCommand("copy"); }} catch (error) {{ done = false; }}
-            area.remove();
-        }}
-        dioxus.send(done);
-        "#
-    ));
-    Some(script.recv::<bool>().await.unwrap_or(false))
-}
 
 /// There is no server inside a browser, so the web build has no switch.
 #[cfg(target_arch = "wasm32")]

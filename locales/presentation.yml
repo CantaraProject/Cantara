@@ -27,6 +27,18 @@ presenter:
   stream_preview:
     en: Network stream
     de: Netzwerk-Übertragung
+  stream_copy:
+    en: Copy the address for viewers
+    de: Adresse für Zuschauer kopieren
+  stream_copied:
+    en: Copied
+    de: Kopiert
+  stream_copy_failed:
+    en: Could not copy
+    de: Konnte nicht kopiert werden
+  stream_same_as_projection:
+    en: The stream is showing what the projection is showing.
+    de: Die Übertragung zeigt dasselbe wie die Projektion.
   chapters:
     en: Elements
     de: Elemente

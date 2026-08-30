@@ -1022,6 +1022,9 @@ mod tests {
                         StaticSlideRendererComponentProps {
                             slide,
                             presentation_design: design.clone(),
+                            // A design being edited is never blacked out: what
+                            // is being looked at is the design.
+                            blacked_out: false,
                         },
                     );
                     dom.rebuild_in_place();

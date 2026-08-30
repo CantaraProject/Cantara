@@ -144,6 +144,9 @@ pub mod sync;
 /// behaviours depend on.
 pub mod console_host;
 
+/// Putting an address on the clipboard of whoever is looking at the page.
+pub mod clipboard;
+
 /// The bridge to a presenter console running in a browser on the network.
 /// There is no server inside a browser, so the web build has no bridge.
 #[cfg(not(target_arch = "wasm32"))]

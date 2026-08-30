@@ -755,3 +755,40 @@
     text-align: center;
     color: var(--pico-muted-color);
 }
+
+/* ── The stream, beside the preview of the projection ────────────────────── */
+/* The heading, the button that copies the address for viewers, and whatever
+   that click had to say — on one line, because they are one thing. */
+.presenter-stream-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.presenter-stream-head h4 {
+    margin: 0;
+}
+
+/* Small enough to sit beside a heading rather than under it: this is a hint
+   offered next to the name of the thing, not a control of the console. */
+.presenter-stream-copy {
+    width: auto;
+    margin: 0;
+    padding: 0.15rem 0.45rem;
+    line-height: 1;
+}
+
+/* What the click had to say sits *beside* the button here, not under it as it
+   does in the options panel, where `main.css` gives it a block of its own. */
+.presenter-stream-head .stream-copied,
+.presenter-stream-head .stream-copy-failed {
+    margin-top: 0;
+}
+
+.presenter-stream-same {
+    margin: 0.25rem 0 0;
+    font-size: 0.85rem;
+    color: var(--pico-muted-color);
+}
