@@ -1,10 +1,10 @@
 use crate::components::shared_components::SelectedItemPreview;
 use crate::logic::settings::{
-    use_settings, AfterLastSlide, PresentationDesign, Settings, SlideTimerSettings, SlideTransition,
+    AfterLastSlide, PresentationDesign, Settings, SlideTimerSettings, SlideTransition, use_settings,
 };
 use crate::logic::sourcefiles::SourceFileType;
-use crate::logic::stream_view::reconcile_max_lines;
 use crate::logic::states::SelectedItemRepresentation;
+use crate::logic::stream_view::reconcile_max_lines;
 use cantara_songlib::slides::SlideSettings;
 use dioxus::prelude::*;
 use rust_i18n::t;
@@ -567,10 +567,7 @@ fn StreamViewSettings() -> Element {
 
     // The projection's own general choice, which is what "the same" means here
     // and what the line wrap is reconciled against.
-    let projection_wrap = settings
-        .read()
-        .default_song_slide_settings()
-        .max_lines;
+    let projection_wrap = settings.read().default_song_slide_settings().max_lines;
 
     let design_index = settings.read().stream.design_index;
     let slide_settings_index = settings.read().stream.slide_settings_index;
@@ -854,7 +851,8 @@ fn RemoteConsoleSwitch() -> Element {
     // plainly beside the switch rather than prevented: a locked room on a
     // network with nothing else on it is a real situation, and the person
     // running the service is the one who knows which network they are on.
-    let open_to_anyone = use_memo(move || settings.read().stream.remote_password.is_empty());
+    let remote_presenter_console_is_open_to_anyone =
+        use_memo(move || settings.read().stream.remote_password.is_empty());
 
     rsx! {
         hgroup { style: "margin-top: 1.5rem;",
@@ -909,7 +907,7 @@ fn RemoteConsoleSwitch() -> Element {
             { t!("selection.remote_enable").to_string() }
         }
 
-        if open_to_anyone() {
+        if remote_presenter_console_is_open_to_anyone() {
             p { style: "margin-top: 0.5rem;",
                 { t!("selection.remote_no_password").to_string() }
             }
