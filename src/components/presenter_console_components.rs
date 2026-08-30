@@ -15,6 +15,10 @@ use crate::logic::web_storage;
 use crate::MAIN_CSS;
 use cantara_songlib::slides::{Slide, SlideContent, SlideRow};
 use dioxus::prelude::*;
+use dioxus_free_icons::Icon;
+use dioxus_free_icons::icons::fa_solid_icons::{
+    FaChevronLeft, FaChevronRight, FaEyeSlash, FaPenToSquare, FaXmark,
+};
 use rust_i18n::t;
 
 use super::jump_sidebar::{JumpSidebar, JumpTarget};
@@ -74,9 +78,15 @@ fn remember(
 /// The entry point for the presenter console window.
 /// Works both as a routed page in the main window and as a standalone window
 /// (via `with_root_context`).
+///
+/// Everything the console *does* is in [`PresenterConsoleRunning`]; what is
+/// left here is the one question that has to be asked before any of it: is
+/// there a presentation at all. It is asked in its own component so that the
+/// answer may change while the page is open — the console's hooks are the
+/// child's, and a child that is left out of a rendering is dropped with them.
 #[component]
 pub fn PresenterConsolePage() -> Element {
-    let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
+    let running_presentations: Signal<Vec<RunningPresentation>> = use_context();
 
     // Where this console is being shown: a page in the main window, a window
     // of its own, or a browser on the network. Three things below depend on
@@ -111,29 +121,55 @@ pub fn PresenterConsolePage() -> Element {
     // of a socket.
     let nav = if is_main_window { Some(navigator()) } else { None };
 
-    if running_presentations.peek().is_empty() {
+    // Read rather than peeked where this is a remote console, on purpose. The
+    // consoles that live in a window are told the presentation ended by a sync
+    // loop and then close or navigate; a remote console has no window to close
+    // and nowhere to go, so the page itself has to change — which only happens
+    // if this scope subscribed. Without the subscription the console kept the
+    // ended presentation on screen, arrows and all, for the rest of the
+    // service.
+    //
+    // The others keep the `peek`: their leaving is the sync loop's business
+    // and a subscription here would only redraw the page at every scroll
+    // report.
+    let nothing_running = if host.is_remote() {
+        running_presentations.read().is_empty()
+    } else {
+        running_presentations.peek().is_empty()
+    };
+
+    if nothing_running {
         leave(host, nav.as_ref());
         // A remote console has nowhere to go and says so instead. The address
         // stays open, and the next presentation appears on it.
         if host.is_remote() {
-            // Read rather than peeked, on purpose. `peek` above deliberately
-            // does not subscribe, which is right for the consoles that are
-            // told what happened by a sync loop — but a remote console has
-            // only this render to learn from. Without the subscription the
-            // page says that nothing is running for the rest of the service,
-            // however many presentations start on the machine.
-            let _ = running_presentations.read().len();
-
             return rsx! {
                 document::Link { rel: "stylesheet", href: MAIN_CSS }
                 document::Link { rel: "stylesheet", href: PRESENTER_CONSOLE_CSS }
-                main { class: "container",
+                main { class: "container presenter-nothing-running",
                     p { {t!("presenter.remote.nothing_running").to_string()} }
                 }
             };
         }
         return rsx! {};
     }
+
+    rsx! {
+        PresenterConsoleRunning {}
+    }
+}
+
+/// The console proper: everything from the header to the control bar, for as
+/// long as there is a presentation to drive.
+#[component]
+fn PresenterConsoleRunning() -> Element {
+    let mut running_presentations: Signal<Vec<RunningPresentation>> = use_context();
+    let host = ConsoleHost::current();
+    let is_main_window = host == ConsoleHost::MainWindow;
+    // Only acquire the navigator if a router is present to avoid panicking:
+    // a window of its own has none, and neither has a browser at the far end
+    // of a socket.
+    let nav = if is_main_window { Some(navigator()) } else { None };
 
     let mut running_presentation: Signal<RunningPresentation> =
         use_signal(move || running_presentations.peek().first().cloned().unwrap_or_else(|| {
@@ -1117,18 +1153,32 @@ fn PresenterControlBar(
             div { class: "presenter-controls",
                 button {
                     class: "secondary",
+                    // The words are gone at this width, so the name has to be
+                    // somewhere: `title` for a mouse, `aria_label` for a
+                    // screen reader. Both are set at every width — the label
+                    // an icon carries is the same one the word says.
+                    title: t!("presenter.previous").to_string(),
+                    aria_label: t!("presenter.previous").to_string(),
                     onclick: move |_| {
                         running_presentation.write().previous_slide();
                     },
-                    {t!("presenter.previous").to_string()}
+                    span { class: "mobile-only",
+                        Icon { icon: FaChevronLeft }
+                    }
+                    span { class: "desktop-only", {t!("presenter.previous").to_string()} }
                 }
                 span { class: "slide-counter", {format!("{} / {}", current_total, total_slides)} }
                 button {
                     class: "secondary",
+                    title: t!("presenter.next").to_string(),
+                    aria_label: t!("presenter.next").to_string(),
                     onclick: move |_| {
                         running_presentation.write().next_slide();
                     },
-                    {t!("presenter.next").to_string()}
+                    span { class: "mobile-only",
+                        Icon { icon: FaChevronRight }
+                    }
+                    span { class: "desktop-only", {t!("presenter.next").to_string()} }
                 }
                 // Chapter jump dropdown
                 select {
@@ -1144,29 +1194,44 @@ fn PresenterControlBar(
                 }
                 button {
                     class: if is_black { "contrast" } else { "outline secondary" },
+                    title: t!("presenter.black_screen").to_string(),
+                    aria_label: t!("presenter.black_screen").to_string(),
                     onclick: move |_| {
                         running_presentation.write().toggle_black_screen();
                     },
-                    {t!("presenter.black_screen").to_string()}
+                    span { class: "mobile-only",
+                        Icon { icon: FaEyeSlash }
+                    }
+                    span { class: "desktop-only", {t!("presenter.black_screen").to_string()} }
                 }
                 if let Some(ref handler) = on_edit_selection {
                     button {
                         class: "outline secondary",
+                        title: t!("presenter.edit_selection").to_string(),
+                        aria_label: t!("presenter.edit_selection").to_string(),
                         onclick: {
                             let handler = *handler;
                             move |_| {
                                 handler.call(());
                             }
                         },
-                        {t!("presenter.edit_selection").to_string()}
+                        span { class: "mobile-only",
+                            Icon { icon: FaPenToSquare }
+                        }
+                        span { class: "desktop-only", {t!("presenter.edit_selection").to_string()} }
                     }
                 }
                 button {
                     class: "outline secondary",
+                    title: t!("presenter.quit").to_string(),
+                    aria_label: t!("presenter.quit").to_string(),
                     onclick: move |_| {
                         on_quit.call(());
                     },
-                    {t!("presenter.quit").to_string()}
+                    span { class: "mobile-only",
+                        Icon { icon: FaXmark }
+                    }
+                    span { class: "desktop-only", {t!("presenter.quit").to_string()} }
                 }
             }
         }
@@ -1342,6 +1407,84 @@ mod tests {
             PREVIEW_BUILDS.load(Ordering::Relaxed),
             2,
             "this is the rebuild that stopped the video, and what the one tree above avoids"
+        );
+    }
+
+    /// A remote console has to notice that the presentation ended, and that is
+    /// a question of *how* it reads the presentations rather than what it does
+    /// with the answer.
+    ///
+    /// The console asked with `peek`, which deliberately does not subscribe.
+    /// That is right for a console in a window: it is told the presentation
+    /// ended by its sync loop and closes. A remote console has no window to
+    /// close and nowhere to navigate to — the page itself has to become the
+    /// "nothing is running" screen, and a scope that never subscribed is never
+    /// rendered again. What the operator saw was an ended presentation still
+    /// on the page, arrows and all, for the rest of the service.
+    ///
+    /// Both shapes are built here, from the same signal, so that the one that
+    /// does not work is on the record beside the one that does.
+    #[test]
+    fn a_console_that_peeks_never_notices_the_end() {
+        thread_local! {
+            static PRESENTATIONS: std::cell::Cell<Option<Signal<Vec<u8>>>> =
+                const { std::cell::Cell::new(None) };
+        }
+
+        #[component]
+        fn Peeking() -> Element {
+            let running: Signal<Vec<u8>> = use_context();
+            if running.peek().is_empty() {
+                return rsx! { p { "nothing is running" } };
+            }
+            rsx! { p { "the console" } }
+        }
+
+        #[component]
+        fn Reading() -> Element {
+            let running: Signal<Vec<u8>> = use_context();
+            if running.read().is_empty() {
+                return rsx! { p { "nothing is running" } };
+            }
+            rsx! { p { "the console" } }
+        }
+
+        #[component]
+        fn Harness() -> Element {
+            // One presentation, as a console is opened onto.
+            let running = use_context_provider(|| Signal::new(vec![1u8]));
+            PRESENTATIONS.with(|held| held.set(Some(running)));
+            rsx! {
+                div { class: "peeking", Peeking {} }
+                div { class: "reading", Reading {} }
+            }
+        }
+
+        let mut dom = VirtualDom::new(Harness);
+        dom.rebuild_in_place();
+        assert_eq!(
+            dioxus_ssr::render(&dom).matches("the console").count(),
+            2,
+            "both consoles are up while the presentation is running"
+        );
+
+        // The presentation ends — from the console itself, over the bridge, or
+        // because the operator closed the projection. All three come to the
+        // same thing here: the list is cleared.
+        let mut running = PRESENTATIONS
+            .with(|held| held.get())
+            .expect("the harness handed its signal out");
+        dom.in_runtime(|| running.set(Vec::new()));
+        dom.render_immediate(&mut dioxus_core::NoOpMutations);
+
+        let html = dioxus_ssr::render(&dom);
+        assert!(
+            html.contains(r#"<div class="peeking"><p>the console</p></div>"#),
+            "the peeking console still shows a presentation that has ended: {html}"
+        );
+        assert!(
+            html.contains(r#"<div class="reading"><p>nothing is running</p></div>"#),
+            "the reading console says so, which is what the remote console does: {html}"
         );
     }
 
