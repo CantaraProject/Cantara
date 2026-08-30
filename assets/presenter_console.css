@@ -3,7 +3,14 @@
 .presenter-console {
     display: flex;
     flex-direction: column;
+    /* `dvh` where it is known, `vh` in front of it for anything that is not —
+       the same pair, for the same reason, as `html, body` in `main.css`. On a
+       phone `100vh` is the window with the address bar hidden, so a console
+       sized that way is taller than what can be seen and its control bar sits
+       below the fold until the bar rolls away. A remote console is most often
+       read on a phone. */
     height: 100vh;
+    height: 100dvh;
     width: 100%;
     overflow: hidden;
     outline: none;
@@ -280,6 +287,17 @@
 /* Grid view: full-width single column layout */
 .presenter-content-grid {
     grid-template-columns: 1fr;
+    /* One row, at every width — including under the 900px rule above, which
+       gives the content two.
+     *
+     * Two rows are right for the text view on a narrow screen: the words go
+     * above and the live preview below. In the overview the preview is not in
+     * the flow at all — it is moved off the page rather than taken out of it,
+     * so that the video in it keeps playing (see `.presenter-preview-hidden`)
+     * — and the thumbnails were left holding the first of two equal rows. Half
+     * the console was blank down to the control bar, and the scrollable list
+     * ended in the middle of the screen. */
+    grid-template-rows: 1fr;
     /* No gap between the header and the size slider that sticks below it. The
        slider is pinned to the top of the panel, so any padding above the panel
        shows as a strip of background between the two — and with the slider
@@ -691,4 +709,49 @@
     height: 420px;
     overflow: hidden;
     pointer-events: none;
+}
+
+/* ── The console on a small screen ───────────────────────────────────────── */
+/* A remote console is most often a phone or a tablet at the back of the hall,
+   where "Schwarzer Bildschirm" and "Auswahl bearbeiten" side by side are wider
+   than the screen. The words give way to their icons below the one breakpoint
+   `main.css` declares for the selection window's footer, so both bars behave
+   the same way at the same width. */
+@media only screen and (max-width: 767px) {
+    /* Keeps the glyph on the button's own baseline: an inline `<svg>` sits on
+       the text baseline by default and hangs below a button with no text left
+       in it. Set here and nowhere else — a `display` on `.mobile-only` outside
+       this query would beat the `display: none` in `main.css` on specificity
+       and put the icons on the wide console as well. */
+    .presenter-controls button .mobile-only {
+        display: inline-flex;
+        align-items: center;
+    }
+
+    /* Room for the counter and the dropdown between them: with icons the
+       buttons no longer need the padding that made room for words. */
+    .presenter-controls {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .presenter-controls button {
+        padding: 8px 12px;
+    }
+
+    .chapter-select {
+        max-width: 40vw;
+    }
+}
+
+/* ── Nothing is running ──────────────────────────────────────────────────── */
+/* What a remote console shows between services: the page stays open at the
+   same address and the next presentation appears on it. */
+.presenter-nothing-running {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    text-align: center;
+    color: var(--pico-muted-color);
 }

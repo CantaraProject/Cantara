@@ -70,7 +70,11 @@ struct Shared {
     /// [`crate::logic::video::parse_byte_range`].
     videos: RwLock<HashMap<String, std::path::PathBuf>>,
     /// What a viewer has to know. Empty means anyone may watch.
-    password: String,
+    ///
+    /// `None` means the stream is switched off: the server is up for the
+    /// presenter console instead, which is a switch of its own. Both are
+    /// served from this one socket — see [`crate::logic::network_server`].
+    password: RwLock<Option<String>>,
     /// Handed out when the password is given correctly.
     session: String,
     /// Goes true once, when the server should stop.
@@ -89,9 +93,20 @@ impl Shared {
     /// With no password there is nothing to prove, which is the ordinary case
     /// in a hall: a congregation should not have to log in to read the words.
     fn may_watch(&self, headers: &HeaderMap) -> bool {
-        if self.password.is_empty() {
+        let Ok(password) = self.password.read() else {
+            // Only ever locked to read a string; a poisoned lock means
+            // something has gone very wrong already, and the safe answer to
+            // "may this be watched" is no.
+            return false;
+        };
+        let Some(password) = password.as_ref() else {
+            return false;
+        };
+        if password.is_empty() {
             return true;
         }
+        let password = password.clone();
+        drop(password);
         headers
             .get_all(header::COOKIE)
             .iter()
@@ -118,17 +133,32 @@ impl StreamServer {
     /// Returns what went wrong rather than panicking: the port may well be
     /// taken, and that is something to tell the user about, not to fall over
     /// on in the middle of preparing a service.
-    pub fn start(port: u16, password: String) -> Result<StreamServer, String> {
+    #[cfg_attr(not(test), allow(dead_code, reason = "the helper starts it with the console's routes"))]
+    pub fn start(port: u16, password: Option<String>) -> Result<StreamServer, String> {
+        Self::start_with(port, password, Router::new())
+    }
+
+    /// The same, with another set of routes served from the same socket.
+    ///
+    /// This is what makes one address enough for the whole of Cantara's
+    /// network side: the presenter console's routes are handed in here rather
+    /// than binding a second port. See [`crate::logic::network_server`].
+    pub fn start_with(
+        port: u16,
+        password: Option<String>,
+        alongside: Router,
+    ) -> Result<StreamServer, String> {
         let shared = Arc::new(Shared {
             state: watch::channel(Arc::new(StreamState::waiting(0))).0,
             media: RwLock::new(HashMap::new()),
             videos: RwLock::new(HashMap::new()),
-            password,
+            password: RwLock::new(password),
             session: new_session_token(),
             stopping: watch::channel(false).0,
         });
 
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<u16, String>>();
+
 
         let thread_shared = Arc::clone(&shared);
         let thread = std::thread::Builder::new()
@@ -187,7 +217,7 @@ impl StreamServer {
                         }
                     };
 
-                    let app = router(thread_shared);
+                    let app = router(thread_shared).merge(alongside);
                     tokio::select! {
                         served = axum::serve(listener, app)
                             .with_graceful_shutdown(graceful) => {
@@ -227,16 +257,19 @@ impl StreamServer {
         })
     }
 
+    /// Starts or stops offering the stream to viewers, leaving the server up:
+    /// the console may still be being served from the same socket.
+    pub fn set_viewer(&self, password: Option<String>) {
+        if let Ok(mut held) = self.shared.password.write() {
+            *held = password;
+        }
+    }
+
     /// The port the server actually took, which is not the one that was asked
     /// for when that was 0.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn port(&self) -> u16 {
         self.port
-    }
-
-    /// The address to type into a phone.
-    pub fn address(&self) -> String {
-        format!("http://{}:{}", local_address(), self.port)
     }
 
     /// Tells every viewer where the presentation now stands.
@@ -272,15 +305,6 @@ impl StreamServer {
         }
     }
 
-    /// Whether a picture has already been handed over, so the program does not
-    /// render one twice.
-    pub fn has_media(&self, id: &str) -> bool {
-        self.shared
-            .media
-            .read()
-            .map(|media| media.contains_key(id))
-            .unwrap_or(false)
-    }
 }
 
 impl Drop for StreamServer {
@@ -297,16 +321,18 @@ impl Drop for StreamServer {
 }
 
 fn router(shared: Arc<Shared>) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/", get(page))
         .route("/state", get(state))
         .route("/events", get(events))
         .route("/abcjs.js", get(abcjs))
         .route("/media/{id}", get(media))
         .route("/video/{id}", get(video))
-        .route("/login", post(login))
-        .with_state(shared)
+        .route("/login", post(login));
+
+    router.with_state(shared)
 }
+
 
 async fn page() -> impl IntoResponse {
     (
@@ -580,7 +606,11 @@ struct Login {
 
 /// Takes a password and, if it is the right one, hands out a session.
 async fn login(State(shared): State<Arc<Shared>>, Json(given): Json<Login>) -> Response {
-    if !constant_time_eq(given.password.as_bytes(), shared.password.as_bytes()) {
+    let Some(password) = shared.password.read().ok().and_then(|held| held.clone()) else {
+        // The stream is switched off; there is nothing to log in to.
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    if !constant_time_eq(given.password.as_bytes(), password.as_bytes()) {
         return (StatusCode::UNAUTHORIZED, "wrong password").into_response();
     }
 
@@ -669,7 +699,7 @@ fn describe_bind_failure(port: u16, error: &std::io::Error) -> String {
 /// showing it and nowhere else, which is precisely the network a church is
 /// most likely to be on. So the interfaces are then listed and a private
 /// address taken from them.
-fn local_address() -> IpAddr {
+pub fn local_address() -> IpAddr {
     if let Some(routed) = address_by_route() {
         return routed;
     }
@@ -727,7 +757,7 @@ mod tests {
             state: watch::channel(Arc::new(StreamState::waiting(0))).0,
             media: RwLock::new(HashMap::new()),
             videos: RwLock::new(HashMap::new()),
-            password: password.to_string(),
+            password: RwLock::new(Some(password.to_string())),
             session: "s3cret-session".to_string(),
             stopping: watch::channel(false).0,
         }
@@ -822,7 +852,7 @@ mod tests {
     /// Starts a server on any free port. Panics rather than returns, because a
     /// test that cannot get a socket has nothing left to say.
     fn serving(password: &str) -> StreamServer {
-        StreamServer::start(0, password.to_string()).expect("a server on a free port")
+        StreamServer::start(0, Some(password.to_string())).expect("a server on a free port")
     }
 
     fn client() -> reqwest::blocking::Client {
@@ -1008,13 +1038,11 @@ mod tests {
         let server = serving("");
         let id = "a-page";
 
-        assert!(!server.has_media(id));
         let missing = client().get(at(&server, "/media/a-page")).send().expect("answers");
         assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
 
         server.publish_media(id.to_string(), b"not really a png".to_vec(), "image/png");
 
-        assert!(server.has_media(id));
         let found = client().get(at(&server, "/media/a-page")).send().expect("answers");
         assert!(found.status().is_success());
         assert_eq!(
@@ -1199,7 +1227,7 @@ mod tests {
         };
 
         // The same port, straight away.
-        let again = StreamServer::start(port, String::new());
+        let again = StreamServer::start(port, Some(String::new()));
 
         assert!(
             again.is_ok(),
@@ -1365,7 +1393,7 @@ mod tests {
         use std::io::{Read, Write};
         use std::time::{Duration, Instant};
 
-        let server = StreamServer::start(0, String::new()).expect("started");
+        let server = StreamServer::start(0, Some(String::new())).expect("started");
         let port = server.port();
 
         let mut viewer = std::net::TcpStream::connect(("127.0.0.1", port)).expect("connected");

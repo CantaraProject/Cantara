@@ -285,6 +285,7 @@ fn StreamSettingsSection() -> Element {
     let mut settings = use_settings();
     let port = use_memo(move || settings.read().stream.port);
     let password = use_memo(move || settings.read().stream.password.clone());
+    let remote_password = use_memo(move || settings.read().stream.remote_password.clone());
 
     rsx! {
         hgroup {
@@ -323,6 +324,21 @@ fn StreamSettingsSection() -> Element {
                         settings.read().save();
                     },
                 }
+            }
+            label {
+                { t!("settings.remote_password").to_string() }
+                input {
+                    r#type: "password",
+                    value: "{remote_password}",
+                    onchange: move |event| {
+                        settings.write().stream.remote_password = event.value();
+                        settings.read().save();
+                    },
+                }
+            }
+            p {
+                style: "font-size: 0.85em; color: var(--pico-muted-color);",
+                { t!("settings.remote_password_note").to_string() }
             }
             p {
                 style: "font-size: 0.85em; color: var(--pico-muted-color);",

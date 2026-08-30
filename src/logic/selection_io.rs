@@ -406,7 +406,10 @@ fn write_songtex(
     for item in songs {
         let content = read_item(item, read_asset)?;
         let text = String::from_utf8_lossy(&content);
-        out.push_str(&format!("\\beginfile{{{}}}\n", item.source_file.file_name()));
+        out.push_str(&format!(
+            "\\beginfile{{{}}}\n",
+            item.source_file.file_name()
+        ));
         out.push_str(text.trim_end_matches('\n'));
         out.push_str("\n\\endfile\n");
     }
@@ -933,7 +936,10 @@ fn find_in_library(item: &DocumentItem, library: &[SourceFile]) -> Option<PathBu
 /// `path` is where the element's file ended up — the one found in the library,
 /// or the one it was just written to. An element that is neither a file nor
 /// Markdown has nothing to show and gives `None`.
-pub fn selected_item_of(resolved: &ResolvedItem, path: Option<PathBuf>) -> Option<SelectedItemRepresentation> {
+pub fn selected_item_of(
+    resolved: &ResolvedItem,
+    path: Option<PathBuf>,
+) -> Option<SelectedItemRepresentation> {
     let item = &resolved.item;
 
     let source_file = match (&item.inline_markdown, path) {
@@ -1200,7 +1206,10 @@ mod tests {
             "the song itself has to travel with the file"
         );
         assert_eq!(
-            document.items[0].design.as_ref().map(|design| design.name.clone()),
+            document.items[0]
+                .design
+                .as_ref()
+                .map(|design| design.name.clone()),
             Some("Dark".to_string())
         );
         assert_eq!(document.items[0].transition, SlideTransition::Morph);
@@ -1251,7 +1260,10 @@ mod tests {
 
         let names = zip_entry_names(&written.bytes);
         assert_eq!(
-            names.iter().filter(|name| name.starts_with("assets/")).count(),
+            names
+                .iter()
+                .filter(|name| name.starts_with("assets/"))
+                .count(),
             1,
             "the song was stored twice: {names:?}"
         );
@@ -1307,7 +1319,10 @@ mod tests {
             .into_iter()
             .filter(|name| name.starts_with("assets/"))
             .collect();
-        assert!(assets.is_empty(), "nothing should have been stored: {assets:?}");
+        assert!(
+            assets.is_empty(),
+            "nothing should have been stored: {assets:?}"
+        );
 
         let document = read_selection(&written.bytes, &written.name).expect("read");
         assert_eq!(
@@ -1320,7 +1335,12 @@ mod tests {
         let mut archive =
             zip::ZipArchive::new(std::io::Cursor::new(bytes.to_vec())).expect("a ZIP archive");
         (0..archive.len())
-            .filter_map(|index| archive.by_index(index).ok().map(|file| file.name().to_string()))
+            .filter_map(|index| {
+                archive
+                    .by_index(index)
+                    .ok()
+                    .map(|file| file.name().to_string())
+            })
             .collect()
     }
 
@@ -1472,8 +1492,7 @@ mod tests {
         )
         .expect("written");
 
-        let value: serde_json::Value =
-            serde_json::from_slice(&written.bytes).expect("valid JSON");
+        let value: serde_json::Value = serde_json::from_slice(&written.bytes).expect("valid JSON");
         assert_eq!(value["version"], 1);
         let song = &value["songs"][0];
         assert_eq!(song["file_name"], "Amazing Grace.song");
@@ -1539,7 +1558,10 @@ mod tests {
 
         // Mixed with a song, the song comes through and the picture does not.
         let written = write_selection(
-            &[picture, item_of("Amazing Grace.song", "/songs/Amazing Grace.song")],
+            &[
+                picture,
+                item_of("Amazing Grace.song", "/songs/Amazing Grace.song"),
+            ],
             SelectionFormat::Songtex,
             "Service",
             &reader(SONG),
@@ -1602,11 +1624,8 @@ mod tests {
             "version": CANTARA_ZIP_VERSION + 1,
             "items": [],
         });
-        let bytes = build_zip(
-            &serde_json::from_value(manifest).expect("a manifest"),
-            &[],
-        )
-        .expect("written");
+        let bytes = build_zip(&serde_json::from_value(manifest).expect("a manifest"), &[])
+            .expect("written");
 
         assert_eq!(
             read_selection(&bytes, "later.cantara.zip"),
@@ -1642,7 +1661,10 @@ mod tests {
             )],
             ..Default::default()
         };
-        let library = vec![song_file("Amazing Grace.song", "/library/Amazing Grace.song")];
+        let library = vec![song_file(
+            "Amazing Grace.song",
+            "/library/Amazing Grace.song",
+        )];
 
         let resolved = resolve_selection(&document, &library, &[], &[]);
 
@@ -1730,12 +1752,7 @@ mod tests {
             slide_settings: vec![SlideSettings::default()],
         };
 
-        let resolved = resolve_selection(
-            &document,
-            &[],
-            &[known],
-            &[SlideSettings::default()],
-        );
+        let resolved = resolve_selection(&document, &[], &[known], &[SlideSettings::default()]);
 
         assert_eq!(resolved.new_designs, vec![brought]);
         assert!(resolved.new_slide_settings.is_empty());
@@ -1756,14 +1773,19 @@ mod tests {
             origin: AssetOrigin::InLibrary(PathBuf::from("/library/Amazing Grace.song")),
         };
 
-        let selected = selected_item_of(&resolved, Some(PathBuf::from("/library/Amazing Grace.song")))
-            .expect("a song is something the selection can hold");
+        let selected = selected_item_of(
+            &resolved,
+            Some(PathBuf::from("/library/Amazing Grace.song")),
+        )
+        .expect("a song is something the selection can hold");
 
         assert_eq!(selected.source_file.name, "Amazing Grace");
         assert_eq!(selected.source_file.file_type, SourceFileType::Song);
         assert_eq!(selected.transition_effect, SlideTransition::Morph);
         assert_eq!(
-            selected.presentation_design_option.map(|design| design.name),
+            selected
+                .presentation_design_option
+                .map(|design| design.name),
             Some("Dark".to_string())
         );
     }
@@ -1800,8 +1822,7 @@ mod tests {
             b"And can it be"
         );
         assert_eq!(
-            outcome.items[1].source_file.path,
-            outcome.written[0],
+            outcome.items[1].source_file.path, outcome.written[0],
             "the imported element points at what was written"
         );
     }

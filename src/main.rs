@@ -9,6 +9,22 @@
 //!
 //! ## Additional crates
 //! The parsing of the song files, the song structures and the side generation are part of the [cantara_songlib] crate.
+//!
+//! ## A rule the compiler keeps
+//! Nothing outside the tests may `unwrap` or `expect`. A panic in a program
+//! that is running a service is a black screen in front of a congregation,
+//! and there is always something better to do with a failure: say it in the
+//! panel, write it to the log, or carry on without the part that failed. The
+//! lint below is what keeps that true as the program grows; tests are exempt,
+//! where panicking *is* how a failure is reported.
+//!
+//! `deny` rather than `warn`, and Clippy is run in CI — see the "Check the
+//! lints" step in `.github/workflows/dioxus.yml`. A warning is a rule nobody
+//! keeps: `cargo test` does not run Clippy, so nothing failed when an
+//! `unwrap` was added, and the note scrolled past in a build log that is
+//! thousands of lines long.
+
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
 // Make sure that no terminal window is shown on windows
 #![windows_subsystem = "windows"]
@@ -111,6 +127,31 @@ pub enum Route {
 }
 
 fn main() {
+    // Started as the console helper rather than as Cantara itself? Then this
+    // process serves the presenter console to a browser and never opens a
+    // window — see [`logic::network_server`], which explains why that
+    // has to be a process of its own.
+    #[cfg(feature = "desktop")]
+    {
+        let arguments: Vec<String> = std::env::args().collect();
+        if arguments.get(1).map(String::as_str) == Some(logic::network_server::FLAG) {
+            let port = arguments.get(2).and_then(|port| port.parse::<u16>().ok());
+            match (port, arguments.get(3)) {
+                (Some(port), Some(token)) => {
+                    if let Err(reason) = logic::network_server::run(port, token) {
+                        eprintln!("{reason}");
+                        std::process::exit(1);
+                    }
+                }
+                _ => {
+                    eprintln!("the console helper needs a port and a token");
+                    std::process::exit(2);
+                }
+            }
+            return;
+        }
+    }
+
     #[cfg(feature = "desktop")]
     fn launch_app() {
         #[cfg(target_os = "linux")]
@@ -329,50 +370,86 @@ fn App() -> Element {
             let _ = stream_generation();
             let presentations = running_presentations.read().clone();
 
-            if !logic::stream::is_enabled() {
-                return;
+            // What is running, for both services at once: the network
+            // server works out from it what a viewer is shown and hands the
+            // same value to the console. See [`logic::network_server`].
+            #[cfg(feature = "desktop")]
+            logic::network_host::publish(presentations.first().cloned());
+
+            #[cfg(feature = "desktop")]
+            if logic::network_host::is_viewer_enabled() {
+                // The pictures, which are the one thing the network server
+                // cannot work out for itself: a PDF page is drawn by this
+                // window's web view, and that process has not got one.
+                //
+                // Which pictures are wanted is decided from the same state the
+                // server will build, by the same function, so the names match
+                // without either side being told them.
+                let state = StreamState::of(
+                    presentations.first().unwrap_or(&RunningPresentation::new(vec![])),
+                    0,
+                );
+                let wanted = logic::network_host::media_wanted(state.media());
+                if !wanted.is_empty() {
+                    let sources = logic::stream::protocol::media_sources(&presentations);
+                    spawn(async move {
+                        for id in wanted {
+                            let Some(source) = sources.get(&id) else {
+                                continue;
+                            };
+                            if let Some((bytes, content_type)) = render_for_stream(source).await {
+                                logic::network_host::publish_media(id, bytes, content_type);
+                            }
+                        }
+                    });
+                }
             }
+        });
 
-            let state = match presentations.first() {
-                Some(running) => StreamState::of(running, 0)
-                    // Where the video actually is; the running presentation
-                    // does not carry it. See [`StreamState::with_live_video`].
-                    .with_live_video(logic::video::published_position()),
-                // Between services. The address stays open and says so.
-                None => StreamState::waiting(0),
-            };
+        // ── The remote console ───────────────────────────────────────────
+        //
+        // A slide change reaches the helper by two roads, because one of them
+        // is not enough. The effect above is woken by whatever wakes the
+        // streaming publisher — the same signal, the same subscription — and
+        // that is the road that carries a change the moment it happens. But
+        // the presentation is driven from *other* windows, each with a
+        // VirtualDom of its own, and the whole reason those windows keep in
+        // step by polling is that a write from one is not a reliable wake-up
+        // in another (see `PresenterConsolePage`). So there is also a watch
+        // below, which notices anything the effect slept through.
+        //
+        // Sending twice costs nothing: `publish` compares before it writes.
 
-            // A picture cannot be sent as words, so the slides that are one are
-            // rendered and handed over before the state that refers to them —
-            // otherwise a viewer asks for a picture that is not there yet.
-            let wanted = state.media();
-            let sources = picture_sources(&presentations);
+        // Both directions, in one loop, polled rather than woken.
+        //
+        // Awaiting the command channel was the obvious way to write this half
+        // and it did not work: a message sent from the thread that reads the
+        // helper wakes the task's `Waker`, and whether that reaches a
+        // VirtualDom driven by a window's event loop is exactly the question
+        // every other cross-window path in this program answers by polling
+        // instead (see the loops in `PresentationPage` and
+        // `PresenterConsolePage`). What the operator saw was a remote console
+        // that showed everything and changed nothing.
+        //
+        // So: fifty milliseconds, the same interval those loops use. Draining
+        // is `try_recv` until empty — a burst of clicks is one write to the
+        // signal — and publishing is guarded by a comparison inside
+        // `publish`, so a quiet loop costs a lock and two `peek`s.
+        #[cfg(feature = "desktop")]
+        use_future(move || async move {
+            let mut running_presentations = running_presentations;
 
-            // A video is registered rather than rendered: the server reads it
-            // from where it is, in whatever piece a viewer's browser asks for.
-            for id in state.videos() {
-                if logic::stream::has_video(&id) {
-                    continue;
+            loop {
+                let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
+
+                let mut presentations = running_presentations.peek().clone();
+                if logic::remote_console::drain(&mut presentations) {
+                    running_presentations.set(presentations);
                 }
-                if let Some(path) = sources.get(&id) {
-                    logic::stream::publish_video(id, std::path::PathBuf::from(path));
-                }
+
+                let now = running_presentations.peek().first().cloned();
+                logic::network_host::publish(now);
             }
-
-            spawn(async move {
-                for id in wanted {
-                    if logic::stream::has_media(&id) {
-                        continue;
-                    }
-                    let Some(source) = sources.get(&id) else {
-                        continue;
-                    };
-                    if let Some((bytes, content_type)) = render_for_stream(source).await {
-                        logic::stream::publish_media(id, bytes, content_type);
-                    }
-                }
-                logic::stream::publish(state);
-            });
         });
 
         // A video moves by itself, and nothing about the presentation changes
@@ -387,9 +464,8 @@ fn App() -> Element {
         // telling it more often than that is traffic with nothing to show for
         // it, and every viewer is downloading the video itself at the same
         // time.
+        #[cfg(feature = "desktop")]
         use_future(move || async move {
-            use logic::stream::protocol::StreamState;
-
             // What was last said, so a video that is paused — or a service
             // with no video in it at all — says nothing at all.
             let mut last: Option<(u64, bool)> = None;
@@ -397,40 +473,26 @@ fn App() -> Element {
             loop {
                 logic::timer::sleep(std::time::Duration::from_millis(500)).await;
 
-                if !logic::stream::is_enabled() {
+                if !logic::network_host::is_viewer_enabled() {
                     continue;
                 }
 
-                let Some((position, duration, playing)) = logic::video::published_position()
-                else {
-                    last = None;
-                    continue;
-                };
+                let position = logic::video::published_position();
 
                 // Tenths of a second: finer than that is below what the page
                 // acts on, and comparing floats for equality would never find
                 // two the same.
-                let now = ((position * 10.0) as u64, playing);
-                if last == Some(now) {
+                let now = position.map(|(at, _, playing)| ((at * 10.0) as u64, playing));
+                if last == now {
                     continue;
                 }
 
-                let presentations = running_presentations.peek().clone();
-                let Some(running) = presentations.first() else {
-                    continue;
-                };
-                let state = StreamState::of(running, 0)
-                    .with_live_video(Some((position, duration, playing)));
-
-                // `of` leaves the video out when the slide that is up is not
-                // one; a position left over from a video that has been left is
-                // not something to send anybody.
-                if state.video.is_none() {
-                    continue;
-                }
-
-                last = Some(now);
-                logic::stream::publish(state);
+                last = now;
+                // What is made of it — whether the slide that is up is a video
+                // at all — is worked out where the state is built, which is in
+                // the network server. This says only where the video has got
+                // to.
+                logic::network_host::publish_video_position(position);
             }
         });
     }
@@ -566,56 +628,6 @@ fn App() -> Element {
     }
 }
 
-/// Where every picture in a running order came from, by the name the stream
-/// gives it.
-///
-/// The state a viewer receives names its pictures but does not say where they
-/// are — a viewer has no file system and no business knowing about one. This
-/// is the other half of that mapping, kept on this side.
-#[cfg(not(target_arch = "wasm32"))]
-fn picture_sources(
-    running: &[RunningPresentation],
-) -> std::collections::HashMap<String, String> {
-    use cantara_songlib::slides::SlideContent;
-    use logic::stream::protocol::media_id;
-
-    let mut sources = std::collections::HashMap::new();
-    for presentation in running {
-        for chapter in &presentation.presentation {
-            // The design's background picture, which is as much a part of what
-            // a viewer sees as any slide. The design the *stream* uses, which
-            // is the projection's unless the service asked for another.
-            if let Some(design) = chapter.design_for_stream()
-                && let logic::settings::PresentationDesignSettings::Template(template) =
-                    &design.presentation_design_settings
-                && let Some(picture) = &template.background_image
-            {
-                let path = picture.as_source().path.to_string_lossy().to_string();
-                sources.insert(media_id(&path), path);
-            }
-
-            // Likewise the slides: where the stream has a division of its own,
-            // those are the pictures a viewer will ask for.
-            for slide in chapter.slides_for_stream() {
-                let source = match &slide.slide_content {
-                    SlideContent::SimplePicture(picture) => {
-                        logic::presentation::get_picture_path(picture)
-                    }
-                    SlideContent::PdfPage(page) => {
-                        format!("{}#page={}", page.pdf_path, page.page_number)
-                    }
-                    // A video is named here the same way, though what is done
-                    // with the name differs: it is registered with the server
-                    // rather than rendered into bytes.
-                    SlideContent::Video(video) => video.video_path.clone(),
-                    _ => continue,
-                };
-                sources.insert(media_id(&source), source);
-            }
-        }
-    }
-    sources
-}
 
 /// A picture, as bytes a browser can be handed.
 ///

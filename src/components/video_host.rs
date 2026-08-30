@@ -23,8 +23,16 @@ use dioxus::prelude::*;
 /// Renders nothing.
 #[component]
 pub fn VideoAssetHost() -> Element {
+    // A remote console has no window and no web view to register a handler
+    // with: it is a `VirtualDom` on a thread of its own, and its browser is
+    // somewhere else on the network. Its videos are served over HTTP by the
+    // console's own route instead — the same bytes from the same
+    // [`crate::logic::video::answer_video_request`], which is the arrangement
+    // [`crate::logic::video_server`] already describes.
     #[cfg(feature = "desktop")]
-    desktop::register();
+    if !crate::logic::console_host::ConsoleHost::current().is_remote() {
+        desktop::register();
+    }
 
     rsx! {}
 }

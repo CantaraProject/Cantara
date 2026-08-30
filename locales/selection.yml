@@ -49,6 +49,27 @@ selection:
   stream_failed:
     en: "Streaming could not be started: %{reason}"
     de: "Die Übertragung konnte nicht gestartet werden: %{reason}"
+  remote_headline:
+    en: Remote control
+    de: Fernsteuerung
+  remote_description:
+    en: "Drive this presentation from a browser on the local network"
+    de: "Diese Präsentation aus einem Browser im lokalen Netzwerk steuern"
+  remote_enable:
+    en: Remote-control this presentation
+    de: Diese Präsentation fernsteuern
+  remote_no_password:
+    en: "No password is set for remote presentation control."
+    de: "Es ist kein Passwort für die Fernsteuerung der Präsentation gesetzt."
+  remote_address_hint:
+    en: "Address for presenter console in the local network:"
+    de: "Adresse für die Präsentationssteuerung im lokalen Netzwerk:"
+  remote_connected:
+    en: "Consoles connected: %{count}"
+    de: "Verbundene Präsentationssteuerungen: %{count}"
+  remote_failed:
+    en: "Remote control could not be started: %{reason}"
+    de: "Die Fernsteuerung konnte nicht gestartet werden: %{reason}"
   stream_copy_hint:
     en: Click to copy
     de: Zum Kopieren klicken

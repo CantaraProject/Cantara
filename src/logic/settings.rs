@@ -156,6 +156,22 @@ pub struct StreamSettings {
     /// network, and a password here keeps the curious out, not an attacker.
     pub password: String,
 
+    /// What someone has to type before they may *drive* the presentation from
+    /// a browser.
+    ///
+    /// Deliberately not [`Self::password`]. That one is meant to be given out
+    /// — read from the front, printed in a sheet — and everyone who has it
+    /// would otherwise be able to take the service over.
+    ///
+    /// Empty means the console is open to anyone who can reach the address.
+    /// That is the operator's decision to make and not the program's: a
+    /// locked room on a network with nothing else on it is a real situation,
+    /// and a program that insists on a password there is in the way rather
+    /// than being careful. The panel with the switch says plainly what an
+    /// empty one means.
+    #[serde(default)]
+    pub remote_password: String,
+
     /// Which of [`Settings::presentation_designs`] the phones are shown, as an
     /// index into that list. `None` — the ordinary case — means they are shown
     /// the same design as the projection.
@@ -182,6 +198,7 @@ impl Default for StreamSettings {
         StreamSettings {
             port: default_stream_port(),
             password: String::new(),
+            remote_password: String::new(),
             design_index: None,
             slide_settings_index: None,
         }

@@ -161,6 +161,12 @@ settings:
   stream_plain_http_note:
     en: "This is unencrypted HTTP on your local network. The password keeps the curious out; it is not protection from someone who is trying."
     de: "Dies ist unverschlüsseltes HTTP im lokalen Netzwerk. Das Passwort hält Neugierige ab, es schützt aber nicht vor gezielten Zugriffen."
+  remote_password:
+    en: Remote-control password
+    de: Passwort für die Fernsteuerung
+  remote_password_note:
+    en: "For driving the presentation from a browser, and deliberately not the password above: that one is meant to be given out. Empty means anyone who can reach the address can drive the presentation."
+    de: "Für das Steuern der Präsentation aus einem Browser — bewusst nicht das Passwort darüber, das zum Weitergeben gedacht ist. Leer heißt, dass jeder, der die Adresse erreicht, die Präsentation steuern kann."
   screen_headline:
     en: Screen Settings
     de: Bildschirmeinstellungen

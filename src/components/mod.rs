@@ -73,6 +73,10 @@ pub mod wizard_components;
 pub mod song_slide_settings_components;
 
 pub mod presenter_console_components;
+/// The presenter console as a browser on the network sees it. There is no
+/// server inside a browser, so the web build has no remote console.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod remote_console;
 
 pub mod directory_browser;
 
