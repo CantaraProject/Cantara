@@ -694,9 +694,69 @@ fn DefaultDesignSettings() -> Element {
 /// The switch is here rather than in the settings on purpose: how streaming
 /// works — the port, the password — is a setting and worth keeping, but
 /// *whether* a given service is broadcast to the network is a decision for
+/// Starts the network helper off the thread the window is drawn on.
+///
+/// Switching either service on spawns a second copy of Cantara and waits for it
+/// to connect back and say it is serving — a handshake with a fifteen-second
+/// deadline behind it (see [`crate::logic::network_host`]). Run where it was
+/// written, in the `onchange` handler, that wait is the window: the panel, the
+/// running order and the presentation all stop until the helper answers, and a
+/// helper that will never answer freezes the program for a quarter of a minute
+/// while the operator is preparing a service.
+///
+/// So it is run on a thread of its own and what it says comes back over a
+/// channel, which the switch waits for without holding anything up.
+///
+/// A plain thread rather than `spawn_blocking`, though everything Dioxus
+/// spawns on the desktop is in tokio's runtime today: `spawn_blocking` panics
+/// where there is no runtime, and a panic when the switch is clicked would be
+/// a worse answer than the freeze this replaces. Waiting on the channel needs
+/// no runtime at all — it is a future like any other, woken by the thread that
+/// finishes. This happens when somebody clicks a switch, so the thread costs
+/// nothing worth counting.
+///
+/// A thread that panics drops the sending end, which arrives here as the
+/// channel closing; it is reported like any other reason the switch did not go
+/// on, rather than as a switch that stays busy for ever.
+#[cfg(all(not(target_arch = "wasm32"), feature = "desktop"))]
+async fn starting_a_helper<F>(start: F) -> Result<String, String>
+where
+    F: FnOnce() -> Result<String, String> + Send + 'static,
+{
+    let (tell, told) = tokio::sync::oneshot::channel();
+
+    if let Err(error) = std::thread::Builder::new()
+        .name("cantara-network-switch".to_string())
+        .spawn(move || {
+            // Nobody left to tell is not a failure: the panel was closed while
+            // the helper was starting, and the helper is running either way.
+            let _ = tell.send(start());
+        })
+    {
+        return Err(format!("{error}"));
+    }
+
+    told.await
+        .unwrap_or_else(|_| Err("the network server was lost while starting".to_string()))
+}
+
+/// Turns network streaming on for the presentation at hand, and says where to
+/// find it.
+///
+/// The switch is here rather than in the settings on purpose: how streaming
+/// works — the port, the password — is a setting and worth keeping, but
+/// *whether* a given service is broadcast to the network is a decision for
 /// that service. A program that streamed once should not quietly start doing
 /// it again the next time it opens.
-#[cfg(not(target_arch = "wasm32"))]
+///
+/// Desktop only, like [`RemoteConsoleSwitch`] below and for the same reason:
+/// the switch starts a helper process and asks it for an address, and
+/// [`crate::logic::network_host`] — the half of that which lives in Cantara —
+/// is built for the desktop alone. `not(wasm32)` is not the same question. It
+/// is also true of the Android build, which is neither a browser nor a desktop
+/// and has no `network_host` to call, and saying otherwise is what stopped
+/// that build.
+#[cfg(all(not(target_arch = "wasm32"), feature = "desktop"))]
 #[component]
 fn StreamSwitch() -> Element {
     let settings = use_settings();
@@ -711,6 +771,8 @@ fn StreamSwitch() -> Element {
     // presentation as it stands — switching this on is not a change to the
     // presentation, and a viewer should not have to wait for the next slide.
     let mut stream_generation: Signal<u64> = use_context();
+    // While the helper is being started. See [`starting_a_helper`].
+    let mut starting = use_signal(|| false);
 
     rsx! {
         hgroup {
@@ -722,16 +784,38 @@ fn StreamSwitch() -> Element {
             input {
                 r#type: "checkbox",
                 role: "switch",
-                checked: enabled(),
+                // The switch stands where it was put while the helper starts,
+                // and comes back by itself if it could not be started. Both
+                // edges of `starting` change this attribute, which is what
+                // makes the second of those happen: `enabled` is false before
+                // the attempt and false after a failed one, and an attribute
+                // that does not change is not written back to a checkbox the
+                // user has already clicked.
+                checked: enabled() || starting(),
+                // One attempt at a time. Two helpers for one port is the
+                // failure this avoids, and a switch that cannot be clicked is
+                // how the panel says it is busy.
+                disabled: starting(),
                 onchange: move |event| {
                     let wanted: bool = event.value().parse().unwrap_or(false);
                     failure.set(None);
-                    if wanted {
-                        let stream = settings.read().stream.clone();
-                        match crate::logic::network_host::enable_viewer(
-                            stream.port,
-                            stream.password,
-                        ) {
+                    if !wanted {
+                        crate::logic::network_host::disable_viewer();
+                        enabled.set(false);
+                        address.set(None);
+                        stream_generation += 1;
+                        return;
+                    }
+
+                    let stream = settings.read().stream.clone();
+                    starting.set(true);
+                    spawn(async move {
+                        let started = starting_a_helper(move || {
+                            crate::logic::network_host::enable_viewer(stream.port, stream.password)
+                        })
+                            .await;
+                        starting.set(false);
+                        match started {
                             Ok(reachable_at) => {
                                 enabled.set(true);
                                 address.set(Some(reachable_at));
@@ -748,12 +832,7 @@ fn StreamSwitch() -> Element {
                                 ));
                             }
                         }
-                    } else {
-                        crate::logic::network_host::disable_viewer();
-                        enabled.set(false);
-                        address.set(None);
-                        stream_generation += 1;
-                    }
+                    });
                 },
             }
             span { class: "slider" }
@@ -854,6 +933,35 @@ fn RemoteConsoleSwitch() -> Element {
     let remote_presenter_console_is_open_to_anyone =
         use_memo(move || settings.read().stream.remote_password.is_empty());
 
+    // How many browsers have the console open, as a signal rather than as a
+    // number read while rendering.
+    //
+    // The count lives in an atomic that the thread reading the helper writes
+    // to (see [`crate::logic::network_host`]). Nothing about reading an atomic
+    // tells Dioxus to render this panel again, so the line said whatever had
+    // been true when the panel was last built — in practice "0 connected",
+    // for as long as the panel stayed open.
+    //
+    // Polled rather than pushed because the writer is another thread, and a
+    // signal belongs to the runtime that made it. A second is far below what
+    // this is read at — somebody glancing to see whether the tablet at the
+    // back has arrived — and the loop stops with the panel.
+    let mut connected = use_signal(crate::logic::network_host::connected);
+    // While the helper is being started. See [`starting_a_helper`].
+    let mut starting = use_signal(|| false);
+    use_future(move || async move {
+        loop {
+            crate::logic::timer::sleep(std::time::Duration::from_secs(1)).await;
+            let now = crate::logic::network_host::connected();
+            // Only on a change: writing a signal renders everything that
+            // reads it, and this loop would otherwise do that once a second
+            // for as long as the panel is open.
+            if now != *connected.peek() {
+                connected.set(now);
+            }
+        }
+    });
+
     rsx! {
         hgroup { style: "margin-top: 1.5rem;",
             h6 { { t!("selection.remote_headline").to_string() } }
@@ -864,23 +972,40 @@ fn RemoteConsoleSwitch() -> Element {
             input {
                 r#type: "checkbox",
                 role: "switch",
-                checked: enabled(),
+                // Held where it was clicked while the helper starts, and put
+                // back by itself if it could not be — see the streaming switch
+                // above, where the same two lines are explained.
+                checked: enabled() || starting(),
+                disabled: starting(),
                 onchange: move |event| {
                     // A checkbox that says something other than "true" or
                     // "false" is not a checkbox; off is the safe reading of
                     // anything else.
                     let wanted = event.value().parse::<bool>().unwrap_or(false);
                     failure.set(None);
-                    if wanted {
-                        let stream = settings.read().stream.clone();
+                    if !wanted {
+                        crate::logic::network_host::disable_console();
+                        enabled.set(false);
+                        address.set(None);
+                        return;
+                    }
+
+                    let stream = settings.read().stream.clone();
+                    starting.set(true);
+                    spawn(async move {
                         // The same port the stream uses, because it is the
                         // same server: both are served by the helper process
                         // in [`crate::logic::network_server`]. Whichever
                         // switch goes on first starts it.
-                        match crate::logic::network_host::enable_console(
-                            stream.port,
-                            stream.remote_password,
-                        ) {
+                        let started = starting_a_helper(move || {
+                            crate::logic::network_host::enable_console(
+                                stream.port,
+                                stream.remote_password,
+                            )
+                        })
+                            .await;
+                        starting.set(false);
+                        match started {
                             Ok(reachable_at) => {
                                 enabled.set(true);
                                 address.set(Some(reachable_at));
@@ -896,11 +1021,7 @@ fn RemoteConsoleSwitch() -> Element {
                                 ));
                             }
                         }
-                    } else {
-                        crate::logic::network_host::disable_console();
-                        enabled.set(false);
-                        address.set(None);
-                    }
+                    });
                 },
             }
             span { class: "slider" }
@@ -958,13 +1079,7 @@ fn RemoteConsoleSwitch() -> Element {
             // while — and the last thing anyone did is what the presentation
             // shows.
             p { style: "margin-top: 0.25rem; opacity: 0.8;",
-                {
-                    t!(
-                        "selection.remote_connected",
-                        count = crate::logic::network_host::connected(),
-                    )
-                        .to_string()
-                }
+                { t!("selection.remote_connected", count = connected()).to_string() }
             }
         }
 
@@ -1023,6 +1138,14 @@ async fn copy_to_clipboard(text: &str) -> Option<bool> {
 
 /// There is no server inside a browser, so the web build has no switch.
 #[cfg(target_arch = "wasm32")]
+#[component]
+fn StreamSwitch() -> Element {
+    rsx! {}
+}
+
+/// And no helper to start where there is no desktop: on Android the panel is
+/// the same panel, without the two switches that would need one.
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "desktop")))]
 #[component]
 fn StreamSwitch() -> Element {
     rsx! {}

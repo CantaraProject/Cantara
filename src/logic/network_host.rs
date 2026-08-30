@@ -549,6 +549,19 @@ mod tests {
             }
             unix
         };
+
+        // `cargo test` does not rebuild the binary — it builds this harness —
+        // so what is lying in `target/debug` may be from before the flag the
+        // helper is started with even existed. That binary opens a window
+        // instead of connecting back, and the test then fails fifteen seconds
+        // later saying the helper did not start, which is true and says
+        // nothing about the code being tested. Older than the harness is the
+        // one honest reading: skip, and say why.
+        if is_older_than_this_test(helper) {
+            eprintln!("skipped: target/debug/cantara is older than this test — `cargo build` first");
+            return;
+        }
+
         // SAFETY: single-threaded at this point in the test, and read only by
         // `helper_executable` below.
         unsafe { std::env::set_var("CANTARA_TEST_HELPER", helper) };
@@ -595,36 +608,67 @@ mod tests {
         );
     }
 
-    /// A clone of a socket carries the read timeout the original had, and
-    /// clearing it on the original does *not* clear it on the clone.
+    /// Whether `candidate` was built before this test harness was.
     ///
-    /// This is the whole of the bug that made the remote console look as
+    /// Unknown times count as fresh: a filesystem that does not keep them is
+    /// not a reason to stop testing what this tests.
+    fn is_older_than_this_test(candidate: &std::path::Path) -> bool {
+        let built = |path: std::path::PathBuf| {
+            std::fs::metadata(path)
+                .and_then(|metadata| metadata.modified())
+                .ok()
+        };
+        let (Some(helper), Some(harness)) = (
+            built(candidate.to_path_buf()),
+            std::env::current_exe().ok().and_then(built),
+        ) else {
+            return false;
+        };
+        helper < harness
+    }
+
+    /// The deadline has to be cleared on the handle that is *read from*, and
+    /// clearing it there is enough on every platform.
+    ///
+    /// That is the whole of the bug which made the remote console look as
     /// though it worked and do nothing: the handshake gave the socket a
     /// deadline, the thread that reads the console's commands read through a
     /// clone made while that deadline was set, and five seconds later its
     /// first quiet moment looked exactly like the helper having gone. It gave
     /// up, and every button pressed after that reached nothing.
     ///
-    /// Written as a test of the platform rather than of Cantara, because that
-    /// is where the surprise was.
+    /// The first version of this test asserted the other half of the surprise
+    /// as well — that clearing the deadline on the socket the clone was *made
+    /// from* leaves the clone with it. That is true where a clone is a socket
+    /// of its own, and false on Linux, where `try_clone` is `dup` and both
+    /// handles are the one socket with the one `SO_RCVTIMEO`. Asserting it
+    /// failed every Linux build for a difference Cantara does not depend on:
+    /// the code clears the deadline on the reader, which is right either way.
+    /// What is left here is that, and it is what is tested.
     #[test]
-    fn a_cloned_socket_keeps_its_own_read_timeout() {
+    fn the_deadline_is_cleared_on_the_handle_that_is_read_from() {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a port");
         let port = listener.local_addr().expect("an address").port();
+
+        // A second of quiet against a tenth of a second of deadline. Ten times
+        // the margin is what keeps the two reads below from depending on how
+        // busy the machine running them is: the quiet has to outlast the
+        // deadline for the first read to fail, and the reader has to reach the
+        // second read before the quiet ends.
+        let quiet = std::time::Duration::from_secs(1);
+        let deadline = std::time::Duration::from_millis(100);
 
         let writer = std::thread::spawn(move || {
             let (mut sender, _) = listener.accept().expect("a connection");
             writeln!(sender, "first").expect("the first line");
-            // Longer than the deadline below: this is the quiet the pump used
-            // to mistake for the end.
-            std::thread::sleep(std::time::Duration::from_millis(300));
+            // This is the quiet the pump used to mistake for the end.
+            std::thread::sleep(quiet);
             writeln!(sender, "second").expect("the second line");
-            std::thread::sleep(std::time::Duration::from_millis(200));
         });
 
         let original = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).expect("a connection");
         original
-            .set_read_timeout(Some(std::time::Duration::from_millis(100)))
+            .set_read_timeout(Some(deadline))
             .expect("a deadline for the handshake");
 
         let mut reader = BufReader::new(original.try_clone().expect("a clone"));
@@ -632,18 +676,21 @@ mod tests {
         reader.read_line(&mut line).expect("the first line");
         assert_eq!(line.trim(), "first");
 
-        // What the code used to do: clear it on the original only.
-        original.set_read_timeout(None).expect("cleared");
+        // Still under the handshake's deadline: a stretch with nothing in it
+        // is an error, and an error is what the pump reads as "the helper has
+        // gone".
         line.clear();
         assert!(
             reader.read_line(&mut line).is_err(),
-            "the clone still has its own deadline; clearing the original did nothing"
+            "a deadline turns a quiet socket into a broken one"
         );
 
-        // What it does now.
+        // What the code does: clears it on the handle the pump reads through.
         reader.get_ref().set_read_timeout(None).expect("cleared");
         line.clear();
-        reader.read_line(&mut line).expect("the second line");
+        reader
+            .read_line(&mut line)
+            .expect("the quiet stretch is no longer the end of the helper");
         assert_eq!(line.trim(), "second");
 
         writer.join().expect("the writer finishes");

@@ -17,8 +17,14 @@
 //! panel, write it to the log, or carry on without the part that failed. The
 //! lint below is what keeps that true as the program grows; tests are exempt,
 //! where panicking *is* how a failure is reported.
+//!
+//! `deny` rather than `warn`, and Clippy is run in CI — see the "Check the
+//! lints" step in `.github/workflows/dioxus.yml`. A warning is a rule nobody
+//! keeps: `cargo test` does not run Clippy, so nothing failed when an
+//! `unwrap` was added, and the note scrolled past in a build log that is
+//! thousands of lines long.
 
-#![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
 // Make sure that no terminal window is shown on windows
 #![windows_subsystem = "windows"]

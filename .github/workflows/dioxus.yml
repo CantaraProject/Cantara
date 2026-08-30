@@ -93,6 +93,21 @@ jobs:
           OPENSSL_INCLUDE_DIR: ${{ matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL\include' || (matrix.os == 'ubuntu-latest' && '/usr/include' || '') }}
           DYLD_LIBRARY_PATH: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3/lib' || '' }}
         run: cargo test
+      # The rule in `src/main.rs` — nothing outside the tests may `unwrap` or
+      # `expect` — is a Clippy lint, and `cargo test` does not run Clippy.
+      # Without this step the rule was a comment: the lint fired for anyone who
+      # happened to run Clippy locally and stopped nothing at all.
+      #
+      # Linux only. It is the same source on all three, and one machine saying
+      # so is enough; the other two are here to build what they ship.
+      - name: Check the lints
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          OPENSSL_ROOT_DIR: /usr
+          OPENSSL_DIR: /usr
+          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
+          OPENSSL_INCLUDE_DIR: /usr/include
+        run: cargo clippy --all-targets -- -D warnings
       - name: Build desktop release
         env:
           # OpenSSL environment variables

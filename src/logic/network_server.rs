@@ -288,6 +288,8 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
     let shared = Arc::new(Shared {
         password: RwLock::new(configuration.offer.console),
         session: new_session_token(),
+        // Nothing is running yet, so there is nothing to serve.
+        videos: RwLock::new(std::collections::HashSet::new()),
     });
 
     socket
@@ -452,6 +454,11 @@ impl Shown {
                 // The console works on the presentation itself; the viewers
                 // are shown what is made of it below.
                 remote_console::publish(self.presentation.clone());
+                // What the console may ask for, from the service it is now
+                // driving. Set here rather than read from `self` in the
+                // handler because the handler is on another task and this is
+                // the one place the presentation changes.
+                console.set_videos(video_paths(self.presentation.as_ref()));
                 self.register_videos(server);
                 self.publish(server);
             }
@@ -537,6 +544,22 @@ struct Shared {
     password: RwLock<Option<String>>,
     /// Handed out once it has been typed.
     session: String,
+    /// The video files of the service that is running, and the only ones this
+    /// server will read from the disk.
+    ///
+    /// The console asks for a video by naming its path, because that is what
+    /// the `<video>` element in the console has in its `src` — the console is
+    /// the program's own page and the path is the program's own. But the
+    /// request arrives over the network, from a browser that may be anybody's,
+    /// and a path in a request is not a path Cantara chose. Without this the
+    /// route read any file the extension check let through: `/cantara-video/`
+    /// and a guess at a name was every readable `.mp4` on the machine, handed
+    /// to whoever could open the console — which, where the operator left the
+    /// password empty, is everyone on the network.
+    ///
+    /// Rebuilt whenever the presentation changes, from the presentation
+    /// itself. Between services it is empty and nothing is served.
+    videos: RwLock<std::collections::HashSet<String>>,
 }
 
 impl Shared {
@@ -565,6 +588,52 @@ impl Shared {
             .filter_map(|cookie| cookie.trim().split_once('='))
             .any(|(name, value)| name == CONSOLE_COOKIE && value == self.session)
     }
+
+    /// Whether `path` is one of the videos of the service that is running.
+    ///
+    /// Compared as the text the presentation holds, which is the text the
+    /// console puts in the URL: both come from the same running order, so
+    /// there is nothing here to normalise and nothing that a `..` or a symlink
+    /// could make of a path that is not in the list — an answer of "no" does
+    /// not open the file at all.
+    fn may_serve_video(&self, path: &str) -> bool {
+        self.videos
+            .read()
+            .map(|videos| videos.contains(path))
+            .unwrap_or(false)
+    }
+
+    /// Takes the videos of the presentation as the ones that may be read.
+    fn set_videos(&self, paths: std::collections::HashSet<String>) {
+        if let Ok(mut videos) = self.videos.write() {
+            *videos = paths;
+        }
+    }
+}
+
+/// Every video file a running presentation names.
+///
+/// Both divisions of it: the console shows the projection's slides and the
+/// viewers may be shown a division of their own, and a video that is only in
+/// one of them is still a video of this service. The console is what asks for
+/// these — the stream serves its videos by id from a list of its own, in
+/// [`crate::logic::stream::server`].
+fn video_paths(presentation: Option<&RunningPresentation>) -> std::collections::HashSet<String> {
+    use cantara_songlib::slides::SlideContent;
+
+    let mut paths = std::collections::HashSet::new();
+    let Some(presentation) = presentation else {
+        return paths;
+    };
+
+    for chapter in &presentation.presentation {
+        for slide in chapter.slides.iter().chain(chapter.slides_for_stream()) {
+            if let SlideContent::Video(video) = &slide.slide_content {
+                paths.insert(video.video_path.clone());
+            }
+        }
+    }
+    paths
 }
 
 fn router(shared: Arc<Shared>) -> Router {
@@ -704,7 +773,15 @@ async fn asset(
 ///
 /// The same answer the window gets, from the same function — see
 /// [`crate::logic::video::answer_video_request`], where the rules about ranges
-/// and about which files may be served at all are written down.
+/// are written down.
+///
+/// With one rule of its own in front of it, because this is the one of the two
+/// that answers the network: the file has to be a video *of this service*. The
+/// window's handler is asked by a page Cantara built, in a process nobody else
+/// can talk to; this is asked by a browser somewhere in the building. The
+/// extension check inside `answer_video_request` says "this is a video file",
+/// which is not the same question as "this is one of ours" — and the
+/// difference was every readable video on the machine.
 async fn video(
     State(shared): State<Arc<Shared>>,
     headers: HeaderMap,
@@ -714,13 +791,21 @@ async fn video(
         return locked();
     }
 
+    let url_path = format!("/{}/{}", crate::logic::video::VIDEO_HANDLER, path);
+    let Some(wanted) = crate::logic::video::path_of_video_url(&url_path) else {
+        return (StatusCode::BAD_REQUEST, "not a video address").into_response();
+    };
+    if !shared.may_serve_video(&wanted) {
+        // Not "forbidden": what may be asked for is what this service is
+        // showing, and a request for anything else is answered the same way
+        // whether the file exists or not. There is nothing to learn from it.
+        return (StatusCode::NOT_FOUND, "no such video").into_response();
+    }
+
     let range = headers
         .get(header::RANGE)
         .and_then(|value| value.to_str().ok());
-    let answer = crate::logic::video::answer_video_request(
-        &format!("/{}/{}", crate::logic::video::VIDEO_HANDLER, path),
-        range,
-    );
+    let answer = crate::logic::video::answer_video_request(&url_path, range);
 
     let mut response = Response::builder().status(answer.status);
     for (name, value) in &answer.headers {
@@ -763,6 +848,7 @@ mod tests {
         Shared {
             password: RwLock::new(Some(password.to_string())),
             session: "c0nsole-session".to_string(),
+            videos: RwLock::new(std::collections::HashSet::new()),
         }
     }
 
@@ -772,6 +858,7 @@ mod tests {
         Shared {
             password: RwLock::new(None),
             session: "c0nsole-session".to_string(),
+            videos: RwLock::new(std::collections::HashSet::new()),
         }
     }
 
@@ -844,5 +931,64 @@ mod tests {
     #[test]
     fn two_sessions_are_never_the_same() {
         assert_ne!(new_session_token(), new_session_token());
+    }
+
+    /// A running order with one video in it, for the two tests below.
+    fn presentation_with(video: &str) -> RunningPresentation {
+        use cantara_songlib::slides::Slide;
+
+        let chapter = crate::logic::states::SlideChapter::new(
+            vec![Slide::new_video_slide(video.to_string(), true, true)],
+            crate::logic::sourcefiles::SourceFile {
+                name: "Der Film".to_string(),
+                path: std::path::PathBuf::from("testfiles/Test.song"),
+                file_type: crate::logic::sourcefiles::SourceFileType::Song,
+                md5_hash: None,
+                relative_path: None,
+            },
+            None,
+            None,
+        );
+        RunningPresentation::new(vec![chapter])
+    }
+
+    /// What may be read is what the service is showing.
+    ///
+    /// The route is reachable from anywhere on the hall's network, and where
+    /// the operator left the password empty it is reachable by anyone there.
+    /// A path in a request is not a path Cantara chose, and the extension
+    /// check inside `answer_video_request` only asks whether a name looks like
+    /// a video — so before this, `/cantara-video/` and a guessed name read any
+    /// video file the user running Cantara could read.
+    #[test]
+    fn only_the_videos_of_this_service_may_be_read() {
+        let shared = shared_with("");
+        shared.set_videos(video_paths(Some(&presentation_with(
+            "/home/operator/Videos/Der Film.mp4",
+        ))));
+
+        assert!(shared.may_serve_video("/home/operator/Videos/Der Film.mp4"));
+        assert!(
+            !shared.may_serve_video("/home/operator/Videos/Private.mp4"),
+            "a video on the machine is not a video of this service"
+        );
+        assert!(
+            !shared.may_serve_video("/home/operator/Videos/../Videos/Der Film.mp4"),
+            "the list holds the paths the running order holds, and nothing else"
+        );
+    }
+
+    /// Between services there is nothing to serve, and asking is not how a
+    /// browser finds that out.
+    #[test]
+    fn nothing_is_served_when_nothing_is_running() {
+        let shared = shared_with("");
+        shared.set_videos(video_paths(Some(&presentation_with("clip.mp4"))));
+        assert!(shared.may_serve_video("clip.mp4"));
+
+        // The presentation ended: the console stays open and says so, and the
+        // videos of the service that has finished go with it.
+        shared.set_videos(video_paths(None));
+        assert!(!shared.may_serve_video("clip.mp4"));
     }
 }
