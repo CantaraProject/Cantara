@@ -48,6 +48,9 @@ display:
     meta_last:
       en: the last slide
       de: der letzten Folie
+    meta_all:
+      en: every slide
+      de: jeder Folie
     max_lines:
       en: At most %{count} lines per slide
       de: Höchstens %{count} Zeilen je Folie
@@ -148,6 +151,9 @@ display:
   meta_where:
     en: Show meta information on
     de: Metainformationen anzeigen auf
+  meta_on_all:
+    en: Every slide
+    de: Jeder Folie
   meta_on_title:
     en: Title slide
     de: Titelfolie

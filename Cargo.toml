@@ -31,7 +31,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 sys-locale = "=0.3.2"
 
 # Cantara libraries
-cantara-songlib = "0.3.0"
+cantara-songlib = "0.5.0"
 markdown = "1.0.0"
 rgb = { version = "0.8.52", features = ["serde"] }
 # Decodes the pictures of a library so they can be scaled down to list

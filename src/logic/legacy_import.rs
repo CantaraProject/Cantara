@@ -627,6 +627,8 @@ pub fn slide_settings_of(config: &LegacyConfig, name: String) -> SongSlideSettin
                 title_slide: config.title_slide,
                 first_slide: config.meta_first_slide,
                 last_slide: config.meta_last_slide,
+                // Cantara 2 could not put the line on every slide.
+                all_slides: false,
             },
             meta_syntax: convert_meta_syntax(&config.meta_syntax),
             empty_last_slide: config.empty_frame,

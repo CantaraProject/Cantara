@@ -73,10 +73,16 @@ impl StreamDefaults {
 /// user's alone to choose: the projection is the reference, and a stream slide
 /// that held one and a half of its slides would leave a slide change on the
 /// wall landing in the middle of a slide on the phones. So the wrap is either
-/// a whole multiple of the projection's or it is off entirely, and a value
-/// between two multiples is rounded up to the next one rather than refused —
-/// the user asked for "roughly this much at a time", and the nearest amount
-/// that works is a better answer than none.
+/// the projection's own — which divides a verse in exactly the same places —
+/// or it is off entirely, and there is nothing in between.
+///
+/// A larger wrap used to be allowed as long as it was a whole multiple, on the
+/// reasoning that two of the projection's slides then made one of the stream's.
+/// That reasoning does not survive the song library balancing the parts of a
+/// block rather than filling each one up: six lines at three per slide are
+/// 3 | 3, but at two per slide they are 2 | 2 | 2, and the second slide on the
+/// wall straddles both slides on the phones. Only the identical wrap is
+/// guaranteed to cut in the same places.
 ///
 /// Off entirely means the whole verse, which always contains whatever the
 /// projection is showing and is therefore always safe.
@@ -102,12 +108,13 @@ pub fn reconcile_max_lines(projection: Option<usize>, wanted: Option<usize>) -> 
         // half. The whole verse is the only division that works.
         (None, Some(_)) => None,
         (Some(0), Some(_)) => None,
-        (Some(reference), Some(wanted)) => {
-            // Never below the projection's own wrap: a viewer's slide showing
-            // less than the wall does is the one thing this must not produce.
-            let steps = wanted.div_ceil(reference).max(1);
-            Some(reference * steps)
-        }
+        // Asking for less than the wall shows would put part of a projected
+        // slide on the phones, which is the one thing this must not produce —
+        // so the projection's own wrap is used instead.
+        (Some(reference), Some(wanted)) if wanted <= reference => Some(reference),
+        // Anything larger cuts the verse somewhere else entirely; the whole
+        // verse is the next division up that still holds every projected slide.
+        (Some(_), Some(_)) => None,
     }
 }
 
@@ -239,23 +246,25 @@ mod tests {
 
     // ── The line wrap ───────────────────────────────────────────────────────
 
-    /// A viewer's slide holds a whole number of the projection's, so that a
-    /// slide change on the wall always lands on a slide boundary on the phones.
+    /// The wrap the projection uses cuts a verse in exactly the places the
+    /// projection cuts it, so a slide change on the wall always lands on a
+    /// slide boundary on the phones.
     #[test]
-    fn the_streams_wrap_is_a_multiple_of_the_projections() {
-        assert_eq!(reconcile_max_lines(Some(2), Some(4)), Some(4));
-        assert_eq!(reconcile_max_lines(Some(2), Some(6)), Some(6));
+    fn the_streams_wrap_is_the_projections_own() {
         assert_eq!(reconcile_max_lines(Some(3), Some(3)), Some(3));
+        assert_eq!(reconcile_max_lines(Some(4), Some(1)), Some(4));
+        assert_eq!(reconcile_max_lines(Some(2), Some(2)), Some(2));
     }
 
-    /// A value between two multiples is rounded up rather than refused: the
-    /// user asked for roughly that much, and the nearest amount that works is a
-    /// better answer than none at all.
+    /// A larger wrap is not a coarser cut of the same verse — the song library
+    /// balances the parts, so six lines are 3 | 3 at three per slide but
+    /// 2 | 2 | 2 at two, and the boundaries do not line up. The whole verse is
+    /// the next division that still holds every projected slide.
     #[test]
-    fn a_wrap_between_two_multiples_is_rounded_up() {
-        assert_eq!(reconcile_max_lines(Some(2), Some(5)), Some(6));
-        assert_eq!(reconcile_max_lines(Some(4), Some(1)), Some(4));
-        assert_eq!(reconcile_max_lines(Some(4), Some(7)), Some(8));
+    fn a_wrap_wider_than_the_projections_becomes_the_whole_verse() {
+        assert_eq!(reconcile_max_lines(Some(2), Some(4)), None);
+        assert_eq!(reconcile_max_lines(Some(2), Some(5)), None);
+        assert_eq!(reconcile_max_lines(Some(4), Some(7)), None);
     }
 
     /// The whole verse always contains whatever the projection is showing, so
@@ -292,7 +301,7 @@ mod tests {
 
         let settled = stream_slide_settings(&projection, &wanted);
 
-        assert_eq!(settled.max_lines, Some(6), "rounded to a whole multiple");
+        assert_eq!(settled.max_lines, None, "wider than the projection's");
         assert!(!settled.title_slide, "and the rest left alone");
         assert!(!settled.show_spoiler);
     }

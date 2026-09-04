@@ -644,11 +644,31 @@ fn DisplaySettings(
             fieldset {
                 legend { {t!("display.meta_where").to_string()} }
 
+                // "On every slide" is a shortcut over the three positions, so
+                // while it is set the others are shown as covered by it and
+                // cannot be unticked on their own.
+                label {
+                    input {
+                        r#type: "checkbox",
+                        checked: settings().show_meta_information.all_slides,
+                        onchange: move |event| {
+                            let checked = event.checked();
+                            update(
+                                &|settings: &mut SlideSettings| {
+                                    settings.show_meta_information.all_slides = checked;
+                                },
+                            );
+                        },
+                    }
+                    {t!("display.meta_on_all").to_string()}
+                }
+
                 for (label , read , write) in meta_positions() {
                     label {
                         input {
                             r#type: "checkbox",
                             checked: read(&settings().show_meta_information),
+                            disabled: settings().show_meta_information.all_slides,
                             onchange: move |event| {
                                 let checked = event.checked();
                                 update(
@@ -770,8 +790,13 @@ fn MetaSyntaxEditor(
     }
 }
 
-/// The three places the meta information line can appear, as
+/// The three single places the meta information line can appear, as
 /// (translation key, reader, writer) so the checkboxes can be generated.
+///
+/// The readers ask the position accessors rather than the flags, so that
+/// "on every slide" — which covers all three — shows the three as ticked
+/// instead of leaving them looking switched off while the line is in fact
+/// there.
 #[allow(clippy::type_complexity)]
 fn meta_positions() -> [(
     &'static str,
@@ -781,17 +806,17 @@ fn meta_positions() -> [(
     [
         (
             "display.meta_on_title",
-            |show| show.title_slide,
+            |show| show.on_title_slide(),
             |show, value| show.title_slide = value,
         ),
         (
             "display.meta_on_first",
-            |show| show.first_slide,
+            |show| show.on_first_slide(),
             |show, value| show.first_slide = value,
         ),
         (
             "display.meta_on_last",
-            |show| show.last_slide,
+            |show| show.on_last_slide(),
             |show, value| show.last_slide = value,
         ),
     ]

@@ -1012,7 +1012,7 @@ mod tests {
         let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
         let settings = SlideSettings {
             meta_syntax: "{{composer}}".to_string(),
-            show_meta_information: ShowMetaInformation::all(),
+            show_meta_information: ShowMetaInformation::title_first_slide_last_slide(),
             ..SlideSettings::default()
         };
 
@@ -1058,7 +1058,7 @@ mod tests {
             show_spoiler: false,
             max_lines: None,
             meta_syntax: "{{title}} ({{author}})".to_string(),
-            show_meta_information: ShowMetaInformation::all(),
+            show_meta_information: ShowMetaInformation::title_first_slide_last_slide(),
             language: LanguageConfiguration::SingleLanguage(None),
         };
 
@@ -1082,6 +1082,35 @@ mod tests {
         let slides =
             slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x", &[]).unwrap();
         assert_eq!(slides.iter().filter(|slide| slide.has_meta_text()).count(), 0);
+    }
+
+    /// "On every slide" reaches the slides in between, not only the ones at
+    /// either end — the middle verse of a three-verse hymn is exactly where the
+    /// older settings could not put a copyright line.
+    #[test]
+    fn test_meta_information_on_every_slide() {
+        use cantara_songlib::slides::ShowMetaInformation;
+
+        let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
+        let settings = SlideSettings {
+            title_slide: false,
+            empty_last_slide: false,
+            show_spoiler: false,
+            max_lines: None,
+            meta_syntax: "{{title}} ({{author}})".to_string(),
+            show_meta_information: ShowMetaInformation::all_slides(),
+            language: LanguageConfiguration::SingleLanguage(None),
+        };
+
+        let slides =
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x", &[])
+                .unwrap();
+
+        assert!(slides.len() > 2, "a hymn with a middle to speak of");
+        assert!(
+            slides.iter().all(|slide| slide.has_meta_text()),
+            "a slide was left without the meta information"
+        );
     }
 
     /// Switching the layout in the settings has to change the kind of slide

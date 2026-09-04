@@ -152,8 +152,11 @@ selection:
         en: Same as the presentation
         de: Wie die Präsentation
       max_lines_note:
-        en: "The line wrap follows the presentation: a streamed slide holds a whole number of the projected ones. %{chosen} becomes %{used} lines."
-        de: "Der Zeilenumbruch richtet sich nach der Präsentation: Eine über das Netzwerk übertragene Folie enthält ein ganzes Vielfaches der projizierten. Aus %{chosen} werden %{used} Zeilen."
+        en: "The line wrap follows the presentation: a streamed slide never shows less than the projected one. %{chosen} becomes %{used} lines."
+        de: "Der Zeilenumbruch richtet sich nach der Präsentation: Eine über das Netzwerk übertragene Folie zeigt nie weniger als die projizierte. Aus %{chosen} werden %{used} Zeilen."
+      max_lines_whole_block:
+        en: "A wider line wrap does not divide a verse where the presentation divides it, so the stream shows whole verses instead."
+        de: "Ein größerer Zeilenumbruch teilt eine Strophe nicht an denselben Stellen wie die Präsentation, daher zeigt die Übertragung stattdessen ganze Strophen."
       max_lines_dropped:
         en: "The presentation shows whole verses, so the stream does too — there is nothing for its line wrap to be a multiple of."
         de: "Die Präsentation zeigt ganze Strophen, daher tut es die Übertragung auch — es gibt nichts, wovon ihr Zeilenumbruch ein Vielfaches sein könnte."
