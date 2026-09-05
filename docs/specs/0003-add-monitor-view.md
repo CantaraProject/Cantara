@@ -1,9 +1,10 @@
 # 0003 — Monitor views, and the end of the fixed two outputs
 
-Status: **in progress.** The five decisions below are taken. Stages 1 and 2 of
-the work plan are built; stages 3–7 are not. Nothing is visible to the user
-yet: the model exists and is migrated into, but the program still opens its
-windows and serves its routes the old way.
+Status: **in progress.** The five decisions below are taken. Stages 1, 2 and 3a
+are built; the rest are not, and the order of what remains has changed — see
+[What stage 3 found](#what-stage-3-found). Nothing is visible to the user yet:
+windows are opened from the view list, but every view is still an audience view
+and the network side is untouched.
 
 Cantara today can put a service onto exactly two surfaces, and both of them are
 aimed at the congregation: the projection, and — since [0002](0002-remote-control.md)
@@ -450,9 +451,20 @@ Each stage is meant to leave the program working.
    `bring_up_to_date`. They had already drifted, and adding a fifth step to
    only one of them is precisely the failure [0001](0001-duplicated-code.md)
    describes.
-3. **Windows and routes driven by the list.** `selection_components.rs` opens a
-   window per `Screen` view; the helper's `Offer` becomes a set of paths. Still
-   no monitor views — this stage is "two views, defined in data".
+3. **Windows and routes driven by the list.** Split in two once the code was
+   read; see [What stage 3 found](#what-stage-3-found).
+
+   a. ~~`selection_components.rs` opens a window per `Screen` view.~~ **Done.**
+      `place_screen_views` in [screens.rs](../../src/logic/screens.rs) decides
+      which views get a window and on which screen; `open_view_window` is the
+      one path by which a presentation window is made, called once per
+      placement. Each window is told which view it is drawing, which is the
+      seam stage 4 needs. Behaviour is unchanged for every existing
+      configuration: one enabled `Screen` view, on the screen
+      `presentation_screen` named.
+
+   b. **The helper's `Offer` becomes a set of paths.** Not done, and it should
+      not be done next — see below.
 4. **`MonitorLayout::SlideList` and `Speaker`.** The slide list lifted out of
    the presenter console and shared. This is the stage where the feature
    becomes visible and useful, and it is a good place to stop and use it.
@@ -461,6 +473,67 @@ Each stage is meant to leave the program working.
    behaviour.
 7. **Custom widgets,** Wasm first, behind the import opt-in — only if 1–6 have
    been in use for a while and the need is still real.
+
+## What stage 3 found
+
+Two things the plan above did not know, both from reading the network side
+rather than from building it.
+
+### The reserved list was wrong
+
+`check_network_path` was written in stage 2 against the console's router, which
+claims `/console` and `/assets`. But *two* routers are merged onto that one
+socket, and the stream's
+([stream/server.rs](../../src/logic/stream/server.rs)) puts `/state`,
+`/events`, `/abcjs.js`, `/media`, `/video` and `/login` at the top level beside
+them. `/video` is a perfectly natural name for a view, and it would have been a
+panic in the server thread at the moment a service started — with the helper
+still reporting itself as up.
+
+Fixed, with the full list in `RESERVED_PATHS` and a test in the stream server
+asserting each route it declares is refused to a view. That test is the link
+between the two, since the settings cannot name the stream server on every
+target.
+
+### Multiple network views need per-view slides, which do not exist yet
+
+The plan treated 3b as plumbing: give the helper a set of paths instead of one.
+It is not, and the reason is in the data rather than in the server.
+
+A view that differs from the projection needs its own division of the song, and
+that division is currently *the stream's*, singular, baked into the chapter:
+`SlideChapter::stream_slides`, `stream_slide_map` and `stream_design_option`
+([states.rs](../../src/logic/states.rs)), with `Division::{Projection, Stream}`
+naming the two. Everything that counts slides, maps a projection slide to the
+one a phone is showing, or publishes state to a viewer is written against that
+pair.
+
+So serving N network views means generalising "the stream's second division"
+into "each view's division" — through `presentation.rs` where chapters are
+built, `stream_view.rs` where the mapping is worked out, `states.rs` where it is
+counted, and the stream protocol that publishes it. That is a real piece of
+work, and it is the same piece of work stage 4 needs in order to draw a monitor
+view that is looking somewhere else.
+
+Doing 3b first would mean building a server that serves N paths with identical
+bytes: no observable difference, and no test that can tell a correct
+implementation from a broken one. The recommendation is therefore to **reorder**
+— generalise the division from a pair to a list first, then let both the
+network views and the monitor layouts land on top of it:
+
+* **3b′.** `Division::{Projection, Stream}` becomes a per-view division;
+  `stream_slides`/`stream_slide_map` become one per view that asks for one.
+  Pure, and testable exactly where `stream_view.rs` is tested today. No
+  behaviour change: the stream is the one view that has a second division.
+* **4.** The monitor layouts, which now have somewhere to get their slides
+  from.
+* **3b.** The helper serves a nested router per network view. Now there is
+  something different at each path, and a test can say so.
+
+Until 3b lands, a `Network` view other than the stream's own `/` is a
+configuration that the settings will accept and nothing will serve. Stage 3a
+does not create one — the migration makes exactly the stream view it always
+had — but the view editor must not offer to make one before 3b is built.
 
 ## Testing
 
