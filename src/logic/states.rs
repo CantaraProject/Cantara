@@ -479,12 +479,10 @@ impl RunningPresentation {
         if chapter < self.presentation.len() {
             let chapter_slides = &self.presentation[chapter].slides;
             if slide < chapter_slides.len() {
-                // Calculate the total slide number
-                let mut total: usize = 0;
-                for i in 0..chapter {
-                    total += self.presentation[i].slides.len();
-                }
-                total += slide;
+                // The running number of the slide jumped to — the same sum
+                // [`counter_in`](Self::counter_in) reads back out of a
+                // position, counted here once.
+                let total = self.slides_before(chapter, Division::Projection) + slide;
 
                 self.position = Some(RunningPresentationPosition {
                     chapter,
@@ -497,9 +495,50 @@ impl RunningPresentation {
     }
 
 
-    /// Returns the total number of slides across all chapters
-    pub fn total_slides(&self) -> usize {
-        self.presentation.iter().map(|ch| ch.slides.len()).sum()
+    /// How many slides the whole service has in `division`.
+    ///
+    /// This replaced a `total_slides` that could only answer for the
+    /// projection. Everything that counts slides now says which set it means,
+    /// which is the point of [`Division`].
+    pub fn total_slides_in(&self, division: Division) -> usize {
+        self.presentation
+            .iter()
+            .map(|chapter| chapter.slides_in(division).len())
+            .sum()
+    }
+
+    /// How many slides of `division` come before the given chapter.
+    fn slides_before(&self, chapter: usize, division: Division) -> usize {
+        slides_before(&self.presentation, chapter, division)
+    }
+
+    /// How far through the service it is in `division`: which slide is up,
+    /// counted from one, and how many there are altogether.
+    ///
+    /// Every counter in the presenter console is this — the progress bar in
+    /// the header, the number on the live preview, the one in the control bar,
+    /// and the one on the preview of what the phones are showing. They differ
+    /// in which division they are counting and in nothing else, which is why
+    /// they are one function: written separately, the stream's counted the
+    /// slides of the current song while the others counted the service, and
+    /// the two numbers sat side by side looking comparable.
+    ///
+    /// `None` when nothing is on screen.
+    pub fn counter_in(&self, division: Division) -> Option<(usize, usize)> {
+        let (chapter, slide) = match division {
+            Division::Projection => {
+                let position = self.position.as_ref()?;
+                (position.chapter(), position.chapter_slide())
+            }
+            // Where the phones stand is worked out from where the projection
+            // stands, since that is what the operator moves.
+            Division::Stream => self.stream_position()?,
+        };
+
+        Some((
+            self.slides_before(chapter, division) + slide + 1,
+            self.total_slides_in(division),
+        ))
     }
 
     /// Toggle the black screen state
@@ -841,6 +880,17 @@ impl SlideChapter {
         }
     }
 
+    /// The slides of this chapter in `division`.
+    ///
+    /// The one place that answers "which set of slides is meant", so that
+    /// everything counting them agrees. See [`Division`].
+    pub fn slides_in(&self, division: Division) -> &[Slide] {
+        match division {
+            Division::Projection => &self.slides,
+            Division::Stream => self.slides_for_stream(),
+        }
+    }
+
     /// Which slide the stream is showing while the projection shows `slide`.
     ///
     /// The same index where there is no second division, and the mapped one
@@ -873,6 +923,48 @@ impl SlideChapter {
     }
 }
 
+/// How many slides of `division` come before `chapter`.
+///
+/// The running number of a slide is this plus its place in its own chapter,
+/// and that sum is what a position carries as its
+/// [`slide_total`](RunningPresentationPosition::slide_total). Three places
+/// worked it out: [`RunningPresentation::jump_to`], the counters in the
+/// presenter console, and
+/// [`crate::logic::presentation::update_presentation`], which has to put the
+/// number back together after the running order has been edited. It is written
+/// here once, over a slice, because that last one is holding chapters that are
+/// not in a presentation yet.
+pub fn slides_before(chapters: &[SlideChapter], chapter: usize, division: Division) -> usize {
+    chapters
+        .iter()
+        .take(chapter)
+        .map(|chapter| chapter.slides_in(division).len())
+        .sum()
+}
+
+/// Which of the two sets of slides a service has is meant.
+///
+/// A service may give the phones a division of its own — a song that goes two
+/// lines at a time on the wall and four on a phone — and from then on there
+/// are two answers to every question about slides: which one is up, how many
+/// there are, how far through the service it is. See
+/// [`SlideChapter::stream_slides`].
+///
+/// A value rather than a second set of methods because everything that counts
+/// slides counts them the same way and differs only in which set it is
+/// counting. The counters in the presenter console are the reason it exists:
+/// the projection's said "3 / 17" and the stream's, written separately, said
+/// "3 / 11" — the total of the song rather than of the service, which is a
+/// different thing from the number beside it and read as though it were the
+/// same.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Division {
+    /// What the wall shows.
+    Projection,
+    /// What the phones show, where that is not the same.
+    Stream,
+}
+
 fn default_presentation_resolution() -> (u32, u32) {
     (1920, 1080)
 }
@@ -880,6 +972,97 @@ fn default_presentation_resolution() -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two songs, the second of which the phones see in a division of its
+    /// own: four slides on the wall shown as two on a phone.
+    fn service() -> RunningPresentation {
+        use cantara_songlib::slides::Slide;
+
+        let source = |name: &str| crate::logic::sourcefiles::SourceFile {
+            name: name.to_string(),
+            path: std::path::PathBuf::from(format!("{name}.song")),
+            file_type: crate::logic::sourcefiles::SourceFileType::Song,
+            md5_hash: None,
+            relative_path: None,
+        };
+        let slides = |count: usize| -> Vec<Slide> {
+            (0..count).map(|_| Slide::new_empty_slide(false)).collect()
+        };
+
+        let first = SlideChapter::new(slides(3), source("Erstes Lied"), None, None);
+
+        let mut second = SlideChapter::new(slides(4), source("Zweites Lied"), None, None);
+        second.stream_slides = Some(slides(2));
+        // Two of the wall's slides to each of the phones'.
+        second.stream_slide_map = vec![0, 0, 1, 1];
+
+        RunningPresentation::new(vec![first, second])
+    }
+
+    /// Both counters count the service, not the song.
+    ///
+    /// This is what the presenter console shows beside its two previews, and
+    /// what was wrong: the stream's counter counted within the chapter, so a
+    /// projection reading "5 / 7" sat beside a stream reading "1 / 2" — the
+    /// same moment described in two different units, side by side, as though
+    /// they could be compared.
+    #[test]
+    fn both_divisions_are_counted_over_the_whole_service() {
+        let mut running = service();
+
+        // The second slide of the first song: the same in both, since that
+        // song has no division of its own.
+        running.jump_to(0, 1);
+        assert_eq!(running.counter_in(Division::Projection), Some((2, 7)));
+        assert_eq!(running.counter_in(Division::Stream), Some((2, 5)));
+
+        // The third slide of the second song is the sixth of the service on
+        // the wall, and the second of that song on a phone — which is the
+        // fifth of the service.
+        running.jump_to(1, 2);
+        assert_eq!(running.counter_in(Division::Projection), Some((6, 7)));
+        assert_eq!(
+            running.counter_in(Division::Stream),
+            Some((5, 5)),
+            "three slides of the first song and the second of the phones' two"
+        );
+    }
+
+    /// The number a position carries and the number the counter works out are
+    /// the same number, however the position was reached.
+    ///
+    /// They are two pieces of arithmetic over the same running order — one
+    /// kept up as the slides are stepped through, one worked out from where
+    /// the position now is — and a counter that disagreed with the progress
+    /// bar beside it would be the plainest possible sign that they had drifted.
+    #[test]
+    fn stepping_through_agrees_with_counting_up() {
+        let mut running = service();
+        running.jump_to(0, 0);
+
+        for expected in 1..=7 {
+            assert_eq!(
+                running.counter_in(Division::Projection).map(|(slide, _)| slide),
+                Some(expected)
+            );
+            assert_eq!(
+                running.position.as_ref().map(|position| position.slide_total() + 1),
+                Some(expected),
+                "the position's own running number went its own way"
+            );
+            running.next_slide();
+        }
+    }
+
+    /// Nothing on screen is not a slide number.
+    #[test]
+    fn a_service_that_has_not_started_has_no_counter() {
+        let mut running = service();
+        running.position = None;
+
+        assert_eq!(running.counter_in(Division::Projection), None);
+        assert_eq!(running.counter_in(Division::Stream), None);
+    }
 
     /// A seek to the same second twice is two commands. Without the count the
     /// second would look identical to the first, and a video that ran on past

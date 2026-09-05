@@ -819,12 +819,13 @@ fn apply_presentation_update(
                 RunningPresentationPosition::new(&new_chapters)
             } else {
                 let clamped_slide = old_chapter_slide.min(slide_count - 1);
-                // Recompute slide_total
-                let total: usize = new_chapters[..new_ch_idx]
-                    .iter()
-                    .map(|chapter| chapter.slides.len())
-                    .sum::<usize>()
-                    + clamped_slide;
+                // The running number the slide now has, worked out where every
+                // other running number is — see [`crate::logic::states::slides_before`].
+                let total = crate::logic::states::slides_before(
+                    &new_chapters,
+                    new_ch_idx,
+                    crate::logic::states::Division::Projection,
+                ) + clamped_slide;
                 Some(RunningPresentationPosition::from_raw(
                     new_ch_idx,
                     clamped_slide,

@@ -763,46 +763,12 @@ pub fn PresentationRendererComponent(
             },
         );
 
-    let css_text_align: Memo<HorizontalAlign> = use_memo(move || {
-        current_pds
-            .read()
-            .fonts
-            .first()
-            .unwrap_or(&FontRepresentation::default())
-            .horizontal_alignment
-    });
-    let css_place_items: Memo<PlaceItems> =
-        use_memo(move || match current_pds.read().vertical_alignment {
-            VerticalAlign::Top => PlaceItems::StartStretch,
-            VerticalAlign::Middle => PlaceItems::CenterStretch,
-            VerticalAlign::Bottom => PlaceItems::EndStretch,
-        });
-
-    // The CSS handler ([CssHandler]) takes all CSS arguments and builds the string from it.
-    // We build it in a memo for the sake of consistency.
-    let css_handler: Memo<CssHandler> = use_memo(move || {
-        let mut css = CssHandler::new();
-
-        css.background_color(current_pds().background_color);
-        css.padding_left(current_pds().padding.left);
-        css.padding_right(current_pds().padding.right);
-        css.padding_top(current_pds().padding.top);
-        css.padding_bottom(current_pds().padding.bottom);
-        css.text_align(css_text_align());
-        css.set_important(true);
-        css.color(
-            current_pds
-                .read()
-                .clone()
-                .fonts
-                .first()
-                .unwrap_or(&FontRepresentation::default())
-                .color,
-        );
-        css.place_items(css_place_items());
-
-        css
-    });
+    // The stage this presentation stands on — the same one
+    // [`StaticSlideRendererComponent`] builds, from the same function. See
+    // [`stage_style`]. Named for the style rather than the stage, because
+    // `stage` below is the other half of the word: which slides are standing
+    // on it.
+    let stage_css: Memo<String> = use_memo(move || stage_style(&current_pds()));
 
     // Have the scaled-down background made, for the views that will use it.
     //
@@ -846,7 +812,6 @@ pub fn PresentationRendererComponent(
     let background_css: Memo<String> = use_memo(move || {
         // Read so that this is rebuilt when the scaled copy arrives.
         let _ = thumbnails_ready();
-        let mut css: CssHandler = CssHandler::new();
         let pds = current_pds();
 
         // A `url()` pointing into the file system is as unreachable for the
@@ -862,7 +827,11 @@ pub fn PresentationRendererComponent(
         //
         // The small copy is only taken when it is already there. Nothing here
         // may wait for a file: this runs while the view is being drawn.
-        if let Some(source) = pds.background_image.as_ref().and_then(|image| {
+        //
+        // Finding the picture is this renderer's own business; what is done
+        // with it once found is [`stage_background_style`], which the static
+        // renderer uses as well.
+        let source = pds.background_image.as_ref().and_then(|image| {
             let path = &image.as_source().path;
             if !role.is_audience_view()
                 && let Some(small) = crate::logic::images::thumbnail(path)
@@ -870,17 +839,9 @@ pub fn PresentationRendererComponent(
                 return Some(small);
             }
             crate::logic::images::image_data_url(path)
-        }) {
-            css.background_image(&source);
-            css.background_size("cover");
-            css.background_position("center");
-            css.background_repeat("no-repeat");
-            css.opacity(1.0 - pds.background_transparency as f32 / 100.0f32);
-        } else {
-            css.background_image_none();
-            css.opacity(0.0);
-        }
-        css.to_string()
+        });
+
+        stage_background_style(&pds, source.as_deref())
     });
 
     rsx! {
@@ -892,7 +853,7 @@ pub fn PresentationRendererComponent(
             // hide the one thing only the audience should not see: its
             // scrollbar. See `presentation.css`.
             class: if role.is_audience_view() { "presentation presentation-live" } else { "presentation" },
-            style: css_handler.read().to_string(),
+            style: "{stage_css}",
 
             tabindex: 0,
             onkeydown: move |event: Event<KeyboardData>| {
@@ -913,9 +874,10 @@ pub fn PresentationRendererComponent(
             onmounted: move |_| {
                 presentation_is_visible.set(true);
             },
-            // Black screen overlay
+            // Black screen overlay, the same one the static renderer puts
+            // over a preview of a blacked-out screen.
             if is_black_screen() {
-                div { style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: black; z-index: 1000;" }
+                div { style: BLACK_SCREEN_STYLE }
             }
             div { class: "background", style: background_css() }
             // A keyed list of one, so that the key decides the element's
@@ -1455,6 +1417,78 @@ fn EmptySlideComponent() -> Element {
 /// Determines the container style for a slide based on its content type.
 /// Picture and markdown slides need `height: 100%` to fill the grid cell,
 /// so that their content can scroll or scale within a constrained area.
+/// What is drawn over a slide when the projection is blacked out.
+///
+/// One string for the two renderers. A black screen that only one of them knew
+/// about is what the console showed for a service that had been blacked out:
+/// the wall went black and the preview beside the operator went on showing the
+/// slide.
+pub(crate) const BLACK_SCREEN_STYLE: &str =
+    "position: absolute; top: 0; left: 0; width: 100%; height: 100%; \
+     background-color: black; z-index: 1000;";
+
+/// The style of the `.presentation` element for a design: the stage every
+/// slide stands on.
+///
+/// One function for the two renderers, because the stage is not what
+/// distinguishes them. Written twice it drifted, and each difference was a
+/// preview that lied about what the room was seeing — the vertical alignment
+/// of a design was the plainest of them, since a stage that centres its slide
+/// and one that does not are two different screens.
+fn stage_style(pds: &PresentationDesignTemplate) -> String {
+    let font = pds
+        .fonts
+        .first()
+        .cloned()
+        .unwrap_or_else(FontRepresentation::default);
+
+    let mut css = CssHandler::new();
+    // All of it, for the reason a design is a design: what the service asked
+    // for beats anything a stylesheet has to say about a `div`.
+    css.set_important(true);
+    css.background_color(pds.background_color);
+    css.padding_left(pds.padding.left.clone());
+    css.padding_right(pds.padding.right.clone());
+    css.padding_top(pds.padding.top.clone());
+    css.padding_bottom(pds.padding.bottom.clone());
+    css.text_align(font.horizontal_alignment);
+    css.color(font.color);
+    css.place_items(match pds.vertical_alignment {
+        VerticalAlign::Top => PlaceItems::StartStretch,
+        VerticalAlign::Middle => PlaceItems::CenterStretch,
+        VerticalAlign::Bottom => PlaceItems::EndStretch,
+    });
+    css.to_string()
+}
+
+/// The style of the `.background` layer under a slide.
+///
+/// `source` is the picture as the caller could get it — the two renderers find
+/// it differently, one from a hook and one from whatever is already in memory,
+/// and that difference is the only one there is. What is *done* with it is
+/// here, once.
+fn stage_background_style(pds: &PresentationDesignTemplate, source: Option<&str>) -> String {
+    let mut css = CssHandler::new();
+    css.set_important(true);
+    match source {
+        Some(source) => {
+            css.background_image(source);
+            css.background_size("cover");
+            css.background_position("center");
+            css.background_repeat("no-repeat");
+            css.opacity(1.0 - pds.background_transparency as f32 / 100.0f32);
+        }
+        // Nothing to show, and nothing to show through: a layer left at full
+        // opacity with no picture in it is a rectangle of its own colour over
+        // the design's.
+        None => {
+            css.background_image_none();
+            css.opacity(0.0);
+        }
+    }
+    css.to_string()
+}
+
 fn slide_container_style(slide_content: &SlideContent) -> &'static str {
     match slide_content {
         // A video is fitted into the cell like a picture, so it needs one with
@@ -2437,14 +2471,27 @@ fn use_inlined_picture(path: Option<PathBuf>) -> Option<String> {
     })
 }
 
-/// A static (non-interactive) slide renderer that renders a single slide with its
-/// presentation design. Used for grid overview thumbnails. It reuses the same
-/// sub-components as `PresentationRendererComponent` but without any interactivity
-/// (no click/keyboard handlers, no black screen overlay, no fade-in animation).
+/// A static (non-interactive) slide renderer that renders a single slide with
+/// its presentation design. Used for the console's overview thumbnails and for
+/// its preview of what the phones are showing.
+///
+/// The same stage as [`PresentationRendererComponent`] — the same root style,
+/// the same background layer, the same black screen — with the interactivity
+/// left out: no click or keyboard handlers, no transitions, no timer. What it
+/// draws is a slide, not a presentation being run.
 #[component]
 pub fn StaticSlideRendererComponent(
     slide: Slide,
     presentation_design: PresentationDesign,
+    /// Whether the projection is blacked out.
+    ///
+    /// A preview of a screen that has been blacked out has to be black, or the
+    /// console shows the operator a slide the room cannot see. Off by default:
+    /// a thumbnail in the overview is a picture of a slide rather than of a
+    /// screen, and the whole overview going black would say nothing about
+    /// which slide is up.
+    #[props(default)]
+    blacked_out: bool,
 ) -> Element {
     let pds = match presentation_design.presentation_design_settings {
         PresentationDesignSettings::Template(ref template) => template.clone(),
@@ -2459,53 +2506,8 @@ pub fn StaticSlideRendererComponent(
             .map(|image| image.as_source().path.clone()),
     );
 
-    let css_text_align = pds
-        .fonts
-        .first()
-        .unwrap_or(&FontRepresentation::default())
-        .horizontal_alignment;
-
-    let css_place_items = match pds.vertical_alignment {
-        VerticalAlign::Top => PlaceItems::StartStretch,
-        VerticalAlign::Middle => PlaceItems::CenterStretch,
-        VerticalAlign::Bottom => PlaceItems::EndStretch,
-    };
-
-    let css_handler = {
-        let mut css = CssHandler::new();
-        css.set_important(true);
-        css.background_color(pds.background_color);
-        css.padding_left(pds.padding.left.clone());
-        css.padding_right(pds.padding.right.clone());
-        css.padding_top(pds.padding.top.clone());
-        css.padding_bottom(pds.padding.bottom.clone());
-        css.text_align(css_text_align);
-        css.set_important(true);
-        css.color(
-            pds.fonts
-                .first()
-                .unwrap_or(&FontRepresentation::default())
-                .color,
-        );
-        css.place_items(css_place_items);
-        css
-    };
-
-    let background_css = {
-        let mut css = CssHandler::new();
-        css.set_important(true);
-        if let Some(source) = background_source.as_ref() {
-            css.background_image(source);
-            css.background_size("cover");
-            css.background_position("center");
-            css.background_repeat("no-repeat");
-            css.opacity(1.0 - pds.background_transparency as f32 / 100.0f32);
-        } else {
-            css.background_image_none();
-            css.opacity(0.0);
-        }
-        css.to_string()
-    };
+    let stage = stage_style(&pds);
+    let background_css = stage_background_style(&pds, background_source.as_deref());
 
     let slide_content = slide.slide_content;
     let container_style = slide_container_style(&slide_content);
@@ -2513,7 +2515,10 @@ pub fn StaticSlideRendererComponent(
     rsx! {
         document::Link { rel: "stylesheet", href: PRESENTATION_CSS }
         document::Script { src: PRESENTATION_JS }
-        div { class: "presentation", style: css_handler.to_string(),
+        div { class: "presentation", style: "{stage}",
+            if blacked_out {
+                div { style: BLACK_SCREEN_STYLE }
+            }
             div { class: "background", style: "{background_css}" }
             div { class: "slide-container", style: "{container_style}",
                 SlideContentRenderer { slide_content, pds }
@@ -2732,6 +2737,150 @@ mod notation_tests {
 /// way, and the symptom was the design editor's live preview: switching a font
 /// to italic left the title exactly as it was, while the meta line underneath
 /// — built without a memo — followed at once.
+#[cfg(test)]
+mod one_stage_tests {
+    use super::*;
+    use crate::logic::settings::PresentationDesign;
+    use crate::logic::states::{RunningPresentation, SlideChapter};
+    use cantara_songlib::slides::Slide;
+
+    /// A design with everything about the stage set away from its default, so
+    /// that a renderer ignoring any of it would be caught.
+    fn design() -> PresentationDesign {
+        let mut design = PresentationDesign::default();
+        let PresentationDesignSettings::Template(template) =
+            &mut design.presentation_design_settings
+        else {
+            panic!("the default design is a template");
+        };
+        template.vertical_alignment = VerticalAlign::Middle;
+        template.background_color = rgb::RGB8::new(10, 20, 30);
+        for font in &mut template.fonts {
+            font.horizontal_alignment = HorizontalAlign::Left;
+        }
+        design
+    }
+
+    fn chapter(design: PresentationDesign) -> SlideChapter {
+        SlideChapter::new(
+            vec![Slide::new_empty_slide(false)],
+            crate::logic::sourcefiles::SourceFile {
+                name: "Test".to_string(),
+                path: std::path::PathBuf::from("Test.song"),
+                file_type: crate::logic::sourcefiles::SourceFileType::Song,
+                md5_hash: None,
+                relative_path: None,
+            },
+            Some(design),
+            None,
+        )
+    }
+
+    /// The `style` of the `.presentation` element in some rendered HTML.
+    fn stage_of(html: &str) -> String {
+        let at = html
+            .find(r#"<div class="presentation"#)
+            .unwrap_or_else(|| panic!("no stage in {html}"));
+        let style = html[at..]
+            .find(r#"style=""#)
+            .map(|offset| at + offset + r#"style=""#.len())
+            .unwrap_or_else(|| panic!("the stage has no style in {html}"));
+        let end = html[style..]
+            .find('"')
+            .map(|offset| style + offset)
+            .unwrap_or_else(|| panic!("an unterminated style in {html}"));
+        html[style..end].to_string()
+    }
+
+    fn rendered(component: fn() -> Element) -> String {
+        let mut dom = VirtualDom::new(component);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    }
+
+    /// The two renderers stand a slide on the same stage.
+    ///
+    /// They are one component in two moods — one runs a presentation, the
+    /// other draws a slide — and everything around the slide is the same in
+    /// both: the design's colours, its padding, where the text sits on the
+    /// screen. Written twice, that agreement lasted exactly as long as nobody
+    /// edited one of them: the console's preview of the network stream ended
+    /// up aligning its text to the top of a design that asked for the middle,
+    /// beside a live preview of the same design that had it right. Both now
+    /// build it with [`stage_style`], and this is what says so.
+    #[test]
+    fn both_renderers_build_the_same_stage() {
+        #[component]
+        fn Live() -> Element {
+            let running_presentation =
+                use_signal(|| RunningPresentation::new(vec![chapter(design())]));
+            rsx! {
+                PresentationRendererComponent {
+                    running_presentation,
+                    role: PresentationRole::Follower,
+                }
+            }
+        }
+
+        #[component]
+        fn Static() -> Element {
+            rsx! {
+                StaticSlideRendererComponent {
+                    slide: Slide::new_empty_slide(false),
+                    presentation_design: design(),
+                }
+            }
+        }
+
+        let live = stage_of(&rendered(Live));
+        let still = stage_of(&rendered(Static));
+
+        assert_eq!(live, still, "the two renderers disagree about the stage");
+        assert!(
+            live.contains("place-items:center stretch"),
+            "the design asked for the middle: {live}"
+        );
+    }
+
+    /// A preview of a blacked-out screen is black.
+    ///
+    /// The console previews the stream with the static renderer, and the
+    /// stream goes black with the projection — so a preview that could not go
+    /// black showed the operator a slide that nobody in the room could see.
+    #[test]
+    fn a_blacked_out_preview_is_covered() {
+        #[component]
+        fn Black() -> Element {
+            rsx! {
+                StaticSlideRendererComponent {
+                    slide: Slide::new_empty_slide(false),
+                    presentation_design: design(),
+                    blacked_out: true,
+                }
+            }
+        }
+
+        #[component]
+        fn Lit() -> Element {
+            rsx! {
+                StaticSlideRendererComponent {
+                    slide: Slide::new_empty_slide(false),
+                    presentation_design: design(),
+                }
+            }
+        }
+
+        assert!(
+            rendered(Black).contains(BLACK_SCREEN_STYLE),
+            "the black screen is not over the preview"
+        );
+        assert!(
+            !rendered(Lit).contains(BLACK_SCREEN_STYLE),
+            "a thumbnail of a slide is not a screen and must not go black by itself"
+        );
+    }
+}
+
 #[cfg(test)]
 mod design_follows_tests {
     use super::*;
