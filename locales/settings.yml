@@ -146,6 +146,16 @@ settings:
   tag_mapping_circular:
     en: A name cannot be read as itself.
     de: Ein Name kann nicht als er selbst gelesen werden.
+  # The names the two views Cantara has always had are given when a
+  # configuration from before views existed is read. Written into the
+  # settings file once, in the language in use at that moment, and the
+  # user's to rename afterwards.
+  view_projection:
+    en: Projection
+    de: Projektion
+  view_stream:
+    en: Stream
+    de: Übertragung
   stream_headline:
     en: Network streaming
     de: Netzwerk-Übertragung

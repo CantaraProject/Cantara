@@ -1431,5 +1431,44 @@ mod tests {
         assert!(cookie.contains("SameSite=Lax"), "got: {cookie}");
         assert!(cookie.starts_with("cantara_stream=s3cret-session;"), "got: {cookie}");
     }
+
+    /// Every path this router claims is one a view cannot be given.
+    ///
+    /// This router is merged onto the same socket as the presenter console's,
+    /// so its routes sit at the top level where a user-defined view path would
+    /// also sit. `/state` is not an obvious thing to call a stage monitor, but
+    /// `/video` is, and a view given one of these names is two handlers on one
+    /// path — which is a panic in the server thread at the moment a service
+    /// starts, with the helper still reporting itself as up.
+    ///
+    /// The list is in `crate::logic::settings`, which cannot name this module
+    /// on every target. So the link between the two is this test: a route
+    /// added above without being reserved there fails here.
+    #[test]
+    fn the_paths_this_router_claims_are_refused_to_views() {
+        use crate::logic::settings::check_network_path;
+
+        // The path each route declares, with any parameter segment dropped:
+        // `/media/{id}` claims `/media`, and a view called `/media` collides
+        // with it just as surely.
+        //
+        // Refused, rather than refused for a particular reason: `/abcjs.js` is
+        // turned away for the dot in it before the reserved list is ever
+        // consulted, and which of the two rules catches a path does not matter
+        // to the server that would otherwise panic on it.
+        for claimed in [
+            "/state",
+            "/events",
+            "/abcjs.js",
+            "/media",
+            "/video",
+            "/login",
+        ] {
+            assert!(
+                check_network_path(claimed).is_err(),
+                "{claimed} is served here but could be given to a view"
+            );
+        }
+    }
 }
 

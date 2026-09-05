@@ -123,6 +123,10 @@ uuid = { version = "1", features = ["js"] }
 # tree — wasm-bindgen-futures builds on it — so this adds no compilation, and
 # it replaces a `setTimeout` evaluated in the page on every tick.
 gloo-timers = { version = "0.3", features = ["futures"] }
+# `std::time::SystemTime::now` panics on wasm32-unknown-unknown, and the
+# chapter timer needs a wall clock on every target. `Date.now()` is what the
+# page itself uses; js-sys is already in the tree under web-sys.
+js-sys = "0.3"
 
 [features]
 default = ["desktop"]

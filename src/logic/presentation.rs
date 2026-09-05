@@ -5,6 +5,7 @@ use super::{
     sourcefiles::{SourceFile, SourceFileType},
     states::{RunningPresentation, RunningPresentationPosition, SelectedItemRepresentation, SlideChapter},
     stream_view::{StreamDefaults, map_slides, slides_nest, stream_slide_settings},
+    timer::Timestamp,
 };
 
 use crate::logic::tag_mapping::TagMapping;
@@ -865,12 +866,36 @@ fn apply_presentation_update(
         RunningPresentationPosition::new(&new_chapters)
     };
 
+    // Whether the presentation is still in the chapter it was in, which is
+    // what decides the chapter clock: a running order edited during a sermon
+    // must not restart the sermon's timer, and one that moved the service to a
+    // different element must.
+    //
+    // Read back off the result rather than tracked through the branches above,
+    // so that the answer cannot drift from the position actually chosen. It
+    // has to be asked before the UUIDs are replaced below — that is the last
+    // moment the carried identity still means anything.
+    let stayed_in_chapter = match (old_chapter_id, &new_position) {
+        (Some(target_id), Some(position)) => new_chapters
+            .get(position.chapter())
+            .is_some_and(|chapter| chapter.id == target_id),
+        _ => false,
+    };
+
     // Now assign fresh UUIDs to all chapters so they don't carry stale old IDs
     for ch in &mut new_chapters {
         ch.id = Uuid::new_v4();
     }
 
     RunningPresentation {
+        chapter_entered_at: match (stayed_in_chapter, &new_position) {
+            // Same chapter, still running: the clock goes on.
+            (true, _) => old_rp.chapter_entered_at,
+            // A different chapter is now up, so it was entered just now.
+            (false, Some(_)) => Some(Timestamp::now()),
+            // Nothing is up, so nothing is being timed.
+            (false, None) => None,
+        },
         presentation: new_chapters,
         position: new_position,
         // Preserve fields that are unrelated to content regeneration
@@ -911,6 +936,11 @@ pub fn update_presentation(
     if let Some(first) = running_presentations.write().first_mut() {
         first.presentation = updated.presentation;
         first.position = updated.position;
+        // Which chapter is up may have changed, and with it when that chapter
+        // was entered. `apply_presentation_update` has already decided whether
+        // the clock carries on or starts again — this only has to not throw
+        // that answer away.
+        first.chapter_entered_at = updated.chapter_entered_at;
         // Keep: is_black_screen, presentation_resolution, markdown_scroll_position
     }
 
@@ -1813,5 +1843,108 @@ mod tests {
         let pos = updated.position.expect("position should fall back, not be None");
         assert_eq!(pos.chapter(), 0, "should fall back to first chapter");
         assert_eq!(pos.chapter_slide(), 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // The chapter clock across a rebuild
+    // -------------------------------------------------------------------------
+
+    /// The running order is edited while the service runs — someone adds a
+    /// song further down the list while the sermon is up. The sermon has not
+    /// started again, and the monitor showing the preacher how long they have
+    /// been going must not say it has.
+    ///
+    /// This is the case the whole `chapter_entered_at` design is for, and the
+    /// one that a rebuild resetting the field would break silently: nothing
+    /// else about the presentation would look wrong.
+    #[test]
+    fn editing_the_running_order_does_not_restart_the_current_chapters_clock() {
+        let item_a = inline_md_item("a.md", "# S1\n\n---\n\n# S2");
+        let item_b = inline_md_item("b.md", "# S1\n\n---\n\n# S2\n\n---\n\n# S3");
+        let items = [item_a.clone(), item_b.clone()];
+
+        let mut rp = build_rp(&items);
+        rp.jump_to(1, 1);
+        let preaching_since = rp.chapter_entered_at;
+        assert!(preaching_since.is_some(), "the chapter should be being timed");
+
+        // The same two elements, plus a third added at the end.
+        let items_with_addition = [item_a, item_b, inline_md_item("c.md", "# Added")];
+
+        let updated = apply_presentation_update(
+            rp,
+            &items_with_addition,
+            &PresentationDesign::default(),
+            &SlideSettings::default(),
+            &StreamDefaults::default(),
+            &[],
+        );
+
+        assert_eq!(
+            updated.position.as_ref().map(|position| position.chapter()),
+            Some(1),
+            "the same element should still be up"
+        );
+        assert_eq!(
+            updated.chapter_entered_at, preaching_since,
+            "the clock restarted because the running order was edited"
+        );
+    }
+
+    /// The other half: when the rebuild does move the service to a different
+    /// element — the one that was up has been deleted — that element is up
+    /// from now, and its clock says so rather than carrying the deleted one's.
+    #[test]
+    fn losing_the_current_chapter_starts_the_replacements_clock() {
+        let item_a = inline_md_item("a.md", "# S1\n\n---\n\n# S2");
+        let item_b = inline_md_item("b.md", "# S1");
+        let items = [item_a.clone(), item_b];
+
+        let mut rp = build_rp(&items);
+        rp.jump_to(1, 0);
+        let deleted_chapters_clock = rp.chapter_entered_at;
+
+        // The element that was up is removed from the running order.
+        let items_updated = [item_a];
+
+        let updated = apply_presentation_update(
+            rp,
+            &items_updated,
+            &PresentationDesign::default(),
+            &SlideSettings::default(),
+            &StreamDefaults::default(),
+            &[],
+        );
+
+        assert!(
+            updated.chapter_entered_at.is_some(),
+            "something is up, so something is being timed"
+        );
+        assert_ne!(
+            updated.chapter_entered_at, deleted_chapters_clock,
+            "the fallback chapter inherited the clock of the one that was deleted"
+        );
+    }
+
+    /// Everything is removed from the running order. Nothing is up, so
+    /// nothing is being timed — a clock left running here would be counting
+    /// an empty screen.
+    #[test]
+    fn emptying_the_running_order_stops_the_clock() {
+        let items = [inline_md_item("a.md", "# S1")];
+        let rp = build_rp(&items);
+        assert!(rp.chapter_entered_at.is_some());
+
+        let updated = apply_presentation_update(
+            rp,
+            &[],
+            &PresentationDesign::default(),
+            &SlideSettings::default(),
+            &StreamDefaults::default(),
+            &[],
+        );
+
+        assert_eq!(updated.position, None);
+        assert_eq!(updated.chapter_entered_at, None);
     }
 }

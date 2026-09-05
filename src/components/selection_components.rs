@@ -516,6 +516,73 @@ pub fn Selection() -> Element {
     }
 }
 
+/// Opens the window one view is shown in.
+///
+/// The one path by which a presentation window comes into being. It used to be
+/// written out inline for the projection, which was fine while there was
+/// exactly one — a second output would have meant a second copy of the
+/// builder, the fullscreen rules and the `VirtualDom`, and the two would have
+/// drifted the first time one of them was fixed.
+///
+/// The window is told which view it is drawing, as a root context. Nothing
+/// reads it yet: every view is an audience view at this stage, so every window
+/// draws what the projection has always drawn. It is what stage 4 needs in
+/// order to draw a monitor view instead, and providing it here keeps that a
+/// change to the component rather than to the window.
+#[cfg(feature = "desktop")]
+fn open_view_window(
+    placement: &crate::logic::screens::PlacedView,
+    always_fullscreen: bool,
+    running_presentations: &Signal<Vec<RunningPresentation>>,
+) {
+    use super::presentation_components::PresentationPage;
+    use dioxus::desktop::Config;
+
+    let mut builder = tao::window::WindowBuilder::new()
+        .with_resizable(true)
+        .with_visible(true);
+
+    if let Some(ref monitor) = placement.monitor {
+        builder = builder
+            .with_position(tao::dpi::PhysicalPosition::new(
+                monitor.position.0,
+                monitor.position.1,
+            ))
+            .with_inner_size(tao::dpi::PhysicalSize::new(monitor.size.0, monitor.size.1))
+            .with_decorations(false)
+            .with_fullscreen(Some(tao::window::Fullscreen::Borderless(None)));
+    } else if always_fullscreen {
+        builder = builder
+            .with_decorations(false)
+            .with_fullscreen(Some(tao::window::Fullscreen::Borderless(None)));
+    } else {
+        builder = builder
+            .with_inner_size(tao::dpi::LogicalSize::new(900.0, 800.0))
+            .with_maximized(true);
+    }
+
+    let dom = VirtualDom::new(PresentationPage)
+        .with_root_context(*running_presentations)
+        .with_root_context(ShownView(placement.index));
+
+    dioxus::desktop::window().new_window(
+        dom,
+        Config::new()
+            .with_menu(None)
+            .with_disable_drag_drop_handler(true)
+            .with_window(builder),
+    );
+}
+
+/// Which of [`crate::logic::settings::Settings::views`] a window is drawing.
+///
+/// A position rather than the view itself, so that a window reads the view out
+/// of the settings as they now stand: a design edited during a service reaches
+/// the window that is showing it, which is the whole reason views hold indices
+/// into the design list rather than copies of a design.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ShownView(pub usize);
+
 /// Helper function to start a presentation from the selection page.
 /// Supports multiscreen placement and optional presenter console.
 #[cfg(feature = "desktop")]
@@ -527,9 +594,8 @@ fn start_presentation(
     stream_defaults: &crate::logic::stream_view::StreamDefaults,
     settings_read: &Settings,
 ) {
-    use super::presentation_components::PresentationPage;
     use super::presenter_console_components::PresenterConsolePage;
-    use crate::logic::screens::{enumerate_monitors, resolve_monitor};
+    use crate::logic::screens::{enumerate_monitors, place_screen_views, resolve_monitor};
     use dioxus::desktop::Config;
 
     if presentation::add_presentation(
@@ -545,52 +611,34 @@ fn start_presentation(
         let desktop = dioxus::desktop::window();
         let monitors = enumerate_monitors(&desktop);
 
-        let presentation_monitor =
-            resolve_monitor(&monitors, &settings_read.presentation_screen, false);
+        // Which views get a window, and on which screen. One rule, in
+        // [`crate::logic::screens::place_screen_views`], rather than a screen
+        // resolved per output here — see docs/specs/0003-add-monitor-view.md.
+        let placements = place_screen_views(&settings_read.views, &monitors);
 
-        if let Some(ref monitor) = presentation_monitor
-            && let Some(rp) = running_presentations.write().last_mut() {
-                rp.presentation_resolution = monitor.size;
-            }
+        // The presentation is laid out for the reference view's screen: that
+        // is the sequence of slides everything else is described against, and
+        // what the console's preview has to break its lines the same way as.
+        let reference_index = settings_read
+            .reference_view()
+            .and_then(|reference| settings_read.views.iter().position(|view| view == reference));
+        if let Some(monitor) = placements
+            .iter()
+            .find(|placement| Some(placement.index) == reference_index)
+            .and_then(|placement| placement.monitor.as_ref())
+            && let Some(rp) = running_presentations.write().last_mut()
+        {
+            rp.presentation_resolution = monitor.size;
+        }
 
         let presenter_monitor = resolve_monitor(&monitors, &settings_read.presenter_screen, true);
 
         let show_presenter_console = settings_read.show_presenter_console;
         let always_fullscreen = settings_read.always_start_fullscreen;
 
-        let mut presentation_window_builder = tao::window::WindowBuilder::new()
-            .with_resizable(true)
-            .with_visible(true);
-
-        if let Some(ref monitor) = presentation_monitor {
-            presentation_window_builder = presentation_window_builder
-                .with_position(tao::dpi::PhysicalPosition::new(
-                    monitor.position.0,
-                    monitor.position.1,
-                ))
-                .with_inner_size(tao::dpi::PhysicalSize::new(monitor.size.0, monitor.size.1))
-                .with_decorations(false)
-                .with_fullscreen(Some(tao::window::Fullscreen::Borderless(None)));
-        } else if always_fullscreen {
-            presentation_window_builder = presentation_window_builder
-                .with_decorations(false)
-                .with_fullscreen(Some(tao::window::Fullscreen::Borderless(None)));
-        } else {
-            presentation_window_builder = presentation_window_builder
-                .with_inner_size(tao::dpi::LogicalSize::new(900.0, 800.0))
-                .with_maximized(true);
+        for placement in &placements {
+            open_view_window(placement, always_fullscreen, running_presentations);
         }
-
-        let presentation_dom =
-            VirtualDom::new(PresentationPage).with_root_context(*running_presentations);
-
-        dioxus::desktop::window().new_window(
-            presentation_dom,
-            Config::new()
-                .with_menu(None)
-                .with_disable_drag_drop_handler(true)
-                .with_window(presentation_window_builder),
-        );
 
         if show_presenter_console {
             if settings_read.presenter_console_in_main_window {

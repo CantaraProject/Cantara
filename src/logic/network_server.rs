@@ -700,18 +700,25 @@ fn router(shared: Arc<Shared>) -> Router {
     // console is at `/console`, which is what the panel shows. Two handlers
     // for one path is a panic in the server thread, and the helper goes on
     // reporting itself as up while answering nothing.
+    // The paths are named by the constants the view settings validate against,
+    // so that "which paths are taken" is stated once. A path this router
+    // claims but that list does not know about is a path a user can be allowed
+    // to type — and then this function panics, at the moment a service starts.
     Router::new()
-        .route("/console", get(page))
-        .route("/console/login", post(login))
+        .route(crate::logic::settings::CONSOLE_PATH, get(page))
+        .route(&format!("{}/login", crate::logic::settings::CONSOLE_PATH), post(login))
         .route(
-            "/console/ws",
+            &format!("{}/ws", crate::logic::settings::CONSOLE_PATH),
             get(
                 move |upgrade: WebSocketUpgrade, headers: HeaderMap, State(shared)| {
                     socket(pool, shared, upgrade, headers)
                 },
             ),
         )
-        .route("/assets/{*path}", get(asset))
+        .route(
+            &format!("{}/{{*path}}", crate::logic::settings::ASSETS_PREFIX),
+            get(asset),
+        )
         .route(
             &format!("/{}/{{*path}}", crate::logic::video::VIDEO_HANDLER),
             get(video),
@@ -1046,5 +1053,55 @@ mod tests {
         // videos of the service that has finished go with it.
         shared.set_videos(video_paths(None));
         assert!(!shared.may_serve_video("clip.mp4"));
+    }
+
+    /// The router builds at all.
+    ///
+    /// `Router::route` panics when two handlers claim one path, and on a path
+    /// pattern it cannot parse. Both happen in the server thread at the moment
+    /// a service starts, and the helper then goes on reporting itself as up
+    /// while answering nothing. Nothing else in these tests builds the router,
+    /// so without this the paths could be broken and every test would pass.
+    #[test]
+    fn the_router_builds() {
+        let _ = router(Arc::new(shared_switched_off()));
+    }
+
+    /// The paths are composed from [`crate::logic::settings::CONSOLE_PATH`]
+    /// and [`crate::logic::settings::ASSETS_PREFIX`] rather than written out,
+    /// so that the view-path validation and this router cannot disagree about
+    /// what is taken. This is what pins the composition: a browser that has
+    /// been told the console is at `/console` has to find it there, and the
+    /// remote console's own glue names these paths too.
+    #[test]
+    fn the_paths_are_composed_into_the_addresses_browsers_are_given() {
+        use crate::logic::settings::{ASSETS_PREFIX, CONSOLE_PATH};
+
+        assert_eq!(CONSOLE_PATH, "/console");
+        assert_eq!(format!("{CONSOLE_PATH}/login"), "/console/login");
+        assert_eq!(format!("{CONSOLE_PATH}/ws"), "/console/ws");
+        assert_eq!(format!("{ASSETS_PREFIX}/{{*path}}"), "/assets/{*path}");
+    }
+
+    /// Every path this router claims has to be one a view cannot be given.
+    ///
+    /// The two lists are the same constants, which is the point — this is the
+    /// test that says so, and that would fail if somebody added a route here
+    /// without adding it to what the settings refuse.
+    #[test]
+    fn the_paths_the_router_claims_are_refused_to_views() {
+        use crate::logic::settings::{PathProblem, check_network_path};
+
+        for claimed in [
+            crate::logic::settings::CONSOLE_PATH,
+            crate::logic::settings::ASSETS_PREFIX,
+            &format!("/{}", crate::logic::video::VIDEO_HANDLER),
+        ] {
+            assert_eq!(
+                check_network_path(claimed),
+                Err(PathProblem::Reserved),
+                "{claimed} is served here but could be given to a view"
+            );
+        }
     }
 }

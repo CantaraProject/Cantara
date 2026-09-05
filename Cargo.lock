@@ -832,6 +832,7 @@ dependencies = [
  "gloo-timers",
  "image",
  "jni 0.22.4",
+ "js-sys",
  "local-ip-address",
  "log",
  "lopdf",

@@ -15,6 +15,7 @@ use uuid::Uuid;
 use super::{
     settings::{PresentationDesign, SelectionSidebarType, SlideTimerSettings, SlideTransition},
     sourcefiles::SourceFile,
+    timer::Timestamp,
 };
 use cantara_songlib::slides::{Slide, SlideSettings};
 
@@ -279,6 +280,25 @@ pub struct RunningPresentation {
     /// to do. Means nothing while the slide is not a video.
     #[serde(default)]
     pub video: VideoPlayback,
+
+    /// When the presentation arrived at the chapter it is in.
+    ///
+    /// What a monitor view's chapter timer counts from: how long the sermon
+    /// has run, how long this song has been going on. `None` before the
+    /// presentation has started, and for one restored from a session that did
+    /// not record it.
+    ///
+    /// It lives here, travelling with the presentation, rather than being
+    /// measured by each view for itself. A view that started its own clock
+    /// would restart the sermon at zero every time a browser showing it was
+    /// reloaded, and two monitors in the same building would disagree by
+    /// however long their connections differ. One number, published like
+    /// everything else, has neither problem.
+    ///
+    /// Set in exactly one place — see [`RunningPresentation::moved`] — so that
+    /// the next way of changing the position that gets added cannot forget it.
+    #[serde(default)]
+    pub chapter_entered_at: Option<Timestamp>,
 }
 
 /// The state of the video on the current slide, shared by every window showing
@@ -435,9 +455,15 @@ pub enum VideoCommand {
 impl RunningPresentation {
     /// Helper function to create a new [RunningPresentation] data structure
     pub fn new(presentation: Vec<SlideChapter>) -> Self {
+        let position = RunningPresentationPosition::new(&presentation);
+
         RunningPresentation {
             presentation: presentation.clone(),
-            position: RunningPresentationPosition::new(&presentation),
+            // The first chapter is entered when the presentation starts, so
+            // its clock starts here. A presentation with no slides at all has
+            // no chapter and nothing to count.
+            chapter_entered_at: position.as_ref().map(|_| Timestamp::now()),
+            position,
             is_black_screen: false,
             presentation_resolution: default_presentation_resolution(),
             markdown_scroll_position: 0.0,
@@ -455,21 +481,48 @@ impl RunningPresentation {
         ))
     }
 
+    /// Which chapter the presentation is in, if it has started.
+    pub fn chapter_index(&self) -> Option<usize> {
+        self.position.as_ref().map(|position| position.chapter())
+    }
+
+    /// What happens after the position has changed, whatever changed it.
+    ///
+    /// The three ways of moving — forwards, back, and a jump from the sidebar
+    /// — all had the same line at the end of them, and the chapter timer would
+    /// have made that three copies of two things instead of three copies of
+    /// one. Both live here now, and a fourth way of moving gets them by
+    /// calling this rather than by remembering to.
+    ///
+    /// `chapter_before` is where the presentation was, read before the move.
+    /// The chapter clock is only restarted when the move actually left the
+    /// chapter: going from verse two to verse three of a song does not mean
+    /// the song has started again.
+    fn moved(&mut self, chapter_before: Option<usize>) {
+        self.markdown_scroll_position = 0.0;
+
+        if self.chapter_index() != chapter_before {
+            self.chapter_entered_at = Some(Timestamp::now());
+        }
+    }
+
     /// Go to the next slide (if any exists).
     /// Resets `markdown_scroll_position` to 0 so the new slide starts at the top.
     pub fn next_slide(&mut self) {
+        let chapter_before = self.chapter_index();
         if let Some(ref mut pos) = self.position
             && pos.try_next(&self.presentation).is_ok() {
-                self.markdown_scroll_position = 0.0;
+                self.moved(chapter_before);
             }
     }
 
     /// Go to the previous slide (if any exists).
     /// Resets `markdown_scroll_position` to 0 so the new slide starts at the top.
     pub fn previous_slide(&mut self) {
+        let chapter_before = self.chapter_index();
         if let Some(ref mut pos) = self.position
             && pos.try_back(&self.presentation).is_ok() {
-                self.markdown_scroll_position = 0.0;
+                self.moved(chapter_before);
             }
     }
 
@@ -479,6 +532,8 @@ impl RunningPresentation {
         if chapter < self.presentation.len() {
             let chapter_slides = &self.presentation[chapter].slides;
             if slide < chapter_slides.len() {
+                let chapter_before = self.chapter_index();
+
                 // The running number of the slide jumped to — the same sum
                 // [`counter_in`](Self::counter_in) reads back out of a
                 // position, counted here once.
@@ -489,7 +544,7 @@ impl RunningPresentation {
                     chapter_slide: slide,
                     slide_total: total,
                 });
-                self.markdown_scroll_position = 0.0;
+                self.moved(chapter_before);
             }
         }
     }
@@ -1338,5 +1393,112 @@ mod tests {
             !measured.eq_ignoring_scroll(&unmeasured),
             "a window that has measured itself differs from one that has not"
         );
+    }
+
+    /// A service that has started is already in its first chapter, so the
+    /// clock for that chapter runs from the start. Without this the first
+    /// song of every service would show no time at all until the operator
+    /// happened to move to the second one.
+    #[test]
+    fn the_first_chapter_is_being_timed_as_soon_as_the_service_starts() {
+        assert!(
+            service().chapter_entered_at.is_some(),
+            "the first chapter of a started service is not being timed"
+        );
+    }
+
+    /// Nothing is up, so there is nothing to time. A timer counting from the
+    /// moment an empty running order was opened would be counting the
+    /// operator's preparation.
+    #[test]
+    fn a_service_with_no_slides_times_nothing() {
+        let empty = RunningPresentation::new(vec![]);
+
+        assert_eq!(empty.position, None);
+        assert_eq!(empty.chapter_entered_at, None);
+    }
+
+    /// The rule the chapter timer exists for: moving between the verses of a
+    /// song does not mean the song has started again. A preacher who moves to
+    /// their second slide has not begun preaching afresh.
+    #[test]
+    fn moving_within_a_chapter_does_not_restart_its_clock() {
+        let mut running = service();
+        running.jump_to(0, 0);
+        let started = running.chapter_entered_at;
+
+        running.next_slide();
+
+        assert_eq!(running.chapter_index(), Some(0), "still the first song");
+        assert_eq!(
+            running.chapter_entered_at, started,
+            "the clock restarted inside the chapter"
+        );
+    }
+
+    /// And the other half of it: leaving the chapter does restart it.
+    #[test]
+    fn arriving_in_another_chapter_starts_its_clock() {
+        let mut running = service();
+        running.jump_to(0, 2);
+        let first_song = running.chapter_entered_at;
+
+        // The last slide of the first song, so this crosses into the second.
+        running.next_slide();
+
+        assert_eq!(running.chapter_index(), Some(1), "the second song is up");
+        assert_ne!(
+            running.chapter_entered_at, first_song,
+            "the second song is being timed from when the first one started"
+        );
+    }
+
+    /// Going back is arriving somewhere too. The clock is "how long this has
+    /// been up", not "how far through the service we are" — an operator who
+    /// steps back into the previous song has that song up again, from now.
+    #[test]
+    fn going_back_into_the_previous_chapter_starts_its_clock_again() {
+        let mut running = service();
+        running.jump_to(1, 0);
+        let second_song = running.chapter_entered_at;
+
+        running.previous_slide();
+
+        assert_eq!(running.chapter_index(), Some(0));
+        assert_ne!(
+            running.chapter_entered_at, second_song,
+            "the clock was carried backwards along with the position"
+        );
+    }
+
+    /// A jump from the sidebar is the third way of moving, and it has to
+    /// behave like the other two. This is the case that a chapter clock
+    /// written into `next_slide` and `previous_slide` alone would miss.
+    #[test]
+    fn a_jump_across_chapters_starts_the_clock_of_the_one_jumped_to() {
+        let mut running = service();
+        running.jump_to(0, 0);
+        let first_song = running.chapter_entered_at;
+
+        running.jump_to(1, 3);
+
+        assert_ne!(
+            running.chapter_entered_at, first_song,
+            "jumping to another chapter left the previous chapter's clock running"
+        );
+    }
+
+    /// A jump that lands where it started changes nothing, so it does not
+    /// restart the clock either — the sidebar is clicked on the current song
+    /// often enough for this to matter.
+    #[test]
+    fn a_jump_within_the_same_chapter_leaves_its_clock_alone() {
+        let mut running = service();
+        running.jump_to(0, 0);
+        let started = running.chapter_entered_at;
+
+        running.jump_to(0, 2);
+
+        assert_eq!(running.chapter_entered_at, started);
     }
 }
