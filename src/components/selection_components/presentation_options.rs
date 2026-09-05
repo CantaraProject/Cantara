@@ -418,11 +418,7 @@ fn SpecificOptions(
                 .stream_slide_settings_option
                 .as_ref()
                 .and_then(|slide_settings| slide_settings.max_lines);
-            wrap_note(
-                projection_wrap,
-                chosen_wrap,
-                reconcile_max_lines(projection_wrap, chosen_wrap),
-            )
+            wrap_note(chosen_wrap, reconcile_max_lines(projection_wrap, chosen_wrap))
         }
 
         div { class: "grid",
@@ -617,7 +613,7 @@ fn StreamViewSettings() -> Element {
             }
         }
 
-        {wrap_note(projection_wrap, chosen_wrap, used_wrap)}
+        {wrap_note(chosen_wrap, used_wrap)}
     }
 }
 
@@ -626,7 +622,7 @@ fn StreamViewSettings() -> Element {
 ///
 /// Silence where the two agree: a note that only ever says "yes, that one" is
 /// noise, and the user stops reading it before the one time it matters.
-fn wrap_note(projection: Option<usize>, chosen: Option<usize>, used: Option<usize>) -> Element {
+fn wrap_note(chosen: Option<usize>, used: Option<usize>) -> Element {
     if chosen == used {
         return rsx! {};
     }
@@ -638,14 +634,8 @@ fn wrap_note(projection: Option<usize>, chosen: Option<usize>, used: Option<usiz
             used = used
         )
         .to_string(),
-        // Nothing to follow: the projection shows whole verses, so any wrap the
-        // stream chose would cut one of its slides in half.
-        (Some(_), None) if projection.is_none_or(|lines| lines == 0) => {
-            t!("selection.presentation_options.stream_view.max_lines_dropped").to_string()
-        }
-        // Wider than the projection's, and a wider wrap is not a coarser cut of
-        // the same verse — so the whole verse it is.
-        _ => t!("selection.presentation_options.stream_view.max_lines_whole_block").to_string(),
+        // Asked for a wrap under a projection that has none.
+        _ => t!("selection.presentation_options.stream_view.max_lines_dropped").to_string(),
     };
 
     rsx! {
