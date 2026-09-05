@@ -1418,6 +1418,19 @@ mod tests {
         assert_eq!(empty.chapter_entered_at, None);
     }
 
+    /// A time nothing could have been entered at, used to tell "the clock was
+    /// restarted" from "the clock was left alone".
+    ///
+    /// These tests cannot ask whether the timestamp *changed*: two readings
+    /// of a millisecond clock inside one test are usually the same number, so
+    /// a restarted clock and an untouched one look identical. Marking the
+    /// field with a value the program would never write turns both questions
+    /// into ones with a definite answer — and one that does not depend on how
+    /// fast the machine running the tests is.
+    fn long_ago() -> Option<Timestamp> {
+        Some(Timestamp::from_milliseconds(0))
+    }
+
     /// The rule the chapter timer exists for: moving between the verses of a
     /// song does not mean the song has started again. A preacher who moves to
     /// their second slide has not begun preaching afresh.
@@ -1425,13 +1438,14 @@ mod tests {
     fn moving_within_a_chapter_does_not_restart_its_clock() {
         let mut running = service();
         running.jump_to(0, 0);
-        let started = running.chapter_entered_at;
+        running.chapter_entered_at = long_ago();
 
         running.next_slide();
 
         assert_eq!(running.chapter_index(), Some(0), "still the first song");
         assert_eq!(
-            running.chapter_entered_at, started,
+            running.chapter_entered_at,
+            long_ago(),
             "the clock restarted inside the chapter"
         );
     }
@@ -1441,14 +1455,15 @@ mod tests {
     fn arriving_in_another_chapter_starts_its_clock() {
         let mut running = service();
         running.jump_to(0, 2);
-        let first_song = running.chapter_entered_at;
+        running.chapter_entered_at = long_ago();
 
         // The last slide of the first song, so this crosses into the second.
         running.next_slide();
 
         assert_eq!(running.chapter_index(), Some(1), "the second song is up");
         assert_ne!(
-            running.chapter_entered_at, first_song,
+            running.chapter_entered_at,
+            long_ago(),
             "the second song is being timed from when the first one started"
         );
     }
@@ -1460,13 +1475,14 @@ mod tests {
     fn going_back_into_the_previous_chapter_starts_its_clock_again() {
         let mut running = service();
         running.jump_to(1, 0);
-        let second_song = running.chapter_entered_at;
+        running.chapter_entered_at = long_ago();
 
         running.previous_slide();
 
         assert_eq!(running.chapter_index(), Some(0));
         assert_ne!(
-            running.chapter_entered_at, second_song,
+            running.chapter_entered_at,
+            long_ago(),
             "the clock was carried backwards along with the position"
         );
     }
@@ -1478,12 +1494,13 @@ mod tests {
     fn a_jump_across_chapters_starts_the_clock_of_the_one_jumped_to() {
         let mut running = service();
         running.jump_to(0, 0);
-        let first_song = running.chapter_entered_at;
+        running.chapter_entered_at = long_ago();
 
         running.jump_to(1, 3);
 
         assert_ne!(
-            running.chapter_entered_at, first_song,
+            running.chapter_entered_at,
+            long_ago(),
             "jumping to another chapter left the previous chapter's clock running"
         );
     }
@@ -1495,10 +1512,10 @@ mod tests {
     fn a_jump_within_the_same_chapter_leaves_its_clock_alone() {
         let mut running = service();
         running.jump_to(0, 0);
-        let started = running.chapter_entered_at;
+        running.chapter_entered_at = long_ago();
 
         running.jump_to(0, 2);
 
-        assert_eq!(running.chapter_entered_at, started);
+        assert_eq!(running.chapter_entered_at, long_ago());
     }
 }

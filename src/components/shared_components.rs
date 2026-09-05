@@ -187,6 +187,15 @@ pub fn MetadataFieldset(
     /// list says what it will call the entry until it is named.
     #[props(default)]
     name_placeholder: String,
+    /// Anything else that belongs among an entry's meta information, drawn
+    /// under the description.
+    ///
+    /// Only a presentation design has a third field here — what kind of view
+    /// it describes — and a slide division has no use for one. Passed in
+    /// rather than added to this component so that the two lists that share it
+    /// do not both grow a field only one of them means.
+    #[props(default)]
+    extra: Option<Element>,
     on_changed: EventHandler<(String, String)>,
 ) -> Element {
     rsx! {
@@ -218,6 +227,10 @@ pub fn MetadataFieldset(
                             }
                         },
                     }
+                }
+
+                if let Some(extra) = extra {
+                    {extra}
                 }
             }
         }

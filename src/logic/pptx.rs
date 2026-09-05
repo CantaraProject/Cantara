@@ -293,8 +293,7 @@ impl PptxDeck {
 use cantara_songlib::slides::{Slide, SlideContent};
 
 use crate::logic::settings::{
-    CssSize, FontRepresentation, HorizontalAlign, PresentationDesign, PresentationDesignSettings,
-    PresentationDesignTemplate,
+    CssSize, FontRepresentation, HorizontalAlign, PresentationDesign, PresentationDesignTemplate,
 };
 
 /// Build a deck that looks as close to the running presentation as PowerPoint
@@ -310,12 +309,16 @@ pub fn deck_from_slides(
     design: &PresentationDesign,
     pictures: &std::collections::HashMap<String, String>,
 ) -> PptxConversion {
-    let template = match &design.presentation_design_settings {
-        PresentationDesignSettings::Template(template) => template.clone(),
-        // A hand-written HTML design cannot be translated into shapes, so the
-        // deck falls back to Cantara's defaults rather than failing.
-        PresentationDesignSettings::Custom(_) => PresentationDesignTemplate::default(),
-    };
+    // A hand-written HTML design cannot be translated into shapes, so the deck
+    // falls back to Cantara's defaults rather than failing. A monitor design
+    // gives up its own template here: exporting one to PowerPoint is an odd
+    // thing to ask for, but the fonts and colours it answers with are the
+    // right ones, and refusing would be worse than obliging.
+    let template = design
+        .presentation_design_settings
+        .template()
+        .cloned()
+        .unwrap_or_default();
     let deck_background = PptxColor::from_css(&template.get_background_color_as_hex_string());
 
     let mut deck = PptxDeck::widescreen();
@@ -827,11 +830,10 @@ mod tests {
     #[test]
     fn test_the_designs_type_style_survives_the_export() {
         let mut design = PresentationDesign::default();
-        let PresentationDesignSettings::Template(template) =
-            &mut design.presentation_design_settings
-        else {
-            panic!("the default design is a template");
-        };
+        let template = design
+            .presentation_design_settings
+            .template_mut()
+            .expect("the default design carries a template");
         for font in &mut template.fonts {
             font.set_bold(true);
             font.italic = true;
@@ -867,11 +869,10 @@ mod tests {
     #[test]
     fn test_the_title_bold_switch_survives_the_export() {
         let mut design = PresentationDesign::default();
-        let PresentationDesignSettings::Template(template) =
-            &mut design.presentation_design_settings
-        else {
-            panic!("the default design is a template");
-        };
+        let template = design
+            .presentation_design_settings
+            .template_mut()
+            .expect("the default design carries a template");
         template.title_bold = true;
         for font in &mut template.fonts {
             font.set_bold(false);

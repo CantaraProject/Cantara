@@ -146,6 +146,80 @@ settings:
   tag_mapping_circular:
     en: A name cannot be read as itself.
     de: Ein Name kann nicht als er selbst gelesen werden.
+  # What a presentation design is *for*: the view the congregation sees,
+  # or the one the people making the service happen see.
+  design_kind:
+    en: Kind of view
+    de: Darstellungsart
+  design_kind_audience:
+    en: Presentation view (for the congregation)
+    de: Präsentationsdarstellung (für die Gemeinde)
+  design_kind_monitor:
+    en: Monitor view (for the platform)
+    de: Monitordarstellung (für Mitwirkende)
+
+  # The settings a monitor design has that an audience design does not.
+  monitor_configuration:
+    en: Monitor view
+    de: Monitordarstellung
+  monitor_layout:
+    en: Layout
+    de: Anordnung
+  monitor_layout_list:
+    en: List of all slides
+    de: Liste aller Folien
+  monitor_layout_speaker:
+    en: Speaker view (current slide large, next one small)
+    de: Sprecheransicht (aktuelle Folie groß, nächste klein)
+  monitor_list_context:
+    en: Slides shown before and after the current one
+    de: Folien vor und nach der aktuellen
+  monitor_next_slide_share:
+    en: Height of the next slide
+    de: Höhe der nächsten Folie
+  monitor_widgets:
+    en: Widgets
+    de: Widgets
+  monitor_widgets_note:
+    en: "Small pieces of information shown in the corners, beside the slides."
+    de: "Kleine Informationen, die in den Ecken neben den Folien angezeigt werden."
+  monitor_no_widgets:
+    en: No widgets yet.
+    de: Noch keine Widgets.
+  widget_add:
+    en: Add widget
+    de: Widget hinzufügen
+  widget_add_prompt:
+    en: "Choose…"
+    de: "Auswählen…"
+  widget_clock:
+    en: Time
+    de: Uhrzeit
+  widget_clock_with_date:
+    en: Date and time
+    de: Datum und Uhrzeit
+  widget_chapter_timer:
+    en: Timer for the current item
+    de: Zeit im aktuellen Element
+  widget_warn_after:
+    en: Warn after (minutes, empty for never)
+    de: Warnen nach (Minuten, leer für nie)
+  widget_placement:
+    en: Corner
+    de: Ecke
+  widget_top_left:
+    en: Top left
+    de: Oben links
+  widget_top_right:
+    en: Top right
+    de: Oben rechts
+  widget_bottom_left:
+    en: Bottom left
+    de: Unten links
+  widget_bottom_right:
+    en: Bottom right
+    de: Unten rechts
+
   # The names the two views Cantara has always had are given when a
   # configuration from before views existed is read. Written into the
   # settings file once, in the language in use at that moment, and the

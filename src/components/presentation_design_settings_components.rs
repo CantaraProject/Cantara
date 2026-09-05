@@ -9,8 +9,9 @@ use crate::components::shared_components::{
 };
 use cantara_songlib::slides::{Slide, SlideSettings};
 use crate::logic::settings::{
-    CssSize, HorizontalAlign, PresentationDesign, PresentationDesignSettings,
-    PresentationDesignTemplate, TopBottomLeftRight, VerticalAlign, use_settings,
+    CssSize, DesignKind, HorizontalAlign, MonitorDesign, MonitorLayout, MonitorWidget,
+    PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate,
+    TopBottomLeftRight, VerticalAlign, WidgetKind, WidgetPlacement, use_settings,
 };
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 use dioxus::core_macro::{component, rsx};
@@ -96,6 +97,50 @@ pub fn PresentationDesignSettingsPage(
                 MetadataFieldset {
                     name: selected_presentation_design().name,
                     description: selected_presentation_design().description,
+                    // What the design is *for*, before anything about how it
+                    // looks: the view the congregation sees, or the one the
+                    // people making the service happen see. Switching carries
+                    // the fonts and colours across — see
+                    // [`PresentationDesignSettings::into_kind`].
+                    extra: rsx! {
+                        label {
+                            {t!("settings.design_kind").to_string()}
+                            select {
+                                value: selected_presentation_design()
+                                    .presentation_design_settings
+                                    .kind()
+                                    .value(),
+                                onchange: move |event: Event<FormData>| {
+                                    let chosen = DesignKind::from_value(&event.value());
+                                    let mut settings_write = settings.write();
+                                    if let Some(origin_pd) = settings_write
+                                        .presentation_designs
+                                        .get_mut(index as usize)
+                                    {
+                                        // Taken and put back rather than
+                                        // edited in place: the conversion
+                                        // moves the template out of the old
+                                        // design and into the new one.
+                                        let current = std::mem::take(
+                                            &mut origin_pd.presentation_design_settings,
+                                        );
+                                        origin_pd.presentation_design_settings = current
+                                            .into_kind(chosen);
+                                    }
+                                },
+                                for kind in DesignKind::ALL {
+                                    option {
+                                        value: kind.value(),
+                                        selected: kind
+                                            == selected_presentation_design()
+                                                .presentation_design_settings
+                                                .kind(),
+                                        {t!(kind.label_key()).to_string()}
+                                    }
+                                }
+                            }
+                        }
+                    },
                     on_changed: move |(name, description): (String, String)| {
                         let mut settings_write = settings.write();
                         if let Some(origin_pd) = settings_write
@@ -135,6 +180,52 @@ pub fn PresentationDesignSettingsPage(
                         }
                     } else {
                         SettingsSkeleton { fields: 4 }
+                        SettingsSkeleton { fields: 5 }
+                    }
+                }
+
+                if let PresentationDesignSettings::Monitor(monitor) = selected_presentation_design()
+                    .presentation_design_settings
+                {
+                    hr {}
+                    if drawn() {
+                        MonitorDesignSettings {
+                            monitor_design: monitor.clone(),
+                            onchange: move |new_monitor: MonitorDesign| {
+                                let mut settings_write = settings.write();
+                                if let Some(current) = settings_write
+                                    .presentation_designs
+                                    .get_mut(index as usize)
+                                    && let PresentationDesignSettings::Monitor(existing) = &mut current
+                                        .presentation_design_settings
+                                    {
+                                        *existing = new_monitor.clone();
+                                    }
+                            },
+                        }
+                        hr {}
+                        // The look, edited by the very same component an
+                        // audience design uses — a monitor design embeds a
+                        // template precisely so that this can be reused rather
+                        // than a second font editor written. See decision 1 in
+                        // docs/specs/0003-add-monitor-view.md.
+                        DesignTemplateSettings {
+                            presentation_design_template: monitor.base.clone(),
+                            onchange: move |new_pdt: PresentationDesignTemplate| {
+                                let mut settings_write = settings.write();
+                                if let Some(current) = settings_write
+                                    .presentation_designs
+                                    .get_mut(index as usize)
+                                    && let Some(base) = current
+                                        .presentation_design_settings
+                                        .template_mut()
+                                    {
+                                        *base = new_pdt.clone();
+                                    }
+                            },
+                        }
+                    } else {
+                        SettingsSkeleton { fields: 3 }
                         SettingsSkeleton { fields: 5 }
                     }
                 }
@@ -194,6 +285,339 @@ pub fn PresentationDesignSettingsPage(
                 }
             }
         }
+    }
+}
+
+/// The settings of a monitor design: what it arranges, and what it shows
+/// beside it.
+///
+/// The look — fonts, colours, padding — is not here. It is
+/// [`DesignTemplateSettings`], the same component an audience design is edited
+/// with, drawn below this one against the template a monitor design embeds.
+/// That is decision 1 of the spec working as intended: one font editor, one
+/// colour picker, one preview, and a monitor design that is a presentation
+/// design in every way that it can be.
+#[component]
+fn MonitorDesignSettings(
+    monitor_design: MonitorDesign,
+    onchange: EventHandler<MonitorDesign>,
+) -> Element {
+    let design = monitor_design;
+
+    // Which layout is chosen, as the `<select>` sends it back. Not the layout
+    // itself: `Speaker` carries a share and `SlideList` carries a context, and
+    // switching between them must not throw away the settings of the one being
+    // left — a user who tries the other and comes back should find their share
+    // where they left it.
+    let layout_value = match design.layout {
+        MonitorLayout::SlideList { .. } => "list",
+        MonitorLayout::Speaker { .. } => "speaker",
+    };
+
+    rsx! {
+        h3 { {t!("settings.monitor_configuration").to_string()} }
+
+        form {
+            fieldset {
+                label {
+                    {t!("settings.monitor_layout").to_string()}
+                    select {
+                        value: layout_value,
+                        onchange: {
+                            let design = design.clone();
+                            move |event: Event<FormData>| {
+                                let layout = match event.value().as_str() {
+                                    "speaker" => MonitorLayout::Speaker {
+                                        next_slide_share: 0.25,
+                                    },
+                                    _ => MonitorLayout::default(),
+                                };
+                                onchange.call(MonitorDesign { layout, ..design.clone() });
+                            }
+                        },
+                        option {
+                            value: "list",
+                            selected: layout_value == "list",
+                            {t!("settings.monitor_layout_list").to_string()}
+                        }
+                        option {
+                            value: "speaker",
+                            selected: layout_value == "speaker",
+                            {t!("settings.monitor_layout_speaker").to_string()}
+                        }
+                    }
+                }
+            }
+        }
+
+        match design.layout {
+            MonitorLayout::SlideList { context } => rsx! {
+                // Zero is "only the current slide", which is a legitimate
+                // thing to want on a narrow monitor, so the range starts
+                // there rather than at one.
+                RangeInput {
+                    label: t!("settings.monitor_list_context").to_string(),
+                    unit: "".to_string(),
+                    min: 0.0,
+                    max: 10.0,
+                    step: 1.0,
+                    value: context.unwrap_or(2) as f64,
+                    onchange: {
+                        let design = design.clone();
+                        move |value: f64| {
+                            onchange
+                                .call(MonitorDesign {
+                                    layout: MonitorLayout::SlideList {
+                                        context: Some(value.max(0.0) as usize),
+                                    },
+                                    ..design.clone()
+                                });
+                        }
+                    },
+                }
+            },
+            MonitorLayout::Speaker { next_slide_share } => rsx! {
+                RangeInput {
+                    label: t!("settings.monitor_next_slide_share").to_string(),
+                    unit: "%".to_string(),
+                    min: MonitorLayout::SPEAKER_SHARE_RANGE.start() * 100.0,
+                    max: MonitorLayout::SPEAKER_SHARE_RANGE.end() * 100.0,
+                    step: 5.0,
+                    value: MonitorLayout::speaker_share(next_slide_share) * 100.0,
+                    onchange: {
+                        let design = design.clone();
+                        move |value: f64| {
+                            onchange
+                                .call(MonitorDesign {
+                                    layout: MonitorLayout::Speaker {
+                                        next_slide_share: value / 100.0,
+                                    },
+                                    ..design.clone()
+                                });
+                        }
+                    },
+                }
+            },
+        }
+
+        MonitorWidgetSettings {
+            widgets: design.widgets.clone(),
+            onchange: {
+                let design = design.clone();
+                move |widgets: Vec<MonitorWidget>| {
+                    onchange.call(MonitorDesign { widgets, ..design.clone() });
+                }
+            },
+        }
+    }
+}
+
+/// The widgets a monitor view carries, and where each one sits.
+#[component]
+fn MonitorWidgetSettings(
+    widgets: Vec<MonitorWidget>,
+    onchange: EventHandler<Vec<MonitorWidget>>,
+) -> Element {
+    /// What each kind is called and what it sends back, in the order the list
+    /// offers them.
+    ///
+    /// A clock with the date and one without are two entries rather than an
+    /// entry and a checkbox: the choice is made once, when the widget is
+    /// added, and a list of things to add reads better than a thing to add and
+    /// then configure.
+    fn addable() -> Vec<(&'static str, &'static str, WidgetKind)> {
+        vec![
+            (
+                "clock",
+                "settings.widget_clock",
+                WidgetKind::Clock { with_date: false },
+            ),
+            (
+                "clock_date",
+                "settings.widget_clock_with_date",
+                WidgetKind::Clock { with_date: true },
+            ),
+            (
+                "timer",
+                "settings.widget_chapter_timer",
+                WidgetKind::ChapterTimer {
+                    warn_after_seconds: None,
+                },
+            ),
+        ]
+    }
+
+    rsx! {
+        h4 { {t!("settings.monitor_widgets").to_string()} }
+        p { class: "settings-note", {t!("settings.monitor_widgets_note").to_string()} }
+
+        if widgets.is_empty() {
+            p { {t!("settings.monitor_no_widgets").to_string()} }
+        }
+
+        for (position, widget) in widgets.iter().cloned().enumerate() {
+            form { key: "{position}",
+                fieldset { class: "widget-row",
+                    span { {t!(widget_label_key(widget.kind)).to_string()} }
+
+                    label {
+                        {t!("settings.widget_placement").to_string()}
+                        select {
+                            value: placement_value(widget.placement),
+                            onchange: {
+                                let widgets = widgets.clone();
+                                move |event: Event<FormData>| {
+                                    let mut changed = widgets.clone();
+                                    if let Some(entry) = changed.get_mut(position) {
+                                        entry.placement = placement_from_value(&event.value());
+                                    }
+                                    onchange.call(changed);
+                                }
+                            },
+                            for placement in [
+                                WidgetPlacement::TopLeft,
+                                WidgetPlacement::TopRight,
+                                WidgetPlacement::BottomLeft,
+                                WidgetPlacement::BottomRight,
+                            ] {
+                                option {
+                                    value: placement_value(placement),
+                                    selected: placement == widget.placement,
+                                    {t!(placement_label_key(placement)).to_string()}
+                                }
+                            }
+                        }
+                    }
+
+                    if let WidgetKind::ChapterTimer { warn_after_seconds } = widget.kind {
+                        label {
+                            {t!("settings.widget_warn_after").to_string()}
+                            input {
+                                r#type: "number",
+                                min: "0",
+                                // Minutes here, seconds in the settings: a
+                                // preacher is given twenty minutes, not
+                                // twelve hundred seconds.
+                                value: warn_after_seconds
+                                    .map(|seconds| (seconds / 60).to_string())
+                                    .unwrap_or_default(),
+                                onchange: {
+                                    let widgets = widgets.clone();
+                                    move |event: Event<FormData>| {
+                                        // Empty, or anything unreadable, is
+                                        // "never warn" — which is what the
+                                        // field being cleared means.
+                                        let minutes = event.value().trim().parse::<u32>().ok();
+                                        let mut changed = widgets.clone();
+                                        if let Some(entry) = changed.get_mut(position) {
+                                            entry.kind = WidgetKind::ChapterTimer {
+                                                warn_after_seconds: minutes
+                                                    .filter(|minutes| *minutes > 0)
+                                                    .map(|minutes| minutes * 60),
+                                            };
+                                        }
+                                        onchange.call(changed);
+                                    }
+                                },
+                            }
+                        }
+                    }
+
+                    button {
+                        r#type: "button",
+                        class: "secondary",
+                        onclick: {
+                            let widgets = widgets.clone();
+                            move |_| {
+                                let mut changed = widgets.clone();
+                                changed.remove(position);
+                                onchange.call(changed);
+                            }
+                        },
+                        {t!("general.delete").to_string()}
+                    }
+                }
+            }
+        }
+
+        form {
+            fieldset {
+                label {
+                    {t!("settings.widget_add").to_string()}
+                    select {
+                        // Held at the prompt rather than at whatever was last
+                        // added: this is a button that happens to have a list
+                        // on it, and a select that kept its value would say a
+                        // widget is selected when the list below is what
+                        // holds the widgets.
+                        value: "",
+                        onchange: {
+                            let widgets = widgets.clone();
+                            move |event: Event<FormData>| {
+                                let chosen = event.value();
+                                let Some((_, _, kind)) = addable()
+                                    .into_iter()
+                                    .find(|(value, _, _)| *value == chosen)
+                                else {
+                                    return;
+                                };
+                                let mut changed = widgets.clone();
+                                changed
+                                    .push(MonitorWidget {
+                                        kind,
+                                        placement: WidgetPlacement::default(),
+                                    });
+                                onchange.call(changed);
+                            }
+                        },
+                        option { value: "", {t!("settings.widget_add_prompt").to_string()} }
+                        for (value, label_key, _) in addable() {
+                            option { value, {t!(label_key).to_string()} }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// What a widget of this kind is called.
+fn widget_label_key(kind: WidgetKind) -> &'static str {
+    match kind {
+        WidgetKind::Clock { with_date: false } => "settings.widget_clock",
+        WidgetKind::Clock { with_date: true } => "settings.widget_clock_with_date",
+        WidgetKind::ChapterTimer { .. } => "settings.widget_chapter_timer",
+    }
+}
+
+/// What a corner is called.
+fn placement_label_key(placement: WidgetPlacement) -> &'static str {
+    match placement {
+        WidgetPlacement::TopLeft => "settings.widget_top_left",
+        WidgetPlacement::TopRight => "settings.widget_top_right",
+        WidgetPlacement::BottomLeft => "settings.widget_bottom_left",
+        WidgetPlacement::BottomRight => "settings.widget_bottom_right",
+    }
+}
+
+/// A stable name for a corner, for a `<select>` to hand back. See
+/// [`crate::logic::settings::DesignKind::value`] for why it is not the label.
+fn placement_value(placement: WidgetPlacement) -> &'static str {
+    match placement {
+        WidgetPlacement::TopLeft => "top-left",
+        WidgetPlacement::TopRight => "top-right",
+        WidgetPlacement::BottomLeft => "bottom-left",
+        WidgetPlacement::BottomRight => "bottom-right",
+    }
+}
+
+/// Reads back what [`placement_value`] wrote.
+fn placement_from_value(value: &str) -> WidgetPlacement {
+    match value {
+        "top-left" => WidgetPlacement::TopLeft,
+        "bottom-left" => WidgetPlacement::BottomLeft,
+        "bottom-right" => WidgetPlacement::BottomRight,
+        _ => WidgetPlacement::TopRight,
     }
 }
 

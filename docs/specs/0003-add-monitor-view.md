@@ -1,10 +1,14 @@
 # 0003 — Monitor views, and the end of the fixed two outputs
 
-Status: **in progress.** The five decisions below are taken. Stages 1, 2 and 3a
-are built; the rest are not, and the order of what remains has changed — see
-[What stage 3 found](#what-stage-3-found). Nothing is visible to the user yet:
-windows are opened from the view list, but every view is still an audience view
-and the network side is untouched.
+Status: **in progress.** The five decisions below are taken. Stages 1, 2, 3a and
+3½ are built; the order of what remains has changed — see
+[What stage 3 found](#what-stage-3-found).
+
+A monitor design can now be **made and configured**: the design editor offers
+"Darstellungsart", and a monitor design has a layout and widgets. What it cannot
+yet do is **look** any different — stage 4, which draws the layouts, is not
+built, so a view using a monitor design still renders as an audience view. That
+is the next step and the one that makes the feature real.
 
 Cantara today can put a service onto exactly two surfaces, and both of them are
 aimed at the congregation: the projection, and — since [0002](0002-remote-control.md)
@@ -465,10 +469,28 @@ Each stage is meant to leave the program working.
 
    b. **The helper's `Offer` becomes a set of paths.** Not done, and it should
       not be done next — see below.
+3½. **Making a monitor design, and saying so.** *Not in the original plan at
+   all* — the work plan went straight from the model to the layouts and never
+   said where a user creates one. Found by trying to use the feature and
+   discovering there was nowhere to turn it on. **Done.**
+
+   The presentation design editor has a **Darstellungsart** field among the
+   meta information: presentation view, or monitor view. Switching carries the
+   fonts, colours and padding across (`PresentationDesignSettings::into_kind`)
+   — the point of decision 1 — and losing the layout and widgets when
+   switching away is documented rather than hidden. A monitor design is edited
+   by `MonitorDesignSettings` *plus* the ordinary `DesignTemplateSettings`, so
+   there is one font editor and one colour picker, not two.
+
 4. **`MonitorLayout::SlideList` and `Speaker`.** The slide list lifted out of
    the presenter console and shared. This is the stage where the feature
    becomes visible and useful, and it is a good place to stop and use it.
-5. **Widgets: clock and chapter timer.**
+   **Not done — and until it is, a monitor design can be made and configured
+   but is still drawn as an audience view.**
+5. ~~**Widgets: clock and chapter timer.**~~ Modelled and configurable
+   (`WidgetKind`, `WidgetPlacement`, and the editor for them); not drawn,
+   because nothing draws a monitor view yet. The chapter timer has had its
+   data since stage 1.
 6. **`MonitorLayout::Custom`,** with the context above and the error-in-view
    behaviour.
 7. **Custom widgets,** Wasm first, behind the import opt-in — only if 1–6 have
@@ -494,6 +516,31 @@ Fixed, with the full list in `RESERVED_PATHS` and a test in the stream server
 asserting each route it declares is refused to a view. That test is the link
 between the two, since the settings cannot name the stream server on every
 target.
+
+### An `f64` timestamp does not survive `serde_json`
+
+Stage 1 stored `chapter_entered_at` as milliseconds in an `f64`, reasoning that
+the browser's clock is one anyway. It round-tripped through JSON in the test
+that checked it, and then the *suite* began failing about one run in three — in
+`test_running_presentation_serialization`, and sometimes elsewhere, on a
+presentation that had become unequal to itself.
+
+`serde_json` reads floats back approximately by default; exact round-tripping is
+behind its `float_roundtrip` feature. `1788605525443.4739` written out came back
+as a different number. Every path this value takes is a JSON one — to the helper
+process, to the browser tab the web build synchronises through — so the type is
+now an `i64` count of milliseconds, which JSON carries exactly. Nothing here
+wanted sub-millisecond precision; the widget counts in seconds.
+
+Two lessons, both in the code as comments:
+
+* A round-trip test that samples one value cannot establish that a type
+  round-trips. The test now takes ten thousand.
+* The tests that check the chapter clock were asserting that a timestamp
+  *changed*, which at millisecond resolution is not observably true inside one
+  test. They now mark the field with a value the program would never write, so
+  "restarted" and "left alone" both have a definite answer regardless of how
+  fast the machine is.
 
 ### Multiple network views need per-view slides, which do not exist yet
 

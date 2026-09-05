@@ -1865,8 +1865,11 @@ mod tests {
 
         let mut rp = build_rp(&items);
         rp.jump_to(1, 1);
-        let preaching_since = rp.chapter_entered_at;
-        assert!(preaching_since.is_some(), "the chapter should be being timed");
+        // A time the program would never write, so that "the clock carried on"
+        // and "the clock restarted" are distinguishable. Two readings of a
+        // millisecond clock in one test are usually the same number.
+        let preaching_since = Some(crate::logic::timer::Timestamp::from_milliseconds(0));
+        rp.chapter_entered_at = preaching_since;
 
         // The same two elements, plus a third added at the end.
         let items_with_addition = [item_a, item_b, inline_md_item("c.md", "# Added")];
@@ -1902,7 +1905,8 @@ mod tests {
 
         let mut rp = build_rp(&items);
         rp.jump_to(1, 0);
-        let deleted_chapters_clock = rp.chapter_entered_at;
+        let deleted_chapters_clock = Some(crate::logic::timer::Timestamp::from_milliseconds(0));
+        rp.chapter_entered_at = deleted_chapters_clock;
 
         // The element that was up is removed from the running order.
         let items_updated = [item_a];

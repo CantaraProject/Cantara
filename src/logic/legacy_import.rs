@@ -511,13 +511,15 @@ fn handlebars_name(name: &str) -> String {
 /// `name` is passed in rather than translated here so that the logic stays
 /// free of the interface; the caller has the user's language.
 pub fn design_of(config: &LegacyConfig, name: String) -> PresentationDesign {
-    let mut template = match PresentationDesignSettings::default() {
-        PresentationDesignSettings::Template(template) => template,
-        // `Default` is a template and has been since the type existed; this
-        // arm exists so that a future change to that is a compile-time
-        // decision rather than a panic in front of a congregation.
-        PresentationDesignSettings::Custom(_) => unreachable!("the default design is a template"),
-    };
+    // `Default` is a template and has been since the type existed. Asked for
+    // rather than matched on, so that a design kind added later does not have
+    // to be answered for here — and falling back to a plain default template
+    // rather than panicking, because this runs while a Cantara 2 installation
+    // is being taken over and there is nothing to be gained by refusing.
+    let mut template = PresentationDesignSettings::default()
+        .template()
+        .cloned()
+        .unwrap_or_default();
 
     let family = font_family_of(&config.font_name).map(CssFontFamily::with_family);
     let color: RGBA8 = Rgba::new(
@@ -704,10 +706,10 @@ pub fn apply(
     }
 
     let design = design_of(config, design_name);
-    report.background_image = match &design.presentation_design_settings {
-        PresentationDesignSettings::Template(template) => template.background_image.is_some(),
-        PresentationDesignSettings::Custom(_) => false,
-    };
+    report.background_image = design
+        .presentation_design_settings
+        .template()
+        .is_some_and(|template| template.background_image.is_some());
 
     settings.presentation_designs.insert(0, design);
     settings
@@ -1226,10 +1228,11 @@ HideCursorInPresentation=0
     // ── The design ──────────────────────────────────────────────────────────
 
     fn template_of(design: &PresentationDesign) -> crate::logic::settings::PresentationDesignTemplate {
-        match &design.presentation_design_settings {
-            PresentationDesignSettings::Template(template) => template.clone(),
-            PresentationDesignSettings::Custom(_) => panic!("not a template"),
-        }
+        design
+            .presentation_design_settings
+            .template()
+            .cloned()
+            .expect("the imported design should carry a template")
     }
 
     #[test]

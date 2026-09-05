@@ -2054,11 +2054,316 @@ pub enum PresentationDesignSettings {
 
     /// Manually specified template with HTML/CSS/Javascript (not implemented yet)
     Custom(String),
+
+    /// Describes a *monitor view* — the screen the people making the service
+    /// happen are looking at, rather than the one the congregation is.
+    ///
+    /// See `docs/specs/0003-add-monitor-view.md`.
+    Monitor(MonitorDesign),
+}
+
+/// Which kind of view a presentation design describes.
+///
+/// The choice the editor offers under "Darstellungsart": what the design is
+/// *for*, before anything about how it looks. Two kinds rather than a flag
+/// because a third is imaginable — and because "not a monitor" is not a good
+/// name for what an audience view is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum DesignKind {
+    /// What the congregation sees. Everything Cantara did before monitor
+    /// views existed.
+    #[default]
+    Audience,
+
+    /// What the people making the service happen see.
+    Monitor,
+}
+
+impl DesignKind {
+    /// Both kinds, in the order the editor offers them.
+    ///
+    /// The audience view first: it is what nearly every design is, and what a
+    /// new one should be.
+    pub const ALL: [DesignKind; 2] = [DesignKind::Audience, DesignKind::Monitor];
+
+    /// The translation key for what this kind is called.
+    ///
+    /// The key rather than the text, so that the logic stays out of the
+    /// interface's business — the caller has the user's language.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            DesignKind::Audience => "settings.design_kind_audience",
+            DesignKind::Monitor => "settings.design_kind_monitor",
+        }
+    }
+
+    /// A stable name for this kind, for a `<select>` to hand back.
+    ///
+    /// Not the translated label: a form sends back the value it was given, and
+    /// matching on translated text would break the moment somebody switched
+    /// language mid-edit.
+    pub fn value(self) -> &'static str {
+        match self {
+            DesignKind::Audience => "audience",
+            DesignKind::Monitor => "monitor",
+        }
+    }
+
+    /// Reads back what [`value`](Self::value) wrote.
+    ///
+    /// Anything unrecognised is the audience view: a selector that has somehow
+    /// sent something else should not be able to turn a design into a monitor
+    /// one by accident.
+    pub fn from_value(value: &str) -> DesignKind {
+        match value {
+            "monitor" => DesignKind::Monitor,
+            _ => DesignKind::Audience,
+        }
+    }
+}
+
+/// A view for the platform: the speaker, the musicians, the technician.
+///
+/// It shows the same presentation as the wall, read differently — what is up,
+/// what is next, how long this has been going on. It never controls anything;
+/// the one place that drives a presentation is the presenter console.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct MonitorDesign {
+    /// The look it shares with an audience design: fonts, colours, padding.
+    ///
+    /// Embedded rather than restated so that the existing design editor edits
+    /// this half — one font editor, one colour picker, one preview. Some of
+    /// its fields mean nothing here and are documented as ignored:
+    /// `vertical_alignment` and `background_image` are the layout's business,
+    /// not the design's, once there is more than one thing on the screen.
+    pub base: PresentationDesignTemplate,
+
+    /// How the slides are arranged.
+    pub layout: MonitorLayout,
+
+    /// What is shown alongside them.
+    pub widgets: Vec<MonitorWidget>,
+}
+
+impl Default for MonitorDesign {
+    fn default() -> Self {
+        MonitorDesign {
+            base: PresentationDesignTemplate::default(),
+            layout: MonitorLayout::default(),
+            widgets: Vec::new(),
+        }
+    }
+}
+
+/// How a monitor view arranges the slides.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub enum MonitorLayout {
+    /// Every slide of the service, the current one marked, the ones before and
+    /// after it readable.
+    ///
+    /// The presenter console's list without the buttons — and it is that list,
+    /// shared, rather than a second one that looks like it.
+    SlideList {
+        /// How many slides either side are drawn. `None` draws them all and
+        /// keeps the current one in view.
+        context: Option<usize>,
+    },
+
+    /// The current slide large, the next one small. For whoever is speaking.
+    Speaker {
+        /// How much of the height the next slide takes, from 0.0 to 1.0.
+        ///
+        /// Read through [`Self::speaker_share`], which keeps it inside the
+        /// range a layout can actually use: a share of 0.9 would leave the
+        /// speaker reading the *next* slide, and one of 0.0 would draw a strip
+        /// of nothing.
+        next_slide_share: f64,
+    },
+}
+
+impl Default for MonitorLayout {
+    fn default() -> Self {
+        // The list is the one that needs no explaining: it is what a
+        // technician already recognises from the console.
+        MonitorLayout::SlideList { context: Some(2) }
+    }
+}
+
+impl MonitorLayout {
+    /// The smallest and largest share of the height the next slide may take.
+    ///
+    /// Not a matter of taste: outside these the layout stops being what it is
+    /// called. A stored value out of range — a settings file edited by hand, a
+    /// slider that once allowed more — is brought back into it rather than
+    /// drawn.
+    pub const SPEAKER_SHARE_RANGE: std::ops::RangeInclusive<f64> = 0.1..=0.5;
+
+    /// What share of the height the next slide actually gets.
+    pub fn speaker_share(share: f64) -> f64 {
+        // A NaN out of a settings file compares false against everything, so
+        // it is replaced rather than clamped — `f64::clamp` panics on one.
+        if share.is_nan() {
+            return *Self::SPEAKER_SHARE_RANGE.start();
+        }
+        share.clamp(
+            *Self::SPEAKER_SHARE_RANGE.start(),
+            *Self::SPEAKER_SHARE_RANGE.end(),
+        )
+    }
+}
+
+/// Something shown on a monitor view beside the slides.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct MonitorWidget {
+    pub kind: WidgetKind,
+    pub placement: WidgetPlacement,
+}
+
+/// What a widget shows.
+///
+/// User-supplied widgets — WebAssembly, by decision 2 of the spec — are not
+/// here yet and are the last thing to be built, behind an explicit opt-in on
+/// import. A design that carries executable code carries it to whoever it is
+/// sent to.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WidgetKind {
+    /// The time, and optionally the date, in the language Cantara is running
+    /// in. The format is the locale's rather than a string the user writes:
+    /// a German installation should get a German date without configuring one.
+    Clock { with_date: bool },
+
+    /// How long the service has been in the current chapter — how long the
+    /// sermon has run, how long this song has gone on.
+    ///
+    /// Counts from [`crate::logic::states::RunningPresentation::chapter_entered_at`].
+    ChapterTimer {
+        /// After how many seconds the timer says so, by drawing itself
+        /// differently. `None` never does.
+        ///
+        /// The point of the widget for a preacher who has been asked to keep
+        /// to twenty minutes, and the reason it is a warning rather than
+        /// anything louder: nothing here interrupts a service.
+        warn_after_seconds: Option<u32>,
+    },
+}
+
+/// Which corner of the monitor view a widget sits in.
+///
+/// Corners rather than coordinates. A monitor is read at a glance from a few
+/// metres away by someone who is about to speak, and the useful question is
+/// "out of the way of the text, somewhere I can find it" — which four answers
+/// cover, and which a pair of numbers makes worse by allowing the widget to be
+/// put on top of the slide.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum WidgetPlacement {
+    TopLeft,
+    #[default]
+    TopRight,
+    BottomLeft,
+    BottomRight,
 }
 
 impl Default for PresentationDesignSettings {
     fn default() -> Self {
         PresentationDesignSettings::Template(PresentationDesignTemplate::default())
+    }
+}
+
+impl PresentationDesignSettings {
+    /// The look of this design — fonts, colours, padding — whatever kind of
+    /// view it describes.
+    ///
+    /// A monitor design carries the same template as an audience design, by
+    /// decision 1 of the spec, and almost everything that reaches for one
+    /// wants it for that reason: to lay out text, to carry a font into an
+    /// export, to draw a preview. Those places ask here rather than matching
+    /// on the variant, so that adding a kind of design does not mean editing
+    /// every one of them — and so that a monitor design's fonts travel with it
+    /// through the export exactly as an audience design's do.
+    ///
+    /// `None` only for [`Custom`](Self::Custom), which is a string of HTML and
+    /// has no template to give. That variant is still not implemented.
+    pub fn template(&self) -> Option<&PresentationDesignTemplate> {
+        match self {
+            PresentationDesignSettings::Template(template) => Some(template),
+            PresentationDesignSettings::Monitor(monitor) => Some(&monitor.base),
+            PresentationDesignSettings::Custom(_) => None,
+        }
+    }
+
+    /// The same, to be written to.
+    pub fn template_mut(&mut self) -> Option<&mut PresentationDesignTemplate> {
+        match self {
+            PresentationDesignSettings::Template(template) => Some(template),
+            PresentationDesignSettings::Monitor(monitor) => Some(&mut monitor.base),
+            PresentationDesignSettings::Custom(_) => None,
+        }
+    }
+
+    /// Which kind of view this design describes.
+    ///
+    /// [`Custom`](Self::Custom) answers [`DesignKind::Audience`]: it is a page
+    /// of HTML meant for the congregation, and it is still not implemented.
+    pub fn kind(&self) -> DesignKind {
+        match self {
+            PresentationDesignSettings::Monitor(_) => DesignKind::Monitor,
+            _ => DesignKind::Audience,
+        }
+    }
+
+    /// The same design, describing the other kind of view.
+    ///
+    /// The look is carried across — fonts, colours, padding — which is the
+    /// whole point of decision 1 of the spec: somebody who has spent time on a
+    /// design and then decides it belongs on a stage monitor should not have
+    /// to set it up again. Switching back and forth is therefore lossless for
+    /// everything the two kinds share.
+    ///
+    /// What does not survive is what only one kind has: turning a monitor
+    /// design into an audience design forgets its layout and its widgets, and
+    /// turning one back gives it the default layout and no widgets. There is
+    /// nowhere to keep them, and the alternative — a design quietly carrying
+    /// the settings of a kind it no longer is — is worse than losing two
+    /// choices the user can see they have lost.
+    ///
+    /// Returns `self` unchanged when it is already that kind, so that the
+    /// selector writing on every change costs nothing and cannot destroy a
+    /// layout by being clicked on the value it already has.
+    pub fn into_kind(self, kind: DesignKind) -> PresentationDesignSettings {
+        if self.kind() == kind {
+            return self;
+        }
+
+        // Not `template()` — this consumes the design, and taking the template
+        // by value is what makes the carry-across free rather than a clone of
+        // every font in it.
+        let template = match self {
+            PresentationDesignSettings::Template(template) => template,
+            PresentationDesignSettings::Monitor(monitor) => monitor.base,
+            // A hand-written HTML design has no template to carry, so the
+            // design it becomes starts from the defaults.
+            PresentationDesignSettings::Custom(_) => PresentationDesignTemplate::default(),
+        };
+
+        match kind {
+            DesignKind::Audience => PresentationDesignSettings::Template(template),
+            DesignKind::Monitor => PresentationDesignSettings::Monitor(MonitorDesign {
+                base: template,
+                ..MonitorDesign::default()
+            }),
+        }
+    }
+
+    /// The monitor design this describes, if it describes one.
+    ///
+    /// What tells the two kinds of view apart at the point of drawing: a
+    /// design that answers `None` here is an audience design and is drawn the
+    /// way Cantara has always drawn one.
+    pub fn monitor(&self) -> Option<&MonitorDesign> {
+        match self {
+            PresentationDesignSettings::Monitor(monitor) => Some(monitor),
+            _ => None,
+        }
     }
 }
 
@@ -3142,6 +3447,133 @@ mod tests {
 
         assert_eq!(read.views, settings.views);
         assert_eq!(read.reference_view_index, settings.reference_view_index);
+    }
+
+    // -------------------------------------------------------------------------
+    // The kind of view a design describes
+    // -------------------------------------------------------------------------
+
+    /// A design made before monitor views existed is an audience design, and
+    /// every stored one is: the variant did not exist to be written.
+    #[test]
+    fn a_design_is_an_audience_design_unless_it_says_otherwise() {
+        assert_eq!(
+            PresentationDesignSettings::default().kind(),
+            DesignKind::Audience
+        );
+        assert_eq!(
+            PresentationDesignSettings::Monitor(MonitorDesign::default()).kind(),
+            DesignKind::Monitor
+        );
+    }
+
+    /// The point of embedding the template rather than restating it: somebody
+    /// who has spent an evening on the fonts and colours of a design and then
+    /// decides it belongs on a stage monitor keeps all of it.
+    #[test]
+    fn switching_a_design_to_a_monitor_keeps_the_look_it_was_given() {
+        let mut template = PresentationDesignTemplate::default();
+        template.background_color = RGB8::new(12, 34, 56);
+        template.title_bold = true;
+        let audience = PresentationDesignSettings::Template(template.clone());
+
+        let monitor = audience.into_kind(DesignKind::Monitor);
+
+        assert_eq!(monitor.kind(), DesignKind::Monitor);
+        assert_eq!(monitor.template(), Some(&template));
+    }
+
+    /// And back again, so that changing one's mind costs nothing either.
+    #[test]
+    fn switching_back_to_an_audience_design_keeps_the_look_too() {
+        let mut template = PresentationDesignTemplate::default();
+        template.background_color = RGB8::new(12, 34, 56);
+        let monitor = PresentationDesignSettings::Monitor(MonitorDesign {
+            base: template.clone(),
+            ..MonitorDesign::default()
+        });
+
+        let audience = monitor.into_kind(DesignKind::Audience);
+
+        assert_eq!(audience.kind(), DesignKind::Audience);
+        assert_eq!(audience.template(), Some(&template));
+    }
+
+    /// Asking for the kind it already is changes nothing at all.
+    ///
+    /// The selector writes on every change event, and a conversion that reset
+    /// the layout each time would quietly destroy a monitor design's settings
+    /// when the user clicked the value it was already on.
+    #[test]
+    fn asking_for_the_kind_it_already_is_leaves_the_design_untouched() {
+        let monitor = PresentationDesignSettings::Monitor(MonitorDesign {
+            layout: MonitorLayout::Speaker {
+                next_slide_share: 0.25,
+            },
+            widgets: vec![MonitorWidget {
+                kind: WidgetKind::Clock { with_date: true },
+                placement: WidgetPlacement::TopLeft,
+            }],
+            ..MonitorDesign::default()
+        });
+
+        let same = monitor.clone().into_kind(DesignKind::Monitor);
+
+        assert_eq!(same, monitor, "the layout and widgets were reset");
+    }
+
+    /// What a `<select>` sends back is read as what it was given, and nothing
+    /// else can turn a design into a monitor one.
+    #[test]
+    fn the_selectors_value_round_trips() {
+        for kind in DesignKind::ALL {
+            assert_eq!(DesignKind::from_value(kind.value()), kind);
+        }
+        assert_eq!(DesignKind::from_value("something else"), DesignKind::Audience);
+    }
+
+    /// The share the next slide takes is kept inside the range that makes the
+    /// layout what it is called — including for a value out of a settings file
+    /// edited by hand, and for a NaN, which `f64::clamp` panics on.
+    #[test]
+    fn the_speaker_layouts_share_is_kept_usable() {
+        assert_eq!(MonitorLayout::speaker_share(0.25), 0.25);
+        assert_eq!(MonitorLayout::speaker_share(0.9), 0.5);
+        assert_eq!(MonitorLayout::speaker_share(0.0), 0.1);
+        assert_eq!(MonitorLayout::speaker_share(f64::NAN), 0.1);
+    }
+
+    /// A monitor design survives being written out and read back, layout,
+    /// widgets and all.
+    #[test]
+    fn a_monitor_design_round_trips_through_the_settings_file() {
+        let design = PresentationDesign {
+            name: "Bühne".to_string(),
+            description: String::new(),
+            presentation_design_settings: PresentationDesignSettings::Monitor(MonitorDesign {
+                layout: MonitorLayout::Speaker {
+                    next_slide_share: 0.3,
+                },
+                widgets: vec![
+                    MonitorWidget {
+                        kind: WidgetKind::Clock { with_date: false },
+                        placement: WidgetPlacement::TopRight,
+                    },
+                    MonitorWidget {
+                        kind: WidgetKind::ChapterTimer {
+                            warn_after_seconds: Some(1200),
+                        },
+                        placement: WidgetPlacement::BottomLeft,
+                    },
+                ],
+                ..MonitorDesign::default()
+            }),
+        };
+
+        let written = serde_json::to_string(&design).expect("serialisable");
+        let read: PresentationDesign = serde_json::from_str(&written).expect("readable back");
+
+        assert_eq!(read, design);
     }
 
     // -------------------------------------------------------------------------
