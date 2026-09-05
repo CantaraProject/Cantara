@@ -22,6 +22,70 @@
 //!    something else entirely.  That is how `wizard.yml` sat there doing
 //!    nothing.  Every file is checked.
 
+/// A moment, written the way the user's language writes one.
+///
+/// Answers the date and the time separately, because the monitor view's clock
+/// widget shows the time always and the date only if it was asked to.
+///
+/// # Why this is not a format string in the settings
+///
+/// It could be, and then a German installation would show an American date
+/// until somebody went and changed it. The pattern belongs to the language, so
+/// it lives with the other texts of the language — `general.date_format` and
+/// `general.time_format` — and a translator adding a language brings its date
+/// format with it rather than filing a bug about one.
+///
+/// # Why the patterns are numeric
+///
+/// `chrono` writes month and day names in English and only in English unless
+/// its `unstable-locales` feature is turned on. A German date reading
+/// "Sat 05 Sep 2026" would be worse than one reading "05.09.2026", so the
+/// patterns say nothing that would have to be translated.
+///
+/// # Local, not UTC
+///
+/// The clock on a stage monitor is the clock on the wall of that building. A
+/// [`Timestamp`](crate::logic::timer::Timestamp) is a count from the epoch and
+/// says nothing about where it was taken, so the conversion to local time
+/// happens here, once.
+pub fn format_clock(at: crate::logic::timer::Timestamp) -> (String, String) {
+    use chrono::{Local, TimeZone};
+
+    let Some(utc) = chrono::DateTime::from_timestamp_millis(at.milliseconds()) else {
+        // Only reachable for a clock set hundreds of thousands of years from
+        // now. There is nothing sensible to show, and a monitor in front of a
+        // congregation is not the place to panic about it.
+        return (String::new(), String::new());
+    };
+    let local = Local.from_utc_datetime(&utc.naive_utc());
+
+    (
+        strftime(&local, &rust_i18n::t!("general.date_format"), "%d.%m.%Y"),
+        strftime(&local, &rust_i18n::t!("general.time_format"), "%H:%M"),
+    )
+}
+
+/// Applies a `strftime` pattern, falling back when the pattern is not one.
+///
+/// The pattern comes out of a translation file, which is a text file a person
+/// edits. `chrono` reports an unreadable pattern as a formatting error, and a
+/// widget on a platform monitor should show the time in the wrong order rather
+/// than nothing at all — so a pattern that will not do is replaced by one that
+/// will.
+fn strftime(
+    at: &chrono::DateTime<chrono::Local>,
+    pattern: &str,
+    fallback: &str,
+) -> String {
+    use std::fmt::Write;
+
+    let mut written = String::new();
+    match write!(&mut written, "{}", at.format(pattern)) {
+        Ok(()) => written,
+        Err(_) => at.format(fallback).to_string(),
+    }
+}
+
 /// Whether the key has a text behind it.
 ///
 /// `rust_i18n` answers a key it does not know with the key, which is what puts
@@ -40,6 +104,65 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
+
+    /// The clock widget gets something to show.
+    ///
+    /// Deliberately not an assertion about *which* time: the answer depends on
+    /// the time zone of whatever machine runs the tests, and pinning that would
+    /// be pinning the test machine rather than the behaviour. What has to hold
+    /// everywhere is that both halves come back filled in and in the shape the
+    /// patterns describe.
+    #[test]
+    fn a_moment_is_written_as_a_date_and_a_time() {
+        let (date, time) = format_clock(crate::logic::timer::Timestamp::now());
+
+        assert!(!date.is_empty(), "no date");
+        assert!(!time.is_empty(), "no time");
+        assert_eq!(
+            time.len(),
+            5,
+            "the time should read as HH:MM, got {time:?}"
+        );
+        assert!(
+            time.chars().nth(2) == Some(':'),
+            "the time should read as HH:MM, got {time:?}"
+        );
+        assert!(
+            date.chars().any(|character| character.is_ascii_digit()),
+            "the date has no digits in it: {date:?}"
+        );
+    }
+
+    /// A pattern out of a translation file is a text a person edits, and a
+    /// widget on a platform monitor should show the time in the wrong order
+    /// rather than nothing at all.
+    #[test]
+    fn an_unusable_date_pattern_falls_back_instead_of_failing() {
+        let now = chrono::Local::now();
+
+        // `%` with nothing after it is not a specifier.
+        let written = strftime(&now, "%", "%d.%m.%Y");
+
+        assert!(
+            !written.is_empty(),
+            "a pattern that cannot be used produced nothing at all"
+        );
+    }
+
+    /// The two patterns are what the widget's shape depends on, so a language
+    /// that forgets one would be found here rather than on a stage monitor.
+    #[test]
+    fn both_languages_state_how_they_write_a_date_and_a_time() {
+        for language in ["en", "de"] {
+            for key in ["general.date_format", "general.time_format"] {
+                let pattern = rust_i18n::t!(key, locale = language);
+                assert!(
+                    pattern.contains('%'),
+                    "{language} {key} is not a strftime pattern: {pattern:?}"
+                );
+            }
+        }
+    }
 
     /// The two languages every text is written in.
     const LANGUAGES: [&str; 2] = ["en", "de"];

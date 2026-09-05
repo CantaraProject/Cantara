@@ -38,7 +38,7 @@
 use crate::logic::fonts;
 use crate::logic::selection_io::{SelectionDocument, SelectionIoError, read_selection};
 use crate::logic::settings::{
-    PresentationDesign, PresentationDesignSettings, Settings, SongSlideSettings,
+    PresentationDesign, Settings, SongSlideSettings,
 };
 use crate::logic::sourcefiles::SourceFile;
 // Used by `import_design`, which writes pictures to a folder, and by the tests.
@@ -570,7 +570,9 @@ pub fn import_slide_settings(settings: &mut Settings, division: &SongSlideSettin
 mod tests {
     use super::*;
     use crate::logic::css::CssFontFamily;
-    use crate::logic::settings::{FontRepresentation, PresentationDesignTemplate};
+    use crate::logic::settings::{
+        FontRepresentation, PresentationDesignSettings, PresentationDesignTemplate,
+    };
     use cantara_songlib::slides::SlideSettings;
 
     fn design_with_font(family: &str) -> PresentationDesign {
@@ -808,10 +810,10 @@ mod tests {
         assert_eq!(std::fs::read(&written).expect("readable"), b"a picture");
 
         let imported = settings.presentation_designs.last().expect("the design");
-        let PresentationDesignSettings::Template(template) = &imported.presentation_design_settings
-        else {
-            panic!("not a template");
-        };
+        let template = imported
+            .presentation_design_settings
+            .template()
+            .expect("the imported design carries a template");
         assert_eq!(
             template
                 .background_image

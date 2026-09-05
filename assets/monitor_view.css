@@ -1,0 +1,189 @@
+/* The screen the people making the service happen look at.
+ *
+ * Read from a few metres away, usually by somebody who is about to speak and
+ * has one glance to spare. So: large text, high contrast, and nothing moving
+ * that does not have to.
+ *
+ * The slide list is the presenter console's, classes and all — see
+ * `SlideList` in `presenter_console_components.rs`. This file only says what
+ * is different about showing it on a wall instead of in a window: bigger, and
+ * without the hover state of something that can be pressed.
+ */
+
+.monitor-view {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    /* The design's own colour is set inline, from its template. This is only
+     * the fallback for a design that somehow has none. */
+    background-color: #101010;
+    color: #f2f2f2;
+    font-family: system-ui, sans-serif;
+}
+
+.monitor-view-stage {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 2vh 2vw;
+}
+
+/* ── The slide list, on a wall ─────────────────────────────────────────── */
+
+.monitor-view .presenter-text-panel {
+    height: 100%;
+    border: none;
+    background-color: transparent;
+    font-size: 2.2vh;
+}
+
+.monitor-view .presenter-chapter-title {
+    font-size: 2.4vh;
+    color: rgba(242, 242, 242, 0.55);
+    border-bottom-color: rgba(242, 242, 242, 0.2);
+}
+
+.monitor-view .presenter-chapter-title.active {
+    color: #ffffff;
+}
+
+.monitor-view .presenter-slide-item {
+    /* Nothing here can be pressed: a monitor view shows, it does not control.
+     * A pointer over it would promise otherwise. */
+    cursor: default;
+    padding: 1.2vh 1.5vw;
+    color: rgba(242, 242, 242, 0.6);
+}
+
+.monitor-view .presenter-slide-item:hover {
+    background-color: transparent;
+}
+
+.monitor-view .presenter-slide-item.active {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-left-color: currentColor;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.monitor-view .slide-text-content p {
+    font-size: inherit !important;
+    line-height: 1.35 !important;
+}
+
+/* ── The speaker layout ────────────────────────────────────────────────── */
+
+.monitor-speaker {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    gap: 1.5vh;
+}
+
+.monitor-speaker-current,
+.monitor-speaker-next {
+    position: relative;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: 0.6vh;
+}
+
+.monitor-speaker-next {
+    /* Set apart from the slide above it, so that the two are never mistaken
+     * for one another by somebody glancing up mid-sentence. */
+    border: 1px solid rgba(242, 242, 242, 0.25);
+    opacity: 0.75;
+}
+
+.monitor-speaker-next-label {
+    position: absolute;
+    top: 0.4vh;
+    left: 0.6vw;
+    z-index: 2;
+    font-size: 1.6vh;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(242, 242, 242, 0.7);
+}
+
+.monitor-speaker-next-end {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    font-size: 2vh;
+    color: rgba(242, 242, 242, 0.5);
+}
+
+/* The slide renderer lays itself out at the presentation's size; inside these
+ * boxes it is scaled to fit rather than allowed to overflow them. */
+.monitor-speaker-current > *,
+.monitor-speaker-next > * {
+    width: 100%;
+    height: 100%;
+}
+
+/* ── Widgets ───────────────────────────────────────────────────────────── */
+
+.monitor-widget {
+    position: absolute;
+    z-index: 5;
+    padding: 0.8vh 1.2vw;
+    border-radius: 0.6vh;
+    background-color: rgba(0, 0, 0, 0.35);
+    /* Out of the way of the text rather than on top of it: a widget is
+     * glanceable information, not something to read past. */
+    pointer-events: none;
+    line-height: 1.1;
+}
+
+.monitor-widget-top-left {
+    top: 1.5vh;
+    left: 1.5vw;
+}
+
+.monitor-widget-top-right {
+    top: 1.5vh;
+    right: 1.5vw;
+}
+
+.monitor-widget-bottom-left {
+    bottom: 1.5vh;
+    left: 1.5vw;
+}
+
+.monitor-widget-bottom-right {
+    bottom: 1.5vh;
+    right: 1.5vw;
+}
+
+.monitor-clock {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.monitor-clock-time {
+    font-size: 4vh;
+    font-variant-numeric: tabular-nums;
+}
+
+.monitor-clock-date {
+    font-size: 1.8vh;
+    color: rgba(242, 242, 242, 0.65);
+}
+
+.monitor-timer-value {
+    font-size: 4vh;
+    /* So the width does not jump as the digits change — a timer that shifts
+     * about is harder to read at a glance than one that does not. */
+    font-variant-numeric: tabular-nums;
+}
+
+.monitor-timer.over .monitor-timer-value {
+    /* The preacher has had the time they were given. Said by colour and
+     * nothing else: nothing on a monitor view interrupts a service. */
+    color: #ff9a3c;
+}

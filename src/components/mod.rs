@@ -62,6 +62,10 @@ pub mod element_creation;
 
 pub mod presentation_components;
 
+/// The screen the people making the service happen look at, as opposed to the
+/// one the congregation does.
+pub mod monitor_view;
+
 pub mod presentation_design_settings_components;
 
 pub mod settings_components;

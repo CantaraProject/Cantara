@@ -1100,6 +1100,26 @@ impl Settings {
             .and_then(|index| self.presentation_designs.get(index).cloned())
     }
 
+    /// The monitor design the view at `index` is shown in, if it is shown in
+    /// one.
+    ///
+    /// `None` for a view that does not exist, one that names no design of its
+    /// own, and one whose design is an audience design — all three mean "draw
+    /// this the way Cantara has always drawn a presentation", which is what a
+    /// window with no answer here does.
+    ///
+    /// Looked up rather than carried into the window, so that editing a design
+    /// during a service reaches the window showing it. That is the same reason
+    /// views hold positions into the design list rather than copies of a
+    /// design.
+    pub fn monitor_design_of_view(&self, index: usize) -> Option<MonitorDesign> {
+        let view = self.views.get(index)?;
+        self.design_of_view(view)?
+            .presentation_design_settings
+            .monitor()
+            .cloned()
+    }
+
     /// The slide division a view uses, or `None` for the reference view's.
     /// See [`design_of_view`](Self::design_of_view).
     pub fn slide_settings_of_view(&self, view: &View) -> Option<SlideSettings> {

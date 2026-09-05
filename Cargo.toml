@@ -34,6 +34,12 @@ sys-locale = "=0.3.2"
 cantara-songlib = "0.5.0"
 markdown = "1.0.0"
 rgb = { version = "0.8.52", features = ["serde"] }
+# The monitor view's clock widget needs the *local* time, which the standard
+# library cannot give on any target: it has no time zone database and no civil
+# calendar. Already in the tree as a transitive dependency, so making it a
+# direct one costs no compilation. Default features include `clock` (the local
+# offset) and `wasmbind`, which is what makes `Local` work in the browser too.
+chrono = "0.4"
 # Decodes the pictures of a library so they can be scaled down to list
 # thumbnails; `png` is also what the window icon is loaded from.
 image = { version = "0.25", optional = true, default-features = false, features = ["png", "jpeg"] }

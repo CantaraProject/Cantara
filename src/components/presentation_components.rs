@@ -366,6 +366,25 @@ pub fn PresentationPage() -> Element {
         });
     }
 
+    // The monitor design this window draws, if it draws one.
+    //
+    // A window is told which view it is showing when it is opened — see
+    // `ShownView` in `selection_components` — and reads the design out of the
+    // settings as they now stand, so that editing the design during a service
+    // reaches the screen showing it.
+    //
+    // A window with no `ShownView` is not one of the view list's: the routed
+    // presentation page, the web build's synced tab, a preview. Those are
+    // audience views and always were.
+    let settings_for_view = crate::logic::settings::use_settings();
+    let shown_monitor_design: Memo<Option<crate::logic::settings::MonitorDesign>> = use_memo(
+        move || {
+            let index =
+                try_consume_context::<crate::components::selection_components::ShownView>()?;
+            settings_for_view.read().monitor_design_of_view(index.0)
+        },
+    );
+
     // Context menu state
     let mut show_context_menu = use_signal(|| false);
     let mut context_menu_x = use_signal(|| 0.0f64);
@@ -474,7 +493,31 @@ pub fn PresentationPage() -> Element {
                     _ => {}
                 }
             },
-            PresentationRendererComponent { running_presentation }
+            // What this window draws depends on the design the view it is
+            // showing was given: an audience design is the projection Cantara
+            // has always drawn, a monitor design is the other reading of the
+            // same presentation. See `docs/specs/0003-add-monitor-view.md`.
+            if let Some(monitor_design) = shown_monitor_design() {
+                crate::components::monitor_view::MonitorViewComponent {
+                    running_presentation,
+                    monitor_design: monitor_design.clone(),
+                    // The monitor's own design, handed back as a
+                    // `PresentationDesign` because that is what the slide
+                    // renderer takes. Without this a slide drawn on a stage
+                    // monitor would come out in Cantara's default colours
+                    // rather than the ones the design was set up with.
+                    slide_design: crate::logic::settings::PresentationDesign {
+                        name: String::new(),
+                        description: String::new(),
+                        presentation_design_settings:
+                            crate::logic::settings::PresentationDesignSettings::Monitor(
+                                monitor_design,
+                            ),
+                    },
+                }
+            } else {
+                PresentationRendererComponent { running_presentation }
+            }
 
             // Where a video is operated from when there is no console to
             // operate it in. A video nobody can pause is not something to put
@@ -2493,10 +2536,16 @@ pub fn StaticSlideRendererComponent(
     #[props(default)]
     blacked_out: bool,
 ) -> Element {
-    let pds = match presentation_design.presentation_design_settings {
-        PresentationDesignSettings::Template(ref template) => template.clone(),
-        _ => PresentationDesignTemplate::default(),
-    };
+    // A monitor design has a template too, and this is asked to draw one: the
+    // speaker layout renders the slide it is showing with the design it was
+    // given. Matching on `Template` alone gave a monitor design the *default*
+    // template, so a slide on a stage monitor came out in Cantara's colours
+    // rather than the ones the design was set up with.
+    let pds = presentation_design
+        .presentation_design_settings
+        .template()
+        .cloned()
+        .unwrap_or_default();
 
     // Asked for before anything is drawn, and drawn without it until it is
     // there — this view must never wait for a file.

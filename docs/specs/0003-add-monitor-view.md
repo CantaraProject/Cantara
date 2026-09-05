@@ -4,11 +4,16 @@ Status: **in progress.** The five decisions below are taken. Stages 1, 2, 3a and
 3½ are built; the order of what remains has changed — see
 [What stage 3 found](#what-stage-3-found).
 
-A monitor design can now be **made and configured**: the design editor offers
-"Darstellungsart", and a monitor design has a layout and widgets. What it cannot
-yet do is **look** any different — stage 4, which draws the layouts, is not
-built, so a view using a monitor design still renders as an audience view. That
-is the next step and the one that makes the feature real.
+A monitor design can be **made, configured and drawn**: the design editor
+offers "Darstellungsart", both layouts render, and the clock and chapter-timer
+widgets work.
+
+What is still missing is the last link in the chain: **there is no way to
+create a view.** The migration makes the two Cantara always had — the projection
+and the stream — and nothing offers to add a third. So a monitor design can be
+built and a window would draw it correctly, but no window is asking for one.
+See [The view editor](#the-view-editor), which is the next thing to build and
+the point at which the feature becomes usable.
 
 Cantara today can put a service onto exactly two surfaces, and both of them are
 aimed at the congregation: the projection, and — since [0002](0002-remote-control.md)
@@ -482,15 +487,37 @@ Each stage is meant to leave the program working.
    by `MonitorDesignSettings` *plus* the ordinary `DesignTemplateSettings`, so
    there is one font editor and one colour picker, not two.
 
-4. **`MonitorLayout::SlideList` and `Speaker`.** The slide list lifted out of
-   the presenter console and shared. This is the stage where the feature
-   becomes visible and useful, and it is a good place to stop and use it.
-   **Not done — and until it is, a monitor design can be made and configured
-   but is still drawn as an audience view.**
-5. ~~**Widgets: clock and chapter timer.**~~ Modelled and configurable
-   (`WidgetKind`, `WidgetPlacement`, and the editor for them); not drawn,
-   because nothing draws a monitor view yet. The chapter timer has had its
-   data since stage 1.
+4. ~~**`MonitorLayout::SlideList` and `Speaker`.**~~ **Done.**
+   [monitor_view.rs](../../src/components/monitor_view.rs) draws both, and
+   `PresentationPage` picks it over the audience renderer when the view this
+   window is showing names a monitor design.
+
+   `PresenterTextPanel` became `SlideList`, shared, with `interactive` and
+   `context` props — the console passes neither and behaves exactly as before;
+   the monitor view passes `interactive: false` because it shows and does not
+   control. There is one slide list, not two.
+
+   Two things this turned up. `StaticSlideRendererComponent` matched on
+   `Template` alone and gave a monitor design the *default* template, so a
+   slide on a stage monitor would have come out in Cantara's colours instead
+   of the design's. And `peek_next_slide` had to be written: the speaker
+   layout needs the slide after this one, and it has to cross into the next
+   chapter — what follows the last verse of a song is the next element, which
+   is exactly what a speaker wants to see.
+
+5. ~~**Widgets: clock and chapter timer.**~~ **Done.** Both draw, in the corner
+   they were given, redrawn by one timer per view rather than one per widget.
+   The chapter timer counts from `chapter_entered_at` (stage 1) and warns by
+   colour once its limit has passed — nothing on a monitor view interrupts a
+   service.
+
+   The clock made `chrono` a direct dependency. Neither the standard library
+   nor this program can turn a count of milliseconds into a *local* time on any
+   target, and the clock on a stage monitor is the clock on that building's
+   wall. It was already in the lock file, so it costs no compilation. Date and
+   time patterns live in `locales/common.yml`, because the way a date is
+   written belongs to the language rather than to a setting — and they are
+   numeric, since `chrono` writes month names in English only.
 6. **`MonitorLayout::Custom`,** with the context above and the error-in-view
    behaviour.
 7. **Custom widgets,** Wasm first, behind the import opt-in — only if 1–6 have
@@ -698,6 +725,34 @@ Decision 5: a `Custom` layout holds a file name, not a template body.
   the template file alongside the design, or an exported monitor design arrives
   broken. This is the same problem the font and image carrying already solves
   there.
+
+## The view editor
+
+The missing link, and the one thing between the feature working and the feature
+being usable. Everything underneath it exists: `Settings::views` is migrated
+into and validated, `place_screen_views` decides which window goes on which
+screen, `open_view_window` opens them, and `MonitorViewComponent` draws a
+monitor design correctly. What nobody can do is *make a view*.
+
+It belongs in the settings, beside the presentation designs, and it needs:
+
+* A list of the views, each showing its name, its design and its output, with
+  add and delete.
+* For a `Screen` view, a monitor chosen from `enumerate_monitors` — or "any
+  free screen", which is what `None` means and what `place_screen_views`
+  already handles properly for more than one view.
+* A design chosen from `presentation_designs`, where a monitor design is what
+  makes the view a monitor view.
+* The reference view marked, and not deletable — everything is counted against
+  it. `Settings::reference_view_index` is already there.
+* **No `Network` output offered yet.** Stage 3b is not built, so a network view
+  other than the stream's own `/` would be a configuration the settings accept
+  and nothing serves. The path validation exists and is right; what is missing
+  is the server that would use it.
+
+Decision 3 also wants enabling and disabling from the *selection screen* while
+a presentation runs, which is a separate piece: `enabled` is currently read once
+when the presentation starts.
 
 ## Still open
 

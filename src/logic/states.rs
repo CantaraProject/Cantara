@@ -611,6 +611,32 @@ impl RunningPresentation {
         })
     }
 
+    /// The slide that comes after the one that is up, without going there.
+    ///
+    /// Crosses into the next chapter, because "what is next" for somebody
+    /// about to speak does not stop at the end of a song — the slide after the
+    /// last verse is the next element's first, and that is exactly what a
+    /// speaker monitor has to show.
+    ///
+    /// `None` at the end of the service, and before it has started.
+    pub fn peek_next_slide(&self) -> Option<Slide> {
+        let position = self.position.as_ref()?;
+        let chapter = self.presentation.get(position.chapter())?;
+
+        match chapter.slides.get(position.chapter_slide() + 1) {
+            Some(slide) => Some(slide.clone()),
+            // Past the end of this chapter, so the next slide is the first one
+            // of the next chapter that actually has any. A chapter with no
+            // slides is skipped rather than answered as "nothing follows".
+            None => self
+                .presentation
+                .iter()
+                .skip(position.chapter() + 1)
+                .find_map(|chapter| chapter.slides.first())
+                .cloned(),
+        }
+    }
+
     pub fn get_current_presentation_design(&self) -> PresentationDesign {
         match self.position.as_ref() {
             Some(pos) => self
@@ -1503,6 +1529,59 @@ mod tests {
             long_ago(),
             "jumping to another chapter left the previous chapter's clock running"
         );
+    }
+
+    /// What the speaker layout shows in its smaller box, inside a song.
+    #[test]
+    fn the_next_slide_is_the_one_after_this_one() {
+        let mut running = service();
+        running.jump_to(0, 0);
+
+        assert_eq!(
+            running.peek_next_slide(),
+            running.presentation[0].slides.get(1).cloned()
+        );
+    }
+
+    /// And across the end of one: what comes after the last verse of a song is
+    /// the next element, which is exactly what somebody about to speak needs
+    /// to see. A "next slide" that stopped at the chapter boundary would go
+    /// blank at the very moment the speaker most wants to know what is coming.
+    #[test]
+    fn the_next_slide_reaches_into_the_following_chapter() {
+        let mut running = service();
+        // The last slide of the first song.
+        running.jump_to(0, 2);
+
+        assert_eq!(
+            running.peek_next_slide(),
+            running.presentation[1].slides.first().cloned(),
+            "the next slide should be the second song's first"
+        );
+    }
+
+    /// At the end of the service there is nothing next, and the layout says
+    /// so rather than showing the first slide again.
+    #[test]
+    fn there_is_no_next_slide_at_the_end_of_the_service() {
+        let mut running = service();
+        running.jump_to(1, 3);
+
+        assert_eq!(running.peek_next_slide(), None);
+    }
+
+    /// Looking ahead does not move the presentation. The clue is in the name,
+    /// and getting it wrong would advance the projection every time a stage
+    /// monitor redrew itself.
+    #[test]
+    fn peeking_at_the_next_slide_does_not_go_there() {
+        let mut running = service();
+        running.jump_to(0, 0);
+        let before = running.position.clone();
+
+        let _ = running.peek_next_slide();
+
+        assert_eq!(running.position, before);
     }
 
     /// A jump that lands where it started changes nothing, so it does not
