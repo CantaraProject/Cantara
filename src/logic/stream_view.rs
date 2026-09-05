@@ -80,6 +80,14 @@ impl StreamDefaults {
 ///
 /// Off entirely means the whole verse, which always contains whatever the
 /// projection is showing and is therefore always safe.
+///
+/// A multiple is the wrap to *try*, not a guarantee. The song library balances
+/// the parts of a block rather than filling each one up, so six lines at three
+/// per slide are 3 | 3 while at two per slide they are 2 | 2 | 2, and the
+/// boundaries do not always line up however the numbers divide. Whether they
+/// did is answered by [`slides_nest`] on the finished slides — see
+/// [`crate::logic::presentation`], which falls back to the whole verse when
+/// they did not.
 pub fn stream_slide_settings(
     projection: &SlideSettings,
     wanted: &SlideSettings,
@@ -144,6 +152,43 @@ pub fn map_slides(projection: &[Slide], stream: &[Slide]) -> Vec<usize> {
             cursor
         })
         .collect()
+}
+
+/// Whether every projection slide is held whole by the stream slide it maps to.
+///
+/// The question [`reconcile_max_lines`] cannot answer on its own. A wrap that
+/// is a whole multiple of the projection's used to be enough, back when a block
+/// was cut by filling each part up to the limit; now that the song library
+/// balances the parts instead, six lines are 2 | 2 | 2 at two per slide and
+/// 3 | 3 at four, and the middle slide on the wall straddles both slides on the
+/// phones. Which pairs of wraps still line up depends on how long each verse
+/// happens to be, so it is asked of the slides rather than of the numbers.
+///
+/// A slide the stream does not show at all is not a straddle. Set up without
+/// the title slide, the stream has no slide holding those words and is none the
+/// worse for it — the viewer stays on the slide before. What this looks for is
+/// the slide whose words *are* in the stream but spread over more than one of
+/// its slides, which is the failure a wrap that does not line up produces. A
+/// slide with nothing readable on it — a picture, the gap between two elements
+/// — is passed over for the same reason: it is matched by identity rather than
+/// divided.
+pub fn slides_nest(projection: &[Slide], stream: &[Slide]) -> bool {
+    let shown: Vec<Shows> = stream.iter().map(Shows::of).collect();
+
+    projection.iter().all(|slide| {
+        let wanted = Shows::of(slide);
+        let Shows::Words(words) = &wanted else {
+            return true;
+        };
+        if words.is_empty() || shown.iter().any(|holder| holder.contains(&wanted)) {
+            return true;
+        }
+        // Nowhere in the stream at all: left out on purpose, not cut in half.
+        !shown.iter().any(|holder| match holder {
+            Shows::Words(held) => words.iter().any(|line| held.contains(line)),
+            _ => false,
+        })
+    })
 }
 
 /// What a slide puts on the screen, reduced to what two slides can be compared
@@ -295,6 +340,39 @@ mod tests {
         assert_eq!(settled.max_lines, Some(6), "rounded to a whole multiple");
         assert!(!settled.title_slide, "and the rest left alone");
         assert!(!settled.show_spoiler);
+    }
+
+    // ── Whether the two divisions line up ───────────────────────────────────
+
+    /// The case the arithmetic gets right: two projection slides make one
+    /// stream slide, and nothing is cut in half.
+    #[test]
+    fn slides_that_line_up_nest() {
+        let projection = vec![content("one\ntwo"), content("three\nfour")];
+        let stream = vec![content("one\ntwo\nthree\nfour")];
+        assert!(slides_nest(&projection, &stream));
+    }
+
+    /// The case it gets wrong, and the reason this is asked of the slides at
+    /// all: six lines are 2 | 2 | 2 on the wall and 3 | 3 on the phones, so the
+    /// middle slide of the projection lies across both stream slides.
+    #[test]
+    fn a_straddled_slide_does_not_nest() {
+        let projection = vec![content("1\n2"), content("3\n4"), content("5\n6")];
+        let stream = vec![content("1\n2\n3"), content("4\n5\n6")];
+        assert!(!slides_nest(&projection, &stream));
+    }
+
+    /// A stream set up without the title slide has fewer slides for a reason
+    /// that is not a straddle, and must not be mistaken for one.
+    #[test]
+    fn a_slide_the_stream_leaves_out_is_not_a_straddle() {
+        let projection = vec![
+            Slide::new_title_slide("Amazing Grace".to_string(), None),
+            content("one\ntwo"),
+        ];
+        let stream = vec![content("one\ntwo")];
+        assert!(slides_nest(&projection, &stream));
     }
 
     // ── The mapping ─────────────────────────────────────────────────────────

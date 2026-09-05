@@ -106,6 +106,15 @@ fn layout_line(language: &LanguageConfiguration) -> SummaryLine {
 /// Where the metadata line appears, if it appears at all.
 fn meta_line(settings: &SlideSettings) -> Option<SummaryLine> {
     let show = &settings.show_meta_information;
+
+    // "Every slide" covers the three positions, so listing them beside it would
+    // only say the same thing three times over.
+    if show.all_slides {
+        return Some(("display.summary.meta", vec![
+            ("positions", "display.summary.meta_all".to_string()),
+        ]));
+    }
+
     let mut positions: Vec<&'static str> = Vec::new();
     if show.title_slide {
         positions.push("display.summary.meta_title");
@@ -237,6 +246,7 @@ mod tests {
                 title_slide: false,
                 first_slide: false,
                 last_slide: false,
+                all_slides: false,
             },
             ..SlideSettings::default()
         };
@@ -329,6 +339,7 @@ mod tests {
                     title_slide: true,
                     first_slide: true,
                     last_slide: true,
+                    all_slides: false,
                 },
                 ..SlideSettings::default()
             },
@@ -366,6 +377,7 @@ mod tests {
                 title_slide: true,
                 first_slide: false,
                 last_slide: true,
+                all_slides: false,
             },
             ..SlideSettings::default()
         };
@@ -379,6 +391,29 @@ mod tests {
         assert_eq!(
             positions,
             vec!["display.summary.meta_title", "display.summary.meta_last"]
+        );
+    }
+
+    /// "Every slide" is said once. It covers the three named places, and
+    /// listing them beside it would be the same statement four times over.
+    #[test]
+    fn every_slide_is_said_once_and_not_four_times() {
+        let settings = SlideSettings {
+            show_meta_information: ShowMetaInformation::all_slides(),
+            ..SlideSettings::default()
+        };
+
+        let (_, parameters) = summary_lines(&settings)
+            .into_iter()
+            .find(|(key, _)| *key == "display.summary.meta")
+            .expect("the metadata line");
+
+        let positions: Vec<&str> = parameters[0].1.split(POSITION_SEPARATOR).collect();
+        assert_eq!(positions, vec!["display.summary.meta_all"]);
+        assert_ne!(
+            rust_i18n::t!("display.summary.meta_all"),
+            "display.summary.meta_all",
+            "the position has no translation"
         );
     }
 

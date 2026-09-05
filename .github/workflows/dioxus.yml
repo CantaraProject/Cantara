@@ -52,6 +52,9 @@ jobs:
       - name: Install dioxus-cli (macOS)
         if: matrix.os == 'macos-latest'
         run: cargo install dioxus-cli --version ${{ env.DIOXUS_CLI_VERSION }} --locked
+      - name: Install Rust LLVM tools (macOS)
+        if: matrix.os == 'macos-latest'
+        run: rustup component add llvm-tools-preview
       - name: Install dioxus-cli (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: cargo binstall -y --locked dioxus-cli@${{ env.DIOXUS_CLI_VERSION }}

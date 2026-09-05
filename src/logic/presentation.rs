@@ -4,7 +4,7 @@ use super::{
     settings::PresentationDesign,
     sourcefiles::{SourceFile, SourceFileType},
     states::{RunningPresentation, RunningPresentationPosition, SelectedItemRepresentation, SlideChapter},
-    stream_view::{StreamDefaults, map_slides, stream_slide_settings},
+    stream_view::{StreamDefaults, map_slides, slides_nest, stream_slide_settings},
 };
 
 use crate::logic::tag_mapping::TagMapping;
@@ -456,17 +456,42 @@ fn stream_view_of(
         return (design, None, Vec::new());
     }
 
-    match create_presentation_slides(selected_item, &settings, tag_mappings) {
-        Ok(slides) if !slides.is_empty() => {
-            let map = map_slides(projection_slides, &slides);
-            (design, Some(slides), map)
+    // The wrap chosen above is the one to try. Whether it really cuts the
+    // verses where the projection cuts them depends on how long each verse is —
+    // see [`slides_nest`] — so the slides are built and then asked. Where they
+    // straddle, the whole verse is the division that always holds, and it is
+    // used rather than the wrap the arithmetic promised.
+    let whole_verses = SlideSettings {
+        max_lines: None,
+        ..settings.clone()
+    };
+    let attempts = match settings.max_lines {
+        None => vec![settings],
+        Some(_) => vec![settings, whole_verses],
+    };
+
+    for attempt in attempts {
+        // The fallback can land on the projection's own division, at which
+        // point there is nothing left for a second set of slides to say.
+        if attempt == *projection_settings {
+            break;
         }
-        // A second reading that fails is not a reason to lose the
-        // presentation. The phones fall back to the projection's slides, which
-        // is worse than what was asked for and a great deal better than
-        // nothing at all.
-        _ => (design, None, Vec::new()),
+        match create_presentation_slides(selected_item, &attempt, tag_mappings) {
+            Ok(slides) if !slides.is_empty() => {
+                let map = map_slides(projection_slides, &slides);
+                if slides_nest(projection_slides, &slides) {
+                    return (design, Some(slides), map);
+                }
+            }
+            // A second reading that fails is not a reason to lose the
+            // presentation, and neither is a wrap that does not line up.
+            _ => break,
+        }
     }
+
+    // The phones fall back to the projection's slides, which is worse than what
+    // was asked for and a great deal better than nothing at all.
+    (design, None, Vec::new())
 }
 
 /// Whether a chapter is built with a view for the network stream.
@@ -1012,7 +1037,7 @@ mod tests {
         let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
         let settings = SlideSettings {
             meta_syntax: "{{composer}}".to_string(),
-            show_meta_information: ShowMetaInformation::all(),
+            show_meta_information: ShowMetaInformation::title_first_slide_last_slide(),
             ..SlideSettings::default()
         };
 
@@ -1058,7 +1083,7 @@ mod tests {
             show_spoiler: false,
             max_lines: None,
             meta_syntax: "{{title}} ({{author}})".to_string(),
-            show_meta_information: ShowMetaInformation::all(),
+            show_meta_information: ShowMetaInformation::title_first_slide_last_slide(),
             language: LanguageConfiguration::SingleLanguage(None),
         };
 
@@ -1082,6 +1107,35 @@ mod tests {
         let slides =
             slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x", &[]).unwrap();
         assert_eq!(slides.iter().filter(|slide| slide.has_meta_text()).count(), 0);
+    }
+
+    /// "On every slide" reaches the slides in between, not only the ones at
+    /// either end — the middle verse of a three-verse hymn is exactly where the
+    /// older settings could not put a copyright line.
+    #[test]
+    fn test_meta_information_on_every_slide() {
+        use cantara_songlib::slides::ShowMetaInformation;
+
+        let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
+        let settings = SlideSettings {
+            title_slide: false,
+            empty_last_slide: false,
+            show_spoiler: false,
+            max_lines: None,
+            meta_syntax: "{{title}} ({{author}})".to_string(),
+            show_meta_information: ShowMetaInformation::all_slides(),
+            language: LanguageConfiguration::SingleLanguage(None),
+        };
+
+        let slides =
+            slides_from_song_content(&content, "Amazing Grace.song.yml", &settings, "x", &[])
+                .unwrap();
+
+        assert!(slides.len() > 2, "a hymn with a middle to speak of");
+        assert!(
+            slides.iter().all(|slide| slide.has_meta_text()),
+            "a slide was left without the meta information"
+        );
     }
 
     /// Switching the layout in the settings has to change the kind of slide
@@ -1263,7 +1317,10 @@ mod tests {
     }
 
     /// The wrap the service asked for is reconciled against the projection's on
-    /// the way in, so a stream slide can never hold part of a projected one.
+    /// the way in, and where the reconciled wrap still does not line up — the
+    /// song library balances the parts of a verse, so the arithmetic alone
+    /// cannot promise it — the whole verse is used instead. Either way a stream
+    /// slide can never hold part of a projected one.
     #[test]
     fn a_wrap_that_does_not_divide_is_reconciled_before_it_is_used() {
         let three_lines_at_a_time = SlideSettings {
