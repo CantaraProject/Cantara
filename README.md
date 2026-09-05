@@ -15,7 +15,7 @@ You can find a [web browser demo version](https://cantaraproject.github.io/Canta
 - **Song Lyrics Presentation**: Display song lyrics and scores with configurable formatting
 - **Present multiple content types**: Beside song presentations, Cantara supports PDF files, pictures, videos and Markdown files
 - **Presentation Styling**: Customize the appearance of your presentations
-- **Multi-platform**: Works on Windows, macOS, and Linux as well as Web. Android, iOS are going to be implemented soon.
+- **Multi-platform**: Works on Windows, macOS, and Linux as well as the Web. Android and iOS are going to be implemented soon.
 - **Network Streaming**: Cantara natively implements network streaming of the presentation and a presentation console for remote control
 - **User-friendly Interface**: Easy to use for both technical and non-technical users
 - **Repository Management**: Organize songs and other presentation types from multiple sources
