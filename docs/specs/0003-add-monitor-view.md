@@ -1,0 +1,590 @@
+# 0003 — Monitor views, and the end of the fixed two outputs
+
+Status: **in progress.** The five decisions below are taken. Stages 1 and 2 of
+the work plan are built; stages 3–7 are not. Nothing is visible to the user
+yet: the model exists and is migrated into, but the program still opens its
+windows and serves its routes the old way.
+
+Cantara today can put a service onto exactly two surfaces, and both of them are
+aimed at the congregation: the projection, and — since [0002](0002-remote-control.md)
+— the stream to the pews. Everyone who is *making* the service happen is left
+looking at the same wall as the people in front of them. The speaker cannot see
+what comes next without turning round. The band cannot see where in the song
+the operator is. The technician at the back has the presenter console, which is
+the only screen in the building that tells anyone anything, and it is bolted to
+the one machine that drives the projection.
+
+This document asks for a second kind of view — a *monitor view*, made for the
+people on the platform — and, because a second kind of view does not fit
+anywhere in the current model, for the model itself to change: from two
+built-in outputs to as many views as the user cares to define.
+
+## What is being asked for
+
+1. A presentation design says what *kind* of view it describes: an audience
+   view (everything that exists today) or a monitor view.
+2. A monitor view has its own layouts — a slide list, a speaker view, or a
+   template the user writes.
+3. A monitor view can carry *widgets*: a clock, a timer counting the current
+   chapter, and eventually something the user supplies.
+4. The user can define any number of views and assign each one to a screen or
+   to a network address, instead of choosing between "projection" and "stream".
+5. Every view that is running shows up in the presenter console.
+
+Point 4 is the one that costs. Points 1–3 are new code beside existing code;
+point 4 is a change to the shape of the settings file, to how presentation
+windows are opened, and to what the network helper is told to serve. The rest
+of this document is mostly about doing point 4 without breaking a service.
+
+## What this is not
+
+* Not a second presenter console. A monitor view shows; it does not control.
+  The one place that drives a presentation stays the console (locally or over
+  the remote, as 0002 built it). This is deliberate: two people who can both
+  press "next" is a bug report waiting in a service.
+* Not per-viewer personalisation. A network monitor view is one page served to
+  whoever opens that address; it does not know who is looking at it.
+* Not a change to how slides are *built*. Chapters, slide settings and the
+  slide division stay exactly as they are. A monitor view is another reading of
+  the same `RunningPresentation`.
+
+## The constraint that decides the design
+
+Everything a view needs is already in `RunningPresentation`
+([states.rs:248](../../src/logic/states.rs:248)): the chapters, the position
+within them, the black-screen flag, the video state. A monitor view needs the
+same value and nothing more — the previous slide, the next slide, the chapter
+it is in and how long it has been there are all derivable from it.
+
+That is what makes this affordable. No new synchronisation, no second channel,
+no second source of truth. Every mechanism that already carries the
+presentation to a second surface — the desktop window that renders it, the
+helper process that serves it — carries a monitor view unchanged. What changes
+is which component gets rendered at the far end, and that is a value in the
+design, not a build target.
+
+The corollary is a rule worth stating: **a monitor view must never be able to
+change the presentation.** It receives; it does not send. The remote console
+already has a password of its own precisely because being able to watch and
+being able to drive are different rights (see `StreamSettings::remote_password`,
+[settings.rs:173](../../src/logic/settings.rs:173)), and a monitor view served
+on the network sits on the watching side of that line.
+
+## The data model
+
+### Kind, on the design
+
+`PresentationDesign` ([settings.rs:1624](../../src/logic/settings.rs:1624))
+gains nothing at its top level. The kind lives one level down, in
+`PresentationDesignSettings`, because the settings a monitor view needs and the
+settings an audience view needs have almost nothing in common — fonts and
+padding are shared, but a slide list has no vertical alignment and an audience
+view has no widgets.
+
+```rust
+pub enum PresentationDesignSettings {
+    /// Describes an audience view. Exactly what exists today.
+    Template(PresentationDesignTemplate),
+
+    /// Manually specified HTML/CSS/JS. Still not implemented.
+    Custom(String),
+
+    /// Describes a monitor view — for the platform, not the pews.
+    Monitor(MonitorDesign),
+}
+```
+
+Adding a variant to a `serde`-tagged enum is backwards compatible in the
+direction that matters: an old settings file has no `Monitor` designs in it and
+reads unchanged. A file written by a new Cantara and read by an old one will
+fail on that design, which is acceptable and is what the version field in
+`settings_io` ([settings_io.rs:75](../../src/logic/settings_io.rs:75)) exists to
+report on for exported designs.
+
+**Open:** whether `MonitorDesign` should embed `PresentationDesignTemplate`
+rather than restate fonts, colours and padding. Embedding avoids a second font
+editor and lets the existing design editor be reused for the shared half;
+restating avoids a struct half of whose fields are meaningless. The
+recommendation is to embed, with the fields a monitor view ignores documented
+as ignored.
+
+### What a monitor view shows
+
+```rust
+pub struct MonitorDesign {
+    /// The shared look: fonts, background, padding.
+    pub base: PresentationDesignTemplate,
+
+    /// The layout.
+    pub layout: MonitorLayout,
+
+    /// What is shown alongside the slides, and where.
+    pub widgets: Vec<MonitorWidget>,
+}
+
+pub enum MonitorLayout {
+    /// Every slide of the presentation, the current one marked, the ones
+    /// before and after it readable. The presenter console's list without
+    /// the buttons.
+    SlideList {
+        /// How many slides either side are drawn. `None` draws all of them
+        /// and scrolls the current one into view.
+        context: Option<usize>,
+    },
+
+    /// The current slide, large; the next one, small. For whoever is
+    /// speaking.
+    Speaker {
+        /// The share of the height the next slide takes, 0.0–1.0.
+        next_slide_share: f64,
+    },
+
+    /// A Handlebars template the user writes, held in a file beside the
+    /// settings. See [Templates as files](#templates-as-files).
+    Custom { template_file: String },
+}
+```
+
+The three are the three named in the original request. `SlideList` is close
+enough to what the presenter console already draws
+([presenter_console_components.rs](../../src/components/presenter_console_components.rs))
+that the list itself should be lifted out of the console and shared rather than
+written a second time — that is exactly the kind of duplication
+[0001](0001-duplicated-code.md) is about.
+
+### The template context
+
+`Custom` is the variant that has to be got right, because a template is a
+public interface: once a user has written one, the names in it cannot be
+changed without breaking their file. So the context is specified here, before
+anything renders it.
+
+Handlebars is already in the tree, but only transitively (via a build
+dependency); this makes it a direct one.
+
+```json
+{
+  "current": { "index": 0, "chapter_index": 0, "title": "…", "lines": ["…"], "tags": ["…"], "kind": "song|markdown|image|video|title" },
+  "next":    { … same shape, null on the last slide },
+  "previous":{ … same shape, null on the first slide },
+  "chapter": { "index": 0, "title": "…", "slide_count": 4, "slide_in_chapter": 1 },
+  "presentation": { "slide_count": 42, "chapter_count": 7 },
+  "state": { "black_screen": false, "elapsed_in_chapter_seconds": 137, "elapsed_total_seconds": 1802 },
+  "widgets": { "<widget id>": "<rendered html>" }
+}
+```
+
+Rules that go with it:
+
+* **Additive only.** Keys may be added in later versions; a key that has been
+  published is not renamed or removed.
+* **Escaped by default.** Slide text goes through Handlebars' HTML escaping.
+  A template that wants Cantara's own rendered slide markup asks for it
+  explicitly (`{{{current.html}}}`), and that markup is the same string the
+  audience view produces, not user input.
+* **No network, no filesystem, no helpers with side effects.** A template
+  renders from the context and nothing else.
+* **A template that fails to compile or render does not take the view down.**
+  It shows an error inside the monitor view — that screen is on a platform, in
+  front of a congregation, and a blank one is worse than an ugly one.
+
+### Widgets
+
+```rust
+pub struct MonitorWidget {
+    /// Stable identifier, used as the key in the template context.
+    pub id: String,
+    pub kind: WidgetKind,
+    pub placement: WidgetPlacement,
+}
+
+pub enum WidgetKind {
+    /// Date and time, formatted for the active locale.
+    Clock { format: ClockFormat },
+
+    /// How long the presentation has been in the current chapter — how long
+    /// the sermon has run, how long this song has gone on.
+    ChapterTimer { warn_after: Option<Duration> },
+
+    /// User-supplied. See below.
+    Custom(CustomWidget),
+}
+```
+
+`Clock` uses the existing localisation
+([localisation.rs](../../src/logic/localisation.rs)) rather than a format
+string of its own, so a German installation gets a German date without the user
+configuring one.
+
+`ChapterTimer` needs one thing the model does not have today: **when the
+current chapter was entered.** `RunningPresentationPosition`
+([states.rs:702](../../src/logic/states.rs:702)) knows which chapter is current
+but not since when. The timer is therefore not purely derivable from the
+published state, and something has to record the transition.
+
+Where that lives is a real decision, so it is called out:
+
+* Recording it in `RunningPresentation` means every surface — window, stream,
+  network monitor — agrees on the number without doing anything, because the
+  value travels with the presentation as everything else does. It costs a field
+  that changes on every chapter change and is serialised to the helper.
+* Computing it locally in each view means no protocol change, but two monitors
+  in the same building disagree by however long their connections differ, and a
+  browser that reloads restarts the sermon clock at zero. That second failure
+  rules it out.
+
+**Recommendation: a field on `RunningPresentation`,** holding the wall-clock
+instant the chapter was entered, serialised as a UTC timestamp. Views compute
+the elapsed time from it. A reload then shows the right number, which is the
+whole point of the widget.
+
+### Custom widgets: JavaScript and WebAssembly
+
+The original request asks for custom widgets implemented in JavaScript or
+WebAssembly. This is the highest-risk item in the document and it should be the
+last thing built, for two reasons.
+
+First, the surfaces differ. A desktop monitor view is a web view Cantara
+controls, and script in it runs with whatever that web view can reach. A
+network monitor view is a page in someone else's browser. "The same widget"
+does not mean the same thing in both places.
+
+Second, a widget is a file the user got from somewhere. Cantara's design files
+are already shareable ([settings_io.rs](../../src/logic/settings_io.rs)), and a
+design that carries executable code is a design that carries executable code to
+whoever it is sent to.
+
+So: **custom widgets are staged separately and behind an explicit opt-in.**
+Concretely — a design import that contains a custom widget says so, in plain
+words, and the widget does not run until the user has said it may. Import of an
+unreviewed design must never be a silent path to running code.
+
+**Open:** whether the first shipped form should be WebAssembly only. Wasm is
+sandboxed by construction and gets no DOM access unless it is handed one, which
+is a far smaller thing to get right than script in a privileged web view. The
+inclination is yes — Wasm first, script later or never — but this needs a look
+at what a widget author would actually have to write.
+
+## Views, and what they are shown on
+
+This is the restructuring the rest depends on.
+
+### Today
+
+Two outputs, each with its own settings and its own switch: the projection
+(`presentation_screen`, [settings.rs:90](../../src/logic/settings.rs:90)) and
+the stream (`StreamSettings`, [settings.rs:147](../../src/logic/settings.rs:147),
+with `design_index` and `slide_settings_index` naming what the phones get). The
+window is opened in
+[selection_components.rs:561](../../src/components/selection_components.rs:561);
+the network side is a single helper with an `Offer { viewer, console }`
+([network_server.rs:201](../../src/logic/network_server.rs:201)) on one port.
+
+### Proposed
+
+```rust
+pub struct View {
+    pub name: String,
+    /// Index into `Settings::presentation_designs`.
+    pub design_index: usize,
+    /// Index into `Settings::song_slide_settings`; `None` follows the
+    /// projection's division.
+    pub slide_settings_index: Option<usize>,
+    pub output: ViewOutput,
+    /// Whether this view is running. Changeable from the selection screen
+    /// while a presentation is on — see [Switching views mid-service](#switching-views-mid-service).
+    pub enabled: bool,
+    /// Where this view is looking. See [Focus](#focus).
+    pub focus: ViewFocus,
+}
+
+pub enum ViewOutput {
+    /// A window on a screen. `None` picks one the way it is picked today.
+    Screen { monitor_name: Option<String> },
+    /// A path on the network helper's port: `/`, `/stage`, `/band`.
+    Network { path: String },
+}
+```
+
+Designs stay referenced by index and not copied, for the reason
+`StreamSettings::design_index` already gives: editing a design has to reach
+every view built from it. An index past the end of its list is read as "no
+choice" rather than as a reason to fall over mid-service — the same rule
+`StreamDefaults::of` ([stream_view.rs:52](../../src/logic/stream_view.rs:52))
+already follows.
+
+Three things fall out of this that the design must handle:
+
+* **One view is the reference.** Slide numbers, the console's counting, and the
+  `map_slides` contract in [stream_view.rs](../../src/logic/stream_view.rs) all
+  assume one authoritative slide sequence. That stays the projection. A list of
+  views needs to name which one it is, and the constraint that a view's slide
+  division must hold a whole number of the reference's slides
+  (`stream_slide_settings`) applies to every view, not just the stream. Views
+  may look at *different places* in that sequence — see [Focus](#focus) — but
+  there is still only one sequence.
+* **Network paths must be validated.** They are user input becoming routes on a
+  live server. Restrict to a short character set, require uniqueness, and
+  reserve `/console` and the asset and video prefixes that
+  [network_server.rs:695](../../src/logic/network_server.rs:695) already claims
+  — two handlers on one path is a panic in the server thread, and the helper
+  goes on reporting itself as up while answering nothing.
+* **Screens can disappear.** A view assigned to a monitor that is not plugged
+  in must degrade to a clear message in the console, not to a window nobody can
+  see. `resolve_monitor` ([screens.rs:51](../../src/logic/screens.rs:51)) has
+  the fallback behaviour already.
+
+### Migration
+
+Old settings files must open and behave identically. The migration is
+mechanical and should be written and tested before any UI exists:
+
+| Old | New |
+| --- | --- |
+| `presentation_screen` | `View { name: "Projection", design_index: None, output: Screen { monitor_name }, enabled: true }`, and it is the reference view |
+| `StreamSettings::design_index` / `slide_settings_index` | `View { name: "Stream", output: Network { path: "/" }, enabled: false, … }` |
+| no views at all | both of the above |
+
+The old fields are read for one release and then dropped; `#[serde(default)]`
+on the new list, plus a "if empty, build from the old fields" step, is the whole
+mechanism. The port, the passwords and the remote console are untouched — they
+belong to the server, not to a view.
+
+Two details of the table are decisions rather than transcription:
+
+* **The projection view names no design of its own.** Copying
+  `default_design_index` into it would pin the wall to whichever design
+  happened to be the default at the moment of migration, and changing the
+  default afterwards would silently stop reaching the projection. `None` — "the
+  service's design" — is what the wall has always meant.
+* **The stream view is always created, and always disabled.** Whether streaming
+  is on has deliberately never been remembered between sessions, so there is no
+  stored answer to migrate; an enabled stream view would start putting services
+  on the network for people who never switched it on. It is created even for
+  somebody who has never streamed, because the alternative is guessing from
+  settings that look untouched, and a disabled view costs nothing.
+
+## The presenter console
+
+Every running view is listed, with its name, its output, and whether it is
+actually up. This is the only place that reports a view failing to start — a
+screen that vanished, a path that collided, a helper that would not run — and
+0002's rule holds: a view that will not start is reported and changes nothing
+else. The presentation is the main window's, and nothing here is allowed to be
+a reason for it to stop.
+
+Whether views can be switched on and off *during* a service from the console is
+worth having but is not required by the first version.
+
+## What must not be written twice
+
+This feature is a second reading of things the program already does, and the
+easiest way to build it is to write each of them a second time. [0001](0001-duplicated-code.md)
+is a whole document about what that costs here — a bug fixed in one copy and
+left in the other. So, named in advance, the places where reuse is the design
+and not an optimisation:
+
+* **The slide list.** `MonitorLayout::SlideList` is the presenter console's list
+  without its buttons. The list is lifted out of
+  [presenter_console_components.rs](../../src/components/presenter_console_components.rs)
+  into a shared component taking "is it interactive" as a property; the console
+  then uses that component too. If the monitor view ends up with a list of its
+  own, this stage has failed.
+* **The slide itself.** `Speaker` draws the current slide large and the next one
+  small. Both are the ordinary slide rendering
+  ([presentation_components.rs](../../src/components/presentation_components.rs))
+  at two sizes — not a second renderer that happens to look similar. The
+  console's preview already does exactly this; whatever it uses is what these
+  use.
+* **The design editor.** Decision 1 embeds `PresentationDesignTemplate` so that
+  the fonts, colours and padding of a monitor design are edited by the existing
+  editor
+  ([presentation_design_settings_components.rs](../../src/components/presentation_design_settings_components.rs)).
+  Only the monitor-specific half — layout, widgets — is new UI.
+* **The slide-division constraint.** `stream_slide_settings`
+  ([stream_view.rs](../../src/logic/stream_view.rs)) already works out what
+  division a second view may use given the projection's. It becomes the rule for
+  every view rather than being reimplemented per view; the stream stops being a
+  special case and becomes a `View` like the others.
+* **Monitor resolution.** `resolve_monitor` ([screens.rs:51](../../src/logic/screens.rs:51))
+  already answers "which screen, given a configured name, and what if it is
+  gone". Every `Screen` view goes through it.
+* **The window-opening path.** One function opens a view's window, called once
+  per view, rather than the projection's path and the console's path growing a
+  third sibling in
+  [selection_components.rs:561](../../src/components/selection_components.rs:561).
+
+The migration in stage 2 is what makes most of this possible: once the
+projection and the stream are `View`s, the code that serves "a view" is written
+once and the two existing outputs stop being separate code paths.
+
+## Work plan
+
+Each stage is meant to leave the program working.
+
+1. ~~**`elapsed_in_chapter`.** The field on `RunningPresentation`, set on chapter
+   change, serialised to the helper. Nothing renders it yet. Small, and it
+   unblocks the timer widget.~~ **Done.** Built as
+   `RunningPresentation::chapter_entered_at`, a wall-clock
+   [`Timestamp`](../../src/logic/timer.rs) rather than an elapsed count — a
+   duration published every second would be a change to the presentation every
+   second, and every view already knows what time it is. The three ways of
+   moving now share one `moved` method, which is where the clock is restarted
+   and where the scroll reset that all three already duplicated now lives.
+   A rebuild of the running order keeps the clock when the same element is
+   still up.
+2. ~~**The `View` list and its migration.** The settings model, the migration
+   from the old fields, and the tests for both. No UI, no behaviour change: the
+   program builds the same two views it always did, from the new list.~~
+   **Done.** `View`, `ViewOutput` and `ViewFocus` in
+   [settings.rs](../../src/logic/settings.rs), with `Settings::views` and
+   `reference_view_index`; `ensure_views` does the migration. Views joined the
+   design-deletion bookkeeping in `delete_presentation_design`, so a deleted
+   design moves every view's choice by the same rule as the stream's.
+   `check_network_path` refuses a colliding or malformed path where the user
+   types it; the server's router now names the same constants, so the two
+   cannot disagree about what is taken. Nothing reads the list yet — that is
+   stage 3.
+
+   The two `ensure_*` sequences in `Settings::load`, one per target, became one
+   `bring_up_to_date`. They had already drifted, and adding a fifth step to
+   only one of them is precisely the failure [0001](0001-duplicated-code.md)
+   describes.
+3. **Windows and routes driven by the list.** `selection_components.rs` opens a
+   window per `Screen` view; the helper's `Offer` becomes a set of paths. Still
+   no monitor views — this stage is "two views, defined in data".
+4. **`MonitorLayout::SlideList` and `Speaker`.** The slide list lifted out of
+   the presenter console and shared. This is the stage where the feature
+   becomes visible and useful, and it is a good place to stop and use it.
+5. **Widgets: clock and chapter timer.**
+6. **`MonitorLayout::Custom`,** with the context above and the error-in-view
+   behaviour.
+7. **Custom widgets,** Wasm first, behind the import opt-in — only if 1–6 have
+   been in use for a while and the need is still real.
+
+## Testing
+
+The pure parts carry the weight, as in
+[stream_view.rs](../../src/logic/stream_view.rs), which tests the whole
+projection-to-stream mapping without a socket, a window or a song file:
+
+* Migration: old settings JSON in, expected `View` list out. One case per old
+  configuration, including "stream off" and "no designs at all".
+* Template context: a `RunningPresentation` in, the JSON above out. First
+  slide, last slide, single-slide chapter, empty presentation.
+* Template rendering: a template that does not compile, one that references a
+  missing key, one that is fine. The first two must render an error, not panic.
+* Path validation: collisions with `/console`, with the asset prefix, with each
+  other; empty; characters that are not allowed.
+* Slide-division constraint: a monitor view whose division straddles a
+  projection slide is corrected the way `stream_slide_settings` corrects it.
+
+What needs a real run: a window per view on a real second screen, a network
+monitor view opened in a browser, and a screen unplugged mid-presentation.
+
+## Decisions taken
+
+1. **`MonitorDesign` embeds `PresentationDesignTemplate`.** One font editor, one
+   colour editor, reused. The fields a monitor layout ignores are documented as
+   ignored rather than removed.
+2. **Custom widgets are WebAssembly only.** No user-supplied JavaScript, in this
+   version or later ones unless the case is made again. The sandbox is the
+   feature.
+3. **Views are switched on and off from the selection screen, not the console**
+   — including while a presentation is running. The console *reports* what is
+   up; the selection screen is where it is changed. See
+   [Switching views mid-service](#switching-views-mid-service).
+4. **A monitor view may show a different chapter or slide from the projection.**
+   This is a change to the model, not a detail — see [Focus](#focus).
+5. **`Custom` templates are stored as files** beside the settings, referenced by
+   name, not inlined into the settings JSON.
+
+### Focus
+
+Decision 4 removes the assumption that every view is looking at the same place.
+A band monitor showing the next song while the sermon is on the wall is a real
+request, and the model has to carry it.
+
+What it does *not* remove is the reference view. Slide numbering, the console's
+counting and the whole-multiple constraint on slide divisions still need one
+authoritative sequence, and that stays the projection. What changes is that a
+view names where it is looking *relative to* that sequence:
+
+```rust
+pub enum ViewFocus {
+    /// Show whatever the reference view shows. The ordinary case, and the
+    /// only one the reference view itself may have.
+    Follow,
+
+    /// Show a fixed chapter, from its first slide, regardless of where the
+    /// projection is. The band monitor on the next song.
+    Chapter { index: usize },
+
+    /// Show a fixed chapter and slide within it.
+    Slide { chapter: usize, slide: usize },
+}
+```
+
+Rules:
+
+* The reference view is always `Follow`. Anything else is refused, not
+  clamped — a projection that has stopped following the operator is not a
+  degraded state to recover from, it is a service going wrong.
+* A focus naming a chapter that no longer exists falls back to `Follow` rather
+  than to a blank screen, and the console says so. Chapters are rebuilt
+  whenever the selection changes (`update_presentation`,
+  [presentation.rs:745](../../src/logic/presentation.rs:745)), and a monitor
+  pinned to chapter 5 of a selection that now has three is an ordinary
+  consequence of editing during a service.
+* A pinned view still gets the whole `RunningPresentation`; only the position
+  it renders differs. Nothing new travels to the helper.
+* `elapsed_in_chapter` is the *reference* view's chapter time. A pinned view
+  showing a chapter nobody is in has no meaningful elapsed time, and the
+  template context reports `null` there rather than a number that means
+  nothing.
+
+### Switching views mid-service
+
+Decision 3 puts the switch on the selection screen, which is where the
+presentation options already live
+([selection_components/presentation_options.rs](../../src/components/selection_components/presentation_options.rs)).
+The presentation goes on running while the operator is back on that screen —
+that is already true today — so enabling a view has to open a window or add a
+route against a live presentation, and disabling one has to close it without
+touching the others.
+
+That makes `enabled` a value the running presentation reacts to, not just a
+starting condition, and it is the reason stage 3 of the work plan is about
+driving windows and routes from the list rather than reading the list once at
+start. A view toggled on mid-service is shown the presentation as it stands,
+immediately; it does not wait for the next slide change.
+
+### Templates as files
+
+Decision 5: a `Custom` layout holds a file name, not a template body.
+
+* Templates live in a `templates/` directory beside the settings file, so that
+  the same folder that is backed up carries them.
+* `MonitorLayout::Custom { template: String }` becomes
+  `Custom { template_file: String }`, holding a bare file name — not a path.
+  Anything with a separator or a `..` in it is refused when the settings are
+  read, for the same reason the video handler refuses them
+  ([network_server.rs](../../src/logic/network_server.rs)): a design file is
+  something a user is sent, and a template name is not allowed to reach out of
+  its directory.
+* A named template that is missing renders the error-in-view, like one that
+  does not compile. It does not stop the view from opening.
+* Design export ([settings_io.rs](../../src/logic/settings_io.rs)) has to carry
+  the template file alongside the design, or an exported monitor design arrives
+  broken. This is the same problem the font and image carrying already solves
+  there.
+
+## Still open
+
+* Whether a pinned view should be able to *follow with an offset* ("always the
+  next chapter") rather than a fixed index. It reads as the thing people
+  actually want for a band monitor, but it needs the fallback rules thinking
+  through again, and `Chapter { index }` is enough to learn from first.
+* Where the UI for setting a view's focus goes. The selection screen owns
+  enabling; focus may belong there too, or beside the view's own definition in
+  the settings.
