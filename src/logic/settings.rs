@@ -25,6 +25,7 @@ use std::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 use tempfile::TempDir;
+use uuid::Uuid;
 use zip::ZipArchive;
 
 /// Returns the settings of the program
@@ -249,10 +250,26 @@ pub const fn default_stream_port() -> u16 {
 /// See `docs/specs/0003-add-monitor-view.md`.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct View {
+    /// What tells this view from every other, for as long as it exists.
+    ///
+    /// Nothing needed one while a view was only ever read as "the entry at
+    /// position 2": the list is short and the editor addresses it by position.
+    /// A *running order* cannot. An element that says "on the stage monitor,
+    /// use this design" has to keep meaning that when the views above it are
+    /// reordered or deleted — and a position does not survive either, silently
+    /// naming the neighbour instead. A selection also travels to another
+    /// computer, where position means nothing at all.
+    ///
+    /// Generated once, when the view is made, and never changed afterwards.
+    /// A settings file from before this existed gets one per view when it is
+    /// read; see [`Settings::ensure_views`].
+    #[serde(default = "Uuid::new_v4")]
+    pub id: Uuid,
+
     /// What the user calls it — "Beamer", "Bühne", "Band".
     ///
     /// Only ever shown, never matched on. Two views may share a name; what
-    /// tells them apart is their [`output`](Self::output), which cannot.
+    /// tells them apart is their [`id`](Self::id).
     pub name: String,
 
     /// Which of [`Settings::presentation_designs`] this view is shown in.
@@ -1050,6 +1067,7 @@ impl Settings {
 
         self.views = vec![
             View {
+                id: Uuid::new_v4(),
                 name: t!("settings.view_projection").to_string(),
                 design_index: None,
                 slide_settings_index: None,
@@ -1060,6 +1078,7 @@ impl Settings {
                 focus: ViewFocus::Follow,
             },
             View {
+                id: Uuid::new_v4(),
                 name: t!("settings.view_stream").to_string(),
                 design_index: self.stream.design_index,
                 slide_settings_index: self.stream.slide_settings_index,
@@ -1071,6 +1090,56 @@ impl Settings {
             },
         ];
         self.reference_view_index = 0;
+    }
+
+    /// Adds a view, and answers where it went.
+    ///
+    /// A new view starts as a screen view that names no screen, no design and
+    /// no division: "another window, showing what the projection shows". That
+    /// is the least surprising thing a freshly added entry can do, and every
+    /// part of it is one choice away from what the user actually wants.
+    ///
+    /// It starts *enabled*, because somebody who has just pressed "add view"
+    /// wants it. `place_screen_views` will give it a screen no other view has
+    /// taken.
+    pub fn add_view(&mut self, name: String) -> usize {
+        self.views.push(View {
+            id: Uuid::new_v4(),
+            name,
+            design_index: None,
+            slide_settings_index: None,
+            output: ViewOutput::Screen { monitor_name: None },
+            enabled: true,
+            focus: ViewFocus::Follow,
+        });
+        self.views.len() - 1
+    }
+
+    /// Removes the view at `index`, and moves the reference along with it.
+    ///
+    /// Refuses to remove the reference view: slide numbers, the console's
+    /// counting and every other view's "same as the reference" are described
+    /// against it, and a configuration without one is not a configuration.
+    /// The editor does not offer the button; this is what makes it true rather
+    /// than merely unoffered.
+    ///
+    /// Answers whether anything was removed, so a caller can say why not.
+    pub fn delete_view(&mut self, index: usize) -> bool {
+        if index >= self.views.len() || index == self.reference_view_index {
+            return false;
+        }
+
+        self.views.remove(index);
+
+        // `Vec::remove` shifts everything after the hole down by one, so a
+        // reference sitting after it now names its neighbour. The same
+        // bookkeeping as `delete_presentation_design`, and here for the same
+        // reason: it belongs with the list it is about.
+        if self.reference_view_index > index {
+            self.reference_view_index -= 1;
+        }
+
+        true
     }
 
     /// The view everything else is described against.
@@ -1098,6 +1167,26 @@ impl Settings {
     pub fn design_of_view(&self, view: &View) -> Option<PresentationDesign> {
         view.design_index
             .and_then(|index| self.presentation_designs.get(index).cloned())
+    }
+
+    /// The view the network stream is.
+    ///
+    /// The first one with a [`ViewOutput::Network`] output. There is exactly
+    /// one in every configuration `ensure_views` has touched, and until
+    /// stage 3b of the spec it is also the only one the helper can serve —
+    /// which is why this answers "the stream" rather than "the streams".
+    pub fn stream_view(&self) -> Option<&View> {
+        self.views
+            .iter()
+            .find(|view| matches!(view.output, ViewOutput::Network { .. }))
+    }
+
+    /// Where [`stream_view`](Self::stream_view) is in the list, for an editor
+    /// that has to write to it.
+    pub fn stream_view_index(&self) -> Option<usize> {
+        self.views
+            .iter()
+            .position(|view| matches!(view.output, ViewOutput::Network { .. }))
     }
 
     /// The monitor design the view at `index` is shown in, if it is shown in
@@ -3340,6 +3429,7 @@ mod tests {
     fn views_that_exist_are_left_alone() {
         let mut settings = Settings::default();
         settings.views = vec![View {
+            id: uuid::Uuid::new_v4(),
             name: "Only this one".to_string(),
             design_index: None,
             slide_settings_index: None,
@@ -3404,6 +3494,7 @@ mod tests {
         }
         settings.views = vec![
             View {
+                id: uuid::Uuid::new_v4(),
                 name: "Points at the one being deleted".to_string(),
                 design_index: Some(1),
                 slide_settings_index: None,
@@ -3412,6 +3503,7 @@ mod tests {
                 focus: ViewFocus::Follow,
             },
             View {
+                id: uuid::Uuid::new_v4(),
                 name: "Points after it".to_string(),
                 design_index: Some(3),
                 slide_settings_index: None,
@@ -3434,6 +3526,192 @@ mod tests {
         );
     }
 
+    /// Every view has an identity of its own, and two views never share one.
+    ///
+    /// This is what a running order will name when an element says "on the
+    /// stage monitor, use this design". A position would not do: reordering
+    /// or deleting a view above it would silently point the element at its
+    /// neighbour, and a selection carried to another computer would mean
+    /// something else entirely there.
+    #[test]
+    fn every_view_has_an_identity_of_its_own() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        settings.add_view("Bühne".to_string());
+
+        let ids: std::collections::HashSet<Uuid> =
+            settings.views.iter().map(|view| view.id).collect();
+
+        assert_eq!(
+            ids.len(),
+            settings.views.len(),
+            "two views were given the same identity"
+        );
+    }
+
+    /// And it survives being written out and read back, which is the whole
+    /// point of it being an identity rather than a position.
+    #[test]
+    fn a_views_identity_survives_the_settings_file() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        let before: Vec<Uuid> = settings.views.iter().map(|view| view.id).collect();
+
+        let written = serde_json::to_string(&settings).expect("serialisable");
+        let read: Settings = serde_json::from_str(&written).expect("readable back");
+
+        let after: Vec<Uuid> = read.views.iter().map(|view| view.id).collect();
+        assert_eq!(after, before);
+    }
+
+    /// A settings file written before views had identities gets one per view
+    /// rather than failing to load — the field defaults to a fresh identity.
+    #[test]
+    fn views_written_before_identities_existed_are_given_them() {
+        let json = r#"{
+            "repositories": [],
+            "wizard_completed": true,
+            "views": [
+                {
+                    "name": "Projection",
+                    "output": { "Screen": { "monitor_name": null } },
+                    "enabled": true
+                }
+            ]
+        }"#;
+
+        let settings: Settings =
+            serde_json::from_str(json).expect("a view without an identity still reads");
+
+        assert_eq!(settings.views.len(), 1);
+        assert_ne!(
+            settings.views[0].id,
+            Uuid::nil(),
+            "the view was given no identity at all"
+        );
+    }
+
+    /// A view added from the list starts as another window showing what the
+    /// projection shows: every part of it is one choice away from whatever the
+    /// user actually wants, and none of it is a surprise.
+    #[test]
+    fn a_new_view_is_another_screen_showing_the_same_thing() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+
+        let index = settings.add_view("Bühne".to_string());
+        let added = &settings.views[index];
+
+        assert_eq!(added.name, "Bühne");
+        assert_eq!(added.design_index, None);
+        assert_eq!(added.slide_settings_index, None);
+        assert_eq!(added.output, ViewOutput::Screen { monitor_name: None });
+        assert!(added.enabled, "a view just added should be shown");
+        assert_eq!(added.focus, ViewFocus::Follow);
+    }
+
+    /// The reference view cannot be removed. Slide numbers, the console's
+    /// counting and every other view's "same as the presentation" are
+    /// described against it, and a configuration without one is not one.
+    #[test]
+    fn the_reference_view_cannot_be_deleted() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        let before = settings.views.len();
+
+        assert!(!settings.delete_view(settings.reference_view_index));
+        assert_eq!(settings.views.len(), before);
+    }
+
+    /// Removing a view before the reference moves the reference with it.
+    /// `Vec::remove` shifts everything down by one, so a reference left where
+    /// it was would quietly start naming its neighbour.
+    #[test]
+    fn deleting_a_view_before_the_reference_moves_the_reference() {
+        let mut settings = Settings::default();
+        settings.views = vec![
+            View {
+                id: uuid::Uuid::new_v4(),
+                name: "First".to_string(),
+                design_index: None,
+                slide_settings_index: None,
+                output: ViewOutput::Screen { monitor_name: None },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            },
+            View {
+                id: uuid::Uuid::new_v4(),
+                name: "The reference".to_string(),
+                design_index: None,
+                slide_settings_index: None,
+                output: ViewOutput::Screen { monitor_name: None },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            },
+        ];
+        settings.reference_view_index = 1;
+
+        assert!(settings.delete_view(0));
+
+        assert_eq!(settings.reference_view_index, 0);
+        assert_eq!(
+            settings.reference_view().map(|view| view.name.as_str()),
+            Some("The reference"),
+            "the reference moved to a different view"
+        );
+    }
+
+    /// Deleting past the end changes nothing rather than panicking.
+    #[test]
+    fn deleting_a_view_that_is_not_there_does_nothing() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        let before = settings.views.clone();
+
+        assert!(!settings.delete_view(17));
+        assert_eq!(settings.views, before);
+    }
+
+    /// The stream is the network view, and that is where its design is read
+    /// from.
+    ///
+    /// It used to be read from `StreamSettings` while the editor wrote it to
+    /// the view — two places holding one setting, and a design chosen in the
+    /// list would have quietly done nothing.
+    #[test]
+    fn the_streams_design_is_read_off_its_view() {
+        let mut settings = Settings::default();
+        settings.presentation_designs.push(PresentationDesign {
+            name: "For phones".to_string(),
+            ..PresentationDesign::default()
+        });
+        settings.ensure_views();
+
+        let stream = settings.stream_view_index().expect("there is a stream view");
+        settings.views[stream].design_index = Some(1);
+
+        let defaults = crate::logic::stream_view::StreamDefaults::of(&settings);
+        assert_eq!(
+            defaults.design.map(|design| design.name),
+            Some("For phones".to_string())
+        );
+    }
+
+    /// A configuration whose stream view has been deleted shows the phones
+    /// what the wall shows, rather than falling over.
+    #[test]
+    fn a_configuration_with_no_stream_view_streams_the_projection() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        let stream = settings.stream_view_index().expect("there is a stream view");
+        settings.delete_view(stream);
+
+        let defaults = crate::logic::stream_view::StreamDefaults::of(&settings);
+
+        assert!(defaults.design.is_none());
+        assert!(defaults.slide_settings.is_none());
+    }
+
     /// An index left pointing past the end of the list — a design deleted by
     /// something that did not do the bookkeeping, a file edited by hand — is
     /// read as "no choice", not as a crash during a service.
@@ -3441,6 +3719,7 @@ mod tests {
     fn a_view_naming_a_design_that_is_gone_reads_as_naming_none() {
         let settings = Settings::default();
         let view = View {
+            id: uuid::Uuid::new_v4(),
             name: "Stale".to_string(),
             design_index: Some(99),
             slide_settings_index: Some(99),

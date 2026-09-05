@@ -1621,6 +1621,143 @@ div.inline-div {
     color: var(--pico-muted-color);
 }
 
+/* The view list, as a dialog.
+ *
+ * It was in the options panel, which is a column about a third of a window
+ * wide. A name field and three dropdowns do not fit across that: the labels
+ * wrapped onto three lines and the values were cut off mid-word. Here there is
+ * room to lay a view out along a line, and the list scrolls when there are
+ * more views than fit. */
+.modal-overlay.view-list-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.view-list-modal {
+    background: var(--pico-card-background-color, var(--pico-background-color, #fff));
+    color: var(--pico-color, inherit);
+    border: 1px solid var(--pico-card-border-color, transparent);
+    border-radius: var(--pico-border-radius, 0.5rem);
+    box-shadow: var(--pico-card-box-shadow, 0 4px 16px rgba(0, 0, 0, 0.25));
+    padding: 1.5rem;
+    max-width: 52rem;
+    width: 100%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.view-list-modal h3 {
+    margin-top: 0;
+    flex: 0 0 auto;
+}
+
+/* Only the list scrolls: the heading stays put and the buttons stay reachable
+ * however many views there are. */
+.view-list-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.view-list-footer {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 0.5rem;
+    justify-content: space-between;
+    padding-top: 1rem;
+    margin-bottom: 0;
+}
+
+.view-list-footer button {
+    margin-bottom: 0;
+}
+
+/* One view in the list: where the presentation goes, and what it shows there.
+ * Boxed so that a list of several of them reads as several things rather
+ * than one long column of dropdowns. */
+.view-row {
+    margin: 0.6rem 0;
+    padding: 0.75rem;
+}
+
+/* Three choices along a line where there is room, stacked where there is not.
+ * `auto-fit` rather than a fixed three columns so a narrow window folds them
+ * instead of squeezing them to the width that cut the words off. */
+.view-row .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 0.75rem;
+}
+
+/* The label above each dropdown, not wrapped into a paragraph of its own. */
+.view-row .grid > div > label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.9em;
+}
+
+.view-row .grid select {
+    margin-bottom: 0;
+}
+
+/* The screen picker sits under the "shown on" select in the same cell, so the
+ * two read as one choice rather than two unrelated ones. */
+.view-row .grid > div > select + select {
+    margin-top: 0.4rem;
+}
+
+.view-row-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+/* The name takes the room; the button beside it takes what it needs. */
+.view-row-header input {
+    flex: 1 1 auto;
+    margin-bottom: 0;
+}
+
+.view-row-header button {
+    flex: 0 0 auto;
+    margin-bottom: 0;
+}
+
+.view-row-reference {
+    flex: 0 0 auto;
+    font-size: 0.85em;
+    color: var(--pico-muted-color);
+    /* It is a label, not a control, but it carries a title worth hovering
+     * for — the reason this view cannot be removed. */
+    cursor: help;
+    border-bottom: 1px dotted var(--pico-muted-border-color);
+}
+
+.view-row-note {
+    margin: 0.35rem 0 0 0;
+    font-size: 0.85em;
+    color: var(--pico-muted-color);
+}
+
+/* The switches and selects inside a row sit tighter than they would alone:
+ * a row is one thing to read, not four. */
+.view-row .grid {
+    margin-bottom: 0.25rem;
+}
+
+.view-row label:has(> input[role="switch"]) {
+    margin-bottom: 0;
+}
+
 /* Opening a selection: what the file holds, before anything is written. */
 .import-modal {
     max-width: 34rem;

@@ -1260,6 +1260,22 @@ fn preview_slides(slide_settings: &SlideSettings) -> Vec<Slide> {
     .unwrap_or_default()
 }
 
+/// The element the preview slides pretend to come from.
+///
+/// A chapter needs one, and a monitor design's preview needs a chapter because
+/// its layouts show the slides *around* the current one. Nothing reads the
+/// path — the slides are already built — but the name is shown by the slide
+/// list, so it is the song's.
+fn preview_source_file() -> crate::logic::sourcefiles::SourceFile {
+    crate::logic::sourcefiles::SourceFile {
+        name: "Amazing Grace".to_string(),
+        path: PathBuf::from("Amazing Grace.song"),
+        file_type: crate::logic::sourcefiles::SourceFileType::Song,
+        md5_hash: None,
+        relative_path: None,
+    }
+}
+
 /// A live preview of the design being edited.
 ///
 /// It reads the design straight from the settings rather than from a snapshot,
@@ -1303,6 +1319,31 @@ fn PresentationDesignPreview(
         position().min(slide_count - 1)
     };
 
+    // The same preview slides as a running presentation, for a monitor design
+    // — which shows several slides at once and so cannot be previewed by
+    // handing one slide to a renderer. The buttons under the preview move this
+    // exactly as they move the single-slide preview, so a monitor layout can
+    // be stepped through and watched.
+    let mut preview_presentation =
+        use_signal(|| crate::logic::states::RunningPresentation::new(Vec::new()));
+
+    use_effect(move || {
+        let chapter = crate::logic::states::SlideChapter::new(
+            slides.read().clone(),
+            preview_source_file(),
+            None,
+            None,
+        );
+        let mut running = crate::logic::states::RunningPresentation::new(vec![chapter]);
+        // `position` is read here so this follows the buttons; the count is
+        // read from the slides for the same reason it is clamped above.
+        let slide_count = slides.read().len();
+        if slide_count > 0 {
+            running.jump_to(0, position().min(slide_count - 1));
+        }
+        preview_presentation.set(running);
+    });
+
     rsx! {
         aside { class: "design-preview-pane",
             h4 { {t!("settings.design_preview.title").to_string()} }
@@ -1323,9 +1364,22 @@ fn PresentationDesignPreview(
                 div { class: "design-preview-stage-scroll",
                     div { class: "design-preview-stage",
                         div { class: "design-preview-canvas",
-                            StaticSlideRendererComponent {
-                                slide: slides.read()[current].clone(),
-                                presentation_design: design(),
+                            // A monitor design does not describe one slide, so
+                            // a preview drawing one slide was showing
+                            // something the design does not do — the layout,
+                            // which is the whole point of it, was invisible.
+                            if let Some(monitor) = design().presentation_design_settings.monitor() {
+                                crate::components::monitor_view::MonitorViewComponent {
+                                    running_presentation: preview_presentation,
+                                    monitor_design: monitor.clone(),
+                                    slide_design: design(),
+                                    contained: true,
+                                }
+                            } else {
+                                StaticSlideRendererComponent {
+                                    slide: slides.read()[current].clone(),
+                                    presentation_design: design(),
+                                }
                             }
                         }
                     }

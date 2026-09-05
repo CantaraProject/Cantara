@@ -200,6 +200,7 @@ mod tests {
 
     fn screen_view(name: &str, monitor_name: Option<&str>, enabled: bool) -> View {
         View {
+            id: uuid::Uuid::new_v4(),
             name: name.to_string(),
             design_index: None,
             slide_settings_index: None,
@@ -321,6 +322,7 @@ mod tests {
         let views = vec![
             screen_view("Off", None, false),
             View {
+                id: uuid::Uuid::new_v4(),
                 name: "Stream".to_string(),
                 design_index: None,
                 slide_settings_index: None,

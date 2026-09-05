@@ -10,10 +10,36 @@
  * without the hover state of something that can be pressed.
  */
 
+/* Embedded rather than filling a window: the design editor's live preview.
+ * The canvas it sits in is already an absolutely positioned box of exactly
+ * the presentation's size, so the view fills that instead of the screen. */
+.monitor-view.monitor-view-contained {
+    position: absolute;
+}
+
+/* Pinned to the viewport rather than sized as a percentage of its parent.
+ *
+ * `height: 100%` only means anything when every ancestor has a definite
+ * height, and the window's wrapper starts with `all: initial` — so it
+ * resolved to "as tall as the content", which was one clock widget. The
+ * result was a black strip across the top of an otherwise white screen, with
+ * the slide list collapsed to nothing inside it.
+ *
+ * A monitor view always fills a window of its own, so the viewport is exactly
+ * the right thing to measure against and it depends on no ancestor at all. */
 .monitor-view {
-    position: relative;
-    width: 100%;
-    height: 100%;
+    position: fixed;
+    inset: 0;
+    /* Everything inside is sized against *this* box rather than the window,
+     * so the same view is a faithful miniature when it is embedded in the
+     * design editor's preview — that canvas is 1920×1080 and then scaled, and
+     * `vh` inside it would measure the editor's window instead.
+     *
+     * Each size below is written twice: a `vh`/`vw` value first, then the
+     * container-query one. An engine too old for container queries drops the
+     * second and keeps the first, which is right for the full-window case and
+     * merely off in the preview. */
+    container-type: size;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -26,8 +52,12 @@
 
 .monitor-view-stage {
     flex: 1 1 auto;
+    /* Without this a flex child refuses to shrink below its content, and a
+     * list longer than the screen pushes the widgets off the bottom instead
+     * of scrolling inside its own box. */
     min-height: 0;
     padding: 2vh 2vw;
+    padding: 2cqh 2cqw;
 }
 
 /* ── The slide list, on a wall ─────────────────────────────────────────── */
@@ -37,10 +67,12 @@
     border: none;
     background-color: transparent;
     font-size: 2.2vh;
+    font-size: 2.2cqh;
 }
 
 .monitor-view .presenter-chapter-title {
     font-size: 2.4vh;
+    font-size: 2.4cqh;
     color: rgba(242, 242, 242, 0.55);
     border-bottom-color: rgba(242, 242, 242, 0.2);
 }
@@ -54,6 +86,7 @@
      * A pointer over it would promise otherwise. */
     cursor: default;
     padding: 1.2vh 1.5vw;
+    padding: 1.2cqh 1.5cqw;
     color: rgba(242, 242, 242, 0.6);
 }
 
@@ -80,6 +113,7 @@
     flex-direction: column;
     height: 100%;
     gap: 1.5vh;
+    gap: 1.5cqh;
 }
 
 .monitor-speaker-current,
@@ -88,6 +122,7 @@
     min-height: 0;
     overflow: hidden;
     border-radius: 0.6vh;
+    border-radius: 0.6cqh;
 }
 
 .monitor-speaker-next {
@@ -100,9 +135,12 @@
 .monitor-speaker-next-label {
     position: absolute;
     top: 0.4vh;
+    top: 0.4cqh;
     left: 0.6vw;
+    left: 0.6cqw;
     z-index: 2;
     font-size: 1.6vh;
+    font-size: 1.6cqh;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: rgba(242, 242, 242, 0.7);
@@ -114,6 +152,7 @@
     justify-content: center;
     height: 100%;
     font-size: 2vh;
+    font-size: 2cqh;
     color: rgba(242, 242, 242, 0.5);
 }
 
@@ -131,7 +170,9 @@
     position: absolute;
     z-index: 5;
     padding: 0.8vh 1.2vw;
+    padding: 0.8cqh 1.2cqw;
     border-radius: 0.6vh;
+    border-radius: 0.6cqh;
     background-color: rgba(0, 0, 0, 0.35);
     /* Out of the way of the text rather than on top of it: a widget is
      * glanceable information, not something to read past. */
@@ -141,22 +182,30 @@
 
 .monitor-widget-top-left {
     top: 1.5vh;
+    top: 1.5cqh;
     left: 1.5vw;
+    left: 1.5cqw;
 }
 
 .monitor-widget-top-right {
     top: 1.5vh;
+    top: 1.5cqh;
     right: 1.5vw;
+    right: 1.5cqw;
 }
 
 .monitor-widget-bottom-left {
     bottom: 1.5vh;
+    bottom: 1.5cqh;
     left: 1.5vw;
+    left: 1.5cqw;
 }
 
 .monitor-widget-bottom-right {
     bottom: 1.5vh;
+    bottom: 1.5cqh;
     right: 1.5vw;
+    right: 1.5cqw;
 }
 
 .monitor-clock {
@@ -167,16 +216,19 @@
 
 .monitor-clock-time {
     font-size: 4vh;
+    font-size: 4cqh;
     font-variant-numeric: tabular-nums;
 }
 
 .monitor-clock-date {
     font-size: 1.8vh;
+    font-size: 1.8cqh;
     color: rgba(242, 242, 242, 0.65);
 }
 
 .monitor-timer-value {
     font-size: 4vh;
+    font-size: 4cqh;
     /* So the width does not jump as the digits change — a timer that shifts
      * about is harder to read at a glance than one that does not. */
     font-variant-numeric: tabular-nums;

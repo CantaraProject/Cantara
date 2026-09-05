@@ -473,6 +473,7 @@ pub fn Selection() -> Element {
                                     &default_song_slide_settings_memo(),
                                     &stream_defaults_memo(),
                                     &settings.read(),
+                                    settings,
                                 );
                             } else {
                                 presentation::update_presentation(
@@ -534,6 +535,7 @@ fn open_view_window(
     placement: &crate::logic::screens::PlacedView,
     always_fullscreen: bool,
     running_presentations: &Signal<Vec<RunningPresentation>>,
+    settings: Signal<Settings>,
 ) {
     use super::presentation_components::PresentationPage;
     use dioxus::desktop::Config;
@@ -563,6 +565,7 @@ fn open_view_window(
 
     let dom = VirtualDom::new(PresentationPage)
         .with_root_context(*running_presentations)
+        .with_root_context(settings)
         .with_root_context(ShownView(placement.index));
 
     dioxus::desktop::window().new_window(
@@ -593,6 +596,11 @@ fn start_presentation(
     default_slide_settings: &SlideSettings,
     stream_defaults: &crate::logic::stream_view::StreamDefaults,
     settings_read: &Settings,
+    // `settings` is the live signal handed to the windows this opens. A window
+    // is a `VirtualDom` of its own and inherits no context, so everything one
+    // needs must be given to it as a root context — `settings_read` is only a
+    // snapshot for the decisions made here.
+    settings: Signal<Settings>,
 ) {
     use super::presenter_console_components::PresenterConsolePage;
     use crate::logic::screens::{enumerate_monitors, place_screen_views, resolve_monitor};
@@ -637,7 +645,7 @@ fn start_presentation(
         let always_fullscreen = settings_read.always_start_fullscreen;
 
         for placement in &placements {
-            open_view_window(placement, always_fullscreen, running_presentations);
+            open_view_window(placement, always_fullscreen, running_presentations, settings);
         }
 
         if show_presenter_console {
@@ -670,6 +678,10 @@ fn start_presentation(
 
                 let console_dom = VirtualDom::new(PresenterConsolePage)
                     .with_root_context(*running_presentations)
+                    // The console reads the settings too — its overview asks
+                    // for the thumbnail size. Without this it panics the
+                    // moment that view is opened in a window of its own.
+                    .with_root_context(settings)
                     // Which console this is. Without it the console would take
                     // itself for the routed one and navigate a router that is
                     // not there. See [`crate::logic::console_host`].
@@ -695,6 +707,9 @@ fn start_presentation(
     default_slide_settings: &SlideSettings,
     stream_defaults: &crate::logic::stream_view::StreamDefaults,
     settings_read: &Settings,
+    // Unused: the web build has one `VirtualDom` and one page, so the settings
+    // context is the one this is already in.
+    _settings: Signal<Settings>,
 ) {
     // Build the presentation data without writing to any signal yet.
     // On web, window.open() must be called BEFORE signal writes because

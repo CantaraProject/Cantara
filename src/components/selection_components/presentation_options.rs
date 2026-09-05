@@ -1,6 +1,7 @@
 use crate::components::shared_components::SelectedItemPreview;
 use crate::logic::settings::{
-    AfterLastSlide, PresentationDesign, Settings, SlideTimerSettings, SlideTransition, use_settings,
+    AfterLastSlide, PresentationDesign, Settings, SlideTimerSettings, SlideTransition, View,
+    ViewOutput, use_settings,
 };
 use crate::logic::sourcefiles::SourceFileType;
 use crate::logic::states::SelectedItemRepresentation;
@@ -145,8 +146,8 @@ pub(crate) fn PresentationOptions(
             PresentationOptionTabState::General => {
                 rsx! {
                     DefaultDesignSettings {}
+                    ViewList {}
                     StreamSwitch {}
-                    StreamViewSettings {}
                 }
             }
             PresentationOptionTabState::Specific => {
@@ -554,68 +555,6 @@ fn SpecificOptions(
     }
 }
 
-/// What the phones are shown, for the service as a whole.
-///
-/// Beside the switch rather than in the settings, and for the same reason: how
-/// streaming works is a setting, but what a given service sends is a decision
-/// for that service. This one is kept, though — it is a choice between designs
-/// the user has already built, and rebuilding it every Sunday would be a chore
-/// rather than a safeguard.
-#[component]
-fn StreamViewSettings() -> Element {
-    let mut settings = use_settings();
-
-    // The projection's own general choice, which is what "the same" means here
-    // and what the line wrap is reconciled against.
-    let projection_wrap = settings.read().default_song_slide_settings().max_lines;
-
-    let design_index = settings.read().stream.design_index;
-    let slide_settings_index = settings.read().stream.slide_settings_index;
-
-    // What the chosen wrap will actually come to. Said out loud rather than
-    // silently applied: a user who asks for five lines and gets six should be
-    // told why, next to the control that did it.
-    let chosen_wrap = slide_settings_index
-        .and_then(|index| {
-            settings
-                .read()
-                .song_slide_settings
-                .get(index)
-                .map(|named| named.settings.clone())
-        })
-        .and_then(|slide_settings| slide_settings.max_lines);
-    let used_wrap = reconcile_max_lines(projection_wrap, chosen_wrap);
-
-    rsx! {
-        hgroup { style: "margin-top: 1.5rem;",
-            h6 { {t!("selection.presentation_options.stream_view.headline").to_string()} }
-        }
-        div { class: "grid",
-            DesignSelect {
-                label: t!("selection.presentation_options.stream_view.design").to_string(),
-                fallback: t!("selection.presentation_options.stream_view.same_as_presentation")
-                    .to_string(),
-                selected: design_index,
-                onselect: move |chosen: Option<usize>| {
-                    settings.write().stream.design_index = chosen;
-                    settings.read().save();
-                },
-            }
-            SlideSettingsSelect {
-                label: t!("selection.presentation_options.stream_view.slide_settings").to_string(),
-                fallback: t!("selection.presentation_options.stream_view.same_as_presentation")
-                    .to_string(),
-                selected: slide_settings_index,
-                onselect: move |chosen: Option<usize>| {
-                    settings.write().stream.slide_settings_index = chosen;
-                    settings.read().save();
-                },
-            }
-        }
-
-        {wrap_note(chosen_wrap, used_wrap)}
-    }
-}
 
 /// Says what a chosen line wrap will actually come to, where that is not what
 /// was asked for.
@@ -685,6 +624,369 @@ fn DefaultDesignSettings() -> Element {
                 },
             }
         }
+    }
+}
+
+/// The button that opens the view list, and a word about what is set up.
+///
+/// The list itself is a dialog rather than part of this panel. It is a column
+/// about a third of a window wide, and three dropdowns and a name field do not
+/// fit across it — the labels wrapped, the values were cut off mid-word
+/// ("Wie die Pr", "Einem Bild"), and every view made it worse. A dialog has the
+/// room, and the panel keeps a line saying what is there.
+#[component]
+fn ViewList() -> Element {
+    let settings = use_settings();
+    let mut showing = use_signal(|| false);
+
+    // What the button says underneath itself: how many views there are and how
+    // many of them are on. Enough to see at a glance that the second screen is
+    // set up, without opening anything.
+    let summary = use_memo(move || {
+        let settings = settings.read();
+        let total = settings.views.len();
+        let on = settings.views.iter().filter(|view| view.enabled).count();
+        t!(
+            "selection.presentation_options.views.summary",
+            total = total,
+            enabled = on,
+        )
+        .to_string()
+    });
+
+    rsx! {
+        hgroup { style: "margin-top: 1.5rem;",
+            h6 { {t!("selection.presentation_options.views.headline").to_string()} }
+            p { {t!("selection.presentation_options.views.description").to_string()} }
+        }
+
+        button {
+            class: "secondary smaller-buttons",
+            onclick: move |_| showing.set(true),
+            {t!("selection.presentation_options.views.open").to_string()}
+        }
+        p { class: "view-row-note", {summary()} }
+
+        if showing() {
+            ViewListDialog { showing }
+        }
+    }
+}
+
+/// The view list, with room to lay a view out across a line.
+#[component]
+fn ViewListDialog(showing: Signal<bool>) -> Element {
+    let mut settings = use_settings();
+    let views = use_memo(move || settings.read().views.clone());
+    let reference = use_memo(move || settings.read().reference_view_index);
+
+    rsx! {
+        div {
+            class: "modal-overlay view-list-overlay",
+            onclick: move |_| showing.set(false),
+            div {
+                class: "view-list-modal",
+                // Without this a click anywhere inside the dialog reaches the
+                // overlay behind it and closes it — including a click on a
+                // dropdown.
+                onclick: move |event: Event<MouseData>| event.stop_propagation(),
+
+                h3 { {t!("selection.presentation_options.views.headline").to_string()} }
+                p { {t!("selection.presentation_options.views.description").to_string()} }
+
+                div { class: "view-list-body",
+                    for (index , view) in views().into_iter().enumerate() {
+                        ViewRow { key: "{index}", index, view, is_reference: index == reference() }
+                    }
+                }
+
+                footer { class: "view-list-footer",
+                    button {
+                        class: "secondary smaller-buttons",
+                        onclick: move |_| {
+                            // Named by its position, the way a new slide
+                            // division is: "Darstellung 3" is something to
+                            // rename, and an empty name is something to
+                            // wonder about.
+                            let name = t!(
+                                "selection.presentation_options.views.new_name", number = settings
+                                .read().views.len() + 1
+                            )
+                                .to_string();
+                            settings.write().add_view(name);
+                            settings.read().save();
+                        },
+                        {t!("selection.presentation_options.views.add").to_string()}
+                    }
+                    button {
+                        class: "smaller-buttons",
+                        onclick: move |_| showing.set(false),
+                        {t!("general.close").to_string()}
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One view: where it goes, what it shows it with, and whether it is on.
+#[component]
+fn ViewRow(index: usize, view: View, is_reference: bool) -> Element {
+    let mut settings = use_settings();
+
+    let is_network = matches!(view.output, ViewOutput::Network { .. });
+
+    // What the projection's division comes to, which is what a second view's
+    // is reconciled against — a slide change on the wall must not land in the
+    // middle of a slide anywhere else.
+    let projection_wrap = settings.read().default_song_slide_settings().max_lines;
+    let chosen_wrap = settings
+        .read()
+        .slide_settings_of_view(&view)
+        .and_then(|slide_settings| slide_settings.max_lines);
+    let used_wrap = reconcile_max_lines(projection_wrap, chosen_wrap);
+
+    rsx! {
+        article { class: "view-row",
+            div { class: "view-row-header",
+                input {
+                    r#type: "text",
+                    value: "{view.name}",
+                    aria_label: t!("selection.presentation_options.views.name").to_string(),
+                    onchange: move |event: Event<FormData>| {
+                        let name = event.value();
+                        let mut writing = settings.write();
+                        if let Some(view) = writing.views.get_mut(index) {
+                            view.name = name;
+                        }
+                        drop(writing);
+                        settings.read().save();
+                    },
+                }
+
+                if is_reference {
+                    // Everything else is counted and described against this
+                    // one, so it cannot be deleted and says why.
+                    span {
+                        class: "view-row-reference",
+                        title: t!("selection.presentation_options.views.reference_note").to_string(),
+                        {t!("selection.presentation_options.views.reference").to_string()}
+                    }
+                } else {
+                    button {
+                        class: "secondary smaller-buttons",
+                        onclick: move |_| {
+                            settings.write().delete_view(index);
+                            settings.read().save();
+                        },
+                        {t!("general.delete").to_string()}
+                    }
+                }
+            }
+
+            div { class: "grid",
+                ViewOutputSelect { index, view: view.clone(), is_reference }
+
+                DesignSelect {
+                    label: t!("selection.presentation_options.design").to_string(),
+                    // "Nothing chosen" means the reference view's design for
+                    // any other view, and the service default for the
+                    // reference view itself. Both are "the same as the
+                    // presentation", which is what the label says.
+                    fallback: t!("selection.presentation_options.views.same_as_presentation")
+                        .to_string(),
+                    selected: view.design_index,
+                    onselect: move |chosen: Option<usize>| {
+                        let mut writing = settings.write();
+                        if let Some(view) = writing.views.get_mut(index) {
+                            view.design_index = chosen;
+                        }
+                        drop(writing);
+                        settings.read().save();
+                    },
+                }
+
+                SlideSettingsSelect {
+                    label: t!("selection.presentation_options.slide_settings").to_string(),
+                    fallback: t!("selection.presentation_options.views.same_as_presentation")
+                        .to_string(),
+                    selected: view.slide_settings_index,
+                    onselect: move |chosen: Option<usize>| {
+                        let mut writing = settings.write();
+                        if let Some(view) = writing.views.get_mut(index) {
+                            view.slide_settings_index = chosen;
+                        }
+                        drop(writing);
+                        settings.read().save();
+                    },
+                }
+            }
+
+            if !is_reference && !is_network {
+                label {
+                    input {
+                        r#type: "checkbox",
+                        role: "switch",
+                        checked: view.enabled,
+                        onchange: move |event: Event<FormData>| {
+                            let on = event.checked();
+                            let mut writing = settings.write();
+                            if let Some(view) = writing.views.get_mut(index) {
+                                view.enabled = on;
+                            }
+                            drop(writing);
+                            settings.read().save();
+                        },
+                    }
+                    {t!("selection.presentation_options.views.enabled").to_string()}
+                }
+            }
+
+            if is_network {
+                // Whether the stream runs is the switch below, not this — it
+                // is deliberately not remembered between sessions, so a view
+                // that carried it would start broadcasting services nobody
+                // asked to broadcast.
+                p { class: "view-row-note",
+                    {t!("selection.presentation_options.views.network_note").to_string()}
+                }
+            }
+
+            // The same note the stream's own panel used to show, now shown for
+            // whichever view asked for a division of its own.
+            {wrap_note(chosen_wrap, used_wrap)}
+        }
+    }
+}
+
+/// Where a view is shown: a screen, or the network.
+#[component]
+fn ViewOutputSelect(index: usize, view: View, is_reference: bool) -> Element {
+    let mut settings = use_settings();
+
+    // The screens this machine has, so that a view can be pointed at one by
+    // name. Only a desktop build has any; on the web there is one page and no
+    // second monitor to put anything on.
+    #[cfg(feature = "desktop")]
+    let monitors = crate::logic::screens::enumerate_monitors(&dioxus::desktop::window());
+    #[cfg(not(feature = "desktop"))]
+    let monitors: Vec<()> = Vec::new();
+
+    let chosen_monitor = match &view.output {
+        ViewOutput::Screen { monitor_name } => monitor_name.clone(),
+        ViewOutput::Network { .. } => None,
+    };
+    let is_network = matches!(view.output, ViewOutput::Network { .. });
+
+    rsx! {
+        div {
+            label { {t!("selection.presentation_options.views.output").to_string()} }
+
+            // The reference view is the projection and stays one: making it a
+            // network view would leave the service with no screen to count
+            // against. Everything else may be either.
+            if !is_reference {
+                select {
+                    onchange: move |event: Event<FormData>| {
+                        let output = match event.value().as_str() {
+                            // The stream's own address. Another path needs a
+                            // server that can serve it, which is stage 3b of
+                            // the spec and is not built — so the editor offers
+                            // the one path that works rather than a field
+                            // whose contents nothing would read.
+                            "network" => ViewOutput::Network { path: "/".to_string() },
+                            _ => ViewOutput::Screen { monitor_name: None },
+                        };
+                        let mut writing = settings.write();
+                        if let Some(view) = writing.views.get_mut(index) {
+                            view.output = output;
+                        }
+                        drop(writing);
+                        settings.read().save();
+                    },
+                    option {
+                        value: "screen",
+                        selected: !is_network,
+                        {t!("selection.presentation_options.views.output_screen").to_string()}
+                    }
+                    option {
+                        value: "network",
+                        selected: is_network,
+                        {t!("selection.presentation_options.views.output_network").to_string()}
+                    }
+                }
+            }
+
+            if !is_network {
+                select {
+                    onchange: move |event: Event<FormData>| {
+                        let name = match event.value().as_str() {
+                            "" => None,
+                            chosen => Some(chosen.to_string()),
+                        };
+                        let mut writing = settings.write();
+                        if let Some(view) = writing.views.get_mut(index) {
+                            view.output = ViewOutput::Screen { monitor_name: name };
+                        }
+                        drop(writing);
+                        settings.read().save();
+                    },
+                    // "Whichever is free" — and `place_screen_views` makes
+                    // sure two views asking for that do not land on the same
+                    // one, which is what would put one window invisibly under
+                    // another.
+                    option {
+                        value: "",
+                        selected: chosen_monitor.is_none(),
+                        {t!("selection.presentation_options.views.screen_automatic").to_string()}
+                    }
+                    for monitor in monitors.iter() {
+                        option {
+                            value: screen_value(monitor),
+                            selected: chosen_monitor.as_deref() == Some(screen_value(monitor)),
+                            {screen_label(monitor)}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The name a screen is stored under. See [`screen_label`].
+#[cfg(feature = "desktop")]
+fn screen_value(monitor: &crate::logic::screens::MonitorInfo) -> &str {
+    &monitor.name
+}
+
+/// A build with no screens to enumerate has none to name.
+///
+/// The browser has one page and no second monitor to put anything on, and
+/// `crate::logic::screens` does not exist there at all — so the list these
+/// would label is empty and neither is ever called. They exist so the loop
+/// that would call them still compiles.
+#[cfg(not(feature = "desktop"))]
+fn screen_value(_monitor: &()) -> &'static str {
+    ""
+}
+
+#[cfg(not(feature = "desktop"))]
+fn screen_label(_monitor: &()) -> String {
+    String::new()
+}
+
+/// What a screen is called in the list.
+///
+/// A monitor's reported name is often empty, and on some platforms always is,
+/// so a list of blank entries is a real possibility. The size stands in — two
+/// screens on a machine are nearly always different sizes, and "1920 × 1080"
+/// is something the user can match against what they see.
+#[cfg(feature = "desktop")]
+fn screen_label(monitor: &crate::logic::screens::MonitorInfo) -> String {
+    let size = format!("{} × {}", monitor.size.0, monitor.size.1);
+    match monitor.name.trim().is_empty() {
+        true => format!("{} ({size})", monitor.id + 1),
+        false => format!("{} ({size})", monitor.name),
     }
 }
 

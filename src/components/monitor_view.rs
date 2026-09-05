@@ -50,6 +50,14 @@ pub fn MonitorViewComponent(
     /// the caller — the slide renderer takes one of those, and this is what
     /// makes a slide on the stage monitor come out in the monitor's colours.
     slide_design: PresentationDesign,
+    /// Whether this is drawn inside a box rather than filling a window.
+    ///
+    /// The design editor's live preview draws one in a canvas of exactly the
+    /// presentation's size, which is then scaled down. Left alone, the view's
+    /// `position: fixed` would take it out of that canvas and lay it over the
+    /// whole editor.
+    #[props(default)]
+    contained: bool,
 ) -> Element {
     let background = monitor_design.base.get_background_color_as_hex_string();
 
@@ -65,7 +73,7 @@ pub fn MonitorViewComponent(
         document::Link { rel: "stylesheet", href: MONITOR_VIEW_CSS }
 
         div {
-            class: "monitor-view",
+            class: if contained { "monitor-view monitor-view-contained" } else { "monitor-view" },
             style: "background-color: {background};",
 
             div { class: "monitor-view-stage",

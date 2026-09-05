@@ -135,6 +135,58 @@ selection:
     select_item_first:
       en: Please select an item first.
       de: Bitte wählen Sie zuerst ein Element aus.
+    # Every surface the presentation is put on. Replaced a single design and
+    # division pair plus a panel of its own for the stream: the same three
+    # choices, once per output, as many times as the service needs.
+    views:
+      headline:
+        en: Views
+        de: Darstellungen
+      description:
+        en: "Where the presentation is shown, and what each one shows it with. Leave a design or a slide division unset to show the same as the presentation."
+        de: "Wo die Präsentation angezeigt wird und womit jeweils. Ohne eigenes Design oder eigene Folienaufteilung wird das Gleiche wie in der Präsentation gezeigt."
+      open:
+        en: Edit views…
+        de: Darstellungen bearbeiten…
+      summary:
+        en: "%{total} view(s), %{enabled} of them shown"
+        de: "%{total} Darstellung(en), davon %{enabled} aktiv"
+      add:
+        en: Add view
+        de: Darstellung hinzufügen
+      new_name:
+        en: "View %{number}"
+        de: "Darstellung %{number}"
+      name:
+        en: Name of the view
+        de: Name der Darstellung
+      output:
+        en: Shown on
+        de: Angezeigt auf
+      output_screen:
+        en: A screen
+        de: Einem Bildschirm
+      output_network:
+        en: The network
+        de: Dem Netzwerk
+      screen_automatic:
+        en: "Any free screen"
+        de: "Beliebiger freier Bildschirm"
+      same_as_presentation:
+        en: Same as the presentation
+        de: Wie die Präsentation
+      enabled:
+        en: Show this view
+        de: Diese Darstellung anzeigen
+      reference:
+        en: Main view
+        de: Hauptdarstellung
+      reference_note:
+        en: "Slide numbers and every other view are counted against this one, so it cannot be removed."
+        de: "Foliennummern und alle anderen Darstellungen beziehen sich auf diese, deshalb kann sie nicht entfernt werden."
+      network_note:
+        en: "Switch the stream on below to show this view on the network."
+        de: "Die Übertragung unten einschalten, um diese Darstellung im Netzwerk anzuzeigen."
     stream_view:
       headline:
         en: Network stream

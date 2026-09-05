@@ -46,24 +46,28 @@ impl StreamDefaults {
     /// wall. An index pointing past the end of its list — a design deleted
     /// since it was chosen — is read as "no choice" rather than as a reason to
     /// fall over in the middle of a service.
+    /// Read off the *view* the stream is, rather than off
+    /// [`StreamSettings`](crate::logic::settings::StreamSettings).
+    ///
+    /// Those two fields were where this lived before views existed, and
+    /// `ensure_views` carries them into the stream's view when a configuration
+    /// is first read. Leaving this reading them afterwards would have meant two
+    /// places holding the stream's design — the one the view editor writes and
+    /// the one the stream actually uses — and a design chosen in the editor
+    /// that quietly did nothing. So there is one place, and it is the view.
     pub fn of(settings: &crate::logic::settings::Settings) -> StreamDefaults {
+        let Some(view) = settings.stream_view() else {
+            // No network view at all: a configuration whose stream view has
+            // been deleted. The phones then look like the wall, which is what
+            // "no choice" has always meant here.
+            return StreamDefaults::default();
+        };
+
         StreamDefaults {
-            design: settings
-                .stream
-                .design_index
-                .and_then(|index| settings.presentation_designs.get(index).cloned()),
-            slide_settings: settings
-                .stream
-                .slide_settings_index
-                .and_then(|index| {
-                    settings
-                        .song_slide_settings
-                        .get(index)
-                        .map(|named| named.settings.clone())
-                }),
+            design: settings.design_of_view(view),
+            slide_settings: settings.slide_settings_of_view(view),
         }
     }
-
 }
 
 /// The slide settings the stream may actually use, given what the projection

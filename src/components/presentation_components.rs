@@ -376,12 +376,24 @@ pub fn PresentationPage() -> Element {
     // A window with no `ShownView` is not one of the view list's: the routed
     // presentation page, the web build's synced tab, a preview. Those are
     // audience views and always were.
-    let settings_for_view = crate::logic::settings::use_settings();
+    // Asked for rather than demanded. `use_settings` is a `use_context` that
+    // *panics* when nothing provided one, and this page is drawn in places
+    // that may not have: a window opened on the desktop is a `VirtualDom` of
+    // its own and inherits no context. That is exactly what happened —
+    // "Encountered panic: Any { .. }" the moment a presentation started.
+    //
+    // The window is given the settings now (see `open_view_window`), so this
+    // ordinarily finds them. It stays an `Option` because a page that cannot
+    // read the settings should draw the presentation the way it always did,
+    // not bring down the window in front of a congregation.
+    let settings_for_view = use_hook(|| {
+        try_consume_context::<Signal<crate::logic::settings::Settings>>()
+    });
     let shown_monitor_design: Memo<Option<crate::logic::settings::MonitorDesign>> = use_memo(
         move || {
             let index =
                 try_consume_context::<crate::components::selection_components::ShownView>()?;
-            settings_for_view.read().monitor_design_of_view(index.0)
+            settings_for_view?.read().monitor_design_of_view(index.0)
         },
     );
 

@@ -4,16 +4,13 @@ Status: **in progress.** The five decisions below are taken. Stages 1, 2, 3a and
 3½ are built; the order of what remains has changed — see
 [What stage 3 found](#what-stage-3-found).
 
-A monitor design can be **made, configured and drawn**: the design editor
-offers "Darstellungsart", both layouts render, and the clock and chapter-timer
-widgets work.
+The chain is now complete for a **screen** monitor view: a design is made in the
+editor ("Darstellungsart"), a view is added on the selection screen and pointed
+at that design and a screen, and the window it opens draws the layout with its
+widgets.
 
-What is still missing is the last link in the chain: **there is no way to
-create a view.** The migration makes the two Cantara always had — the projection
-and the stream — and nothing offers to add a third. So a monitor design can be
-built and a window would draw it correctly, but no window is asking for one.
-See [The view editor](#the-view-editor), which is the next thing to build and
-the point at which the feature becomes usable.
+Not done: the network side (stage 3b, and 3b′ before it), enabling a view
+*during* a running service, `MonitorLayout::Custom`, and WebAssembly widgets.
 
 Cantara today can put a service onto exactly two surfaces, and both of them are
 aimed at the congregation: the projection, and — since [0002](0002-remote-control.md)
@@ -728,31 +725,48 @@ Decision 5: a `Custom` layout holds a file name, not a template body.
 
 ## The view editor
 
-The missing link, and the one thing between the feature working and the feature
-being usable. Everything underneath it exists: `Settings::views` is migrated
-into and validated, `place_screen_views` decides which window goes on which
-screen, `open_view_window` opens them, and `MonitorViewComponent` draws a
-monitor design correctly. What nobody can do is *make a view*.
+**Built.** `ViewList` in
+[presentation_options.rs](../../src/components/selection_components/presentation_options.rs),
+on the selection screen's *Allgemein* tab — beside the running order, where the
+rest of a service's decisions are made, rather than in the settings.
 
-It belongs in the settings, beside the presentation designs, and it needs:
+Each row is one view: its name, where it goes, the design and the slide
+division it shows it with, and whether it is on. There may be as many as the
+service needs.
 
-* A list of the views, each showing its name, its design and its output, with
-  add and delete.
-* For a `Screen` view, a monitor chosen from `enumerate_monitors` — or "any
-  free screen", which is what `None` means and what `place_screen_views`
-  already handles properly for more than one view.
-* A design chosen from `presentation_designs`, where a monitor design is what
-  makes the view a monitor view.
-* The reference view marked, and not deletable — everything is counted against
-  it. `Settings::reference_view_index` is already there.
-* **No `Network` output offered yet.** Stage 3b is not built, so a network view
-  other than the stream's own `/` would be a configuration the settings accept
-  and nothing serves. The path validation exists and is right; what is missing
-  is the server that would use it.
+It replaced two things that were the same three choices written twice — the
+general design-and-division pair, and a panel of its own for the stream's pair.
+A third output would have been a third copy. The `DesignSelect` and
+`SlideSettingsSelect` components already existed and are reused unchanged, so
+every list of designs in the program still offers the same names.
 
-Decision 3 also wants enabling and disabling from the *selection screen* while
-a presentation runs, which is a separate piece: `enabled` is currently read once
-when the presentation starts.
+What is deliberately not offered:
+
+* **A network path.** Choosing "the network" gives a view the stream's own
+  `/`. Stage 3b is not built, so any other path would be a configuration the
+  settings accept and nothing serves. The validation for one exists and is
+  right; the server that would use it does not.
+* **An enabled switch on the network view.** Whether the stream runs is the
+  switch below it, and that is deliberately not remembered between sessions —
+  a view that carried it would start broadcasting services nobody asked to
+  broadcast. The row says so instead.
+* **Deleting the reference view.** `Settings::delete_view` refuses it, and the
+  row shows why rather than a button that would fail.
+
+### What this changed underneath
+
+`StreamDefaults::of` read the stream's design from `StreamSettings` while the
+editor wrote it to the view. Left alone, a design chosen in the new list would
+have quietly done nothing. It now reads the view — one place, and
+`StreamSettings::design_index` is what `ensure_views` migrates *from* rather
+than what anything reads.
+
+### Still to do here
+
+Decision 3 also wants views enabled and disabled *during* a running service.
+The switch exists, but `enabled` is read once when the presentation starts, so
+a view turned on mid-service does not open until the next one. That is the
+remaining half of stage 3a.
 
 ## Still open
 
