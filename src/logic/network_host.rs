@@ -701,6 +701,25 @@ mod tests {
     /// Lifted out of the test below so a second test that needs a real helper
     /// does not repeat the reasoning about what is lying in `target/debug`.
     fn test_helper() -> Option<std::path::PathBuf> {
+        // Never on a build server.
+        //
+        // Whether these run at all turned on a comparison of file times
+        // between the binary and the test harness, and on a fresh checkout the
+        // order those are built in is not fixed — so on CI a test that spawns
+        // a process and binds a socket ran or did not, by coin flip. A test
+        // that sometimes runs is worse than one that does not: it fails for
+        // reasons that have nothing to do with the change under test, and the
+        // failure is unreproducible.
+        //
+        // They are worth having and they are worth running — by hand, on a
+        // machine where `target/debug/cantara` is the binary you just built.
+        // `CI` is set by every build server worth the name, GitHub Actions
+        // included.
+        if std::env::var_os("CI").is_some() {
+            eprintln!("skipped: starts a real process, which is not for a build server");
+            return None;
+        }
+
         let helper = std::path::Path::new("target/debug/cantara.exe");
         let helper = if helper.exists() {
             helper
@@ -736,29 +755,9 @@ mod tests {
             .lock()
             .unwrap_or_else(|held| held.into_inner());
 
-        let helper = std::path::Path::new("target/debug/cantara.exe");
-        let helper = if helper.exists() {
-            helper
-        } else {
-            let unix = std::path::Path::new("target/debug/cantara");
-            if !unix.exists() {
-                eprintln!("skipped: the binary has not been built");
-                return;
-            }
-            unix
-        };
-
-        // `cargo test` does not rebuild the binary — it builds this harness —
-        // so what is lying in `target/debug` may be from before the flag the
-        // helper is started with even existed. That binary opens a window
-        // instead of connecting back, and the test then fails fifteen seconds
-        // later saying the helper did not start, which is true and says
-        // nothing about the code being tested. Older than the harness is the
-        // one honest reading: skip, and say why.
-        if is_older_than_this_test(helper) {
-            eprintln!("skipped: target/debug/cantara is older than this test — `cargo build` first");
+        let Some(helper) = test_helper() else {
             return;
-        }
+        };
 
         // SAFETY: single-threaded at this point in the test, and read only by
         // `helper_executable` below.

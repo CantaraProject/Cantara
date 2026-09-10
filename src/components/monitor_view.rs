@@ -274,6 +274,21 @@ fn SlideAtSlideSize(
 ) -> Element {
     let (width, height) = slide_size;
 
+    // A video on this slide follows the one the room is watching.
+    //
+    // Without this a video slide came out as a `<video>` that nothing ever
+    // started: paused at nothing, which on a stage monitor is a blank
+    // rectangle where the film should be. The mechanism is the presenter
+    // console's — its overview shows the same thing, a picture of a video that
+    // moves with the video — and it is asked for here rather than written
+    // again. See [`MirrorsTheVideo`] and
+    // [`crate::logic::video::mirror_script`].
+    //
+    // A mirror takes no commands, makes no sound and reports nothing: the
+    // projection stays the one that plays. That is the same rule as everywhere
+    // else here — a monitor view shows, it does not control.
+    use_context_provider(|| crate::components::presentation_components::MirrorsTheVideo);
+
     rsx! {
         div {
             class: "monitor-slide-frame",

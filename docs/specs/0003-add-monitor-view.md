@@ -1222,6 +1222,41 @@ would rebuild and the jump would return. In a browser, with real markup: the
 patch path is taken, the slide frame is *the same DOM node* afterwards, its
 fitted transform is untouched, and the clock reads the new time.
 
+## Video on a monitor view
+
+A video slide on a stage monitor came out as a `<video>` that nothing ever
+started: paused at nothing, which is a blank rectangle where the film should be.
+
+The mechanism for this already existed and is the presenter console's. Its
+overview shows a *picture* of the video that moves with the video — an element
+that takes no commands, makes no sound and reports nothing, pulled onto the
+published position a few times a second (`MirrorsTheVideo` and
+`video::mirror_script`). A monitor view wants exactly that, and for exactly the
+same reason: it shows, it does not control.
+
+So it asks for the context rather than growing a video path of its own. One
+line, and the rule the whole feature rests on stays intact — the projection is
+the one that plays.
+
+## The pipeline
+
+Every command the workflow runs was reproduced locally and passes: `cargo test`,
+`cargo clippy --all-targets -- -D warnings`, `cargo clippy -- -D warnings`,
+`dx build -r`, and `dx build --platform web --release` — the last of which also
+proved the new `monitor_view.css` asset is picked up by the bundler. The Android
+job's build needs the NDK and could not be run here; its compile was checked
+with `cargo check --release --no-default-features --features mobile`, which is
+the same feature set the failing log showed.
+
+One real weakness was found and fixed rather than guessed at. The two tests that
+start a **real helper process** decided whether to run by comparing file times
+between `target/debug/cantara` and the test harness. On a fresh checkout the
+order those are built in is not fixed, so on a build server they ran or did not,
+by coin flip — and a test that sometimes runs is worse than one that does not:
+it fails for reasons unrelated to the change and the failure cannot be
+reproduced. They now skip when `CI` is set, and say so. They still run locally,
+which is where a process-spawning test belongs.
+
 ## Still open
 
 * Whether a pinned view should be able to *follow with an offset* ("always the

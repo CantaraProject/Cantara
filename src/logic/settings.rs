@@ -2294,6 +2294,10 @@ impl MonitorDesign {
     /// phone showed the time the slide came up and held it until the next
     /// slide. Asked by [`crate::logic::network_host`], which re-renders while
     /// this is true.
+    #[cfg_attr(
+        not(any(test, feature = "desktop")),
+        allow(dead_code, reason = "only a desktop build serves a stream to re-render")
+    )]
     pub fn has_live_widget(&self) -> bool {
         self.widgets.iter().any(|widget| {
             matches!(
