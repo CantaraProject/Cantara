@@ -63,6 +63,9 @@ jobs:
           sudo mkdir -p /usr/local/opt/openssl@3/lib
           sudo ln -sf $(brew --prefix openssl@3)/lib/libssl.3.dylib /usr/local/opt/openssl@3/lib/
           sudo ln -sf $(brew --prefix openssl@3)/lib/libcrypto.3.dylib /usr/local/opt/openssl@3/lib/
+      - name: Install Rust LLVM tools under macOS
+        if: matrix.os == 'macos-latest'
+        run: rustup component add llvm-tools-preview
       - name: Run tests
         env:
           # OpenSSL environment variables
