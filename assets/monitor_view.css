@@ -1,0 +1,295 @@
+/* The screen the people making the service happen look at.
+ *
+ * Read from a few metres away, usually by somebody who is about to speak and
+ * has one glance to spare. So: large text, high contrast, and nothing moving
+ * that does not have to.
+ *
+ * The slide list is the presenter console's, classes and all — see
+ * `SlideList` in `presenter_console_components.rs`. This file only says what
+ * is different about showing it on a wall instead of in a window: bigger, and
+ * without the hover state of something that can be pressed.
+ */
+
+/* Embedded rather than filling a window: the design editor's live preview.
+ * The canvas it sits in is already an absolutely positioned box of exactly
+ * the presentation's size, so the view fills that instead of the screen. */
+.monitor-view.monitor-view-contained {
+    position: absolute;
+}
+
+/* Pinned to the viewport rather than sized as a percentage of its parent.
+ *
+ * `height: 100%` only means anything when every ancestor has a definite
+ * height, and the window's wrapper starts with `all: initial` — so it
+ * resolved to "as tall as the content", which was one clock widget. The
+ * result was a black strip across the top of an otherwise white screen, with
+ * the slide list collapsed to nothing inside it.
+ *
+ * A monitor view always fills a window of its own, so the viewport is exactly
+ * the right thing to measure against and it depends on no ancestor at all. */
+.monitor-view {
+    position: fixed;
+    inset: 0;
+    /* Everything inside is sized against *this* box rather than the window,
+     * so the same view is a faithful miniature when it is embedded in the
+     * design editor's preview — that canvas is 1920×1080 and then scaled, and
+     * `vh` inside it would measure the editor's window instead.
+     *
+     * Each size below is written twice: a `vh`/`vw` value first, then the
+     * container-query one. An engine too old for container queries drops the
+     * second and keeps the first, which is right for the full-window case and
+     * merely off in the preview. */
+    container-type: size;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    /* The design's own colour is set inline, from its template. This is only
+     * the fallback for a design that somehow has none. */
+    background-color: #101010;
+    color: #f2f2f2;
+    font-family: system-ui, sans-serif;
+}
+
+.monitor-view-stage {
+    flex: 1 1 auto;
+    /* Without this a flex child refuses to shrink below its content, and a
+     * list longer than the screen pushes the widgets off the bottom instead
+     * of scrolling inside its own box. */
+    min-height: 0;
+    padding: 2vh 2vw;
+    padding: 2cqh 2cqw;
+}
+
+/* ── The slide list, on a wall ─────────────────────────────────────────── */
+
+.monitor-view .presenter-text-panel {
+    height: 100%;
+    border: none;
+    background-color: transparent;
+    font-size: 2.2vh;
+    font-size: 2.2cqh;
+}
+
+.monitor-view .presenter-chapter-title {
+    font-size: 2.4vh;
+    font-size: 2.4cqh;
+    color: rgba(242, 242, 242, 0.55);
+    border-bottom-color: rgba(242, 242, 242, 0.2);
+}
+
+.monitor-view .presenter-chapter-title.active {
+    color: #ffffff;
+}
+
+.monitor-view .presenter-slide-item {
+    /* Nothing here can be pressed: a monitor view shows, it does not control.
+     * A pointer over it would promise otherwise. */
+    cursor: default;
+    padding: 1.2vh 1.5vw;
+    padding: 1.2cqh 1.5cqw;
+    color: rgba(242, 242, 242, 0.6);
+}
+
+.monitor-view .presenter-slide-item:hover {
+    background-color: transparent;
+}
+
+.monitor-view .presenter-slide-item.active {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-left-color: currentColor;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.monitor-view .slide-text-content p {
+    font-size: inherit !important;
+    line-height: 1.35 !important;
+}
+
+/* ── The speaker layout ────────────────────────────────────────────────── */
+
+.monitor-speaker {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    gap: 1.5vh;
+    gap: 1.5cqh;
+}
+
+.monitor-speaker-current,
+.monitor-speaker-next {
+    position: relative;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: 0.6vh;
+    border-radius: 0.6cqh;
+}
+
+.monitor-speaker-next {
+    /* Set apart from the slide above it, so that the two are never mistaken
+     * for one another by somebody glancing up mid-sentence. */
+    border: 1px solid rgba(242, 242, 242, 0.25);
+    opacity: 0.75;
+}
+
+.monitor-speaker-next-label {
+    position: absolute;
+    top: 0.4vh;
+    top: 0.4cqh;
+    left: 0.6vw;
+    left: 0.6cqw;
+    z-index: 2;
+    font-size: 1.6vh;
+    font-size: 1.6cqh;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(242, 242, 242, 0.7);
+}
+
+.monitor-speaker-next-end {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    font-size: 2vh;
+    font-size: 2cqh;
+    color: rgba(242, 242, 242, 0.5);
+}
+
+/* A slide drawn at the presentation's own size and shrunk to fit its box.
+ *
+ * A slide's type is set in *points*, which are absolute: put the renderer in a
+ * small box and the words come out full size and overflow it. So the slide is
+ * laid out at the presentation's own size — stated here in `--slide-width` and
+ * `--slide-height` — and the whole thing is shrunk with a transform.
+ *
+ * The transform itself is *not* here. It was, as
+ * `scale(min(calc(100cqw / var(--slide-width)), …))`, which says exactly the
+ * right thing and is dropped whole by any engine without container-query
+ * division — Cantara's own web view among them. A dropped declaration is no
+ * scaling at all, and the slide overflowed its box while the next one beside
+ * it was drawn at full size.
+ *
+ * It is measured instead, by `assets/monitor_slide_scale.js`, which the window
+ * evaluates and the page served to the network runs. One file, because the
+ * arithmetic is the same in both. */
+.monitor-slide-frame {
+    /* For the container-query fallback above. Harmless where that is
+     * unsupported, and it costs nothing. */
+    container-type: size;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.monitor-slide-stage {
+    position: absolute;
+    top: 0;
+    left: 0;
+    /* The presentation's own size. The slide is laid out at this and nothing
+     * else, so its line breaks fall where they fall on the wall. */
+    width: var(--slide-width, 1920px);
+    height: var(--slide-height, 1080px);
+    transform-origin: top left;
+    /* A first guess, refined the moment the box has been measured.
+     *
+     * This was `scale(0)` — nothing drawn until the measuring had happened —
+     * on the reasoning that a wall of oversized letters is worse than a blank
+     * frame. It is not: a frame that is not measured *at all* is then blank
+     * for good, and that is what happened. A default that hides everything
+     * when one step does not run is the same mistake as a CSS declaration that
+     * is dropped whole; both fail silently and look like nothing was written.
+     *
+     * So the fallback is the container-query form. Where the engine supports
+     * it the slide is right before a line of script has run; where it does not
+     * the declaration is dropped and the slide is drawn at full size, which is
+     * wrong and *visible*. Either way `monitor_slide_scale.js` then measures
+     * and sets the real one. */
+    transform: scale(min(
+        calc(100cqw / var(--slide-width, 1920px)),
+        calc(100cqh / var(--slide-height, 1080px))
+    ));
+}
+
+/* The renderer inside fills the stage it was given. */
+.monitor-slide-stage > * {
+    width: 100%;
+    height: 100%;
+}
+
+/* ── Widgets ───────────────────────────────────────────────────────────── */
+
+.monitor-widget {
+    position: absolute;
+    z-index: 5;
+    padding: 0.8vh 1.2vw;
+    padding: 0.8cqh 1.2cqw;
+    border-radius: 0.6vh;
+    border-radius: 0.6cqh;
+    background-color: rgba(0, 0, 0, 0.35);
+    /* Out of the way of the text rather than on top of it: a widget is
+     * glanceable information, not something to read past. */
+    pointer-events: none;
+    line-height: 1.1;
+}
+
+.monitor-widget-top-left {
+    top: 1.5vh;
+    top: 1.5cqh;
+    left: 1.5vw;
+    left: 1.5cqw;
+}
+
+.monitor-widget-top-right {
+    top: 1.5vh;
+    top: 1.5cqh;
+    right: 1.5vw;
+    right: 1.5cqw;
+}
+
+.monitor-widget-bottom-left {
+    bottom: 1.5vh;
+    bottom: 1.5cqh;
+    left: 1.5vw;
+    left: 1.5cqw;
+}
+
+.monitor-widget-bottom-right {
+    bottom: 1.5vh;
+    bottom: 1.5cqh;
+    right: 1.5vw;
+    right: 1.5cqw;
+}
+
+.monitor-clock {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.monitor-clock-time {
+    font-size: 4vh;
+    font-size: 4cqh;
+    font-variant-numeric: tabular-nums;
+}
+
+.monitor-clock-date {
+    font-size: 1.8vh;
+    font-size: 1.8cqh;
+    color: rgba(242, 242, 242, 0.65);
+}
+
+.monitor-timer-value {
+    font-size: 4vh;
+    font-size: 4cqh;
+    /* So the width does not jump as the digits change — a timer that shifts
+     * about is harder to read at a glance than one that does not. */
+    font-variant-numeric: tabular-nums;
+}
+
+.monitor-timer.over .monitor-timer-value {
+    /* The preacher has had the time they were given. Said by colour and
+     * nothing else: nothing on a monitor view interrupts a service. */
+    color: #ff9a3c;
+}

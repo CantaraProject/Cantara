@@ -13,6 +13,7 @@
 //! at the same moment it appears on the wall.
 
 use std::collections::HashMap;
+use uuid::Uuid;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::{Arc, RwLock};
 
@@ -55,8 +56,22 @@ pub struct Media {
 
 /// What the server and the program both reach into.
 struct Shared {
-    /// The current state. Viewers wait on this rather than asking for it.
-    state: watch::Sender<Arc<StreamState>>,
+    /// The current state of every view being served, by the view's identity.
+    ///
+    /// Viewers wait on this rather than asking for it. One channel rather than
+    /// one per view: a change to any of them wakes every viewer, each of which
+    /// then looks at its own and sends nothing when its own has not moved. A
+    /// hall's worth of phones is a hall's worth of sleeping tasks either way,
+    /// and one channel is one thing to keep in step.
+    states: watch::Sender<Arc<HashMap<Uuid, StreamState>>>,
+
+    /// Which view each address serves.
+    ///
+    /// The router is built once, when the server goes up, and what is on offer
+    /// arrives afterwards — Cantara says so over the socket. So the paths
+    /// cannot be routes: they are looked up here, by the fallback handler, and
+    /// change while the server stays up.
+    paths: RwLock<HashMap<String, Uuid>>,
     /// The pictures the running order refers to, by the name the state gives
     /// them.
     media: RwLock<HashMap<String, Media>>,
@@ -149,7 +164,8 @@ impl StreamServer {
         alongside: Router,
     ) -> Result<StreamServer, String> {
         let shared = Arc::new(Shared {
-            state: watch::channel(Arc::new(StreamState::waiting(0))).0,
+            states: watch::channel(Arc::new(HashMap::new())).0,
+            paths: RwLock::new(HashMap::new()),
             media: RwLock::new(HashMap::new()),
             videos: RwLock::new(HashMap::new()),
             password: RwLock::new(password),
@@ -277,16 +293,35 @@ impl StreamServer {
     /// Cheap and safe to call on every change: a viewer that is asleep misses
     /// the intermediate states and is woken with the latest, which is the only
     /// one that was ever worth having.
-    pub fn publish(&mut self, mut state: StreamState) {
+    pub fn publish(&mut self, states: HashMap<Uuid, StreamState>) {
         self.revision += 1;
-        state.revision = self.revision;
+        let revision = self.revision;
+        let states: HashMap<Uuid, StreamState> = states
+            .into_iter()
+            .map(|(id, mut state)| {
+                state.revision = revision;
+                (id, state)
+            })
+            .collect();
+
         // `send_replace` rather than `send`: `send` reports failure when there
         // are no viewers *and leaves the value alone*, so everything published
         // before the first phone opened the address would be thrown away and
         // that viewer would arrive to a presentation that had not started.
         // Nobody listening is the ordinary state of affairs here, not an
         // error.
-        self.shared.state.send_replace(Arc::new(state));
+        self.shared.states.send_replace(Arc::new(states));
+    }
+
+    /// Says which address serves which view.
+    ///
+    /// Called whenever Cantara changes what is on offer. The router cannot
+    /// carry these — it is built before Cantara has said anything — so they
+    /// are looked up per request instead. See [`Shared::paths`].
+    pub fn set_paths(&self, paths: HashMap<String, Uuid>) {
+        if let Ok(mut held) = self.shared.paths.write() {
+            *held = paths;
+        }
     }
 
     /// Hands over a picture a slide refers to, under the name the state gives
@@ -328,17 +363,110 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/abcjs.js", get(abcjs))
         .route("/media/{id}", get(media))
         .route("/video/{id}", get(video))
-        .route("/login", post(login));
+        .route("/login", post(login))
+        // Every other address a view may have been given. See [`page_at`].
+        .fallback(page_at);
 
     router.with_state(shared)
 }
 
 
-async fn page() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-        VIEWER_PAGE,
-    )
+/// The stylesheets of the components that draw a slide.
+///
+/// A viewer is served markup made by Cantara's own components — see
+/// [`crate::components::stream_render`] — and those components' rules live
+/// here. Without them the slide arrives correct and unstyled.
+///
+/// The same reasoning as the console's page, which compiles its stylesheets in
+/// for the same reason: the network this page arrives on frequently has no way
+/// out, and a second request that may not be answered is worse than a larger
+/// first one.
+///
+/// `presentation.css` draws the slide itself. The other two are what a
+/// *monitor* design needs — its layout is the presenter console's slide list,
+/// shared rather than written twice, so the console's sheet comes with it.
+const PRESENTATION_CSS: &str = include_str!("../../../assets/presentation.css");
+const CONSOLE_CSS: &str = include_str!("../../../assets/presenter_console.css");
+const MONITOR_CSS: &str = include_str!("../../../assets/monitor_view.css");
+
+/// Fits a slide into its box, on the page as in the window.
+///
+/// The same file the window evaluates — see
+/// [`crate::components::monitor_view::SLIDE_SCALE_JS`]. A slide's type is in
+/// points, so a slide put into a smaller box overflows it; the factor has to be
+/// measured, and measuring it twice in two dialects is how the two would come
+/// to disagree.
+const SLIDE_SCALE_JS: &str = include_str!("../../../assets/monitor_slide_scale.js");
+
+/// Where [`VIEWER_PAGE`] expects those stylesheets.
+const STYLE_MARKER: &str = "/*CANTARA_COMPONENT_STYLES*/";
+
+/// Where [`VIEWER_PAGE`] expects to be told which view it is showing.
+const VIEW_MARKER: &str = "CANTARA_VIEW_ID";
+
+/// Where [`VIEWER_PAGE`] expects the slide-fitting script.
+const SCALE_MARKER: &str = "/*CANTARA_SLIDE_SCALE*/";
+
+/// The page for whichever view is served at `/`.
+async fn page(State(shared): State<Arc<Shared>>) -> Response {
+    let id = shared
+        .paths
+        .read()
+        .ok()
+        .and_then(|paths| paths.get("/").copied());
+    served_page(id)
+}
+
+/// The page for a view served at some other address.
+///
+/// A fallback rather than a route, because the router is built when the server
+/// goes up and the addresses arrive afterwards — Cantara says what is on offer
+/// over the socket, and it may say something different halfway through a
+/// service. A route cannot be added to a built router; a lookup can change
+/// under one.
+///
+/// Only paths that are actually on offer are answered. Everything else is a
+/// plain not-found, which is what an address that was never given out should
+/// be.
+async fn page_at(State(shared): State<Arc<Shared>>, uri: axum::http::Uri) -> Response {
+    let path = uri.path();
+    let found = shared
+        .paths
+        .read()
+        .ok()
+        .and_then(|paths| paths.get(path).copied());
+
+    match found {
+        Some(id) => served_page(Some(id)),
+        None => (StatusCode::NOT_FOUND, "not found").into_response(),
+    }
+}
+
+/// The viewer page, told which view it is showing.
+///
+/// The page sends the identity back with every request it makes, so that the
+/// state it is given is the one for the address it was opened at. Without it
+/// two views on one socket would be two addresses showing the same slides.
+fn served_page(id: Option<Uuid>) -> Response {
+    let page = dressed_viewer_page().replace(
+        VIEW_MARKER,
+        &id.map(|id| id.to_string()).unwrap_or_default(),
+    );
+
+    ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], page).into_response()
+}
+
+/// The viewer page with the component stylesheets in it.
+///
+/// Split out from the handler so that what is served can be asserted on
+/// without a socket.
+fn dressed_viewer_page() -> String {
+    VIEWER_PAGE
+        .replace(
+            STYLE_MARKER,
+            &format!("{PRESENTATION_CSS}\n{CONSOLE_CSS}\n{MONITOR_CSS}"),
+        )
+        .replace(SCALE_MARKER, SLIDE_SCALE_JS)
 }
 
 /// The engraver, asked for the first time a slide carries a staff.
@@ -360,11 +488,58 @@ async fn abcjs() -> impl IntoResponse {
 }
 
 /// The state as it stands. What the page asks for once, on opening.
-async fn state(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Response {
+/// Which view a request is asking about.
+///
+/// The page is told its own view when it is served — see [`page`] — and sends
+/// it back with every request. Absent, or naming a view that is not being
+/// served, reads as the first one on offer: a viewer who has bookmarked an
+/// address from a service that has since been rearranged is better shown
+/// something than an error.
+#[derive(serde::Deserialize)]
+struct Viewing {
+    view: Option<Uuid>,
+}
+
+impl Shared {
+    /// The state to answer a request with.
+    fn state_for(&self, wanted: Option<Uuid>) -> StreamState {
+        let states = self.states.borrow();
+
+        if let Some(id) = wanted
+            && let Some(state) = states.get(&id)
+        {
+            return state.clone();
+        }
+
+        // Not "whatever happens to be first": a `HashMap`'s first value is an
+        // arbitrary one, so an address whose view is not being served would be
+        // shown *somebody else's* — a monitor view on the address the
+        // congregation was given, chosen at random and differently on the next
+        // start.
+        //
+        // The bare address's view is the one sensible answer, since that is
+        // what a viewer who typed the address without a path asked for. Where
+        // even that is not being served there is nothing to show, and the page
+        // is told to wait — which is true, and which an address that has just
+        // been added says until Cantara has sent the offer that includes it.
+        self.paths
+            .read()
+            .ok()
+            .and_then(|paths| paths.get("/").copied())
+            .and_then(|id| states.get(&id).cloned())
+            .unwrap_or_else(|| StreamState::waiting(0))
+    }
+}
+
+async fn state(
+    State(shared): State<Arc<Shared>>,
+    axum::extract::Query(viewing): axum::extract::Query<Viewing>,
+    headers: HeaderMap,
+) -> Response {
     if !shared.may_watch(&headers) {
         return locked();
     }
-    Json(&*shared.state.borrow().clone()).into_response()
+    Json(shared.state_for(viewing.view)).into_response()
 }
 
 /// The state, and every state after it, as server-sent events.
@@ -372,7 +547,11 @@ async fn state(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Respons
 /// One long-lived response per viewer. It sleeps on the channel and writes
 /// only when something has actually changed, so a hundred phones cost a
 /// hundred sleeping tasks rather than a hundred requests a second.
-async fn events(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Response {
+async fn events(
+    State(shared): State<Arc<Shared>>,
+    axum::extract::Query(viewing): axum::extract::Query<Viewing>,
+    headers: HeaderMap,
+) -> Response {
     use axum::response::sse::{Event, KeepAlive, Sse};
     use futures_util::{StreamExt, stream};
 
@@ -380,7 +559,15 @@ async fn events(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Respon
         return locked();
     }
 
-    let receiver = shared.state.subscribe();
+    let receiver = shared.states.subscribe();
+    let wanted = viewing.view;
+    // The bare address's view, read once: the stream below is long-lived and
+    // must not hold the lock, and this is what it falls back to.
+    let default_view = shared
+        .paths
+        .read()
+        .ok()
+        .and_then(|paths| paths.get("/").copied());
 
     // The first thing a viewer gets is where things stand *now*; after that,
     // every change as it happens.
@@ -399,18 +586,45 @@ async fn events(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Respon
         }
     };
 
-    let updates = stream::unfold((receiver, true), |(mut receiver, first)| async move {
-        if !first && receiver.changed().await.is_err() {
-            // The program has gone; the stream ends and the page reconnects.
-            return None;
-        }
-        let state = receiver.borrow_and_update().clone();
-        let event = Event::default().json_data(&*state).unwrap_or_default();
-        Some((
-            Ok::<Event, std::convert::Infallible>(event),
-            (receiver, false),
-        ))
-    })
+    // The last revision this viewer was told about, so that a change to
+    // *another* view — which wakes every viewer, since they share one channel
+    // — does not send this one a state it already has.
+    let updates = stream::unfold(
+        (receiver, true, None::<u64>),
+        move |(mut receiver, first, last)| async move {
+            loop {
+                if !first && receiver.changed().await.is_err() {
+                    // The program has gone; the stream ends and the page
+                    // reconnects.
+                    return None;
+                }
+
+                let state = {
+                    let held = receiver.borrow_and_update();
+                    match wanted.and_then(|id| held.get(&id)) {
+                        Some(state) => state.clone(),
+                        // The same rule as `state_for`: never somebody else's
+                        // view chosen at random.
+                        None => default_view
+                            .and_then(|id| held.get(&id).cloned())
+                            .unwrap_or_else(|| StreamState::waiting(0)),
+                    }
+                };
+
+                if !first && Some(state.revision) == last {
+                    // Somebody else's view moved. Back to sleep.
+                    continue;
+                }
+
+                let revision = state.revision;
+                let event = Event::default().json_data(&state).unwrap_or_default();
+                return Some((
+                    Ok::<Event, std::convert::Infallible>(event),
+                    (receiver, false, Some(revision)),
+                ));
+            }
+        },
+    )
     .take_until(Box::pin(stop));
 
     Sse::new(updates)
@@ -754,7 +968,8 @@ mod tests {
 
     fn shared_with(password: &str) -> Shared {
         Shared {
-            state: watch::channel(Arc::new(StreamState::waiting(0))).0,
+            states: watch::channel(Arc::new(HashMap::new())).0,
+            paths: RwLock::new(HashMap::new()),
             media: RwLock::new(HashMap::new()),
             videos: RwLock::new(HashMap::new()),
             password: RwLock::new(Some(password.to_string())),
@@ -876,6 +1091,17 @@ mod tests {
             .to_string()
     }
 
+    /// Publishes one view, at the bare address.
+    ///
+    /// What nearly every test here means by "the stream": one view, reachable
+    /// without a path. Written once, so that a rule about how an address finds
+    /// its view — see `state_for` — does not have to be repeated into a dozen
+    /// fixtures.
+    fn publish_one(server: &mut StreamServer, state: StreamState) {
+        server.set_paths(HashMap::from([("/".to_string(), Uuid::nil())]));
+        server.publish(HashMap::from([(Uuid::nil(), state)]));
+    }
+
     fn at(server: &StreamServer, path: &str) -> String {
         format!("http://127.0.0.1:{}{}", server.port(), path)
     }
@@ -922,7 +1148,7 @@ mod tests {
     #[test]
     fn what_is_published_is_what_is_served() {
         let mut server = serving("");
-        server.publish(StreamState {
+        publish_one(&mut server, StreamState {
             running: true,
             chapters: vec![super::super::protocol::StreamChapter {
                 title: "Amazing Grace".to_string(),
@@ -941,7 +1167,7 @@ mod tests {
         assert_eq!(first.chapters[0].title, "Amazing Grace");
         assert_eq!(first.revision, 1, "the first change is the first revision");
 
-        server.publish(StreamState {
+        publish_one(&mut server, StreamState {
             running: true,
             ..StreamState::default()
         });
@@ -1100,8 +1326,11 @@ mod tests {
         use crate::logic::settings::PresentationDesign;
         use crate::logic::sourcefiles::{SourceFile, SourceFileType};
         use crate::logic::states::SelectedItemRepresentation;
-        use crate::logic::stream_view::StreamDefaults;
+        use crate::logic::stream_view::ViewDefaults;
         use cantara_songlib::slides::SlideSettings;
+
+        // The view the phones are, for this test.
+        let phones = uuid::Uuid::from_u128(4);
 
         let item = SelectedItemRepresentation::new_with_sourcefile(SourceFile {
             name: "Amazing Grace".to_string(),
@@ -1118,13 +1347,14 @@ mod tests {
                 max_lines: Some(2),
                 ..SlideSettings::default()
             },
-            &StreamDefaults {
+            &[ViewDefaults {
+                id: phones,
                 design: None,
                 slide_settings: Some(SlideSettings {
                     max_lines: Some(4),
                     ..SlideSettings::default()
                 }),
-            },
+            }],
                     &[],
 )
         .expect("a presentation");
@@ -1137,10 +1367,16 @@ mod tests {
             .as_ref()
             .expect("a position")
             .chapter_slide();
-        let (_, stream_slide) = presentation.stream_position().expect("a mapped position");
+        let (_, stream_slide) = presentation
+            .position_in(crate::logic::states::Division::View(phones))
+            .expect("a mapped position");
 
         let mut server = serving("");
-        server.publish(StreamState::of(&presentation, 0));
+        publish_one(&mut server, StreamState::of(
+            &presentation,
+            0,
+            crate::logic::states::Division::View(phones),
+        ));
 
         let served: StreamState = client()
             .get(at(&server, "/state"))
@@ -1247,7 +1483,7 @@ mod tests {
         use std::io::Read;
 
         let mut server = serving("");
-        server.publish(StreamState {
+        publish_one(&mut server, StreamState {
             running: true,
             chapters: vec![super::super::protocol::StreamChapter {
                 title: "Amazing Grace".to_string(),
@@ -1430,6 +1666,367 @@ mod tests {
         assert!(cookie.contains("HttpOnly"), "got: {cookie}");
         assert!(cookie.contains("SameSite=Lax"), "got: {cookie}");
         assert!(cookie.starts_with("cantara_stream=s3cret-session;"), "got: {cookie}");
+    }
+
+    /// Two views on one socket are two addresses showing different slides.
+    ///
+    /// The whole of 3b. Before this the server held one state and every
+    /// address was the same address: a second network view was a
+    /// configuration the settings accepted and nothing served.
+    #[test]
+    fn two_views_are_served_at_their_own_addresses() {
+        let mut server = serving("");
+        let pews = Uuid::from_u128(10);
+        let stage = Uuid::from_u128(11);
+
+        server.set_paths(HashMap::from([
+            ("/".to_string(), pews),
+            ("/stage".to_string(), stage),
+        ]));
+        server.publish(HashMap::from([
+            (
+                pews,
+                StreamState::waiting(0).with_html("<p>for the pews</p>".to_string()),
+            ),
+            (
+                stage,
+                StreamState::waiting(0).with_html("<p>for the stage</p>".to_string()),
+            ),
+        ]));
+
+        let asked = |view: Uuid| {
+            client()
+                .get(format!("{}?view={view}", at(&server, "/state")))
+                .send()
+                .expect("answers")
+                .text()
+                .expect("a body")
+        };
+
+        assert!(asked(pews).contains("for the pews"));
+        assert!(asked(stage).contains("for the stage"));
+    }
+
+    /// A view's own address serves its page, and tells that page which view it
+    /// is showing.
+    ///
+    /// Without the identity in the page the second address would fetch the
+    /// first view's state, and two addresses would be two ways to the same
+    /// slides.
+    #[test]
+    fn an_address_tells_its_page_which_view_it_shows() {
+        let mut server = serving("");
+        let stage = Uuid::from_u128(12);
+        server.set_paths(HashMap::from([("/stage".to_string(), stage)]));
+        server.publish(HashMap::from([(stage, StreamState::waiting(0))]));
+
+        let page = client()
+            .get(at(&server, "/stage"))
+            .send()
+            .expect("answers")
+            .text()
+            .expect("a body");
+
+        assert!(
+            page.contains(&stage.to_string()),
+            "the page was not told which view it is"
+        );
+        assert!(
+            !page.contains(VIEW_MARKER),
+            "the marker was left in the page"
+        );
+    }
+
+    /// An address whose view is not being served shows *nothing*, never
+    /// somebody else's view.
+    ///
+    /// This is what turned a stale offer into the worst possible symptom: the
+    /// fallback took whichever state came first out of a `HashMap`, so the
+    /// address the congregation had been given could show a stage monitor —
+    /// arbitrarily, and differently on the next start.
+    #[test]
+    fn an_unknown_view_is_never_shown_someone_elses() {
+        let mut server = serving("");
+        let stage = Uuid::from_u128(14);
+
+        // Only the stage is being served; nothing is at the bare address.
+        server.set_paths(HashMap::from([("/stage".to_string(), stage)]));
+        server.publish(HashMap::from([(
+            stage,
+            StreamState::waiting(0).with_html("<p>for the stage</p>".to_string()),
+        )]));
+
+        let body = client()
+            .get(format!("{}?view={}", at(&server, "/state"), Uuid::from_u128(99)))
+            .send()
+            .expect("answers")
+            .text()
+            .expect("a body");
+
+        assert!(
+            !body.contains("for the stage"),
+            "an address was shown a view that is not its own: {body}"
+        );
+    }
+
+    /// Where the bare address *is* being served, that is what an unknown view
+    /// falls back to — a viewer who typed the address without a path asked for
+    /// exactly that.
+    #[test]
+    fn an_unknown_view_falls_back_to_the_bare_address() {
+        let mut server = serving("");
+        let pews = Uuid::from_u128(15);
+
+        server.set_paths(HashMap::from([("/".to_string(), pews)]));
+        server.publish(HashMap::from([(
+            pews,
+            StreamState::waiting(0).with_html("<p>for the pews</p>".to_string()),
+        )]));
+
+        let body = client()
+            .get(format!("{}?view={}", at(&server, "/state"), Uuid::from_u128(99)))
+            .send()
+            .expect("answers")
+            .text()
+            .expect("a body");
+
+        assert!(body.contains("for the pews"), "got: {body}");
+    }
+
+    /// An address nobody was given is not an address.
+    ///
+    /// The fallback answers every path that is not a route, so it has to
+    /// refuse the ones that are not on offer — otherwise a guess at a name
+    /// would be served the service.
+    #[test]
+    fn an_address_that_is_not_on_offer_is_not_found() {
+        let mut server = serving("");
+        server.set_paths(HashMap::from([("/stage".to_string(), Uuid::from_u128(13))]));
+        server.publish(HashMap::from([(
+            Uuid::from_u128(13),
+            StreamState::waiting(0),
+        )]));
+
+        let response = client()
+            .get(at(&server, "/band"))
+            .send()
+            .expect("answers");
+
+        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+    }
+
+    /// The page arrives with the stylesheets of the components that drew the
+    /// slide in it.
+    ///
+    /// The markup a viewer is served is made by Cantara's own components, and
+    /// their rules live in Cantara's own stylesheets. Without them the slide is
+    /// correct and unstyled, which is the difference between "the same as the
+    /// projection" and "a wall of text". Nothing else would notice: the state
+    /// would be right, the markup would be right, and the screen would be
+    /// wrong.
+    #[test]
+    fn the_page_carries_the_stylesheets_of_what_it_shows() {
+        let page = dressed_viewer_page();
+
+        assert!(!page.contains(STYLE_MARKER), "the stylesheets were not put in");
+        // A rule from each of the three, so that dropping one is caught.
+        assert!(page.contains(".presentation"), "presentation.css is missing");
+        assert!(
+            page.contains(".presenter-text-panel"),
+            "the console's sheet is missing, so a monitor design's slide list is unstyled"
+        );
+        assert!(page.contains(".monitor-view"), "the monitor sheet is missing");
+    }
+
+    /// The page carries the script that fits a slide into its box.
+    ///
+    /// A slide's type is in points, so a slide dropped into a box that is not
+    /// a screen overflows it. The factor has to be measured — it was CSS for a
+    /// while, and the engine dropped the declaration whole — and the page is
+    /// where the measuring happens for a viewer.
+    #[test]
+    fn the_page_carries_the_script_that_fits_a_slide() {
+        let page = dressed_viewer_page();
+
+        assert!(!page.contains(SCALE_MARKER), "the script was not put in");
+        assert!(
+            page.contains("monitor-slide-stage"),
+            "the script does not look like the one that fits slides"
+        );
+    }
+
+    /// The page no longer draws a slide, so nothing in it may claim to.
+    ///
+    /// This is what keeps the duplication from creeping back: a second
+    /// renderer is easy to reintroduce a function at a time, and each one on
+    /// its own looks reasonable.
+    #[test]
+    fn the_page_does_not_draw_slides_any_more() {
+        for gone in ["function applyDesign", "function currentSlide", "function showMeta"] {
+            assert!(
+                !VIEWER_PAGE.contains(gone),
+                "{gone} is back: the page is drawing slides again"
+            );
+        }
+    }
+
+    /// What Cantara rendered is what a viewer is served.
+    ///
+    /// The whole point of the change: the page no longer decides what a slide
+    /// looks like, so a rendering that did not reach the viewer would leave
+    /// them with nothing at all.
+    #[test]
+    fn the_rendering_reaches_the_viewer() {
+        let mut server = serving("");
+        publish_one(&mut server, StreamState::waiting(1)
+                .with_html("<div class=\"presentation\">Amazing grace</div>".to_string()),);
+
+        let body = client()
+            .get(at(&server, "/state"))
+            .send()
+            .expect("answers")
+            .text()
+            .expect("a body");
+
+        assert!(
+            body.contains("Amazing grace"),
+            "the rendering did not reach the viewer: {body}"
+        );
+    }
+
+    /// Writes the page a viewer is served, with a real rendering in it, so it
+    /// can be opened in a browser and looked at.
+    ///
+    /// Ignored: it produces a file rather than asserting anything, and it is
+    /// how "does the stream look like the projection" is actually checked —
+    /// which is a question no assertion answers.
+    #[test]
+    #[ignore = "diagnostic output, not an assertion"]
+    fn dump_the_served_page() {
+        use crate::components::stream_render;
+
+        let slides = crate::logic::presentation::slides_from_song_content(
+            "#title: Amazing Grace\n\nAmazing grace how sweet the sound\nThat saved a wretch like me\n\n---\n\nI once was lost but now am found\nWas blind but now I see\n",
+            "Amazing Grace.song",
+            &cantara_songlib::slides::SlideSettings::default(),
+            "Amazing Grace",
+            &[],
+        )
+        .expect("the song builds into slides");
+        let chapter = crate::logic::states::SlideChapter::new(
+            slides,
+            crate::logic::sourcefiles::SourceFile {
+                name: "Amazing Grace".to_string(),
+                path: std::path::PathBuf::from("Amazing Grace.song"),
+                file_type: crate::logic::sourcefiles::SourceFileType::Song,
+                md5_hash: None,
+                relative_path: None,
+            },
+            None,
+            None,
+        );
+        // A PDF page as well as the song, because the page is the one whose
+        // proportions were wrong and geometry is what has to be looked at.
+        let pdf = crate::logic::states::SlideChapter::new(
+            vec![cantara_songlib::slides::Slide::new_pdf_page_slide(
+                "/srv/Handout.pdf".to_string(),
+                1,
+            )],
+            crate::logic::sourcefiles::SourceFile {
+                name: "Handout".to_string(),
+                path: std::path::PathBuf::from("Handout.pdf"),
+                file_type: crate::logic::sourcefiles::SourceFileType::Pdf,
+                md5_hash: None,
+                relative_path: None,
+            },
+            None,
+            None,
+        );
+        let mut running = crate::logic::states::RunningPresentation::new(vec![chapter, pdf]);
+        running.jump_to(0, 0);
+
+        // A monitor design, because its layouts are what is worth looking at.
+        // Change the layout here to look at the other one.
+        let design = crate::logic::settings::PresentationDesign {
+            name: "Stage".to_string(),
+            description: String::new(),
+            presentation_design_settings:
+                crate::logic::settings::PresentationDesignSettings::Monitor(
+                    crate::logic::settings::MonitorDesign {
+                        layout: crate::logic::settings::MonitorLayout::Speaker {
+                            next_slide_share: 0.25,
+                            next_position: crate::logic::settings::SpeakerNextPosition::Right,
+                        },
+                        // A clock, so the diagnostic exercises the path that
+                        // re-renders once a second.
+                        widgets: vec![crate::logic::settings::MonitorWidget {
+                            kind: crate::logic::settings::WidgetKind::Clock { with_date: false },
+                            placement: crate::logic::settings::WidgetPlacement::TopRight,
+                        }],
+                        ..crate::logic::settings::MonitorDesign::default()
+                    },
+                ),
+        };
+        let html = stream_render::for_network(&stream_render::render_presentation(
+            &running,
+            Some(design),
+        ));
+
+        // The stylesheets the page carries, around the rendering and nothing
+        // else. The page's own script is left out on purpose: without a server
+        // to talk to it reports the connection lost and clears the stage,
+        // which says nothing about how a slide looks.
+        let page = format!(
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\">\
+             <style>html,body{{margin:0;height:100%;background:#000;}}</style>\
+             <style>{PRESENTATION_CSS}</style><style>{CONSOLE_CSS}</style>\
+             <style>{MONITOR_CSS}</style></head>\
+             <body><div style=\"position:relative;width:100vw;height:100vh;\">{html}</div>\
+             <script>{SLIDE_SCALE_JS}</script></body></html>"
+        );
+
+        let out = std::path::Path::new("target").join("served_page.html");
+        std::fs::write(&out, page).expect("the page is writable");
+        println!("wrote {}", out.display());
+    }
+
+    /// Every path this router claims is one a view cannot be given.
+    ///
+    /// This router is merged onto the same socket as the presenter console's,
+    /// so its routes sit at the top level where a user-defined view path would
+    /// also sit. `/state` is not an obvious thing to call a stage monitor, but
+    /// `/video` is, and a view given one of these names is two handlers on one
+    /// path — which is a panic in the server thread at the moment a service
+    /// starts, with the helper still reporting itself as up.
+    ///
+    /// The list is in `crate::logic::settings`, which cannot name this module
+    /// on every target. So the link between the two is this test: a route
+    /// added above without being reserved there fails here.
+    #[test]
+    fn the_paths_this_router_claims_are_refused_to_views() {
+        use crate::logic::settings::check_network_path;
+
+        // The path each route declares, with any parameter segment dropped:
+        // `/media/{id}` claims `/media`, and a view called `/media` collides
+        // with it just as surely.
+        //
+        // Refused, rather than refused for a particular reason: `/abcjs.js` is
+        // turned away for the dot in it before the reserved list is ever
+        // consulted, and which of the two rules catches a path does not matter
+        // to the server that would otherwise panic on it.
+        for claimed in [
+            "/state",
+            "/events",
+            "/abcjs.js",
+            "/media",
+            "/video",
+            "/login",
+        ] {
+            assert!(
+                check_network_path(claimed).is_err(),
+                "{claimed} is served here but could be given to a view"
+            );
+        }
     }
 }
 

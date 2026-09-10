@@ -349,7 +349,11 @@ fn App() -> Element {
     //
     // Publishing is cheap and does nothing at all when streaming is off, so
     // this may follow every change without asking first.
-    #[cfg(not(target_arch = "wasm32"))]
+    //
+    // Only where there *is* a network side: `network_host` is desktop-only, so
+    // on a phone this whole block was a context provider nobody consumes and
+    // an effect that subscribed to two signals in order to do nothing.
+    #[cfg(feature = "desktop")]
     {
         // Counts up when streaming is switched on or off. Turning the switch is
         // not a change to the presentation, so without something for the
@@ -357,6 +361,7 @@ fn App() -> Element {
         // service would publish nothing until the next slide change.
         let stream_generation: Signal<u64> = use_context_provider(|| Signal::new(0));
         let running_presentations: Signal<Vec<RunningPresentation>> = use_context();
+
         use_effect(move || {
             use logic::stream::protocol::StreamState;
 
@@ -373,6 +378,31 @@ fn App() -> Element {
             // What is running, for both services at once: the network
             // server works out from it what a viewer is shown and hands the
             // same value to the console. See [`logic::network_server`].
+            // What the helper is serving, kept in step with the settings.
+            //
+            // The list is settled when the switch is thrown, and a view added
+            // or re-addressed during a service would otherwise never reach the
+            // helper: its address would answer "not found", and an address the
+            // helper did not know would be shown some other view's slides.
+            // Cheap and quiet when nothing has changed — see `serve_views`.
+            #[cfg(feature = "desktop")]
+            logic::network_host::serve_views(
+                settings
+                    .read()
+                    .views
+                    .iter()
+                    .filter_map(|view| match &view.output {
+                        logic::settings::ViewOutput::Network { path } => {
+                            Some(logic::network_server::ServedView {
+                                path: path.clone(),
+                                id: view.id,
+                            })
+                        }
+                        logic::settings::ViewOutput::Screen { .. } => None,
+                    })
+                    .collect(),
+            );
+
             #[cfg(feature = "desktop")]
             logic::network_host::publish(presentations.first().cloned());
 
@@ -385,13 +415,25 @@ fn App() -> Element {
                 // Which pictures are wanted is decided from the same state the
                 // server will build, by the same function, so the names match
                 // without either side being told them.
+                // Which view the phones are being shown. The pictures a
+                // viewer will ask for are that view's, not the projection's —
+                // a view with a division of its own has slides the wall never
+                // shows.
+                let division = settings
+                    .read()
+                    .stream_view()
+                    .map(|view| logic::states::Division::View(view.id))
+                    .unwrap_or(logic::states::Division::Projection);
+
                 let state = StreamState::of(
                     presentations.first().unwrap_or(&RunningPresentation::new(vec![])),
                     0,
+                    division,
                 );
                 let wanted = logic::network_host::media_wanted(state.media());
                 if !wanted.is_empty() {
-                    let sources = logic::stream::protocol::media_sources(&presentations);
+                    let sources =
+                        logic::stream::protocol::media_sources(&presentations, &[division]);
                     spawn(async move {
                         for id in wanted {
                             let Some(source) = sources.get(&id) else {
@@ -403,6 +445,21 @@ fn App() -> Element {
                         }
                     });
                 }
+            }
+        });
+
+        // A clock does not change when the presentation does.
+        //
+        // A monitor view served over the network is HTML rendered when
+        // something changes, and the passing of a second is not a change — so
+        // its clock and its chapter timer stood still between slides. This
+        // brings them round. It costs nothing unless a view being served
+        // actually shows the time; see `refresh_time_widgets`.
+        #[cfg(feature = "desktop")]
+        use_future(move || async move {
+            loop {
+                logic::timer::sleep(std::time::Duration::from_millis(1000)).await;
+                logic::network_host::refresh_time_widgets();
             }
         });
 
@@ -634,7 +691,7 @@ fn App() -> Element {
 /// A PDF page has to be rendered first, which happens in this window's own
 /// page and needs nothing to be on screen — the same route the PowerPoint
 /// export takes. See [`logic::pdf::page_image`].
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "desktop")]
 async fn render_for_stream(source: &str) -> Option<(Vec<u8>, &'static str)> {
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
@@ -662,5 +719,5 @@ async fn render_for_stream(source: &str) -> Option<(Vec<u8>, &'static str)> {
 /// A phone is not a projector: a full-resolution page would be several
 /// megabytes over a hall's wi-fi for no visible gain on a screen a few inches
 /// across.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "desktop")]
 const STREAM_PICTURE_WIDTH: u32 = 1280;

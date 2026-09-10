@@ -366,6 +366,37 @@ pub fn PresentationPage() -> Element {
         });
     }
 
+    // The monitor design this window draws, if it draws one.
+    //
+    // A window is told which view it is showing when it is opened — see
+    // `ShownView` in `selection_components` — and reads the design out of the
+    // settings as they now stand, so that editing the design during a service
+    // reaches the screen showing it.
+    //
+    // A window with no `ShownView` is not one of the view list's: the routed
+    // presentation page, the web build's synced tab, a preview. Those are
+    // audience views and always were.
+    // Asked for rather than demanded. `use_settings` is a `use_context` that
+    // *panics* when nothing provided one, and this page is drawn in places
+    // that may not have: a window opened on the desktop is a `VirtualDom` of
+    // its own and inherits no context. That is exactly what happened —
+    // "Encountered panic: Any { .. }" the moment a presentation started.
+    //
+    // The window is given the settings now (see `open_view_window`), so this
+    // ordinarily finds them. It stays an `Option` because a page that cannot
+    // read the settings should draw the presentation the way it always did,
+    // not bring down the window in front of a congregation.
+    let settings_for_view = use_hook(|| {
+        try_consume_context::<Signal<crate::logic::settings::Settings>>()
+    });
+    let shown_monitor_design: Memo<Option<crate::logic::settings::MonitorDesign>> = use_memo(
+        move || {
+            let index =
+                try_consume_context::<crate::components::selection_components::ShownView>()?;
+            settings_for_view?.read().monitor_design_of_view(index.0)
+        },
+    );
+
     // Context menu state
     let mut show_context_menu = use_signal(|| false);
     let mut context_menu_x = use_signal(|| 0.0f64);
@@ -474,7 +505,31 @@ pub fn PresentationPage() -> Element {
                     _ => {}
                 }
             },
-            PresentationRendererComponent { running_presentation }
+            // What this window draws depends on the design the view it is
+            // showing was given: an audience design is the projection Cantara
+            // has always drawn, a monitor design is the other reading of the
+            // same presentation. See `docs/specs/0003-add-monitor-view.md`.
+            if let Some(monitor_design) = shown_monitor_design() {
+                crate::components::monitor_view::MonitorViewComponent {
+                    running_presentation,
+                    monitor_design: monitor_design.clone(),
+                    // The monitor's own design, handed back as a
+                    // `PresentationDesign` because that is what the slide
+                    // renderer takes. Without this a slide drawn on a stage
+                    // monitor would come out in Cantara's default colours
+                    // rather than the ones the design was set up with.
+                    slide_design: crate::logic::settings::PresentationDesign {
+                        name: String::new(),
+                        description: String::new(),
+                        presentation_design_settings:
+                            crate::logic::settings::PresentationDesignSettings::Monitor(
+                                monitor_design,
+                            ),
+                    },
+                }
+            } else {
+                PresentationRendererComponent { running_presentation }
+            }
 
             // Where a video is operated from when there is no console to
             // operate it in. A video nobody can pause is not something to put
@@ -583,7 +638,21 @@ pub fn PresentationRendererComponent(
             None => 0,
         });
 
-    let mut presentation_is_visible = use_signal(|| false);
+    // Starts *shown*, and is flipped off and on again to replay the entry
+    // animation — see the timer below and `onmounted`.
+    //
+    // It used to start hidden, so the slide appeared only once the element had
+    // mounted. That is a browser event, and a rendering that never gets one
+    // therefore had no slide in it at all: the network stream, which renders
+    // these very components to HTML (see
+    // [`crate::components::stream_render`]), came out as a background and
+    // nothing else. Content that exists only after a mount is content no
+    // server-side rendering can produce.
+    //
+    // The animation is unaffected: it is a CSS class on the slide container,
+    // and a CSS animation plays when the element is inserted into the document
+    // — which happens on the first render either way.
+    let mut presentation_is_visible = use_signal(|| true);
 
     let is_black_screen =
         use_memo(move || running_presentation.read().is_black_screen);
@@ -702,7 +771,13 @@ pub fn PresentationRendererComponent(
         let timer_opt = running_presentation.read().get_current_timer_settings();
         if let Some(timer) = timer_opt {
             let after_last = timer.after_last_slide;
-            let seconds = if timer.timer_seconds == 0 { 1 } else { timer.timer_seconds } as u64;
+            // Read through the setting's own bound rather than used as it
+            // stands: `setTimeout` takes a signed 32-bit count of
+            // milliseconds, and a value past that fires at once rather than
+            // never. See [`SlideTimerSettings::usable_seconds`].
+            let seconds =
+                crate::logic::settings::SlideTimerSettings::usable_seconds(timer.timer_seconds)
+                    as u64;
             let ms = seconds * 1000;
 
             spawn(async move {
@@ -1377,6 +1452,17 @@ pub(crate) fn AbcNotationRenderer(
             id: "{container_id}",
             class: "abc-notation-container",
             style: "{notation_style}",
+            // The staff's own source, in the markup rather than only in the
+            // handler below.
+            //
+            // The handler is what engraves it *here*, in a web view that
+            // mounts elements. A rendering made without one — the network
+            // stream, which renders these components to HTML — has no mount
+            // event and would otherwise carry an empty box with the notation
+            // nowhere in it. With these the markup says what it is, and
+            // whoever displays it can engrave it with the same library.
+            "data-abc": "{abc_notation}",
+            "data-vocal-font": "{vocal_font}",
             onmounted: move |_| {
                 // Every value is passed through serde so that quotes and
                 // newlines in the notation cannot break out of the script.
@@ -1493,7 +1579,16 @@ fn slide_container_style(slide_content: &SlideContent) -> &'static str {
     match slide_content {
         // A video is fitted into the cell like a picture, so it needs one with
         // a height: `height: 100%` against a parent that has none is zero.
-        SlideContent::SimplePicture(_) | SlideContent::Video(_) => "height: 100%;",
+        //
+        // A PDF page is here for the same reason, and it took a browser to
+        // notice: on this machine pdf.js sizes the canvas itself, so the cell
+        // having no height never showed. Over the network the page is an
+        // image, and an image told to be `100%` of a parent with no height is
+        // left at its own size — which is exactly how a page came out sitting
+        // small in the middle of the design's background.
+        SlideContent::SimplePicture(_) | SlideContent::Video(_) | SlideContent::PdfPage(_) => {
+            "height: 100%;"
+        }
         // A markdown slide scrolls, so it needs the whole cell to scroll
         // inside; the same slide holding plain lyrics is laid out by the
         // design and must not be stretched.
@@ -2252,18 +2347,31 @@ fn SimplePictureSlideComponent(
     };
 
     rsx! {
-        div { style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 2;",
+        div { style: "{PICTURE_FRAME_STYLE}",
             img {
                 src: "{source}",
-                // As large as the slide allows, never distorted. `max-width`
-                // alone only ever shrinks, so a picture smaller than the slide
-                // was left sitting in the middle at its own size instead of
-                // filling the screen.
-                style: "width: 100%; height: 100%; object-fit: contain;",
+                style: "{PICTURE_STYLE}",
             }
         }
     }
 }
+
+/// The box a picture is fitted into: the whole cell, centred.
+///
+/// Shared with [`crate::components::stream_render`], which turns a PDF page
+/// into a picture for the network — a page *is* a picture there, so it has to
+/// be fitted the same way rather than by a second set of rules that happen to
+/// look similar.
+pub(crate) const PICTURE_FRAME_STYLE: &str =
+    "width: 100%; height: 100%; display: flex; align-items: center; \
+     justify-content: center; z-index: 2;";
+
+/// The picture itself: as large as the slide allows, never distorted.
+///
+/// `max-width` alone only ever shrinks, so a picture smaller than the slide was
+/// left sitting in the middle at its own size instead of filling the screen.
+/// `object-fit: contain` is what keeps the proportions while it does.
+pub(crate) const PICTURE_STYLE: &str = "width: 100%; height: 100%; object-fit: contain;";
 
 /// Which document a slide shows a page of, if it shows one.
 ///
@@ -2327,6 +2435,18 @@ pub(crate) fn PdfPageCanvas(
     rsx! {
         canvas {
             id: "{canvas_id}",
+            // Which page this is, in the markup rather than only in the effect
+            // above.
+            //
+            // The effect is what draws it *here*, with pdf.js, into a canvas.
+            // A rendering made without a browser — the network stream, which
+            // renders these components to HTML — can do neither, and carried
+            // an empty box: a viewer saw the design's background and nothing
+            // on it. With these the markup says which page it depicts, and
+            // whoever displays it can put the picture of that page in its
+            // place. See [`crate::components::stream_render`].
+            "data-pdf": "{pdf_path}",
+            "data-page": "{page_num}",
             // Not shown until a page has been drawn onto it, so an empty
             // canvas is never part of the picture.
             style: "display: block; max-width: 100%; max-height: 100%; visibility: hidden;",
@@ -2493,10 +2613,16 @@ pub fn StaticSlideRendererComponent(
     #[props(default)]
     blacked_out: bool,
 ) -> Element {
-    let pds = match presentation_design.presentation_design_settings {
-        PresentationDesignSettings::Template(ref template) => template.clone(),
-        _ => PresentationDesignTemplate::default(),
-    };
+    // A monitor design has a template too, and this is asked to draw one: the
+    // speaker layout renders the slide it is showing with the design it was
+    // given. Matching on `Template` alone gave a monitor design the *default*
+    // template, so a slide on a stage monitor came out in Cantara's colours
+    // rather than the ones the design was set up with.
+    let pds = presentation_design
+        .presentation_design_settings
+        .template()
+        .cloned()
+        .unwrap_or_default();
 
     // Asked for before anything is drawn, and drawn without it until it is
     // there — this view must never wait for a file.

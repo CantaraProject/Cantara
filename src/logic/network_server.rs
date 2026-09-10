@@ -200,7 +200,27 @@ pub struct Configuration {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Offer {
     pub viewer: Option<String>,
+    /// Every address the stream serves, and the view behind each.
+    ///
+    /// Needed because a chapter holds a division per view — see
+    /// [`crate::logic::states::Division`] — so this process has to be told not
+    /// only *that* it is streaming but which slides belong at which address.
+    ///
+    /// Empty before Cantara has said anything, which serves nothing: a viewer
+    /// who opens an address between services is told to wait, as they always
+    /// were.
+    #[serde(default)]
+    pub views: Vec<ServedView>,
     pub console: Option<String>,
+}
+
+/// One address the stream is served at, and the view it shows.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ServedView {
+    /// Where a browser finds it: `/`, `/stage`, `/band`.
+    pub path: String,
+    /// Which view's slides it shows, as the running order names it.
+    pub id: uuid::Uuid,
 }
 
 /// What travels from the parent to the child.
@@ -211,7 +231,18 @@ pub enum ToChild {
     /// Everything a viewer is shown is worked out from this, here — see
     /// [`crate::logic::stream::protocol::StreamState::of`]. The console gets
     /// the same value, because it is the same presentation.
-    Presentation(Box<Option<RunningPresentation>>),
+    Presentation {
+        presentation: Box<Option<RunningPresentation>>,
+        /// The same presentation as HTML, drawn by Cantara's own components,
+        /// once per view being served.
+        ///
+        /// This process cannot render it: the pictures come from a cache
+        /// filled off the library on disk, and which design a view uses is a
+        /// setting — and the helper has neither, deliberately. See
+        /// [`crate::components::stream_render`].
+        #[serde(default)]
+        rendered: std::collections::HashMap<uuid::Uuid, String>,
+    },
 
     /// A picture a slide refers to, rendered into bytes.
     ///
@@ -320,6 +351,13 @@ fn read_line(socket: &TcpStream) -> Result<String, String> {
 /// console. One was found running an hour later, which is exactly the kind of
 /// thing a helper process must never do.
 fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> {
+    // What this process is serving, to begin with.
+    //
+    // The offer arrives *twice* in the ordinary course of things: once here,
+    // in the configuration the helper is started with, and again as a message
+    // whenever the operator changes it. Taken before the configuration is
+    // taken apart below.
+    let started_with = configuration.offer.clone();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -451,6 +489,15 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
             });
         }
 
+        // What this process is serving, to begin with.
+        //
+        // The offer arrives *twice* in the ordinary course of things: once
+        // here, in the configuration the helper is started with, and again as
+        // a message whenever the operator changes it. Starting from the
+        // default meant the first of those was dropped — and since throwing
+        // the switch is what *starts* the helper, no message followed it. The
+        // helper therefore served no views at all: every address answered
+        // "not found" and the bare one said the presentation had not begun.
         // Everything Cantara has to say. Reading this is also how the helper
         // notices that Cantara has gone: the socket ends, and so does the
         // helper — see [`crate::logic::network_host`], which is the only thing
@@ -459,7 +506,14 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
             use tokio::io::AsyncBufReadExt;
 
             let mut server = server;
-            let mut shown = Shown::default();
+            let mut shown = Shown {
+                offer: started_with,
+                ..Shown::default()
+            };
+            // The addresses are answered from a lookup rather than from routes
+            // — see `page_at` — so they have to be set before the first
+            // request, not only when a presentation first arrives.
+            shown.publish(&mut server);
             let mut reader = tokio::io::BufReader::new(from_parent);
             let mut line = String::new();
 
@@ -492,6 +546,13 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
 #[derive(Default)]
 struct Shown {
     presentation: Option<RunningPresentation>,
+    /// What this process is serving, so that it knows which view's slides a
+    /// viewer is being shown. Kept in step by [`ToChild::Offering`].
+    offer: Offer,
+    /// The presentation as HTML, as Cantara last rendered it *for each view*.
+    /// Passed straight through into what viewers are served — see
+    /// [`ToChild::Presentation`].
+    rendered: std::collections::HashMap<uuid::Uuid, String>,
     /// Where the video on the current slide has got to. Sent several times a
     /// second while one is playing and not at all otherwise.
     video: Option<(f64, f64, bool)>,
@@ -500,8 +561,12 @@ struct Shown {
 impl Shown {
     fn apply(&mut self, message: ToChild, server: &mut StreamServer, console: &Arc<Shared>) {
         match message {
-            ToChild::Presentation(presentation) => {
+            ToChild::Presentation {
+                presentation,
+                rendered,
+            } => {
                 self.presentation = *presentation;
+                self.rendered = rendered;
                 // The console works on the presentation itself; the viewers
                 // are shown what is made of it below.
                 remote_console::publish(self.presentation.clone());
@@ -543,12 +608,18 @@ impl Shown {
             }
 
             ToChild::Offering(offer) => {
+                self.offer = offer.clone();
                 // The operator threw one of the switches. The server stays up
                 // either way; what changes is what it answers, and a console
                 // being driven from a browser has to hear about it — it shows
                 // the stream only while there is one.
                 offering_viewers(offer.viewer.is_some());
                 server.set_viewer(offer.viewer);
+                // The addresses and the per-view states both come out of the
+                // offer, so a change to it has to reach them. Without this a
+                // view renamed mid-service would keep answering at its old
+                // address and not at its new one.
+                self.publish(server);
                 if let Ok(mut password) = console.password.write() {
                     *password = offer.console;
                 }
@@ -556,14 +627,53 @@ impl Shown {
         }
     }
 
+    /// Every set of slides this process is serving, by the view they belong
+    /// to.
+    ///
+    /// One place, so that the states, the pictures and the videos cannot
+    /// disagree about which view a viewer is looking at.
+    fn divisions(&self) -> Vec<(uuid::Uuid, crate::logic::states::Division)> {
+        self.offer
+            .views
+            .iter()
+            .map(|view| (view.id, crate::logic::states::Division::View(view.id)))
+            .collect()
+    }
+
     /// Tells the viewers where things stand.
     fn publish(&self, server: &mut StreamServer) {
-        let state = match &self.presentation {
-            Some(running) => StreamState::of(running, 0).with_live_video(self.video),
-            // Between services. The address stays open and says so.
-            None => StreamState::waiting(0),
-        };
-        server.publish(state);
+        // Where each address leads. Set on every publish rather than only when
+        // the offer changes: it is a map of a handful of entries, and one
+        // place that cannot fall out of step is worth more than the saving.
+        server.set_paths(
+            self.offer
+                .views
+                .iter()
+                .map(|view| (view.path.clone(), view.id))
+                .collect(),
+        );
+
+        let states = self
+            .divisions()
+            .into_iter()
+            .map(|(id, division)| {
+                let state = match &self.presentation {
+                    Some(running) => StreamState::of(running, 0, division)
+                        .with_live_video(self.video)
+                        .with_html(self.rendered_for(id)),
+                    // Between services. The address stays open and says so.
+                    None => StreamState::waiting(0),
+                };
+                (id, state)
+            })
+            .collect();
+
+        server.publish(states);
+    }
+
+    /// The rendering Cantara made for one view.
+    fn rendered_for(&self, view: uuid::Uuid) -> String {
+        self.rendered.get(&view).cloned().unwrap_or_default()
     }
 
     /// Says where the videos of this service are, so the server can serve them
@@ -578,10 +688,21 @@ impl Shown {
         let Some(running) = &self.presentation else {
             return;
         };
-        let state = StreamState::of(running, 0);
-        let sources = crate::logic::stream::protocol::media_sources(std::slice::from_ref(running));
+        let divisions: Vec<_> = self
+            .divisions()
+            .into_iter()
+            .map(|(_, division)| division)
+            .collect();
+        let sources =
+            crate::logic::stream::protocol::media_sources(std::slice::from_ref(running), &divisions);
 
-        for id in state.videos() {
+        // Every division's videos, since a view may show one the wall does not.
+        let wanted: std::collections::HashSet<String> = divisions
+            .iter()
+            .flat_map(|&division| StreamState::of(running, 0, division).videos())
+            .collect();
+
+        for id in wanted {
             if server.has_video(&id) {
                 continue;
             }
@@ -683,7 +804,14 @@ fn video_paths(presentation: Option<&RunningPresentation>) -> std::collections::
     };
 
     for chapter in &presentation.presentation {
-        for slide in chapter.slides.iter().chain(chapter.slides_for_stream()) {
+        // Every division's slides, not only the projection's: a view may be
+        // shown a video the wall is not, and the server has to be able to find
+        // the file either way.
+        let every_division = chapter
+            .slides
+            .iter()
+            .chain(chapter.view_slides.values().flat_map(|view| view.slides.iter()));
+        for slide in every_division {
             if let SlideContent::Video(video) = &slide.slide_content {
                 paths.insert(video.video_path.clone());
             }
@@ -700,18 +828,25 @@ fn router(shared: Arc<Shared>) -> Router {
     // console is at `/console`, which is what the panel shows. Two handlers
     // for one path is a panic in the server thread, and the helper goes on
     // reporting itself as up while answering nothing.
+    // The paths are named by the constants the view settings validate against,
+    // so that "which paths are taken" is stated once. A path this router
+    // claims but that list does not know about is a path a user can be allowed
+    // to type — and then this function panics, at the moment a service starts.
     Router::new()
-        .route("/console", get(page))
-        .route("/console/login", post(login))
+        .route(crate::logic::settings::CONSOLE_PATH, get(page))
+        .route(&format!("{}/login", crate::logic::settings::CONSOLE_PATH), post(login))
         .route(
-            "/console/ws",
+            &format!("{}/ws", crate::logic::settings::CONSOLE_PATH),
             get(
                 move |upgrade: WebSocketUpgrade, headers: HeaderMap, State(shared)| {
                     socket(pool, shared, upgrade, headers)
                 },
             ),
         )
-        .route("/assets/{*path}", get(asset))
+        .route(
+            &format!("{}/{{*path}}", crate::logic::settings::ASSETS_PREFIX),
+            get(asset),
+        )
         .route(
             &format!("/{}/{{*path}}", crate::logic::video::VIDEO_HANDLER),
             get(video),
@@ -1046,5 +1181,55 @@ mod tests {
         // videos of the service that has finished go with it.
         shared.set_videos(video_paths(None));
         assert!(!shared.may_serve_video("clip.mp4"));
+    }
+
+    /// The router builds at all.
+    ///
+    /// `Router::route` panics when two handlers claim one path, and on a path
+    /// pattern it cannot parse. Both happen in the server thread at the moment
+    /// a service starts, and the helper then goes on reporting itself as up
+    /// while answering nothing. Nothing else in these tests builds the router,
+    /// so without this the paths could be broken and every test would pass.
+    #[test]
+    fn the_router_builds() {
+        let _ = router(Arc::new(shared_switched_off()));
+    }
+
+    /// The paths are composed from [`crate::logic::settings::CONSOLE_PATH`]
+    /// and [`crate::logic::settings::ASSETS_PREFIX`] rather than written out,
+    /// so that the view-path validation and this router cannot disagree about
+    /// what is taken. This is what pins the composition: a browser that has
+    /// been told the console is at `/console` has to find it there, and the
+    /// remote console's own glue names these paths too.
+    #[test]
+    fn the_paths_are_composed_into_the_addresses_browsers_are_given() {
+        use crate::logic::settings::{ASSETS_PREFIX, CONSOLE_PATH};
+
+        assert_eq!(CONSOLE_PATH, "/console");
+        assert_eq!(format!("{CONSOLE_PATH}/login"), "/console/login");
+        assert_eq!(format!("{CONSOLE_PATH}/ws"), "/console/ws");
+        assert_eq!(format!("{ASSETS_PREFIX}/{{*path}}"), "/assets/{*path}");
+    }
+
+    /// Every path this router claims has to be one a view cannot be given.
+    ///
+    /// The two lists are the same constants, which is the point — this is the
+    /// test that says so, and that would fail if somebody added a route here
+    /// without adding it to what the settings refuse.
+    #[test]
+    fn the_paths_the_router_claims_are_refused_to_views() {
+        use crate::logic::settings::{PathProblem, check_network_path};
+
+        for claimed in [
+            crate::logic::settings::CONSOLE_PATH,
+            crate::logic::settings::ASSETS_PREFIX,
+            &format!("/{}", crate::logic::video::VIDEO_HANDLER),
+        ] {
+            assert_eq!(
+                check_network_path(claimed),
+                Err(PathProblem::Reserved),
+                "{claimed} is served here but could be given to a view"
+            );
+        }
     }
 }

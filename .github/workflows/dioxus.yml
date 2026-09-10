@@ -35,32 +35,8 @@ jobs:
         uses: cargo-bins/cargo-binstall@main
       - name: Run npm install
         run: npm install
-      # `--locked` is not optional here, and its absence is what broke this job.
-      #
-      # When the prebuilt `dx` cannot be fetched, binstall falls back to
-      # building dioxus-cli from source — and without `--locked` cargo throws
-      # away the version's own lockfile and resolves every dependency to the
-      # newest compatible release. That is how a CI run that changed nothing
-      # here started failing: `git2` 0.21 dropped `Cred::credential_helper`,
-      # `auth-git2` still calls it, and dioxus-cli picked up both. Its lockfile
-      # names the versions the release was built against; `--locked` is what
-      # makes cargo read it.
-      #
-      # The version is pinned for the same reason — so that a new dioxus-cli
-      # cannot arrive on its own between two runs. Keep it in step with the
-      # `dioxus` version in Cargo.toml.
-      - name: Install dioxus-cli (macOS)
-        if: matrix.os == 'macos-latest'
-        run: cargo install dioxus-cli --version ${{ env.DIOXUS_CLI_VERSION }} --locked
-      - name: Install Rust LLVM tools (macOS)
-        if: matrix.os == 'macos-latest'
-        run: rustup component add llvm-tools-preview
-      - name: Install dioxus-cli (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install dioxus-cli
         run: cargo binstall -y --locked dioxus-cli@${{ env.DIOXUS_CLI_VERSION }}
-      - name: Install dioxus-cli (Windows)
-        if: matrix.os == 'windows-latest'
-        run: cargo install dioxus-cli --version ${{ env.DIOXUS_CLI_VERSION }} --locked
       - name: Install dependencies under Linux
         if: matrix.os == 'ubuntu-latest'
         run: |-
@@ -87,6 +63,9 @@ jobs:
           sudo mkdir -p /usr/local/opt/openssl@3/lib
           sudo ln -sf $(brew --prefix openssl@3)/lib/libssl.3.dylib /usr/local/opt/openssl@3/lib/
           sudo ln -sf $(brew --prefix openssl@3)/lib/libcrypto.3.dylib /usr/local/opt/openssl@3/lib/
+      - name: Install Rust LLVM tools under macOS
+        if: matrix.os == 'macos-latest'
+        run: rustup component add llvm-tools-preview
       - name: Run tests
         env:
           # OpenSSL environment variables
@@ -181,6 +160,10 @@ jobs:
           rustup target add aarch64-linux-android
           rustup target add armv7-linux-androideabi
           rustup target add x86_64-linux-android
+      - name: Run cargo test
+        run: cargo test
+      - name: Run cargo clippy
+        run: cargo clippy -- -D warnings
       - name: Build Android release
         run: dx build --platform android --release
       - name: Assemble APK via Gradle

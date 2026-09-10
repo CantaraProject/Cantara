@@ -92,8 +92,13 @@ pub mod pdf;
 pub mod pdf_pages;
 
 /// Offering the running presentation to browsers on the local network.
-/// There is no server in a browser, so the web build has none of this.
-#[cfg(not(target_arch = "wasm32"))]
+///
+/// Only a desktop build. There is no server in a browser, and a phone has no
+/// network side either — [`network_host`] and [`network_server`], which are
+/// the only things that put one up, are gated the same way. Compiled more
+/// widely than that it is a protocol and a server nothing can reach, and every
+/// item in it warns as unused on the builds that cannot use it.
+#[cfg(feature = "desktop")]
 pub mod stream;
 pub mod export;
 pub mod fonts;

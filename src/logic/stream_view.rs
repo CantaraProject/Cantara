@@ -24,46 +24,52 @@ use cantara_songlib::slides::{Slide, SlideContent, SlideSettings};
 
 use crate::logic::settings::PresentationDesign;
 
-/// What an element of the service falls back on for the stream when it names
+/// What an element of the service falls back on for one view when it names
 /// nothing of its own.
 ///
 /// Both halves are optional and independent: a service may well want a lighter
 /// design on the phones and the very same slide division, or the other way
 /// round. `None` in either means "whatever the projection does" — which is the
-/// ordinary case and costs nothing, since the stream then shows the
-/// projection's own slides rather than a second set of them.
-#[derive(Clone, PartialEq, Default)]
-pub struct StreamDefaults {
+/// ordinary case and costs nothing, since the view then shows the projection's
+/// own slides rather than a second set of them.
+///
+/// This was `StreamDefaults`, singular, from when a service had exactly one
+/// second output. A view carries its own identity so that a chapter can hold a
+/// division per view — see [`crate::logic::states::SlideChapter::view_slides`].
+#[derive(Clone, PartialEq, Debug)]
+pub struct ViewDefaults {
+    /// Which view this is, as the running order will name it.
+    pub id: uuid::Uuid,
     pub design: Option<PresentationDesign>,
     pub slide_settings: Option<SlideSettings>,
 }
 
-impl StreamDefaults {
-    /// What the service has been set up to send, generally.
+impl ViewDefaults {
+    /// What every view of the service has been set up to show.
     ///
     /// The two choices are kept as indices into the lists the user maintains,
-    /// so that editing a design reaches the phones the same way it reaches the
+    /// so that editing a design reaches a view the same way it reaches the
     /// wall. An index pointing past the end of its list — a design deleted
     /// since it was chosen — is read as "no choice" rather than as a reason to
     /// fall over in the middle of a service.
-    pub fn of(settings: &crate::logic::settings::Settings) -> StreamDefaults {
-        StreamDefaults {
-            design: settings
-                .stream
-                .design_index
-                .and_then(|index| settings.presentation_designs.get(index).cloned()),
-            slide_settings: settings
-                .stream
-                .slide_settings_index
-                .and_then(|index| {
-                    settings
-                        .song_slide_settings
-                        .get(index)
-                        .map(|named| named.settings.clone())
-                }),
-        }
+    ///
+    /// The reference view is left out: it *is* the projection, and a division
+    /// of the projection against itself is not a thing. Every other view is
+    /// included even where it names nothing, because a view that names nothing
+    /// still has to be answerable — and building nothing for it is cheap.
+    pub fn all(settings: &crate::logic::settings::Settings) -> Vec<ViewDefaults> {
+        settings
+            .views
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != settings.reference_view_index)
+            .map(|(_, view)| ViewDefaults {
+                id: view.id,
+                design: settings.design_of_view(view),
+                slide_settings: settings.slide_settings_of_view(view),
+            })
+            .collect()
     }
-
 }
 
 /// The slide settings the stream may actually use, given what the projection

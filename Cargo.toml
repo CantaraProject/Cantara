@@ -34,6 +34,18 @@ sys-locale = "=0.3.2"
 cantara-songlib = "0.5.0"
 markdown = "1.0.0"
 rgb = { version = "0.8.52", features = ["serde"] }
+# The monitor view's clock widget needs the *local* time, which the standard
+# library cannot give on any target: it has no time zone database and no civil
+# calendar. Already in the tree as a transitive dependency, so making it a
+# direct one costs no compilation. Default features include `clock` (the local
+# offset) and `wasmbind`, which is what makes `Local` work in the browser too.
+chrono = "0.4"
+
+# Renders Cantara's own components to HTML, so that what a phone on the network
+# is shown comes out of the same components as what the projector shows. It was
+# a dev-dependency, used only to assert on rendered markup in tests; the stream
+# now renders through it at runtime. See `crate::components::stream_render`.
+dioxus-ssr = "0.7"
 # Decodes the pictures of a library so they can be scaled down to list
 # thumbnails; `png` is also what the window icon is loaded from.
 image = { version = "0.25", optional = true, default-features = false, features = ["png", "jpeg"] }
@@ -123,6 +135,10 @@ uuid = { version = "1", features = ["js"] }
 # tree — wasm-bindgen-futures builds on it — so this adds no compilation, and
 # it replaces a `setTimeout` evaluated in the page on every tick.
 gloo-timers = { version = "0.3", features = ["futures"] }
+# `std::time::SystemTime::now` panics on wasm32-unknown-unknown, and the
+# chapter timer needs a wall clock on every target. `Date.now()` is what the
+# page itself uses; js-sys is already in the tree under web-sys.
+js-sys = "0.3"
 
 [features]
 default = ["desktop"]
@@ -163,7 +179,8 @@ incremental = false
 # Renders a component to a string without a window, so that a test can assert
 # what a slide actually looks like — and, in particular, that it changes when
 # the design does. See the reactivity tests in
-# `components::presentation_components`. Same family and licence as the rest of
-# Dioxus, and test-only.
+# `components::presentation_components`.
+#
+# `dioxus-ssr` moved up to a real dependency when the network stream started
+# rendering through it — see the note beside it there.
 [dev-dependencies]
-dioxus-ssr = "0.7"

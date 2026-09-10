@@ -7,6 +7,16 @@
 # stops working.
 _version: 2
 general:
+  # How a date and a time are written in this language, as `strftime`
+  # patterns. Kept numeric on purpose: chrono writes month and day names in
+  # English only, so anything naming a month would be wrong in every
+  # language but one. See `crate::logic::localisation::format_clock`.
+  date_format:
+    en: "%Y-%m-%d"
+    de: "%d.%m.%Y"
+  time_format:
+    en: "%H:%M"
+    de: "%H:%M"
   type:
     en: Type
     de: Typ

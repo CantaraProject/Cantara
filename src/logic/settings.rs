@@ -25,6 +25,7 @@ use std::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 use tempfile::TempDir;
+use uuid::Uuid;
 use zip::ZipArchive;
 
 /// Returns the settings of the program
@@ -140,6 +141,30 @@ pub struct Settings {
     /// [`crate::logic::tag_mapping`].
     #[serde(default)]
     pub tag_mappings: Vec<TagMapping>,
+
+    /// Every surface a running presentation is shown on.
+    ///
+    /// Empty in a settings file written before views existed, and filled in
+    /// from the old fields when one is read — see [`Settings::ensure_views`].
+    /// It is never left empty afterwards: a Cantara with no views has nowhere
+    /// to put a presentation.
+    #[serde(default)]
+    pub views: Vec<View>,
+
+    /// Which of [`views`](Self::views) is the reference.
+    ///
+    /// Slide numbers, the presenter console's counting and the whole-multiple
+    /// rule on slide divisions all need one authoritative sequence of slides,
+    /// and this names the view whose sequence that is. It is the projection,
+    /// in every configuration that has one.
+    ///
+    /// A position rather than a flag on the view itself, because exactly one
+    /// view has to be it: two views both claiming to be the reference, or none
+    /// claiming it, are states a flag makes representable and this does not.
+    /// Out of range is read as the first view — see
+    /// [`Settings::reference_view`].
+    #[serde(default)]
+    pub reference_view_index: usize,
 }
 
 /// What the streaming server is set up to do, when it is switched on.
@@ -211,6 +236,237 @@ impl Default for StreamSettings {
 /// on a church laptop is likely to have taken.
 pub const fn default_stream_port() -> u16 {
     8420
+}
+
+/// One surface a running presentation is shown on.
+///
+/// Cantara had exactly two of these and neither was a value: the projection
+/// was a screen name and a default design, the stream was [`StreamSettings`],
+/// and the code that served each was written separately. A monitor view for
+/// the platform is a third, and a fourth and fifth are the same request again
+/// — so a view becomes something the user makes as many of as they need, and
+/// the two that already existed become the first two entries in the list.
+///
+/// See `docs/specs/0003-add-monitor-view.md`.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct View {
+    /// What tells this view from every other, for as long as it exists.
+    ///
+    /// Nothing needed one while a view was only ever read as "the entry at
+    /// position 2": the list is short and the editor addresses it by position.
+    /// A *running order* cannot. An element that says "on the stage monitor,
+    /// use this design" has to keep meaning that when the views above it are
+    /// reordered or deleted — and a position does not survive either, silently
+    /// naming the neighbour instead. A selection also travels to another
+    /// computer, where position means nothing at all.
+    ///
+    /// Generated once, when the view is made, and never changed afterwards.
+    /// A settings file from before this existed gets one per view when it is
+    /// read; see [`Settings::ensure_views`].
+    #[serde(default = "Uuid::new_v4")]
+    pub id: Uuid,
+
+    /// What the user calls it — "Beamer", "Bühne", "Band".
+    ///
+    /// Only ever shown, never matched on. Two views may share a name; what
+    /// tells them apart is their [`id`](Self::id).
+    pub name: String,
+
+    /// Which of [`Settings::presentation_designs`] this view is shown in.
+    ///
+    /// `None` means "whatever the reference view shows", which is what the
+    /// stream has always meant by leaving its design unset, and what the
+    /// projection means by having no design of its own beyond
+    /// [`Settings::default_design_index`].
+    ///
+    /// An index rather than a copy, so that editing a design reaches every
+    /// view built from it. An index past the end of the list is read as
+    /// `None` rather than as a reason to fall over in the middle of a service
+    /// — see [`Settings::design_of_view`].
+    #[serde(default)]
+    pub design_index: Option<usize>,
+
+    /// The same, for [`Settings::song_slide_settings`] — how a song is divided
+    /// into slides for this view.
+    ///
+    /// What is chosen is not always what is used: the reference view is the
+    /// reference, and the line wrap is reconciled against it by
+    /// [`crate::logic::stream_view::stream_slide_settings`], so that a slide
+    /// change on the wall never lands in the middle of a slide anywhere else.
+    #[serde(default)]
+    pub slide_settings_index: Option<usize>,
+
+    /// Where this view is shown.
+    pub output: ViewOutput,
+
+    /// Whether this view is running.
+    ///
+    /// Changeable while a presentation is on, from the selection screen. So
+    /// this is not only a starting condition: switching it on mid-service has
+    /// to open the window or add the route against a presentation that is
+    /// already running, and show it the presentation as it stands rather than
+    /// waiting for the next slide change.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Where in the service this view is looking.
+    #[serde(default)]
+    pub focus: ViewFocus,
+}
+
+/// Where a view is shown.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+pub enum ViewOutput {
+    /// A window on a screen.
+    ///
+    /// `None` picks one the way the projection has always picked one: the
+    /// first non-primary monitor, falling back to whatever there is. See
+    /// [`crate::logic::screens::resolve_monitor`], which stays the one place
+    /// that answers "which screen, and what if it is gone".
+    Screen { monitor_name: Option<String> },
+
+    /// A path on the network helper's port — `/`, `/stage`, `/band`.
+    ///
+    /// The port, the password and the remote console belong to the server and
+    /// stay in [`StreamSettings`]: they are the same for every view served,
+    /// and a view does not get to choose them.
+    Network { path: String },
+}
+
+/// Where in the service a view is looking.
+///
+/// A band monitor showing the next song while the sermon is on the wall is a
+/// real request, so views do not all have to be in the same place. What does
+/// not change is that there is one authoritative sequence of slides — the
+/// reference view's — that everything else is described against.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default)]
+pub enum ViewFocus {
+    /// Show whatever the reference view shows.
+    ///
+    /// The ordinary case, and the only one the reference view itself may have.
+    #[default]
+    Follow,
+
+    /// Show a fixed chapter, from its first slide, wherever the service
+    /// actually is.
+    Chapter { index: usize },
+
+    /// Show a fixed chapter and a fixed slide within it.
+    Slide { chapter: usize, slide: usize },
+}
+
+/// Where the presenter console is served from, on the helper's port.
+///
+/// This and [`ASSETS_PREFIX`] live here, beside the validation that needs
+/// them, because the settings are what has to refuse a colliding path and the
+/// settings are compiled for every target — the servers that claim them are
+/// desktop-only. The console's router reads these rather than repeating the
+/// strings.
+pub const CONSOLE_PATH: &str = "/console";
+
+/// Where the helper serves Cantara's own assets from. See [`CONSOLE_PATH`].
+pub const ASSETS_PREFIX: &str = "/assets";
+
+/// Every path on the helper's port that is already taken.
+///
+/// Two handlers on one path is a panic in the server thread, and the helper
+/// goes on reporting itself as up while answering nothing. That is the failure
+/// this list exists to prevent, and it is worth preventing where the user
+/// types the path rather than where the service starts.
+///
+/// It is longer than it looks like it should be because *two* routers are
+/// merged onto that one socket: the presenter console's
+/// ([`crate::logic::network_server`]) and the stream's
+/// ([`crate::logic::stream::server`]). The stream's routes sit at the top
+/// level beside the console's — `/state`, `/events` and the rest are what its
+/// own page fetches from — so they are as taken as `/console` is.
+///
+/// The stream server cannot be named from here on every target, so a test in
+/// that module checks each route it declares against this list. That test is
+/// what keeps the two from drifting; this array is where the answer lives.
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "read by `check_network_path`, which no editor calls yet")
+)]
+const RESERVED_PATHS: &[&str] = &[
+    CONSOLE_PATH,
+    ASSETS_PREFIX,
+    // The stream's own routes, merged onto the same socket.
+    "/state",
+    "/events",
+    "/abcjs.js",
+    "/media",
+    "/video",
+    "/login",
+];
+
+/// Why a network path cannot be used.
+///
+/// Kept apart from the message shown for it so that the reason can be
+/// translated where it is displayed, rather than English being baked in here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(not(test), allow(dead_code, reason = "no editor offers a path to type yet"))]
+pub enum PathProblem {
+    /// Empty, or only a slash and nothing else.
+    Empty,
+    /// Does not begin with a slash.
+    NotAbsolute,
+    /// Holds something other than letters, digits, `-`, `_` and one leading
+    /// slash.
+    BadCharacter,
+    /// One of the paths the server has already claimed.
+    Reserved,
+}
+
+/// Whether `path` may be given to a view.
+///
+/// The rules are deliberately narrow. This is user input that becomes a route
+/// on a live server, and the set of paths worth allowing — a word, in the
+/// user's own language, naming a monitor — is much smaller than the set of
+/// paths that would parse. Anything rejected here is something nobody needs to
+/// have working during a service.
+///
+/// `/` itself is allowed and is the stream's own path: the bare address is
+/// what a congregation is given, and it was the viewer's before views existed.
+#[cfg_attr(not(test), allow(dead_code, reason = "no editor offers a path to type yet"))]
+pub fn check_network_path(path: &str) -> Result<(), PathProblem> {
+    if path == "/" {
+        return Ok(());
+    }
+
+    let Some(rest) = path.strip_prefix('/') else {
+        return Err(if path.is_empty() {
+            PathProblem::Empty
+        } else {
+            PathProblem::NotAbsolute
+        });
+    };
+
+    if rest.is_empty() {
+        return Err(PathProblem::Empty);
+    }
+
+    if !rest
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || character == '-' || character == '_')
+    {
+        return Err(PathProblem::BadCharacter);
+    }
+
+    // Compared without regard to case because a browser will not distinguish
+    // them either: `/Console` reaching the console would make the reservation
+    // pointless.
+    let video_handler = format!("/{}", crate::logic::video::VIDEO_HANDLER);
+    if RESERVED_PATHS
+        .iter()
+        .copied()
+        .chain(std::iter::once(video_handler.as_str()))
+        .any(|taken| taken.eq_ignore_ascii_case(path))
+    {
+        return Err(PathProblem::Reserved);
+    }
+
+    Ok(())
 }
 
 /// The design preview starts docked: seeing the effect of a setting is the
@@ -287,6 +543,28 @@ impl Default for SlideTimerSettings {
     }
 }
 
+impl SlideTimerSettings {
+    /// The longest a slide may be left to stand before the timer moves on.
+    ///
+    /// An hour. Longer than any slide in a service, and — the reason it is a
+    /// hard limit rather than a suggestion — well inside what a browser's
+    /// `setTimeout` can be given. That takes a *signed 32-bit* count of
+    /// milliseconds: past about 24.9 days it overflows and the timer fires
+    /// **immediately** instead of never. A slide set to advance in a year
+    /// would advance at once, in front of the congregation.
+    pub const MAX_SECONDS: u32 = 3600;
+
+    /// The wait a timer will actually use.
+    ///
+    /// The editor's field states the same bounds, but a field is not the only
+    /// way a value gets in: a running order is a file, and one written by hand
+    /// or by an older version can say anything. Read through here rather than
+    /// trusted, so the two cannot disagree — and so the bound is stated once.
+    pub fn usable_seconds(seconds: u32) -> u32 {
+        seconds.clamp(1, Self::MAX_SECONDS)
+    }
+}
+
 /// The transition effect to use between slides.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default, Debug)]
 pub enum SlideTransition {
@@ -327,6 +605,8 @@ impl Default for Settings {
             sidebar_order: default_sidebar_order(),
             show_design_preview: default_show_design_preview(),
             tag_mappings: Vec::new(),
+            views: Vec::new(),
+            reference_view_index: 0,
         }
     }
 }
@@ -451,10 +731,7 @@ impl Settings {
                 Some(j) => serde_json::from_str(&migrate_settings_json(&j)).unwrap_or_default(),
                 None => Self::default(),
             };
-            settings.ensure_default_presentation_design();
-            settings.ensure_slide_settings_for_designs();
-            settings.ensure_sidebar_order();
-            settings.migrate_github_zip_repos();
+            settings.bring_up_to_date();
             settings.ensure_bundled_repos();
             settings
         }
@@ -481,10 +758,7 @@ impl Settings {
             let mut settings: Settings = stored
                 .and_then(|content| serde_json::from_str(&migrate_settings_json(&content)).ok())
                 .unwrap_or_default();
-            settings.ensure_default_presentation_design();
-            settings.ensure_slide_settings_for_designs();
-            settings.ensure_sidebar_order();
-            settings.migrate_github_zip_repos();
+            settings.bring_up_to_date();
 
             // Nobody starts with an empty program if they have been using
             // Cantara 2: their library, design and metadata line are on this
@@ -710,6 +984,13 @@ impl Settings {
         self.presentation_designs.remove(index);
         forget_choice(&mut self.stream.design_index, index);
         shift_default(&mut self.default_design_index, index);
+        // Every view holds the same kind of position into the same list, so
+        // every view moves by the same rule. A view whose design was the one
+        // deleted falls back to the reference view's, which is what `None`
+        // has always meant.
+        for view in &mut self.views {
+            forget_choice(&mut view.design_index, index);
+        }
 
         // The two lists are kept in step, but only the design list is known to
         // have had this position — so the slide divisions move only if one was
@@ -718,6 +999,9 @@ impl Settings {
             self.song_slide_settings.remove(index);
             forget_choice(&mut self.stream.slide_settings_index, index);
             shift_default(&mut self.default_slide_settings_index, index);
+            for view in &mut self.views {
+                forget_choice(&mut view.slide_settings_index, index);
+            }
         }
 
         self.ensure_slide_settings_for_designs();
@@ -760,6 +1044,209 @@ impl Settings {
                 self.sidebar_order.push(entry);
             }
         }
+    }
+
+    /// Everything a freshly read configuration needs before it is used.
+    ///
+    /// The desktop and the web build read their settings from different
+    /// places, and both then had the same list of fixups written out after it.
+    /// The two lists drifted the moment one of them gained a step — so there
+    /// is one list, here, and the two callers differ only in where the JSON
+    /// came from.
+    ///
+    /// Every step is safe to run on settings that need none of it: that is
+    /// what makes it callable on the default configuration and on one read
+    /// from a file of any age.
+    fn bring_up_to_date(&mut self) {
+        self.ensure_default_presentation_design();
+        self.ensure_slide_settings_for_designs();
+        self.ensure_sidebar_order();
+        self.ensure_views();
+        self.migrate_github_zip_repos();
+    }
+
+    /// Builds the view list from the two outputs Cantara used to have, for a
+    /// settings file written before views existed.
+    ///
+    /// Both are always created, and the result behaves exactly as the old
+    /// fields did:
+    ///
+    /// * The projection, enabled, with no design of its own — which is what
+    ///   "the design this service uses" has always meant for the wall, and
+    ///   which keeps following [`Self::default_design_index`] when the user
+    ///   changes it. It is the reference view.
+    /// * The stream, *disabled*, carrying whatever design and division the
+    ///   user had chosen for it. Disabled because whether streaming is on has
+    ///   deliberately never been remembered between sessions — see
+    ///   [`Self::stream`] — so an enabled stream view would start putting the
+    ///   service on the network for people who had never asked it to.
+    ///
+    /// The stream view is created even for somebody who has never streamed,
+    /// because the alternative is guessing from settings that look untouched,
+    /// and a disabled view costs nothing but the line it takes up.
+    ///
+    /// Does nothing once there are views: this is a migration, not a repair,
+    /// and a user who has deleted a view is not to have it put back on the
+    /// next start.
+    pub fn ensure_views(&mut self) {
+        if !self.views.is_empty() {
+            return;
+        }
+
+        self.views = vec![
+            View {
+                id: Uuid::new_v4(),
+                name: t!("settings.view_projection").to_string(),
+                design_index: None,
+                slide_settings_index: None,
+                output: ViewOutput::Screen {
+                    monitor_name: self.presentation_screen.clone(),
+                },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            },
+            View {
+                id: Uuid::new_v4(),
+                name: t!("settings.view_stream").to_string(),
+                design_index: self.stream.design_index,
+                slide_settings_index: self.stream.slide_settings_index,
+                output: ViewOutput::Network {
+                    path: "/".to_string(),
+                },
+                enabled: false,
+                focus: ViewFocus::Follow,
+            },
+        ];
+        self.reference_view_index = 0;
+    }
+
+    /// Adds a view, and answers where it went.
+    ///
+    /// A new view starts as a screen view that names no screen, no design and
+    /// no division: "another window, showing what the projection shows". That
+    /// is the least surprising thing a freshly added entry can do, and every
+    /// part of it is one choice away from what the user actually wants.
+    ///
+    /// It starts *enabled*, because somebody who has just pressed "add view"
+    /// wants it. `place_screen_views` will give it a screen no other view has
+    /// taken.
+    pub fn add_view(&mut self, name: String) -> usize {
+        self.views.push(View {
+            id: Uuid::new_v4(),
+            name,
+            design_index: None,
+            slide_settings_index: None,
+            output: ViewOutput::Screen { monitor_name: None },
+            enabled: true,
+            focus: ViewFocus::Follow,
+        });
+        self.views.len() - 1
+    }
+
+    /// Removes the view at `index`, and moves the reference along with it.
+    ///
+    /// Refuses to remove the reference view: slide numbers, the console's
+    /// counting and every other view's "same as the reference" are described
+    /// against it, and a configuration without one is not a configuration.
+    /// The editor does not offer the button; this is what makes it true rather
+    /// than merely unoffered.
+    ///
+    /// Answers whether anything was removed, so a caller can say why not.
+    pub fn delete_view(&mut self, index: usize) -> bool {
+        if index >= self.views.len() || index == self.reference_view_index {
+            return false;
+        }
+
+        self.views.remove(index);
+
+        // `Vec::remove` shifts everything after the hole down by one, so a
+        // reference sitting after it now names its neighbour. The same
+        // bookkeeping as `delete_presentation_design`, and here for the same
+        // reason: it belongs with the list it is about.
+        if self.reference_view_index > index {
+            self.reference_view_index -= 1;
+        }
+
+        true
+    }
+
+    /// The view everything else is described against.
+    ///
+    /// Falls back to the first view when the stored position names one that is
+    /// no longer there, for the reason every other index in this file does: a
+    /// service is not the place to discover that a number is out of date.
+    /// `None` only when there are no views at all, which
+    /// [`ensure_views`](Self::ensure_views) makes sure does not happen to a
+    /// loaded configuration.
+    #[cfg_attr(
+        not(any(test, feature = "desktop")),
+        allow(dead_code, reason = "only a desktop build opens a window per view")
+    )]
+    pub fn reference_view(&self) -> Option<&View> {
+        self.views
+            .get(self.reference_view_index)
+            .or_else(|| self.views.first())
+    }
+
+    /// The design a view is shown in, or `None` for "the same as the
+    /// reference view".
+    ///
+    /// The one place that reads a view's design choice, so that the rule for
+    /// an index left pointing past the end of the list — read as no choice,
+    /// rather than panicking or silently showing the wrong design — is stated
+    /// once. Same rule as [`crate::logic::stream_view::StreamDefaults::of`],
+    /// which this eventually replaces.
+    pub fn design_of_view(&self, view: &View) -> Option<PresentationDesign> {
+        view.design_index
+            .and_then(|index| self.presentation_designs.get(index).cloned())
+    }
+
+    /// The view the network stream is.
+    ///
+    /// The first one with a [`ViewOutput::Network`] output. There is exactly
+    /// one in every configuration `ensure_views` has touched, and until
+    /// stage 3b of the spec it is also the only one the helper can serve —
+    /// which is why this answers "the stream" rather than "the streams".
+    pub fn stream_view(&self) -> Option<&View> {
+        self.views.get(self.stream_view_index()?)
+    }
+
+    /// Where [`stream_view`](Self::stream_view) is in the list, for an editor
+    /// that has to write to it.
+    pub fn stream_view_index(&self) -> Option<usize> {
+        self.views
+            .iter()
+            .position(|view| matches!(view.output, ViewOutput::Network { .. }))
+    }
+
+    /// The monitor design the view at `index` is shown in, if it is shown in
+    /// one.
+    ///
+    /// `None` for a view that does not exist, one that names no design of its
+    /// own, and one whose design is an audience design — all three mean "draw
+    /// this the way Cantara has always drawn a presentation", which is what a
+    /// window with no answer here does.
+    ///
+    /// Looked up rather than carried into the window, so that editing a design
+    /// during a service reaches the window showing it. That is the same reason
+    /// views hold positions into the design list rather than copies of a
+    /// design.
+    pub fn monitor_design_of_view(&self, index: usize) -> Option<MonitorDesign> {
+        let view = self.views.get(index)?;
+        self.design_of_view(view)?
+            .presentation_design_settings
+            .monitor()
+            .cloned()
+    }
+
+    /// The slide division a view uses, or `None` for the reference view's.
+    /// See [`design_of_view`](Self::design_of_view).
+    pub fn slide_settings_of_view(&self, view: &View) -> Option<SlideSettings> {
+        view.slide_settings_index.and_then(|index| {
+            self.song_slide_settings
+                .get(index)
+                .map(|named| named.settings.clone())
+        })
     }
 
     /// Migrates any `RemoteZip` repositories whose URLs are GitHub archive URLs
@@ -1706,11 +2193,386 @@ pub enum PresentationDesignSettings {
 
     /// Manually specified template with HTML/CSS/Javascript (not implemented yet)
     Custom(String),
+
+    /// Describes a *monitor view* — the screen the people making the service
+    /// happen are looking at, rather than the one the congregation is.
+    ///
+    /// See `docs/specs/0003-add-monitor-view.md`.
+    Monitor(MonitorDesign),
+}
+
+/// Which kind of view a presentation design describes.
+///
+/// The choice the editor offers under "Darstellungsart": what the design is
+/// *for*, before anything about how it looks. Two kinds rather than a flag
+/// because a third is imaginable — and because "not a monitor" is not a good
+/// name for what an audience view is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum DesignKind {
+    /// What the congregation sees. Everything Cantara did before monitor
+    /// views existed.
+    #[default]
+    Audience,
+
+    /// What the people making the service happen see.
+    Monitor,
+}
+
+impl DesignKind {
+    /// Both kinds, in the order the editor offers them.
+    ///
+    /// The audience view first: it is what nearly every design is, and what a
+    /// new one should be.
+    pub const ALL: [DesignKind; 2] = [DesignKind::Audience, DesignKind::Monitor];
+
+    /// The translation key for what this kind is called.
+    ///
+    /// The key rather than the text, so that the logic stays out of the
+    /// interface's business — the caller has the user's language.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            DesignKind::Audience => "settings.design_kind_audience",
+            DesignKind::Monitor => "settings.design_kind_monitor",
+        }
+    }
+
+    /// A stable name for this kind, for a `<select>` to hand back.
+    ///
+    /// Not the translated label: a form sends back the value it was given, and
+    /// matching on translated text would break the moment somebody switched
+    /// language mid-edit.
+    pub fn value(self) -> &'static str {
+        match self {
+            DesignKind::Audience => "audience",
+            DesignKind::Monitor => "monitor",
+        }
+    }
+
+    /// Reads back what [`value`](Self::value) wrote.
+    ///
+    /// Anything unrecognised is the audience view: a selector that has somehow
+    /// sent something else should not be able to turn a design into a monitor
+    /// one by accident.
+    pub fn from_value(value: &str) -> DesignKind {
+        match value {
+            "monitor" => DesignKind::Monitor,
+            _ => DesignKind::Audience,
+        }
+    }
+}
+
+/// A view for the platform: the speaker, the musicians, the technician.
+///
+/// It shows the same presentation as the wall, read differently — what is up,
+/// what is next, how long this has been going on. It never controls anything;
+/// the one place that drives a presentation is the presenter console.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct MonitorDesign {
+    /// The look it shares with an audience design: fonts, colours, padding.
+    ///
+    /// Embedded rather than restated so that the existing design editor edits
+    /// this half — one font editor, one colour picker, one preview. Some of
+    /// its fields mean nothing here and are documented as ignored:
+    /// `vertical_alignment` and `background_image` are the layout's business,
+    /// not the design's, once there is more than one thing on the screen.
+    pub base: PresentationDesignTemplate,
+
+    /// How the slides are arranged.
+    pub layout: MonitorLayout,
+
+    /// What is shown alongside them.
+    pub widgets: Vec<MonitorWidget>,
+}
+
+impl MonitorDesign {
+    /// Whether anything on this view changes with the clock rather than with
+    /// the presentation.
+    ///
+    /// The window redraws its widgets on a timer of its own. A view served
+    /// over the network cannot: it is rendered to HTML when something changes,
+    /// and a clock is not something that changes — so a stage monitor on a
+    /// phone showed the time the slide came up and held it until the next
+    /// slide. Asked by [`crate::logic::network_host`], which re-renders while
+    /// this is true.
+    #[cfg_attr(
+        not(any(test, feature = "desktop")),
+        allow(dead_code, reason = "only a desktop build serves a stream to re-render")
+    )]
+    pub fn has_live_widget(&self) -> bool {
+        self.widgets.iter().any(|widget| {
+            matches!(
+                widget.kind,
+                WidgetKind::Clock { .. } | WidgetKind::ChapterTimer { .. }
+            )
+        })
+    }
+}
+
+/// How a monitor view arranges the slides.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub enum MonitorLayout {
+    /// Every slide of the service, the current one marked, the ones before and
+    /// after it readable.
+    ///
+    /// The presenter console's list without the buttons — and it is that list,
+    /// shared, rather than a second one that looks like it.
+    SlideList {
+        /// How many slides either side are drawn. `None` draws them all and
+        /// keeps the current one in view.
+        context: Option<usize>,
+    },
+
+    /// The current slide large, the next one small. For whoever is speaking.
+    Speaker {
+        /// How much of the layout the next slide takes, from 0.0 to 1.0.
+        ///
+        /// Of the *height* when it sits below, of the *width* when it sits
+        /// beside — the share is of whichever direction the two are stacked
+        /// in, so that moving one to the other side keeps its proportion.
+        ///
+        /// Read through [`Self::speaker_share`], which keeps it inside the
+        /// range a layout can actually use: a share of 0.9 would leave the
+        /// speaker reading the *next* slide, and one of 0.0 would draw a strip
+        /// of nothing.
+        next_slide_share: f64,
+
+        /// Where the next slide sits.
+        #[serde(default)]
+        next_position: SpeakerNextPosition,
+    },
+}
+
+/// Where the smaller slide sits in a speaker layout.
+///
+/// Both are useful and which is depends on the screen. A monitor on the floor
+/// in front of the platform is wide and short — two slides stacked on it leave
+/// each of them a letterbox, and side by side each gets a usable shape. A
+/// monitor turned upright, or one on a stand beside the lectern, is the other
+/// way round.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SpeakerNextPosition {
+    /// Under the current slide. What the layout has always done.
+    #[default]
+    Below,
+
+    /// Beside it, to the right.
+    Right,
+}
+
+impl SpeakerNextPosition {
+    /// Both, in the order the editor offers them.
+    pub const ALL: [SpeakerNextPosition; 2] =
+        [SpeakerNextPosition::Below, SpeakerNextPosition::Right];
+
+    /// The translation key for what this is called.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            SpeakerNextPosition::Below => "settings.monitor_next_below",
+            SpeakerNextPosition::Right => "settings.monitor_next_right",
+        }
+    }
+
+    /// A stable name for a `<select>` to hand back. Not the translated label,
+    /// for the reason [`DesignKind::value`] gives.
+    pub fn value(self) -> &'static str {
+        match self {
+            SpeakerNextPosition::Below => "below",
+            SpeakerNextPosition::Right => "right",
+        }
+    }
+
+    /// Reads back what [`value`](Self::value) wrote.
+    pub fn from_value(value: &str) -> SpeakerNextPosition {
+        match value {
+            "right" => SpeakerNextPosition::Right,
+            _ => SpeakerNextPosition::Below,
+        }
+    }
+}
+
+impl Default for MonitorLayout {
+    fn default() -> Self {
+        // The list is the one that needs no explaining: it is what a
+        // technician already recognises from the console.
+        MonitorLayout::SlideList { context: Some(2) }
+    }
+}
+
+impl MonitorLayout {
+    /// The smallest and largest share of the height the next slide may take.
+    ///
+    /// Not a matter of taste: outside these the layout stops being what it is
+    /// called. A stored value out of range — a settings file edited by hand, a
+    /// slider that once allowed more — is brought back into it rather than
+    /// drawn.
+    pub const SPEAKER_SHARE_RANGE: std::ops::RangeInclusive<f64> = 0.1..=0.5;
+
+    /// What share of the height the next slide actually gets.
+    pub fn speaker_share(share: f64) -> f64 {
+        // A NaN out of a settings file compares false against everything, so
+        // it is replaced rather than clamped — `f64::clamp` panics on one.
+        if share.is_nan() {
+            return *Self::SPEAKER_SHARE_RANGE.start();
+        }
+        share.clamp(
+            *Self::SPEAKER_SHARE_RANGE.start(),
+            *Self::SPEAKER_SHARE_RANGE.end(),
+        )
+    }
+}
+
+/// Something shown on a monitor view beside the slides.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct MonitorWidget {
+    pub kind: WidgetKind,
+    pub placement: WidgetPlacement,
+}
+
+/// What a widget shows.
+///
+/// User-supplied widgets — WebAssembly, by decision 2 of the spec — are not
+/// here yet and are the last thing to be built, behind an explicit opt-in on
+/// import. A design that carries executable code carries it to whoever it is
+/// sent to.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WidgetKind {
+    /// The time, and optionally the date, in the language Cantara is running
+    /// in. The format is the locale's rather than a string the user writes:
+    /// a German installation should get a German date without configuring one.
+    Clock { with_date: bool },
+
+    /// How long the service has been in the current chapter — how long the
+    /// sermon has run, how long this song has gone on.
+    ///
+    /// Counts from [`crate::logic::states::RunningPresentation::chapter_entered_at`].
+    ChapterTimer {
+        /// After how many seconds the timer says so, by drawing itself
+        /// differently. `None` never does.
+        ///
+        /// The point of the widget for a preacher who has been asked to keep
+        /// to twenty minutes, and the reason it is a warning rather than
+        /// anything louder: nothing here interrupts a service.
+        warn_after_seconds: Option<u32>,
+    },
+}
+
+/// Which corner of the monitor view a widget sits in.
+///
+/// Corners rather than coordinates. A monitor is read at a glance from a few
+/// metres away by someone who is about to speak, and the useful question is
+/// "out of the way of the text, somewhere I can find it" — which four answers
+/// cover, and which a pair of numbers makes worse by allowing the widget to be
+/// put on top of the slide.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum WidgetPlacement {
+    TopLeft,
+    #[default]
+    TopRight,
+    BottomLeft,
+    BottomRight,
 }
 
 impl Default for PresentationDesignSettings {
     fn default() -> Self {
         PresentationDesignSettings::Template(PresentationDesignTemplate::default())
+    }
+}
+
+impl PresentationDesignSettings {
+    /// The look of this design — fonts, colours, padding — whatever kind of
+    /// view it describes.
+    ///
+    /// A monitor design carries the same template as an audience design, by
+    /// decision 1 of the spec, and almost everything that reaches for one
+    /// wants it for that reason: to lay out text, to carry a font into an
+    /// export, to draw a preview. Those places ask here rather than matching
+    /// on the variant, so that adding a kind of design does not mean editing
+    /// every one of them — and so that a monitor design's fonts travel with it
+    /// through the export exactly as an audience design's do.
+    ///
+    /// `None` only for [`Custom`](Self::Custom), which is a string of HTML and
+    /// has no template to give. That variant is still not implemented.
+    pub fn template(&self) -> Option<&PresentationDesignTemplate> {
+        match self {
+            PresentationDesignSettings::Template(template) => Some(template),
+            PresentationDesignSettings::Monitor(monitor) => Some(&monitor.base),
+            PresentationDesignSettings::Custom(_) => None,
+        }
+    }
+
+    /// The same, to be written to.
+    pub fn template_mut(&mut self) -> Option<&mut PresentationDesignTemplate> {
+        match self {
+            PresentationDesignSettings::Template(template) => Some(template),
+            PresentationDesignSettings::Monitor(monitor) => Some(&mut monitor.base),
+            PresentationDesignSettings::Custom(_) => None,
+        }
+    }
+
+    /// Which kind of view this design describes.
+    ///
+    /// [`Custom`](Self::Custom) answers [`DesignKind::Audience`]: it is a page
+    /// of HTML meant for the congregation, and it is still not implemented.
+    pub fn kind(&self) -> DesignKind {
+        match self {
+            PresentationDesignSettings::Monitor(_) => DesignKind::Monitor,
+            _ => DesignKind::Audience,
+        }
+    }
+
+    /// The same design, describing the other kind of view.
+    ///
+    /// The look is carried across — fonts, colours, padding — which is the
+    /// whole point of decision 1 of the spec: somebody who has spent time on a
+    /// design and then decides it belongs on a stage monitor should not have
+    /// to set it up again. Switching back and forth is therefore lossless for
+    /// everything the two kinds share.
+    ///
+    /// What does not survive is what only one kind has: turning a monitor
+    /// design into an audience design forgets its layout and its widgets, and
+    /// turning one back gives it the default layout and no widgets. There is
+    /// nowhere to keep them, and the alternative — a design quietly carrying
+    /// the settings of a kind it no longer is — is worse than losing two
+    /// choices the user can see they have lost.
+    ///
+    /// Returns `self` unchanged when it is already that kind, so that the
+    /// selector writing on every change costs nothing and cannot destroy a
+    /// layout by being clicked on the value it already has.
+    pub fn into_kind(self, kind: DesignKind) -> PresentationDesignSettings {
+        if self.kind() == kind {
+            return self;
+        }
+
+        // Not `template()` — this consumes the design, and taking the template
+        // by value is what makes the carry-across free rather than a clone of
+        // every font in it.
+        let template = match self {
+            PresentationDesignSettings::Template(template) => template,
+            PresentationDesignSettings::Monitor(monitor) => monitor.base,
+            // A hand-written HTML design has no template to carry, so the
+            // design it becomes starts from the defaults.
+            PresentationDesignSettings::Custom(_) => PresentationDesignTemplate::default(),
+        };
+
+        match kind {
+            DesignKind::Audience => PresentationDesignSettings::Template(template),
+            DesignKind::Monitor => PresentationDesignSettings::Monitor(MonitorDesign {
+                base: template,
+                ..MonitorDesign::default()
+            }),
+        }
+    }
+
+    /// The monitor design this describes, if it describes one.
+    ///
+    /// What tells the two kinds of view apart at the point of drawing: a
+    /// design that answers `None` here is an audience design and is drawn the
+    /// way Cantara has always drawn one.
+    pub fn monitor(&self) -> Option<&MonitorDesign> {
+        match self {
+            PresentationDesignSettings::Monitor(monitor) => Some(monitor),
+            _ => None,
+        }
     }
 }
 
@@ -2562,6 +3424,711 @@ mod tests {
 
         assert_eq!(settings.default_design_index, 0);
         assert_eq!(settings.default_slide_settings_index, 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // Views, and the migration from the two outputs Cantara used to have.
+    // See docs/specs/0003-add-monitor-view.md.
+    // -------------------------------------------------------------------------
+
+    /// A settings file from before views existed gets the two it always had,
+    /// in the order the reference view is first.
+    #[test]
+    fn a_configuration_without_views_gets_the_two_outputs_it_always_had() {
+        let json = r#"{"repositories":[],"wizard_completed":true}"#;
+        let mut settings: Settings =
+            serde_json::from_str(json).expect("an older settings file still reads");
+        assert!(settings.views.is_empty(), "nothing to start from");
+
+        settings.ensure_views();
+
+        assert_eq!(settings.views.len(), 2);
+        assert!(matches!(
+            settings.views[0].output,
+            ViewOutput::Screen { .. }
+        ));
+        assert!(matches!(
+            settings.views[1].output,
+            ViewOutput::Network { .. }
+        ));
+        assert_eq!(
+            settings.reference_view().map(|view| &view.output),
+            Some(&settings.views[0].output),
+            "the projection is the reference"
+        );
+    }
+
+    /// The projection was on and the stream was not, and that is what the
+    /// migrated configuration has to do. Whether streaming is on has never
+    /// been remembered between sessions — a migration that enabled the stream
+    /// view would start putting services on the network for people who had
+    /// never switched it on.
+    #[test]
+    fn the_migrated_stream_view_is_switched_off() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+
+        assert!(settings.views[0].enabled, "the projection projects");
+        assert!(
+            !settings.views[1].enabled,
+            "the migration switched streaming on by itself"
+        );
+    }
+
+    /// The screen the projection was set to is the screen its view uses.
+    #[test]
+    fn the_projections_screen_is_carried_into_its_view() {
+        let mut settings = Settings {
+            presentation_screen: Some("HDMI-2".to_string()),
+            ..Settings::default()
+        };
+
+        settings.ensure_views();
+
+        assert_eq!(
+            settings.views[0].output,
+            ViewOutput::Screen {
+                monitor_name: Some("HDMI-2".to_string())
+            }
+        );
+    }
+
+    /// What the user had chosen for the phones — a lighter design, a different
+    /// slide division — is what their stream view is set to. Losing these in
+    /// the migration would be losing a setting somebody made deliberately.
+    #[test]
+    fn the_streams_own_design_and_division_are_carried_into_its_view() {
+        let mut settings = Settings::default();
+        settings.presentation_designs.push(PresentationDesign::default());
+        settings.song_slide_settings.push(SongSlideSettings::default());
+        settings.stream.design_index = Some(1);
+        settings.stream.slide_settings_index = Some(1);
+
+        settings.ensure_views();
+
+        assert_eq!(settings.views[1].design_index, Some(1));
+        assert_eq!(settings.views[1].slide_settings_index, Some(1));
+    }
+
+    /// The projection follows the service's default design rather than being
+    /// pinned to whichever design happened to be the default at the moment of
+    /// migration. A copied index would freeze the wall onto one design, and
+    /// changing the default afterwards would silently stop reaching it.
+    #[test]
+    fn the_projection_view_names_no_design_of_its_own() {
+        let mut settings = Settings {
+            default_design_index: 1,
+            ..Settings::default()
+        };
+        settings.presentation_designs.push(PresentationDesign::default());
+
+        settings.ensure_views();
+
+        assert_eq!(settings.views[0].design_index, None);
+    }
+
+    /// A migration, not a repair. Somebody who has arranged their views — and
+    /// deleted one they do not want — must not find it back on the next start.
+    #[test]
+    fn views_that_exist_are_left_alone() {
+        let mut settings = Settings::default();
+        settings.views.push(View {
+            id: uuid::Uuid::new_v4(),
+            name: "Only this one".to_string(),
+            design_index: None,
+            slide_settings_index: None,
+            output: ViewOutput::Screen { monitor_name: None },
+            enabled: true,
+            focus: ViewFocus::Follow,
+        });
+
+        settings.ensure_views();
+
+        assert_eq!(settings.views.len(), 1, "the migration ran a second time");
+        assert_eq!(settings.views[0].name, "Only this one");
+    }
+
+    /// Running it twice is running it once. `bring_up_to_date` is called on
+    /// every load, including loads of a file it has already migrated.
+    #[test]
+    fn migrating_twice_changes_nothing_the_second_time() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        let after_first = settings.views.clone();
+
+        settings.ensure_views();
+
+        assert_eq!(settings.views, after_first);
+    }
+
+    /// A stored reference position naming a view that is no longer there
+    /// falls back to the first view. Nothing about a service should turn on
+    /// an index being current.
+    #[test]
+    fn a_reference_position_past_the_end_reads_as_the_first_view() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        settings.reference_view_index = 17;
+
+        assert_eq!(
+            settings.reference_view().map(|view| view.name.clone()),
+            Some(settings.views[0].name.clone())
+        );
+    }
+
+    /// And with no views at all there is no reference, rather than a panic.
+    #[test]
+    fn a_configuration_with_no_views_has_no_reference_view() {
+        let settings = Settings::default();
+
+        assert!(settings.views.is_empty());
+        assert!(settings.reference_view().is_none());
+    }
+
+    /// Deleting a design moves every view's choice along with it, exactly as
+    /// it moves the stream's and the service default. A view left pointing at
+    /// the position of a deleted design would quietly start showing its
+    /// neighbour — valid, and wrong.
+    #[test]
+    fn deleting_a_design_moves_the_views_that_named_one() {
+        let mut settings = Settings::default();
+        for _ in 0..3 {
+            settings.presentation_designs.push(PresentationDesign::default());
+            settings.song_slide_settings.push(SongSlideSettings::default());
+        }
+        settings.views = vec![
+            View {
+                id: uuid::Uuid::new_v4(),
+                name: "Points at the one being deleted".to_string(),
+                design_index: Some(1),
+                slide_settings_index: None,
+                output: ViewOutput::Screen { monitor_name: None },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            },
+            View {
+                id: uuid::Uuid::new_v4(),
+                name: "Points after it".to_string(),
+                design_index: Some(3),
+                slide_settings_index: None,
+                output: ViewOutput::Network { path: "/".to_string() },
+                enabled: false,
+                focus: ViewFocus::Follow,
+            },
+        ];
+
+        settings.delete_presentation_design(1);
+
+        assert_eq!(
+            settings.views[0].design_index, None,
+            "a view whose design was deleted should fall back, not point at its neighbour"
+        );
+        assert_eq!(
+            settings.views[1].design_index,
+            Some(2),
+            "a view pointing after the hole should move down with it"
+        );
+    }
+
+    /// Every view has an identity of its own, and two views never share one.
+    ///
+    /// This is what a running order will name when an element says "on the
+    /// stage monitor, use this design". A position would not do: reordering
+    /// or deleting a view above it would silently point the element at its
+    /// neighbour, and a selection carried to another computer would mean
+    /// something else entirely there.
+    #[test]
+    fn every_view_has_an_identity_of_its_own() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        settings.add_view("Bühne".to_string());
+
+        let ids: std::collections::HashSet<Uuid> =
+            settings.views.iter().map(|view| view.id).collect();
+
+        assert_eq!(
+            ids.len(),
+            settings.views.len(),
+            "two views were given the same identity"
+        );
+    }
+
+    /// And it survives being written out and read back, which is the whole
+    /// point of it being an identity rather than a position.
+    #[test]
+    fn a_views_identity_survives_the_settings_file() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        let before: Vec<Uuid> = settings.views.iter().map(|view| view.id).collect();
+
+        let written = serde_json::to_string(&settings).expect("serialisable");
+        let read: Settings = serde_json::from_str(&written).expect("readable back");
+
+        let after: Vec<Uuid> = read.views.iter().map(|view| view.id).collect();
+        assert_eq!(after, before);
+    }
+
+    /// A settings file written before views had identities gets one per view
+    /// rather than failing to load — the field defaults to a fresh identity.
+    #[test]
+    fn views_written_before_identities_existed_are_given_them() {
+        let json = r#"{
+            "repositories": [],
+            "wizard_completed": true,
+            "views": [
+                {
+                    "name": "Projection",
+                    "output": { "Screen": { "monitor_name": null } },
+                    "enabled": true
+                }
+            ]
+        }"#;
+
+        let settings: Settings =
+            serde_json::from_str(json).expect("a view without an identity still reads");
+
+        assert_eq!(settings.views.len(), 1);
+        assert_ne!(
+            settings.views[0].id,
+            Uuid::nil(),
+            "the view was given no identity at all"
+        );
+    }
+
+    /// A design that shows the time says so.
+    ///
+    /// A window redraws its widgets on a timer of its own; a view served over
+    /// the network is HTML rendered when *something changes*, and a second
+    /// passing is not a change. So the clock on a streamed stage monitor stood
+    /// still between slides. `network_host` asks this and re-renders while it
+    /// is true — and, just as importantly, does not while it is false: an
+    /// ordinary service must not pay for a slide rendered every second.
+    #[test]
+    fn a_design_says_whether_anything_on_it_follows_the_clock() {
+        let still = MonitorDesign::default();
+        assert!(!still.has_live_widget(), "nothing here follows the clock");
+
+        for kind in [
+            WidgetKind::Clock { with_date: false },
+            WidgetKind::ChapterTimer {
+                warn_after_seconds: None,
+            },
+        ] {
+            let ticking = MonitorDesign {
+                widgets: vec![MonitorWidget {
+                    kind,
+                    placement: WidgetPlacement::TopRight,
+                }],
+                ..MonitorDesign::default()
+            };
+            assert!(
+                ticking.has_live_widget(),
+                "{kind:?} follows the clock and was not recognised"
+            );
+        }
+    }
+
+    /// A slide timer is kept inside what a browser's timer can be given.
+    ///
+    /// `setTimeout` takes a *signed 32-bit* count of milliseconds. Past about
+    /// 24.9 days it overflows and fires **immediately** rather than never — so
+    /// a slide set to advance in a year would advance at once, in front of the
+    /// congregation. The editor's field says the same bound, but a running
+    /// order is a file and can say anything.
+    #[test]
+    fn a_slide_timer_cannot_be_set_past_what_a_browser_can_wait() {
+        assert_eq!(SlideTimerSettings::usable_seconds(30), 30);
+        assert_eq!(
+            SlideTimerSettings::usable_seconds(u32::MAX),
+            SlideTimerSettings::MAX_SECONDS
+        );
+
+        // The bound in milliseconds, which is the number that actually reaches
+        // the browser.
+        let milliseconds = u64::from(SlideTimerSettings::MAX_SECONDS) * 1000;
+        assert!(
+            milliseconds < i32::MAX as u64,
+            "the longest wait still overflows a browser timer"
+        );
+    }
+
+    /// Zero is not a wait. A timer of nought would advance every slide as fast
+    /// as the page could draw it.
+    #[test]
+    fn a_slide_timer_of_nothing_is_read_as_a_second() {
+        assert_eq!(SlideTimerSettings::usable_seconds(0), 1);
+    }
+
+    /// A view added from the list starts as another window showing what the
+    /// projection shows: every part of it is one choice away from whatever the
+    /// user actually wants, and none of it is a surprise.
+    #[test]
+    fn a_new_view_is_another_screen_showing_the_same_thing() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+
+        let index = settings.add_view("Bühne".to_string());
+        let added = &settings.views[index];
+
+        assert_eq!(added.name, "Bühne");
+        assert_eq!(added.design_index, None);
+        assert_eq!(added.slide_settings_index, None);
+        assert_eq!(added.output, ViewOutput::Screen { monitor_name: None });
+        assert!(added.enabled, "a view just added should be shown");
+        assert_eq!(added.focus, ViewFocus::Follow);
+    }
+
+    /// The reference view cannot be removed. Slide numbers, the console's
+    /// counting and every other view's "same as the presentation" are
+    /// described against it, and a configuration without one is not one.
+    #[test]
+    fn the_reference_view_cannot_be_deleted() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        let before = settings.views.len();
+
+        assert!(!settings.delete_view(settings.reference_view_index));
+        assert_eq!(settings.views.len(), before);
+    }
+
+    /// Removing a view before the reference moves the reference with it.
+    /// `Vec::remove` shifts everything down by one, so a reference left where
+    /// it was would quietly start naming its neighbour.
+    #[test]
+    fn deleting_a_view_before_the_reference_moves_the_reference() {
+        let mut settings = Settings::default();
+        settings.views.extend([
+            View {
+                id: uuid::Uuid::new_v4(),
+                name: "First".to_string(),
+                design_index: None,
+                slide_settings_index: None,
+                output: ViewOutput::Screen { monitor_name: None },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            },
+            View {
+                id: uuid::Uuid::new_v4(),
+                name: "The reference".to_string(),
+                design_index: None,
+                slide_settings_index: None,
+                output: ViewOutput::Screen { monitor_name: None },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            },
+        ]);
+        settings.reference_view_index = 1;
+
+        assert!(settings.delete_view(0));
+
+        assert_eq!(settings.reference_view_index, 0);
+        assert_eq!(
+            settings.reference_view().map(|view| view.name.as_str()),
+            Some("The reference"),
+            "the reference moved to a different view"
+        );
+    }
+
+    /// Deleting past the end changes nothing rather than panicking.
+    #[test]
+    fn deleting_a_view_that_is_not_there_does_nothing() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        let before = settings.views.clone();
+
+        assert!(!settings.delete_view(17));
+        assert_eq!(settings.views, before);
+    }
+
+    /// The stream is the network view, and that is where its design is read
+    /// from.
+    ///
+    /// It used to be read from `StreamSettings` while the editor wrote it to
+    /// the view — two places holding one setting, and a design chosen in the
+    /// list would have quietly done nothing.
+    #[test]
+    fn the_streams_design_is_read_off_its_view() {
+        let mut settings = Settings::default();
+        settings.presentation_designs.push(PresentationDesign {
+            name: "For phones".to_string(),
+            ..PresentationDesign::default()
+        });
+        settings.ensure_views();
+
+        let stream = settings.stream_view_index().expect("there is a stream view");
+        settings.views[stream].design_index = Some(1);
+
+        let defaults = crate::logic::stream_view::ViewDefaults::all(&settings);
+        let stream_defaults = defaults
+            .iter()
+            .find(|defaults| Some(defaults.id) == settings.stream_view().map(|view| view.id))
+            .expect("the stream view is among them");
+        assert_eq!(
+            stream_defaults.design.as_ref().map(|design| design.name.clone()),
+            Some("For phones".to_string())
+        );
+    }
+
+    /// A configuration whose stream view has been deleted shows the phones
+    /// what the wall shows, rather than falling over.
+    #[test]
+    fn a_configuration_with_no_stream_view_streams_the_projection() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        let stream = settings.stream_view_index().expect("there is a stream view");
+        settings.delete_view(stream);
+
+        let defaults = crate::logic::stream_view::ViewDefaults::all(&settings);
+
+        assert!(
+            settings.stream_view().is_none(),
+            "the stream view was deleted"
+        );
+        assert!(
+            defaults.iter().all(|view| view.design.is_none()),
+            "a view names a design although none was set"
+        );
+    }
+
+    /// An index left pointing past the end of the list — a design deleted by
+    /// something that did not do the bookkeeping, a file edited by hand — is
+    /// read as "no choice", not as a crash during a service.
+    #[test]
+    fn a_view_naming_a_design_that_is_gone_reads_as_naming_none() {
+        let settings = Settings::default();
+        let view = View {
+            id: uuid::Uuid::new_v4(),
+            name: "Stale".to_string(),
+            design_index: Some(99),
+            slide_settings_index: Some(99),
+            output: ViewOutput::Screen { monitor_name: None },
+            enabled: true,
+            focus: ViewFocus::Follow,
+        };
+
+        assert!(settings.design_of_view(&view).is_none());
+        assert!(settings.slide_settings_of_view(&view).is_none());
+    }
+
+    /// Views survive being written out and read back. They are the shape of
+    /// the settings file now, and a field that does not round-trip is a
+    /// configuration lost on the next start.
+    #[test]
+    fn views_survive_a_round_trip_through_the_settings_file() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        settings.views[1].focus = ViewFocus::Chapter { index: 2 };
+
+        let written = serde_json::to_string(&settings).expect("settings are serialisable");
+        let read: Settings = serde_json::from_str(&written).expect("and readable back");
+
+        assert_eq!(read.views, settings.views);
+        assert_eq!(read.reference_view_index, settings.reference_view_index);
+    }
+
+    // -------------------------------------------------------------------------
+    // The kind of view a design describes
+    // -------------------------------------------------------------------------
+
+    /// A design made before monitor views existed is an audience design, and
+    /// every stored one is: the variant did not exist to be written.
+    #[test]
+    fn a_design_is_an_audience_design_unless_it_says_otherwise() {
+        assert_eq!(
+            PresentationDesignSettings::default().kind(),
+            DesignKind::Audience
+        );
+        assert_eq!(
+            PresentationDesignSettings::Monitor(MonitorDesign::default()).kind(),
+            DesignKind::Monitor
+        );
+    }
+
+    /// The point of embedding the template rather than restating it: somebody
+    /// who has spent an evening on the fonts and colours of a design and then
+    /// decides it belongs on a stage monitor keeps all of it.
+    #[test]
+    fn switching_a_design_to_a_monitor_keeps_the_look_it_was_given() {
+        let template = PresentationDesignTemplate {
+            background_color: RGB8::new(12, 34, 56),
+            title_bold: true,
+            ..PresentationDesignTemplate::default()
+        };
+        let audience = PresentationDesignSettings::Template(template.clone());
+
+        let monitor = audience.into_kind(DesignKind::Monitor);
+
+        assert_eq!(monitor.kind(), DesignKind::Monitor);
+        assert_eq!(monitor.template(), Some(&template));
+    }
+
+    /// And back again, so that changing one's mind costs nothing either.
+    #[test]
+    fn switching_back_to_an_audience_design_keeps_the_look_too() {
+        let template = PresentationDesignTemplate {
+            background_color: RGB8::new(12, 34, 56),
+            ..PresentationDesignTemplate::default()
+        };
+        let monitor = PresentationDesignSettings::Monitor(MonitorDesign {
+            base: template.clone(),
+            ..MonitorDesign::default()
+        });
+
+        let audience = monitor.into_kind(DesignKind::Audience);
+
+        assert_eq!(audience.kind(), DesignKind::Audience);
+        assert_eq!(audience.template(), Some(&template));
+    }
+
+    /// Asking for the kind it already is changes nothing at all.
+    ///
+    /// The selector writes on every change event, and a conversion that reset
+    /// the layout each time would quietly destroy a monitor design's settings
+    /// when the user clicked the value it was already on.
+    #[test]
+    fn asking_for_the_kind_it_already_is_leaves_the_design_untouched() {
+        let monitor = PresentationDesignSettings::Monitor(MonitorDesign {
+            layout: MonitorLayout::Speaker {
+                next_slide_share: 0.25,
+                next_position: SpeakerNextPosition::default(),
+            },
+            widgets: vec![MonitorWidget {
+                kind: WidgetKind::Clock { with_date: true },
+                placement: WidgetPlacement::TopLeft,
+            }],
+            ..MonitorDesign::default()
+        });
+
+        let same = monitor.clone().into_kind(DesignKind::Monitor);
+
+        assert_eq!(same, monitor, "the layout and widgets were reset");
+    }
+
+    /// What a `<select>` sends back is read as what it was given, and nothing
+    /// else can turn a design into a monitor one.
+    #[test]
+    fn the_selectors_value_round_trips() {
+        for kind in DesignKind::ALL {
+            assert_eq!(DesignKind::from_value(kind.value()), kind);
+        }
+        assert_eq!(DesignKind::from_value("something else"), DesignKind::Audience);
+    }
+
+    /// The share the next slide takes is kept inside the range that makes the
+    /// layout what it is called — including for a value out of a settings file
+    /// edited by hand, and for a NaN, which `f64::clamp` panics on.
+    #[test]
+    fn the_speaker_layouts_share_is_kept_usable() {
+        assert_eq!(MonitorLayout::speaker_share(0.25), 0.25);
+        assert_eq!(MonitorLayout::speaker_share(0.9), 0.5);
+        assert_eq!(MonitorLayout::speaker_share(0.0), 0.1);
+        assert_eq!(MonitorLayout::speaker_share(f64::NAN), 0.1);
+    }
+
+    /// A monitor design survives being written out and read back, layout,
+    /// widgets and all.
+    #[test]
+    fn a_monitor_design_round_trips_through_the_settings_file() {
+        let design = PresentationDesign {
+            name: "Bühne".to_string(),
+            description: String::new(),
+            presentation_design_settings: PresentationDesignSettings::Monitor(MonitorDesign {
+                layout: MonitorLayout::Speaker {
+                    next_slide_share: 0.3,
+                    next_position: SpeakerNextPosition::default(),
+                },
+                widgets: vec![
+                    MonitorWidget {
+                        kind: WidgetKind::Clock { with_date: false },
+                        placement: WidgetPlacement::TopRight,
+                    },
+                    MonitorWidget {
+                        kind: WidgetKind::ChapterTimer {
+                            warn_after_seconds: Some(1200),
+                        },
+                        placement: WidgetPlacement::BottomLeft,
+                    },
+                ],
+                ..MonitorDesign::default()
+            }),
+        };
+
+        let written = serde_json::to_string(&design).expect("serialisable");
+        let read: PresentationDesign = serde_json::from_str(&written).expect("readable back");
+
+        assert_eq!(read, design);
+    }
+
+    // -------------------------------------------------------------------------
+    // Network paths
+    // -------------------------------------------------------------------------
+
+    /// What a user would actually type for a stage monitor.
+    #[test]
+    fn an_ordinary_path_is_allowed() {
+        assert_eq!(check_network_path("/stage"), Ok(()));
+        assert_eq!(check_network_path("/band-2"), Ok(()));
+        assert_eq!(check_network_path("/buehne_links"), Ok(()));
+    }
+
+    /// The bare address is the stream's, and was the viewer's before views
+    /// existed. It has to stay usable or the migration would produce a view
+    /// with an invalid path.
+    #[test]
+    fn the_bare_address_is_a_path() {
+        assert_eq!(check_network_path("/"), Ok(()));
+    }
+
+    /// The failure this is all for: a path the server already claims. Two
+    /// handlers on one path is a panic in the server thread, and the helper
+    /// goes on reporting itself as up while answering nothing — so it is
+    /// refused where it is typed, not where it is served.
+    #[test]
+    fn a_path_the_server_already_claims_is_refused() {
+        assert_eq!(check_network_path(CONSOLE_PATH), Err(PathProblem::Reserved));
+        assert_eq!(check_network_path(ASSETS_PREFIX), Err(PathProblem::Reserved));
+        assert_eq!(
+            check_network_path(&format!("/{}", crate::logic::video::VIDEO_HANDLER)),
+            Err(PathProblem::Reserved)
+        );
+    }
+
+    /// A browser does not distinguish them, so neither does this. Allowing
+    /// `/Console` would make the reservation pointless.
+    #[test]
+    fn a_reserved_path_is_refused_whatever_its_case() {
+        assert_eq!(check_network_path("/Console"), Err(PathProblem::Reserved));
+        assert_eq!(check_network_path("/ASSETS"), Err(PathProblem::Reserved));
+    }
+
+    /// Nothing that could reach out of its place on the server, and nothing
+    /// that needs escaping to be written into a route.
+    #[test]
+    fn a_path_with_anything_unusual_in_it_is_refused() {
+        for path in [
+            "/../console",
+            "/stage/../console",
+            "/stage/deep",
+            "/stage?x=1",
+            "/stage#top",
+            "/stage monitor",
+            "/{stage}",
+            "/*",
+            "/bühne",
+        ] {
+            assert_eq!(
+                check_network_path(path),
+                Err(PathProblem::BadCharacter),
+                "{path} should not be allowed"
+            );
+        }
+    }
+
+    /// A path has to be one, and say which one.
+    #[test]
+    fn a_path_that_is_not_a_path_is_refused() {
+        assert_eq!(check_network_path(""), Err(PathProblem::Empty));
+        assert_eq!(check_network_path("stage"), Err(PathProblem::NotAbsolute));
     }
 
     #[test]

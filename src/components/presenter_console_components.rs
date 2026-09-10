@@ -589,45 +589,136 @@ fn PresenterContent(
 /// Left panel: scrollable chapter list with slide text
 #[component]
 fn PresenterTextPanel(running_presentation: Signal<RunningPresentation>) -> Element {
+    rsx! {
+        SlideList { running_presentation }
+    }
+}
+
+/// Every slide of the service, the current one marked.
+///
+/// Written for the presenter console and now shared with the monitor view's
+/// `SlideList` layout, which is the same list without the ability to press it
+/// — that is what `interactive` is for. A second list that looked like this
+/// one would be two places to fix the next thing wrong with it, which is what
+/// [0001](../../docs/specs/0001-duplicated-code.md) is a whole document about.
+///
+/// The classes are the console's, and the monitor view's stylesheet builds on
+/// them rather than replacing them: a slide list should look like a slide
+/// list in both places.
+#[component]
+pub fn SlideList(
+    running_presentation: Signal<RunningPresentation>,
+    /// Whether pressing a slide jumps the presentation to it.
+    ///
+    /// True in the console, which is where a presentation is driven from.
+    /// False on a monitor view, which shows and does not control — the one
+    /// place that drives a presentation is the console, and a stage monitor
+    /// that could be leant on would be a second one.
+    #[props(default = true)]
+    interactive: bool,
+    /// How many slides either side of the current one are drawn.
+    ///
+    /// `None` draws the whole service, which is what the console does: an
+    /// operator wants to see what is coming. A monitor on a wall may have room
+    /// for three lines, and then the useful thing is the slides around this
+    /// one.
+    #[props(default)]
+    context: Option<usize>,
+) -> Element {
     let rp = running_presentation.read();
     let current_chapter = rp.position.as_ref().map(|p| p.chapter()).unwrap_or(0);
     let current_slide = rp.position.as_ref().map(|p| p.chapter_slide()).unwrap_or(0);
+    // Where the service is, counted over the whole of it, so that "two slides
+    // either side" reaches across the end of a song rather than stopping at
+    // it — the slide after the last verse is the next song's first, and that
+    // is exactly what somebody about to speak wants to see.
+    let current_overall = rp
+        .position
+        .as_ref()
+        .map(|position| position.slide_total())
+        .unwrap_or(0);
 
     rsx! {
         div { class: "presenter-text-panel",
             for (ch_idx , chapter) in rp.presentation.iter().enumerate() {
-                div { class: "presenter-chapter",
-                    h4 { class: if ch_idx == current_chapter { "presenter-chapter-title active" } else { "presenter-chapter-title" },
-                        {chapter.source_file.name.clone()}
-                    }
-                    for (sl_idx , slide) in chapter.slides.iter().enumerate() {
-                        {
-                            let is_active = ch_idx == current_chapter && sl_idx == current_slide;
-                            rsx! {
-                                div {
-                                    // key forces Dioxus to remount when the active slide changes,
-                                    // ensuring onmounted fires on the newly-active element.
-                                    key: "{ch_idx}-{sl_idx}-{is_active}",
-                                    class: if is_active { "presenter-slide-item active" } else { "presenter-slide-item" },
-                                    onclick: move |_| {
-                                        running_presentation.write().jump_to(ch_idx, sl_idx);
-                                    },
-                                    onmounted: move |_| {
-                                        if is_active {
-                                            // Use JS scrollIntoView with block:'center' to
-                                            // vertically center the active slide in the panel.
-                                            let _ = document::eval(
-                                                "requestAnimationFrame(function() { var el = document.querySelector('.presenter-slide-item.active'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } });",
-                                            );
+                {
+                    let chapter_starts_at = crate::logic::states::slides_before(
+                        &rp.presentation,
+                        ch_idx,
+                        crate::logic::states::Division::Projection,
+                    );
+                    // A chapter with nothing of it in range is left out
+                    // entirely, heading and all — a list of headings with no
+                    // slides under them says nothing.
+                    let shows_any = chapter
+                        .slides
+                        .iter()
+                        .enumerate()
+                        .any(|(sl_idx, _)| {
+                            within_context(chapter_starts_at + sl_idx, current_overall, context)
+                        });
+                    rsx! {
+                        if shows_any {
+                            div { class: "presenter-chapter",
+                                h4 { class: if ch_idx == current_chapter { "presenter-chapter-title active" } else { "presenter-chapter-title" },
+                                    {chapter.source_file.name.clone()}
+                                }
+                                for (sl_idx , slide) in chapter.slides.iter().enumerate() {
+                                    {
+                                        let is_active = ch_idx == current_chapter && sl_idx == current_slide;
+                                        let in_range = within_context(
+                                            chapter_starts_at + sl_idx,
+                                            current_overall,
+                                            context,
+                                        );
+                                        rsx! {
+                                            if in_range {
+                                                div {
+                                                    // key forces Dioxus to remount when the active slide changes,
+                                                    // ensuring onmounted fires on the newly-active element.
+                                                    key: "{ch_idx}-{sl_idx}-{is_active}",
+                                                    class: if is_active { "presenter-slide-item active" } else { "presenter-slide-item" },
+                                                    onclick: move |_| {
+                                                        if interactive {
+                                                            running_presentation.write().jump_to(ch_idx, sl_idx);
+                                                        }
+                                                    },
+                                                    onmounted: move |_| {
+                                                        if is_active {
+                                                            // Use JS scrollIntoView with block:'center' to
+                                                            // vertically center the active slide in the panel.
+                                                            let _ = document::eval(
+                                                                "requestAnimationFrame(function() { var el = document.querySelector('.presenter-slide-item.active'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } });",
+                                                            );
+                                                        }
+                                                    },
+                                                    PresenterSlideTextContent { slide_content: slide.slide_content.clone() }
+                                                }
+                                            }
                                         }
-                                    },
-                                    PresenterSlideTextContent { slide_content: slide.slide_content.clone() }
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+/// Whether the slide at `overall` is near enough to `current` to be drawn.
+///
+/// `None` is "no limit", which is the console. Kept apart from the component
+/// so the rule can be tested without a renderer — the arithmetic is on
+/// unsigned indices, where `current - context` underflows for the first slides
+/// of a service and would otherwise wrap to an enormous number and show
+/// nothing at all.
+fn within_context(overall: usize, current: usize, context: Option<usize>) -> bool {
+    match context {
+        None => true,
+        Some(context) => {
+            overall >= current.saturating_sub(context) && overall <= current.saturating_add(context)
         }
     }
 }
@@ -1095,10 +1186,18 @@ fn StreamPreview(running_presentation: Signal<RunningPresentation>) -> Element {
         return rsx! {};
     };
 
+    // Which view the phones are looking at. A chapter holds a division per
+    // view now, so the preview has to say which one it is previewing — and it
+    // is the stream's, which is the one the address above belongs to.
+    let division = use_settings()
+        .read()
+        .stream_view()
+        .map(|view| Division::View(view.id))
+        .unwrap_or(Division::Projection);
+
     let rp = running_presentation.read();
-    let differs = rp.current_stream_differs();
-    let slide = rp.get_current_stream_slide();
-    let design = rp.get_current_stream_design();
+    let differs = rp.current_differs_in(division);
+    let design = rp.current_design_in(division);
     let blacked_out = rp.is_black_screen;
 
     // Laid out at the projection's size and scaled down, exactly as the
@@ -1127,7 +1226,7 @@ fn StreamPreview(running_presentation: Signal<RunningPresentation>) -> Element {
     // read as the same kind of thing, and they now are — see
     // [`RunningPresentation::counter_in`].
     let counter = rp
-        .counter_in(Division::Stream)
+        .counter_in(division)
         .map(|(slide, total)| format!("{slide} / {total}"));
 
     rsx! {
@@ -1168,21 +1267,34 @@ fn StreamPreview(running_presentation: Signal<RunningPresentation>) -> Element {
         }
 
         if differs {
-            if let Some(slide) = slide {
-                div {
+            div {
                     class: "presentation-preview slide-scale",
                     style: "width: {PREVIEW_WIDTH}px; height: {preview_height}px; border-radius: 4px;",
                     div {
                         class: "slide-scale-inner",
                         style: "width: {native_w}px; height: {native_h}px; transform: scale({scale});",
+                        // Drawn the way the view's design says, which for a
+                        // monitor design is its layout — this drew a single
+                        // slide whatever the design was, so the operator was
+                        // shown a plain slide while the phones showed a stage
+                        // monitor. Every other preview in the program goes
+                        // through the same component; this one had been
+                        // missed. See [`DesignedPresentation`].
+                        //
                         // Blacked out where the projection is: the phones go
                         // black with the wall, so a preview of them that did
                         // not would be showing the operator something nobody
-                        // can see. See [`StreamState::blacked_out`](crate::logic::stream::protocol::StreamState).
-                        StaticSlideRendererComponent {
-                            slide,
-                            presentation_design: design,
-                            blacked_out,
+                        // can see.
+                        crate::components::monitor_view::DesignedPresentation {
+                            running_presentation,
+                            design: design.clone(),
+                            role: PresentationRole::Follower,
+                            contained: true,
+                        }
+                        if blacked_out {
+                            div {
+                                style: crate::components::presentation_components::BLACK_SCREEN_STYLE,
+                            }
                         }
                     }
                     if let Some(counter) = counter {
@@ -1190,7 +1302,6 @@ fn StreamPreview(running_presentation: Signal<RunningPresentation>) -> Element {
                             { counter }
                         }
                     }
-                }
             }
         } else {
             // Streaming, and showing what the wall shows. A second picture of
@@ -1643,6 +1754,48 @@ mod tests {
 
         assert_eq!(readable_rows(&rows), vec!["Sing to the Lord"]);
     }
+
+
+
+    /// The console draws the whole service: an operator wants to see what is
+    /// coming, all of it.
+    #[test]
+    fn no_limit_shows_every_slide() {
+        for overall in 0..20 {
+            assert!(within_context(overall, 7, None));
+        }
+    }
+
+    /// A monitor with room for a few lines shows the slides around this one.
+    #[test]
+    fn a_context_shows_that_many_slides_either_side() {
+        assert!(!within_context(4, 7, Some(2)));
+        assert!(within_context(5, 7, Some(2)));
+        assert!(within_context(7, 7, Some(2)));
+        assert!(within_context(9, 7, Some(2)));
+        assert!(!within_context(10, 7, Some(2)));
+    }
+
+    /// The first slides of a service are the case this would get wrong.
+    /// `current - context` on unsigned indices underflows to an enormous
+    /// number, and the whole list would then be out of range — a stage monitor
+    /// showing nothing at all for the opening song.
+    #[test]
+    fn the_beginning_of_the_service_does_not_underflow() {
+        assert!(within_context(0, 0, Some(2)));
+        assert!(within_context(1, 0, Some(2)));
+        assert!(within_context(2, 0, Some(2)));
+        assert!(!within_context(3, 0, Some(2)));
+    }
+
+    /// Zero context is only the slide that is up, which is a legitimate thing
+    /// to want on a narrow monitor.
+    #[test]
+    fn no_context_at_all_shows_only_the_current_slide() {
+        assert!(within_context(7, 7, Some(0)));
+        assert!(!within_context(6, 7, Some(0)));
+        assert!(!within_context(8, 7, Some(0)));
+    }
 }
 
 /// The playback controls for a video on the current slide.
@@ -1860,4 +2013,5 @@ pub fn PlaybackControls(
             }
         }
     }
+
 }

@@ -423,7 +423,7 @@ pub(crate) fn ExportMenu(
             &slide_settings,
             // An export is the projection on paper. What the phones were shown
             // has no bearing on it.
-            &crate::logic::stream_view::StreamDefaults::default(),
+            &crate::logic::stream_view::ViewDefaults::all(&settings.read()),
             &settings.read().tag_mappings,
         )
         .map(|presentation| {
@@ -487,7 +487,7 @@ pub(crate) fn ExportMenu(
             &slide_settings,
             // An export is the projection on paper. What the phones were shown
             // has no bearing on it.
-            &crate::logic::stream_view::StreamDefaults::default(),
+            &crate::logic::stream_view::ViewDefaults::all(&settings.read()),
             &settings.read().tag_mappings,
         )
         .map(|presentation| {

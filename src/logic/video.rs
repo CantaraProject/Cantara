@@ -132,7 +132,10 @@ fn decode_path(encoded: &str) -> Option<String> {
 // ── Serving the file in pieces ───────────────────────────────────────────────
 
 /// The piece of a file a `Range` header asks for, as inclusive byte offsets.
-#[cfg(not(target_arch = "wasm32"))]
+///
+/// Only a build that serves a video over HTTP has any use for one, and that is
+/// the desktop's stream server.
+#[cfg(feature = "desktop")]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ByteRange {
     pub start: u64,
@@ -140,7 +143,7 @@ pub struct ByteRange {
     pub end: u64,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "desktop")]
 impl ByteRange {
     /// How many bytes this covers.
     pub fn length(self) -> u64 {
@@ -168,7 +171,7 @@ impl ByteRange {
 /// deliberately does *not* mean "send the whole thing" — a player that asked to
 /// start at ten minutes and silently got the beginning would play the wrong
 /// part of the video.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "desktop")]
 pub fn parse_byte_range(header: &str, length: u64) -> Option<ByteRange> {
     if length == 0 {
         return None;

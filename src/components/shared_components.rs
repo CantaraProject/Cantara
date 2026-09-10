@@ -187,6 +187,15 @@ pub fn MetadataFieldset(
     /// list says what it will call the entry until it is named.
     #[props(default)]
     name_placeholder: String,
+    /// Anything else that belongs among an entry's meta information, drawn
+    /// under the description.
+    ///
+    /// Only a presentation design has a third field here — what kind of view
+    /// it describes — and a slide division has no use for one. Passed in
+    /// rather than added to this component so that the two lists that share it
+    /// do not both grow a field only one of them means.
+    #[props(default)]
+    extra: Option<Element>,
     on_changed: EventHandler<(String, String)>,
 ) -> Element {
     rsx! {
@@ -218,6 +227,10 @@ pub fn MetadataFieldset(
                             }
                         },
                     }
+                }
+
+                if let Some(extra) = extra {
+                    {extra}
                 }
             }
         }
@@ -359,9 +372,15 @@ pub fn PresentationViewer(
                      height: {native_h}px; transform: scale({scale}); \
                      transform-origin: top left;"
                 ),
-            PresentationRendererComponent {
+            // Drawn the way the design says, which for a monitor design is
+            // its layout rather than a single slide. The card in the settings
+            // used to show one slide for every design, including the ones
+            // that do not describe one — see [`DesignedPresentation`].
+            crate::components::monitor_view::DesignedPresentation {
                 running_presentation: presentation_signal,
                 role: PresentationRole::Follower,
+                // Inside a box that is scaled down, not filling a window.
+                contained: true,
             }
             if let Some(title) = title {
                 div {

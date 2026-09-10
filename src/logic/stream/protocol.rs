@@ -65,6 +65,18 @@ pub struct StreamState {
     /// a stream of frames long before it drops a file it is playing itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<StreamVideoState>,
+
+    /// The slide as HTML, drawn by Cantara's own components.
+    ///
+    /// This is what a viewer is *shown*. It comes out of the same components
+    /// the projector draws with — see [`crate::components::stream_render`] —
+    /// so that what a phone sees and what the room sees cannot drift apart by
+    /// one of them learning about a feature and the other not.
+    ///
+    /// Empty when there is nothing to show, and when the rendering could not be
+    /// made. A page given nothing draws nothing rather than guessing.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub html: String,
 }
 
 /// Where the video on the current slide stands.
@@ -306,15 +318,34 @@ impl StreamState {
         }
     }
 
+    /// The same state, carrying the rendering Cantara made of it.
+    ///
+    /// Kept apart from [`of`](Self::of) because this process cannot render:
+    /// the markup arrives over the socket from Cantara, which has the library,
+    /// the picture cache and the settings that decide the design.
+    pub fn with_html(mut self, html: String) -> Self {
+        self.html = html;
+        self
+    }
+
     /// What to tell a viewer about a presentation that is running.
     ///
-    /// Built throughout from what the *stream* is set up to show, which is the
+    /// Built throughout from what *this view* is set up to show, which is the
     /// projection's own slides and design unless the service asked for
-    /// something else. Where it did, the second division of the song is what
-    /// travels and the position is the mapped one — see
+    /// something else. Where it did, the view's own division of the song is
+    /// what travels and the position is the mapped one — see
     /// [`crate::logic::stream_view`].
-    pub fn of(presentation: &RunningPresentation, revision: u64) -> Self {
-        let design = StreamDesign::of(&presentation.get_current_stream_design());
+    ///
+    /// `division` names the view. There is one of these per network view now,
+    /// rather than one for "the stream": two views on the same socket show
+    /// different slides, and everything below follows from which one is being
+    /// built for.
+    pub fn of(
+        presentation: &RunningPresentation,
+        revision: u64,
+        division: crate::logic::states::Division,
+    ) -> Self {
+        let design = StreamDesign::of(&presentation.current_design_in(division));
 
         let chapters = presentation
             .presentation
@@ -322,7 +353,7 @@ impl StreamState {
             .map(|chapter| StreamChapter {
                 title: chapter.source_file.name.clone(),
                 slides: chapter
-                    .slides_for_stream()
+                    .slides_in(division)
                     .iter()
                     .map(StreamSlide::of)
                     .collect(),
@@ -330,12 +361,15 @@ impl StreamState {
             .collect();
 
         let position = presentation
-            .stream_position()
+            .position_in(division)
             .map(|(chapter, slide)| StreamPosition { chapter, slide });
 
         StreamState {
             revision,
             running: true,
+            // Filled in by `with_html` from what Cantara rendered: this
+            // process has nothing to render with.
+            html: String::new(),
             design,
             chapters,
             position,
@@ -717,16 +751,20 @@ fn non_empty(text: Option<String>) -> Option<String> {
 /// is the other half of that mapping, kept on this side.
 pub fn media_sources(
     running: &[crate::logic::states::RunningPresentation],
+    // Every division being served. A picture is wanted if *any* view asks for
+    // it, so this collects over all of them rather than over "the stream".
+    divisions: &[crate::logic::states::Division],
 ) -> std::collections::HashMap<String, String> {
     use cantara_songlib::slides::SlideContent;
 
     let mut sources = std::collections::HashMap::new();
     for presentation in running {
         for chapter in &presentation.presentation {
+            for &division in divisions {
             // The design's background picture, which is as much a part of what
-            // a viewer sees as any slide. The design the *stream* uses, which
-            // is the projection's unless the service asked for another.
-            if let Some(design) = chapter.design_for_stream()
+            // a viewer sees as any slide. The design this view uses, which is
+            // the projection's unless the service asked for another.
+            if let Some(design) = chapter.design_in(division)
                 && let crate::logic::settings::PresentationDesignSettings::Template(template) =
                     &design.presentation_design_settings
                 && let Some(picture) = &template.background_image
@@ -735,9 +773,9 @@ pub fn media_sources(
                 sources.insert(media_id(&path), path);
             }
 
-            // Likewise the slides: where the stream has a division of its own,
+            // Likewise the slides: where the view has a division of its own,
             // those are the pictures a viewer will ask for.
-            for slide in chapter.slides_for_stream() {
+            for slide in chapter.slides_in(division) {
                 let source = match &slide.slide_content {
                     SlideContent::SimplePicture(picture) => {
                         crate::logic::presentation::get_picture_path(picture)
@@ -753,6 +791,7 @@ pub fn media_sources(
                 };
                 sources.insert(media_id(&source), source);
             }
+            }
         }
     }
     sources
@@ -764,6 +803,7 @@ pub fn media_sources(
     reason = "these design structs keep private fields, so `..Default::default()`               is not available outside the module that defines them"
 )]
 mod tests {
+    use crate::logic::states::Division;
     use super::*;
     use crate::logic::sourcefiles::{SourceFile, SourceFileType};
     use crate::logic::states::SlideChapter;
@@ -816,14 +856,14 @@ mod tests {
             vec![Slide::new_video_slide("clip.mp4".to_string(), true, true)],
         )]);
 
-        let stale = StreamState::of(&presentation, 1);
+        let stale = StreamState::of(&presentation, 1, Division::Projection);
         assert_eq!(
             stale.video.as_ref().map(|video| video.position),
             Some(0.0),
             "the presentation itself has nothing to say about this"
         );
 
-        let told = StreamState::of(&presentation, 1).with_live_video(Some((91.5, 144.0, true)));
+        let told = StreamState::of(&presentation, 1, Division::Projection).with_live_video(Some((91.5, 144.0, true)));
 
         let video = told.video.expect("the slide that is up is a video");
         assert_eq!(video.position, 91.5);
@@ -841,7 +881,7 @@ mod tests {
             vec![Slide::new_video_slide("clip.mp4".to_string(), true, false)],
         )]);
 
-        let told = StreamState::of(&presentation, 1).with_live_video(Some((144.0, 144.0, false)));
+        let told = StreamState::of(&presentation, 1, Division::Projection).with_live_video(Some((144.0, 144.0, false)));
 
         assert_eq!(told.video.map(|video| video.playing), Some(false));
     }
@@ -855,7 +895,7 @@ mod tests {
             vec![Slide::new_video_slide("clip.mp4".to_string(), true, false)],
         )]);
 
-        let told = StreamState::of(&presentation, 1).with_live_video(None);
+        let told = StreamState::of(&presentation, 1, Division::Projection).with_live_video(None);
 
         assert_eq!(told.video.map(|video| video.position), Some(0.0));
     }
@@ -869,7 +909,7 @@ mod tests {
             vec![Slide::new_content_slide("Amazing grace".to_string(), None, None)],
         )]);
 
-        let told = StreamState::of(&presentation, 1).with_live_video(Some((91.5, 144.0, true)));
+        let told = StreamState::of(&presentation, 1, Division::Projection).with_live_video(Some((91.5, 144.0, true)));
 
         assert_eq!(told.video, None);
     }
@@ -890,7 +930,7 @@ mod tests {
             chapter("Handout", vec![Slide::new_pdf_page_slide("h.pdf".into(), 1)]),
         ]);
 
-        let state = StreamState::of(&presentation, 1);
+        let state = StreamState::of(&presentation, 1, Division::Projection);
 
         assert!(state.running);
         assert_eq!(state.chapters.len(), 2);
@@ -912,17 +952,24 @@ mod tests {
                 Slide::new_content_slide("three\nfour".to_string(), None, None),
             ],
         )]);
-        presentation.presentation[0].stream_slides = Some(vec![Slide::new_content_slide(
-            "one\ntwo\nthree\nfour".to_string(),
-            None,
-            None,
-        )]);
-        presentation.presentation[0].stream_slide_map = vec![0, 0];
+        let phones = uuid::Uuid::from_u128(3);
+        presentation.presentation[0].view_slides.insert(
+            phones,
+            crate::logic::states::ViewDivision {
+                design: None,
+                slides: vec![Slide::new_content_slide(
+                    "one\ntwo\nthree\nfour".to_string(),
+                    None,
+                    None,
+                )],
+                map: vec![0, 0],
+            },
+        );
 
         // The wall moves on; the phones stay where they are, because the slide
         // they are showing already holds what the wall has just put up.
         presentation.next_slide();
-        let state = StreamState::of(&presentation, 1);
+        let state = StreamState::of(&presentation, 1, Division::View(phones));
 
         assert_eq!(state.chapters[0].slides.len(), 1, "the phones' division");
         assert_eq!(
@@ -953,7 +1000,7 @@ mod tests {
         )]);
         presentation.next_slide();
 
-        let state = StreamState::of(&presentation, 1);
+        let state = StreamState::of(&presentation, 1, Division::Projection);
 
         assert_eq!(state.chapters[0].slides.len(), 2);
         assert_eq!(state.position.map(|position| position.slide), Some(1));
@@ -984,9 +1031,16 @@ mod tests {
             vec![Slide::new_content_slide("Amazing grace".to_string(), None, None)],
         )]);
         presentation.presentation[0].presentation_design_option = Some(plain("#102030"));
-        presentation.presentation[0].stream_design_option = Some(plain("#fafafa"));
+        let phones = uuid::Uuid::from_u128(6);
+        presentation.presentation[0].view_slides.insert(
+            phones,
+            crate::logic::states::ViewDivision {
+                design: Some(plain("#fafafa")),
+                ..crate::logic::states::ViewDivision::default()
+            },
+        );
 
-        let sent = StreamState::of(&presentation, 1).design;
+        let sent = StreamState::of(&presentation, 1, Division::View(phones)).design;
 
         assert_eq!(
             sent.background.to_lowercase(),
@@ -1008,7 +1062,7 @@ mod tests {
         )]);
         presentation.next_slide();
 
-        let state = StreamState::of(&presentation, 1);
+        let state = StreamState::of(&presentation, 1, Division::Projection);
 
         assert_eq!(
             state.position,
@@ -1165,7 +1219,7 @@ mod tests {
         )]);
         presentation.presentation[0].presentation_design_option = Some(design);
 
-        let notation = StreamState::of(&presentation, 1).design.notation;
+        let notation = StreamState::of(&presentation, 1, Division::Projection).design.notation;
 
         assert!(!notation.vocal_font.is_empty(), "the words under the notes have a size");
         assert_eq!(
@@ -1186,7 +1240,7 @@ mod tests {
         )]);
 
         assert_eq!(
-            StreamState::of(&presentation, 1).design.notation.staff_separation,
+            StreamState::of(&presentation, 1, Division::Projection).design.notation.staff_separation,
             None
         );
     }
@@ -1220,7 +1274,7 @@ mod tests {
         )]);
         presentation.presentation[0].presentation_design_option = Some(design);
 
-        let sent = StreamState::of(&presentation, 1).design;
+        let sent = StreamState::of(&presentation, 1, Division::Projection).design;
 
         assert!(sent.text_css.contains("Cormorant"), "got: {}", sent.text_css);
         assert!(
@@ -1267,7 +1321,7 @@ mod tests {
             ],
         )]);
 
-        let state = StreamState::of(&presentation, 1);
+        let state = StreamState::of(&presentation, 1, Division::Projection);
 
         assert_eq!(state.media().len(), 2, "two distinct pages, named once each");
     }
@@ -1283,7 +1337,7 @@ mod tests {
         )]);
         presentation.toggle_black_screen();
 
-        assert!(StreamState::of(&presentation, 1).blacked_out);
+        assert!(StreamState::of(&presentation, 1, Division::Projection).blacked_out);
     }
 
     /// Between presentations the address stays open and says so, so it can be
@@ -1305,7 +1359,7 @@ mod tests {
             "Amazing Grace",
             vec![Slide::new_content_slide("Amazing grace".to_string(), None, None)],
         )]);
-        let state = StreamState::of(&presentation, 3);
+        let state = StreamState::of(&presentation, 3, Division::Projection);
 
         let json = serde_json::to_string(&state).expect("serialises");
         let back: StreamState = serde_json::from_str(&json).expect("and comes back");
@@ -1348,7 +1402,7 @@ mod tests {
         )]);
         presentation.presentation[0].presentation_design_option = Some(design);
 
-        let state = StreamState::of(&presentation, 1);
+        let state = StreamState::of(&presentation, 1, Division::Projection);
 
         assert_eq!(
             state.design.background_image.as_deref(),
@@ -1370,7 +1424,7 @@ mod tests {
             vec![Slide::new_content_slide("Amazing grace".to_string(), None, None)],
         )]);
 
-        let state = StreamState::of(&presentation, 1);
+        let state = StreamState::of(&presentation, 1, Division::Projection);
 
         assert_eq!(state.design.background_image, None);
         assert!(state.media().is_empty());
@@ -1406,7 +1460,7 @@ mod tests {
         )]);
         presentation.presentation[0].presentation_design_option = Some(design);
 
-        let css = StreamState::of(&presentation, 1).design.text_css;
+        let css = StreamState::of(&presentation, 1, Division::Projection).design.text_css;
 
         assert!(css.contains("text-shadow"), "got: {css}");
         assert!(css.contains("font-weight"), "got: {css}");
@@ -1423,7 +1477,7 @@ mod tests {
             vec![Slide::new_content_slide("Amazing grace".to_string(), None, None)],
         )]);
 
-        let design = StreamState::of(&presentation, 1).design;
+        let design = StreamState::of(&presentation, 1, Division::Projection).design;
 
         assert!(!design.text_css.contains("font-size"), "got: {}", design.text_css);
         // The face is sent, with something every device has behind it.
@@ -1473,7 +1527,7 @@ mod tests {
         )]);
         presentation.presentation[0].presentation_design_option = Some(design);
 
-        let sent = StreamState::of(&presentation, 1).design;
+        let sent = StreamState::of(&presentation, 1, Division::Projection).design;
 
         assert_eq!(sent.spoiler_scale, 0.5, "half the size, as the design says");
         assert!(!sent.spoiler_css.is_empty(), "and dressed in its own right");
@@ -1517,7 +1571,7 @@ mod tests {
         )]);
         presentation.presentation[0].presentation_design_option = Some(design);
 
-        assert_eq!(StreamState::of(&presentation, 1).design.block_gap, "4em");
+        assert_eq!(StreamState::of(&presentation, 1, Division::Projection).design.block_gap, "4em");
     }
 
     /// A block the design gave no shadow must not inherit one from the block

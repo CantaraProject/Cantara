@@ -38,7 +38,7 @@
 use crate::logic::fonts;
 use crate::logic::selection_io::{SelectionDocument, SelectionIoError, read_selection};
 use crate::logic::settings::{
-    PresentationDesign, PresentationDesignSettings, Settings, SongSlideSettings,
+    PresentationDesign, Settings, SongSlideSettings,
 };
 use crate::logic::sourcefiles::SourceFile;
 // Used by `import_design`, which writes pictures to a folder, and by the tests.
@@ -163,10 +163,11 @@ pub fn write_design(
 ) -> Result<(String, Vec<u8>), SelectionIoError> {
     let mut assets: Vec<(String, Vec<u8>)> = Vec::new();
 
-    let template = match &design.presentation_design_settings {
-        PresentationDesignSettings::Template(template) => Some(template),
-        _ => None,
-    };
+    // Whatever kind of view the design describes, it is its template that
+    // names a background picture — a monitor design has one exactly as an
+    // audience design does, and a picture that did not travel with it would
+    // arrive as a design pointing at a file on somebody else's computer.
+    let template = design.presentation_design_settings.template();
 
     let background_image = match template.and_then(|template| template.background_image.clone()) {
         Some(picture) => {
@@ -221,8 +222,10 @@ pub fn write_design(
 
 /// The families a design uses that would not be on another computer anyway.
 fn families_to_carry(design: &PresentationDesign) -> Vec<String> {
-    let PresentationDesignSettings::Template(template) = &design.presentation_design_settings
-    else {
+    // A monitor design has fonts too, and they have to travel for the same
+    // reason an audience design's do: the family it names may not be
+    // installed wherever the design is opened.
+    let Some(template) = design.presentation_design_settings.template() else {
         return Vec::new();
     };
 
@@ -448,8 +451,7 @@ pub fn import_design(
 
     if let Some((file_name, bytes)) = &package.background_image {
         let path = write_beside(picture_folder, file_name, bytes)?;
-        if let PresentationDesignSettings::Template(template) =
-            &mut design.presentation_design_settings
+        if let Some(template) = design.presentation_design_settings.template_mut()
             && let Some(picture) = ImageSourceFile::new(SourceFile {
                 name: SourceFileType::display_name(file_name),
                 file_type: SourceFileType::Image,
@@ -568,7 +570,9 @@ pub fn import_slide_settings(settings: &mut Settings, division: &SongSlideSettin
 mod tests {
     use super::*;
     use crate::logic::css::CssFontFamily;
-    use crate::logic::settings::{FontRepresentation, PresentationDesignTemplate};
+    use crate::logic::settings::{
+        FontRepresentation, PresentationDesignSettings, PresentationDesignTemplate,
+    };
     use cantara_songlib::slides::SlideSettings;
 
     fn design_with_font(family: &str) -> PresentationDesign {
@@ -806,10 +810,10 @@ mod tests {
         assert_eq!(std::fs::read(&written).expect("readable"), b"a picture");
 
         let imported = settings.presentation_designs.last().expect("the design");
-        let PresentationDesignSettings::Template(template) = &imported.presentation_design_settings
-        else {
-            panic!("not a template");
-        };
+        let template = imported
+            .presentation_design_settings
+            .template()
+            .expect("the imported design carries a template");
         assert_eq!(
             template
                 .background_image

@@ -15,6 +15,7 @@ use uuid::Uuid;
 use super::{
     settings::{PresentationDesign, SelectionSidebarType, SlideTimerSettings, SlideTransition},
     sourcefiles::SourceFile,
+    timer::Timestamp,
 };
 use cantara_songlib::slides::{Slide, SlideSettings};
 
@@ -279,6 +280,25 @@ pub struct RunningPresentation {
     /// to do. Means nothing while the slide is not a video.
     #[serde(default)]
     pub video: VideoPlayback,
+
+    /// When the presentation arrived at the chapter it is in.
+    ///
+    /// What a monitor view's chapter timer counts from: how long the sermon
+    /// has run, how long this song has been going on. `None` before the
+    /// presentation has started, and for one restored from a session that did
+    /// not record it.
+    ///
+    /// It lives here, travelling with the presentation, rather than being
+    /// measured by each view for itself. A view that started its own clock
+    /// would restart the sermon at zero every time a browser showing it was
+    /// reloaded, and two monitors in the same building would disagree by
+    /// however long their connections differ. One number, published like
+    /// everything else, has neither problem.
+    ///
+    /// Set in exactly one place — see [`RunningPresentation::moved`] — so that
+    /// the next way of changing the position that gets added cannot forget it.
+    #[serde(default)]
+    pub chapter_entered_at: Option<Timestamp>,
 }
 
 /// The state of the video on the current slide, shared by every window showing
@@ -435,9 +455,15 @@ pub enum VideoCommand {
 impl RunningPresentation {
     /// Helper function to create a new [RunningPresentation] data structure
     pub fn new(presentation: Vec<SlideChapter>) -> Self {
+        let position = RunningPresentationPosition::new(&presentation);
+
         RunningPresentation {
             presentation: presentation.clone(),
-            position: RunningPresentationPosition::new(&presentation),
+            // The first chapter is entered when the presentation starts, so
+            // its clock starts here. A presentation with no slides at all has
+            // no chapter and nothing to count.
+            chapter_entered_at: position.as_ref().map(|_| Timestamp::now()),
+            position,
             is_black_screen: false,
             presentation_resolution: default_presentation_resolution(),
             markdown_scroll_position: 0.0,
@@ -455,21 +481,48 @@ impl RunningPresentation {
         ))
     }
 
+    /// Which chapter the presentation is in, if it has started.
+    pub fn chapter_index(&self) -> Option<usize> {
+        self.position.as_ref().map(|position| position.chapter())
+    }
+
+    /// What happens after the position has changed, whatever changed it.
+    ///
+    /// The three ways of moving — forwards, back, and a jump from the sidebar
+    /// — all had the same line at the end of them, and the chapter timer would
+    /// have made that three copies of two things instead of three copies of
+    /// one. Both live here now, and a fourth way of moving gets them by
+    /// calling this rather than by remembering to.
+    ///
+    /// `chapter_before` is where the presentation was, read before the move.
+    /// The chapter clock is only restarted when the move actually left the
+    /// chapter: going from verse two to verse three of a song does not mean
+    /// the song has started again.
+    fn moved(&mut self, chapter_before: Option<usize>) {
+        self.markdown_scroll_position = 0.0;
+
+        if self.chapter_index() != chapter_before {
+            self.chapter_entered_at = Some(Timestamp::now());
+        }
+    }
+
     /// Go to the next slide (if any exists).
     /// Resets `markdown_scroll_position` to 0 so the new slide starts at the top.
     pub fn next_slide(&mut self) {
+        let chapter_before = self.chapter_index();
         if let Some(ref mut pos) = self.position
             && pos.try_next(&self.presentation).is_ok() {
-                self.markdown_scroll_position = 0.0;
+                self.moved(chapter_before);
             }
     }
 
     /// Go to the previous slide (if any exists).
     /// Resets `markdown_scroll_position` to 0 so the new slide starts at the top.
     pub fn previous_slide(&mut self) {
+        let chapter_before = self.chapter_index();
         if let Some(ref mut pos) = self.position
             && pos.try_back(&self.presentation).is_ok() {
-                self.markdown_scroll_position = 0.0;
+                self.moved(chapter_before);
             }
     }
 
@@ -479,6 +532,8 @@ impl RunningPresentation {
         if chapter < self.presentation.len() {
             let chapter_slides = &self.presentation[chapter].slides;
             if slide < chapter_slides.len() {
+                let chapter_before = self.chapter_index();
+
                 // The running number of the slide jumped to — the same sum
                 // [`counter_in`](Self::counter_in) reads back out of a
                 // position, counted here once.
@@ -489,7 +544,7 @@ impl RunningPresentation {
                     chapter_slide: slide,
                     slide_total: total,
                 });
-                self.markdown_scroll_position = 0.0;
+                self.moved(chapter_before);
             }
         }
     }
@@ -530,9 +585,9 @@ impl RunningPresentation {
                 let position = self.position.as_ref()?;
                 (position.chapter(), position.chapter_slide())
             }
-            // Where the phones stand is worked out from where the projection
+            // Where a view stands is worked out from where the projection
             // stands, since that is what the operator moves.
-            Division::Stream => self.stream_position()?,
+            Division::View(_) => self.position_in(division)?,
         };
 
         Some((
@@ -556,6 +611,32 @@ impl RunningPresentation {
         })
     }
 
+    /// The slide that comes after the one that is up, without going there.
+    ///
+    /// Crosses into the next chapter, because "what is next" for somebody
+    /// about to speak does not stop at the end of a song — the slide after the
+    /// last verse is the next element's first, and that is exactly what a
+    /// speaker monitor has to show.
+    ///
+    /// `None` at the end of the service, and before it has started.
+    pub fn peek_next_slide(&self) -> Option<Slide> {
+        let position = self.position.as_ref()?;
+        let chapter = self.presentation.get(position.chapter())?;
+
+        match chapter.slides.get(position.chapter_slide() + 1) {
+            Some(slide) => Some(slide.clone()),
+            // Past the end of this chapter, so the next slide is the first one
+            // of the next chapter that actually has any. A chapter with no
+            // slides is skipped rather than answered as "nothing follows".
+            None => self
+                .presentation
+                .iter()
+                .skip(position.chapter() + 1)
+                .find_map(|chapter| chapter.slides.first())
+                .cloned(),
+        }
+    }
+
     pub fn get_current_presentation_design(&self) -> PresentationDesign {
         match self.position.as_ref() {
             Some(pos) => self
@@ -567,53 +648,39 @@ impl RunningPresentation {
         }
     }
 
-    /// The design a viewer on the network sees, for the chapter that is up.
-    pub fn get_current_stream_design(&self) -> PresentationDesign {
+    /// The design `division` sees, for the chapter that is up.
+    pub fn current_design_in(&self, division: Division) -> PresentationDesign {
         match self.position.as_ref() {
             Some(pos) => self
                 .presentation
                 .get(pos.chapter())
-                .and_then(|chapter| chapter.design_for_stream())
+                .and_then(|chapter| chapter.design_in(division))
                 .unwrap_or_default(),
             None => PresentationDesign::default(),
         }
     }
 
-    /// Where a viewer on the network stands, as a chapter and a slide within
-    /// it.
+    /// Where `division` stands, as a chapter and a slide within it.
     ///
     /// The same place as the projection where the two show the same slides,
     /// and the mapped one where the service asked the stream to divide the
     /// song differently.
-    pub fn stream_position(&self) -> Option<(usize, usize)> {
+    pub fn position_in(&self, division: Division) -> Option<(usize, usize)> {
         let position = self.position.as_ref()?;
         let chapter = self.presentation.get(position.chapter())?;
         Some((
             position.chapter(),
-            chapter.stream_slide_for(position.chapter_slide()),
+            chapter.slide_for(division, position.chapter_slide()),
         ))
     }
 
-    /// The slide a viewer on the network is looking at.
-    ///
-    /// What the presenter console previews beside the projection's, so that a
-    /// moderator can see both of the things the congregation can see.
-    pub fn get_current_stream_slide(&self) -> Option<Slide> {
-        let (chapter_index, slide_index) = self.stream_position()?;
-        self.presentation
-            .get(chapter_index)?
-            .slides_for_stream()
-            .get(slide_index)
-            .cloned()
-    }
-
-    /// Whether the chapter that is up shows a viewer on the network something
-    /// other than what the projection shows.
-    pub fn current_stream_differs(&self) -> bool {
+    /// Whether the chapter that is up shows `division` something other than
+    /// what the projection shows.
+    pub fn current_differs_in(&self, division: Division) -> bool {
         self.position
             .as_ref()
             .and_then(|position| self.presentation.get(position.chapter()))
-            .is_some_and(|chapter| chapter.stream_differs())
+            .is_some_and(|chapter| chapter.differs_in(division))
     }
 
     /// Compares two `RunningPresentation` instances for structural equality,
@@ -809,29 +876,22 @@ pub struct SlideChapter {
     pub presentation_design_option: Option<PresentationDesign>,
     pub slide_settings_option: Option<SlideSettings>,
 
-    /// The design the network stream shows this chapter in, where that is not
-    /// the projection's. [None] means the phones look like the wall.
-    #[serde(default)]
-    pub stream_design_option: Option<PresentationDesign>,
-
-    /// A second division of the same song, for the phones.
+    /// What one view shows of this chapter, where that is not what the
+    /// projection shows — by the view's own identity.
     ///
-    /// [None] — the ordinary case — means the stream shows
-    /// [`slides`](Self::slides) itself, and nothing here has to be kept in
-    /// step with anything. A second set only exists where the service asked
-    /// for one, and then [`stream_slide_map`](Self::stream_slide_map) says
-    /// which of these slides each slide of the projection is showing part of.
-    #[serde(default)]
-    pub stream_slides: Option<Vec<Slide>>,
-
-    /// For every slide of [`slides`](Self::slides), the index into
-    /// [`stream_slides`](Self::stream_slides) that shows it.
+    /// Empty in the ordinary case, which is every view showing
+    /// [`slides`](Self::slides) in the chapter's own design. An entry exists
+    /// only where a view asked for a design or a division of its own.
     ///
-    /// Worked out once, when the slides are generated, rather than every time
-    /// a viewer is told where things stand: it depends only on the two sets of
-    /// slides, and both are fixed for as long as the presentation runs.
+    /// Keyed by [`View::id`](crate::logic::settings::View::id) rather than by
+    /// a position, because a running order outlives an edit to the view list:
+    /// a chapter built while "Stream" was second would otherwise start
+    /// describing whatever became second after a view above it was deleted.
+    ///
+    /// This was a single pair of fields — `stream_design_option` and
+    /// `stream_slides` — from when a service had exactly one second output.
     #[serde(default)]
-    pub stream_slide_map: Vec<usize>,
+    pub view_slides: std::collections::HashMap<Uuid, ViewDivision>,
 
     /// Optional timer settings for automatic slide advance.
     #[serde(default)]
@@ -861,66 +921,101 @@ impl SlideChapter {
             source_file,
             presentation_design_option: presentation_design,
             slide_settings_option: slide_settings,
-            stream_design_option: None,
-            stream_slides: None,
-            stream_slide_map: Vec::new(),
+            view_slides: std::collections::HashMap::new(),
             timer_settings_option: None,
             transition_option: SlideTransition::default(),
             inline_markdown: None,
         }
     }
 
-    /// The slides the network stream shows for this chapter.
-    ///
-    /// The projection's own, unless the service asked for a second division.
-    pub fn slides_for_stream(&self) -> &[Slide] {
-        match &self.stream_slides {
-            Some(slides) => slides,
-            None => &self.slides,
+    /// What this view was given of this chapter, if it was given anything.
+    fn division(&self, division: Division) -> Option<&ViewDivision> {
+        match division {
+            Division::Projection => None,
+            Division::View(id) => self.view_slides.get(&id),
         }
     }
 
     /// The slides of this chapter in `division`.
     ///
     /// The one place that answers "which set of slides is meant", so that
-    /// everything counting them agrees. See [`Division`].
+    /// everything counting them agrees. A view that asked for no division of
+    /// its own is shown the projection's, which is the ordinary case and costs
+    /// nothing. See [`Division`].
     pub fn slides_in(&self, division: Division) -> &[Slide] {
-        match division {
-            Division::Projection => &self.slides,
-            Division::Stream => self.slides_for_stream(),
+        match self.division(division) {
+            Some(view) if !view.slides.is_empty() => &view.slides,
+            _ => &self.slides,
         }
     }
 
-    /// Which slide the stream is showing while the projection shows `slide`.
+    /// Which slide `division` is showing while the projection shows `slide`.
     ///
     /// The same index where there is no second division, and the mapped one
     /// where there is. Clamped rather than trusted: a map is generated
     /// alongside the slides, and a presentation restored from an older session
     /// may have one that no longer fits.
-    pub fn stream_slide_for(&self, slide: usize) -> usize {
-        if self.stream_slides.is_none() {
+    pub fn slide_for(&self, division: Division, slide: usize) -> usize {
+        let Some(view) = self.division(division) else {
+            return slide;
+        };
+        if view.slides.is_empty() {
             return slide;
         }
-        let last = self.slides_for_stream().len().saturating_sub(1);
-        self.stream_slide_map.get(slide).copied().unwrap_or(0).min(last)
+        let last = view.slides.len().saturating_sub(1);
+        view.map.get(slide).copied().unwrap_or(0).min(last)
     }
 
-    /// The design the stream shows this chapter in — its own where it has one,
-    /// and otherwise the projection's.
-    pub fn design_for_stream(&self) -> Option<PresentationDesign> {
-        self.stream_design_option
-            .clone()
+    /// The design `division` shows this chapter in — its own where it has one,
+    /// and otherwise the chapter's.
+    pub fn design_in(&self, division: Division) -> Option<PresentationDesign> {
+        self.division(division)
+            .and_then(|view| view.design.clone())
             .or_else(|| self.presentation_design_option.clone())
     }
 
-    /// Whether a viewer is being shown something other than the projection.
+    /// Whether `division` is being shown something other than the projection.
     ///
     /// What the presenter console asks before offering a second preview: with
     /// nothing differing there is nothing to preview, and a second picture of
     /// the same slide is just clutter beside the first.
-    pub fn stream_differs(&self) -> bool {
-        self.stream_slides.is_some() || self.stream_design_option.is_some()
+    pub fn differs_in(&self, division: Division) -> bool {
+        self.division(division)
+            .is_some_and(|view| !view.slides.is_empty() || view.design.is_some())
     }
+}
+
+/// What one view shows of a chapter, where that is not what the projection
+/// shows.
+///
+/// Both halves are optional in effect: a view may differ only in its design,
+/// only in its division, or in both. `slides` empty means "the projection's
+/// slides", which keeps the ordinary case free.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct ViewDivision {
+    /// The design this view shows the chapter in, where that is not the
+    /// chapter's own.
+    #[serde(default)]
+    pub design: Option<PresentationDesign>,
+
+    /// A second division of the same song.
+    ///
+    /// Empty — the ordinary case — means this view shows the projection's own
+    /// slides, and nothing here has to be kept in step with anything. A second
+    /// set only exists where the view asked for one, and then [`map`](Self::map)
+    /// says which of these slides each slide of the projection is showing part
+    /// of.
+    #[serde(default)]
+    pub slides: Vec<Slide>,
+
+    /// For every slide of the projection, the index into [`slides`](Self::slides)
+    /// that shows it.
+    ///
+    /// Worked out once, when the slides are generated, rather than every time a
+    /// viewer is told where things stand: it depends only on the two sets of
+    /// slides, and both are fixed for as long as the presentation runs.
+    #[serde(default)]
+    pub map: Vec<usize>,
 }
 
 /// How many slides of `division` come before `chapter`.
@@ -942,13 +1037,17 @@ pub fn slides_before(chapters: &[SlideChapter], chapter: usize, division: Divisi
         .sum()
 }
 
-/// Which of the two sets of slides a service has is meant.
+/// Which set of slides a service has is meant.
 ///
-/// A service may give the phones a division of its own — a song that goes two
-/// lines at a time on the wall and four on a phone — and from then on there
-/// are two answers to every question about slides: which one is up, how many
-/// there are, how far through the service it is. See
-/// [`SlideChapter::stream_slides`].
+/// A view may be given a division of its own — a song that goes two lines at a
+/// time on the wall and four on a phone — and from then on there are as many
+/// answers to every question about slides as there are views that asked: which
+/// one is up, how many there are, how far through the service it is.
+///
+/// This was a pair, `Projection` and `Stream`, from when a service had exactly
+/// two outputs. A view is named by its own identity now, so that a second
+/// network view is a second division rather than a second special case. See
+/// [`SlideChapter::view_slides`].
 ///
 /// A value rather than a second set of methods because everything that counts
 /// slides counts them the same way and differs only in which set it is
@@ -959,10 +1058,12 @@ pub fn slides_before(chapters: &[SlideChapter], chapter: usize, division: Divisi
 /// same.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Division {
-    /// What the wall shows.
+    /// What the wall shows: the reference view's slides, which every other
+    /// division is described against.
     Projection,
-    /// What the phones show, where that is not the same.
-    Stream,
+    /// What one view shows, where that is not the same. Named by the view's
+    /// own [`id`](crate::logic::settings::View::id).
+    View(Uuid),
 }
 
 fn default_presentation_resolution() -> (u32, u32) {
@@ -992,11 +1093,26 @@ mod tests {
         let first = SlideChapter::new(slides(3), source("Erstes Lied"), None, None);
 
         let mut second = SlideChapter::new(slides(4), source("Zweites Lied"), None, None);
-        second.stream_slides = Some(slides(2));
-        // Two of the wall's slides to each of the phones'.
-        second.stream_slide_map = vec![0, 0, 1, 1];
+        second.view_slides.insert(
+            phones(),
+            ViewDivision {
+                design: None,
+                slides: slides(2),
+                // Two of the wall's slides to each of the phones'.
+                map: vec![0, 0, 1, 1],
+            },
+        );
 
         RunningPresentation::new(vec![first, second])
+    }
+
+    /// The view the phones are, as this fixture names it.
+    ///
+    /// A fixed identity so that the tests can ask about the same view the
+    /// fixture built a division for. Any two would do; what matters is that
+    /// they are the same one.
+    fn phones() -> Uuid {
+        Uuid::from_u128(0x0000_0000_0000_0000_0000_0000_0000_0001)
     }
 
     /// Both counters count the service, not the song.
@@ -1014,7 +1130,7 @@ mod tests {
         // song has no division of its own.
         running.jump_to(0, 1);
         assert_eq!(running.counter_in(Division::Projection), Some((2, 7)));
-        assert_eq!(running.counter_in(Division::Stream), Some((2, 5)));
+        assert_eq!(running.counter_in(Division::View(phones())), Some((2, 5)));
 
         // The third slide of the second song is the sixth of the service on
         // the wall, and the second of that song on a phone — which is the
@@ -1022,7 +1138,7 @@ mod tests {
         running.jump_to(1, 2);
         assert_eq!(running.counter_in(Division::Projection), Some((6, 7)));
         assert_eq!(
-            running.counter_in(Division::Stream),
+            running.counter_in(Division::View(phones())),
             Some((5, 5)),
             "three slides of the first song and the second of the phones' two"
         );
@@ -1061,7 +1177,7 @@ mod tests {
         running.position = None;
 
         assert_eq!(running.counter_in(Division::Projection), None);
-        assert_eq!(running.counter_in(Division::Stream), None);
+        assert_eq!(running.counter_in(Division::View(phones())), None);
     }
 
     /// A seek to the same second twice is two commands. Without the count the
@@ -1338,5 +1454,182 @@ mod tests {
             !measured.eq_ignoring_scroll(&unmeasured),
             "a window that has measured itself differs from one that has not"
         );
+    }
+
+    /// A service that has started is already in its first chapter, so the
+    /// clock for that chapter runs from the start. Without this the first
+    /// song of every service would show no time at all until the operator
+    /// happened to move to the second one.
+    #[test]
+    fn the_first_chapter_is_being_timed_as_soon_as_the_service_starts() {
+        assert!(
+            service().chapter_entered_at.is_some(),
+            "the first chapter of a started service is not being timed"
+        );
+    }
+
+    /// Nothing is up, so there is nothing to time. A timer counting from the
+    /// moment an empty running order was opened would be counting the
+    /// operator's preparation.
+    #[test]
+    fn a_service_with_no_slides_times_nothing() {
+        let empty = RunningPresentation::new(vec![]);
+
+        assert_eq!(empty.position, None);
+        assert_eq!(empty.chapter_entered_at, None);
+    }
+
+    /// A time nothing could have been entered at, used to tell "the clock was
+    /// restarted" from "the clock was left alone".
+    ///
+    /// These tests cannot ask whether the timestamp *changed*: two readings
+    /// of a millisecond clock inside one test are usually the same number, so
+    /// a restarted clock and an untouched one look identical. Marking the
+    /// field with a value the program would never write turns both questions
+    /// into ones with a definite answer — and one that does not depend on how
+    /// fast the machine running the tests is.
+    fn long_ago() -> Option<Timestamp> {
+        Some(Timestamp::from_milliseconds(0))
+    }
+
+    /// The rule the chapter timer exists for: moving between the verses of a
+    /// song does not mean the song has started again. A preacher who moves to
+    /// their second slide has not begun preaching afresh.
+    #[test]
+    fn moving_within_a_chapter_does_not_restart_its_clock() {
+        let mut running = service();
+        running.jump_to(0, 0);
+        running.chapter_entered_at = long_ago();
+
+        running.next_slide();
+
+        assert_eq!(running.chapter_index(), Some(0), "still the first song");
+        assert_eq!(
+            running.chapter_entered_at,
+            long_ago(),
+            "the clock restarted inside the chapter"
+        );
+    }
+
+    /// And the other half of it: leaving the chapter does restart it.
+    #[test]
+    fn arriving_in_another_chapter_starts_its_clock() {
+        let mut running = service();
+        running.jump_to(0, 2);
+        running.chapter_entered_at = long_ago();
+
+        // The last slide of the first song, so this crosses into the second.
+        running.next_slide();
+
+        assert_eq!(running.chapter_index(), Some(1), "the second song is up");
+        assert_ne!(
+            running.chapter_entered_at,
+            long_ago(),
+            "the second song is being timed from when the first one started"
+        );
+    }
+
+    /// Going back is arriving somewhere too. The clock is "how long this has
+    /// been up", not "how far through the service we are" — an operator who
+    /// steps back into the previous song has that song up again, from now.
+    #[test]
+    fn going_back_into_the_previous_chapter_starts_its_clock_again() {
+        let mut running = service();
+        running.jump_to(1, 0);
+        running.chapter_entered_at = long_ago();
+
+        running.previous_slide();
+
+        assert_eq!(running.chapter_index(), Some(0));
+        assert_ne!(
+            running.chapter_entered_at,
+            long_ago(),
+            "the clock was carried backwards along with the position"
+        );
+    }
+
+    /// A jump from the sidebar is the third way of moving, and it has to
+    /// behave like the other two. This is the case that a chapter clock
+    /// written into `next_slide` and `previous_slide` alone would miss.
+    #[test]
+    fn a_jump_across_chapters_starts_the_clock_of_the_one_jumped_to() {
+        let mut running = service();
+        running.jump_to(0, 0);
+        running.chapter_entered_at = long_ago();
+
+        running.jump_to(1, 3);
+
+        assert_ne!(
+            running.chapter_entered_at,
+            long_ago(),
+            "jumping to another chapter left the previous chapter's clock running"
+        );
+    }
+
+    /// What the speaker layout shows in its smaller box, inside a song.
+    #[test]
+    fn the_next_slide_is_the_one_after_this_one() {
+        let mut running = service();
+        running.jump_to(0, 0);
+
+        assert_eq!(
+            running.peek_next_slide(),
+            running.presentation[0].slides.get(1).cloned()
+        );
+    }
+
+    /// And across the end of one: what comes after the last verse of a song is
+    /// the next element, which is exactly what somebody about to speak needs
+    /// to see. A "next slide" that stopped at the chapter boundary would go
+    /// blank at the very moment the speaker most wants to know what is coming.
+    #[test]
+    fn the_next_slide_reaches_into_the_following_chapter() {
+        let mut running = service();
+        // The last slide of the first song.
+        running.jump_to(0, 2);
+
+        assert_eq!(
+            running.peek_next_slide(),
+            running.presentation[1].slides.first().cloned(),
+            "the next slide should be the second song's first"
+        );
+    }
+
+    /// At the end of the service there is nothing next, and the layout says
+    /// so rather than showing the first slide again.
+    #[test]
+    fn there_is_no_next_slide_at_the_end_of_the_service() {
+        let mut running = service();
+        running.jump_to(1, 3);
+
+        assert_eq!(running.peek_next_slide(), None);
+    }
+
+    /// Looking ahead does not move the presentation. The clue is in the name,
+    /// and getting it wrong would advance the projection every time a stage
+    /// monitor redrew itself.
+    #[test]
+    fn peeking_at_the_next_slide_does_not_go_there() {
+        let mut running = service();
+        running.jump_to(0, 0);
+        let before = running.position.clone();
+
+        let _ = running.peek_next_slide();
+
+        assert_eq!(running.position, before);
+    }
+
+    /// A jump that lands where it started changes nothing, so it does not
+    /// restart the clock either — the sidebar is clicked on the current song
+    /// often enough for this to matter.
+    #[test]
+    fn a_jump_within_the_same_chapter_leaves_its_clock_alone() {
+        let mut running = service();
+        running.jump_to(0, 0);
+        running.chapter_entered_at = long_ago();
+
+        running.jump_to(0, 2);
+
+        assert_eq!(running.chapter_entered_at, long_ago());
     }
 }

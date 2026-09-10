@@ -62,6 +62,22 @@ pub mod element_creation;
 
 pub mod presentation_components;
 
+/// The screen the people making the service happen look at, as opposed to the
+/// one the congregation does.
+pub mod monitor_view;
+
+/// Rendering a presentation to HTML for the network, out of the very same
+/// components the window draws.
+///
+/// Gated with the thing it renders *for*. Only a desktop build serves a
+/// stream — [`crate::logic::network_host`] is what asks for this, and that is
+/// desktop-only — so on a phone and in a browser it would be a renderer with
+/// nothing to render for. It also reaches for
+/// [`crate::logic::video::path_of_video_url`], which is gated the same way and
+/// is what broke the Android build.
+#[cfg(feature = "desktop")]
+pub mod stream_render;
+
 pub mod presentation_design_settings_components;
 
 pub mod settings_components;

@@ -28,5 +28,10 @@
 pub mod protocol;
 pub mod server;
 
+// Only a desktop build puts a server up — see [`crate::logic::network_server`],
+// which is gated the same way. Re-exported unconditionally these were two
+// warnings on every Android build, for names nothing there can use.
+#[cfg(feature = "desktop")]
 pub use server::local_address;
+#[cfg(feature = "desktop")]
 pub use server::StreamServer;

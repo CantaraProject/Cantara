@@ -9,6 +9,14 @@ presentation:
   title:
     en: Presentation
     de: Präsentation
+  # The speaker layout of a monitor view labels the smaller slide, so that
+  # somebody glancing at two of them knows at once which is which.
+  monitor_next:
+    en: "Next"
+    de: "Als Nächstes"
+  monitor_end:
+    en: "End of the presentation"
+    de: "Ende der Präsentation"
 
 presenter:
   title:

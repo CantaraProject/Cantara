@@ -3,8 +3,12 @@
 use super::{
     settings::PresentationDesign,
     sourcefiles::{SourceFile, SourceFileType},
-    states::{RunningPresentation, RunningPresentationPosition, SelectedItemRepresentation, SlideChapter},
-    stream_view::{StreamDefaults, map_slides, slides_nest, stream_slide_settings},
+    states::{
+        RunningPresentation, RunningPresentationPosition, SelectedItemRepresentation, SlideChapter,
+        ViewDivision,
+    },
+    stream_view::{ViewDefaults, map_slides, slides_nest, stream_slide_settings},
+    timer::Timestamp,
 };
 
 use crate::logic::tag_mapping::TagMapping;
@@ -414,9 +418,9 @@ fn create_presentation_slides(
 /// to keep in step, and no second reading of the file — the chapter says so by
 /// leaving all three empty, and everything downstream falls back to the
 /// projection's own slides.
-fn stream_view_of(
+fn view_division_of(
     selected_item: &SelectedItemRepresentation,
-    stream_defaults: &StreamDefaults,
+    view: &ViewDefaults,
     projection_design: &PresentationDesign,
     projection_slides: &[Slide],
     projection_settings: &SlideSettings,
@@ -425,10 +429,13 @@ fn stream_view_of(
     // A design that happens to be the projection's is not a difference, and
     // recording it as one would put a second preview in the presenter console
     // showing exactly what the first one shows.
+    // The element's own choice for its second reading, then the view's. An
+    // element names one pair for "what the phones get" rather than one per
+    // view: per-view element overrides are the piece that is still to come.
     let design = selected_item
         .stream_design_option
         .clone()
-        .or_else(|| stream_defaults.design.clone())
+        .or_else(|| view.design.clone())
         .filter(|design| design != projection_design);
 
     // Only a song can be divided into slides two ways. A picture is one slide,
@@ -443,7 +450,7 @@ fn stream_view_of(
     let wanted = selected_item
         .stream_slide_settings_option
         .clone()
-        .or_else(|| stream_defaults.slide_settings.clone());
+        .or_else(|| view.slide_settings.clone());
 
     let Some(wanted) = wanted else {
         return (design, None, Vec::new());
@@ -501,7 +508,7 @@ fn stream_view_of(
 /// stream to serve: what the stream would do with the same element is
 /// previewed in the presenter console, next to the slide it would differ from.
 enum StreamView<'a> {
-    Build(&'a StreamDefaults),
+    Build(&'a [ViewDefaults]),
     Skip,
 }
 
@@ -543,17 +550,34 @@ fn assemble_chapter(
     tag_mappings: &[TagMapping],
     stream: StreamView<'_>,
 ) -> SlideChapter {
-    let (stream_design_option, stream_slides, stream_slide_map) = match stream {
-        StreamView::Build(stream_defaults) => stream_view_of(
-            selected_item,
-            stream_defaults,
-            &used_presentation_design,
-            &slides,
-            &used_slide_settings,
-            tag_mappings,
-        ),
-        StreamView::Skip => (None, None, Vec::new()),
-    };
+    // One division per view that is shown something other than the projection.
+    // A view that asked for nothing gets no entry at all, which is what keeps
+    // the ordinary service free of second sets of slides.
+    let mut view_slides: std::collections::HashMap<Uuid, ViewDivision> =
+        std::collections::HashMap::new();
+    if let StreamView::Build(views) = stream {
+        for view in views {
+            let (design, slides_of_view, map) = view_division_of(
+                selected_item,
+                view,
+                &used_presentation_design,
+                &slides,
+                &used_slide_settings,
+                tag_mappings,
+            );
+            if design.is_none() && slides_of_view.is_none() {
+                continue;
+            }
+            view_slides.insert(
+                view.id,
+                ViewDivision {
+                    design,
+                    slides: slides_of_view.unwrap_or_default(),
+                    map,
+                },
+            );
+        }
+    }
 
     SlideChapter {
         id: Uuid::new_v4(),
@@ -561,9 +585,7 @@ fn assemble_chapter(
         source_file: selected_item.source_file.clone(),
         presentation_design_option: Some(used_presentation_design),
         slide_settings_option: Some(used_slide_settings),
-        stream_design_option,
-        stream_slides,
-        stream_slide_map,
+        view_slides,
         timer_settings_option: selected_item.timer_settings_option.clone(),
         transition_option: selected_item.transition_effect,
         inline_markdown: selected_item.inline_markdown.clone(),
@@ -639,7 +661,7 @@ pub fn build_presentation(
     selected_items: &Vec<SelectedItemRepresentation>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
-    stream_defaults: &StreamDefaults,
+    view_defaults: &[ViewDefaults],
     tag_mappings: &[TagMapping],
 ) -> Option<RunningPresentation> {
     let mut presentation: Vec<SlideChapter> = vec![];
@@ -650,7 +672,7 @@ pub fn build_presentation(
             default_presentation_design,
             default_slide_settings,
             tag_mappings,
-            StreamView::Build(stream_defaults),
+            StreamView::Build(view_defaults),
         ) {
             Ok(chapter) => presentation.push(chapter),
             Err(_) => {
@@ -672,7 +694,7 @@ pub fn add_presentation(
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
-    stream_defaults: &StreamDefaults,
+    view_defaults: &[ViewDefaults],
     tag_mappings: &[TagMapping],
 ) -> Option<usize> {
     // Right now, we only allow one running presentation at the same time.
@@ -685,7 +707,7 @@ pub fn add_presentation(
         selected_items,
         default_presentation_design,
         default_slide_settings,
-        stream_defaults,
+        view_defaults,
         tag_mappings,
     ) {
         running_presentations
@@ -761,7 +783,7 @@ fn apply_presentation_update(
     selected_items: &[SelectedItemRepresentation],
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
-    stream_defaults: &StreamDefaults,
+    view_defaults: &[ViewDefaults],
     tag_mappings: &[TagMapping],
 ) -> RunningPresentation {
     // Remember current position for restoration
@@ -810,7 +832,7 @@ fn apply_presentation_update(
             default_presentation_design,
             default_slide_settings,
             tag_mappings,
-            StreamView::Build(stream_defaults),
+            StreamView::Build(view_defaults),
         ) {
             Ok(mut chapter) => {
                 // Carry the old UUID for this content fingerprint (FIFO within
@@ -865,12 +887,36 @@ fn apply_presentation_update(
         RunningPresentationPosition::new(&new_chapters)
     };
 
+    // Whether the presentation is still in the chapter it was in, which is
+    // what decides the chapter clock: a running order edited during a sermon
+    // must not restart the sermon's timer, and one that moved the service to a
+    // different element must.
+    //
+    // Read back off the result rather than tracked through the branches above,
+    // so that the answer cannot drift from the position actually chosen. It
+    // has to be asked before the UUIDs are replaced below — that is the last
+    // moment the carried identity still means anything.
+    let stayed_in_chapter = match (old_chapter_id, &new_position) {
+        (Some(target_id), Some(position)) => new_chapters
+            .get(position.chapter())
+            .is_some_and(|chapter| chapter.id == target_id),
+        _ => false,
+    };
+
     // Now assign fresh UUIDs to all chapters so they don't carry stale old IDs
     for ch in &mut new_chapters {
         ch.id = Uuid::new_v4();
     }
 
     RunningPresentation {
+        chapter_entered_at: match (stayed_in_chapter, &new_position) {
+            // Same chapter, still running: the clock goes on.
+            (true, _) => old_rp.chapter_entered_at,
+            // A different chapter is now up, so it was entered just now.
+            (false, Some(_)) => Some(Timestamp::now()),
+            // Nothing is up, so nothing is being timed.
+            (false, None) => None,
+        },
         presentation: new_chapters,
         position: new_position,
         // Preserve fields that are unrelated to content regeneration
@@ -890,7 +936,7 @@ pub fn update_presentation(
     running_presentations: &mut Signal<Vec<RunningPresentation>>,
     default_presentation_design: &PresentationDesign,
     default_slide_settings: &SlideSettings,
-    stream_defaults: &StreamDefaults,
+    view_defaults: &[ViewDefaults],
     tag_mappings: &[TagMapping],
 ) {
     // Must have a running presentation to update
@@ -903,7 +949,7 @@ pub fn update_presentation(
         selected_items,
         default_presentation_design,
         default_slide_settings,
-        stream_defaults,
+        view_defaults,
         tag_mappings,
     );
 
@@ -911,6 +957,11 @@ pub fn update_presentation(
     if let Some(first) = running_presentations.write().first_mut() {
         first.presentation = updated.presentation;
         first.position = updated.position;
+        // Which chapter is up may have changed, and with it when that chapter
+        // was entered. `apply_presentation_update` has already decided whether
+        // the clock carries on or starts again — this only has to not throw
+        // that answer away.
+        first.chapter_entered_at = updated.chapter_entered_at;
         // Keep: is_black_screen, presentation_resolution, markdown_scroll_position
     }
 
@@ -964,6 +1015,14 @@ pub fn update_presentation(
 
 #[cfg(test)]
 mod tests {
+    use crate::logic::states::Division;
+    /// The view these tests give a division of its own.
+    ///
+    /// A fixed identity, so a test can ask about the same view it built for.
+    fn phones() -> Uuid {
+        Uuid::from_u128(0x0000_0000_0000_0000_0000_0000_0000_0002)
+    }
+
     use std::{path::PathBuf, str::FromStr};
 
     use crate::logic::{
@@ -1210,19 +1269,21 @@ mod tests {
             &vec![item],
             &PresentationDesign::default(),
             &projection,
-            &StreamDefaults {
+            &[ViewDefaults {
+                id: phones(),
                 design: None,
                 slide_settings: Some(stream),
-            },
+            }],
                     &[],
 )
         .expect("a presentation");
         let chapter = &rp.presentation[0];
 
-        let stream_slides = chapter
-            .stream_slides
-            .as_ref()
-            .expect("the stream was given a division of its own");
+        let view = chapter
+            .view_slides
+            .get(&phones())
+            .expect("the view was given a division of its own");
+        let stream_slides = &view.slides;
         assert!(
             stream_slides.len() < chapter.slides.len(),
             "four lines at a time is fewer slides than two: {} against {}",
@@ -1230,27 +1291,27 @@ mod tests {
             chapter.slides.len()
         );
         assert_eq!(
-            chapter.stream_slide_map.len(),
+            view.map.len(),
             chapter.slides.len(),
             "every slide of the projection is mapped"
         );
         assert!(
-            chapter
-                .stream_slide_map
+            view
+                .map
                 .iter()
                 .all(|&index| index < stream_slides.len()),
             "and mapped to a slide that exists: {:?}",
-            chapter.stream_slide_map
+            view.map
         );
         assert!(
-            chapter
-                .stream_slide_map
+            view
+                .map
                 .windows(2)
                 .all(|pair| pair[0] <= pair[1]),
             "and never backwards: {:?}",
-            chapter.stream_slide_map
+            view.map
         );
-        assert!(chapter.stream_differs());
+        assert!(chapter.differs_in(Division::View(phones())));
     }
 
     /// A service that asks for the same division gets no second set of slides
@@ -1267,16 +1328,17 @@ mod tests {
             &vec![amazing_grace()],
             &PresentationDesign::default(),
             &settings,
-            &StreamDefaults {
+            &[ViewDefaults {
+                id: phones(),
                 design: None,
                 slide_settings: Some(settings.clone()),
-            },
+            }],
                     &[],
 )
         .expect("a presentation");
 
-        assert!(rp.presentation[0].stream_slides.is_none());
-        assert!(!rp.presentation[0].stream_differs());
+        assert!(!rp.presentation[0].differs_in(Division::View(phones())));
+        assert!(!rp.presentation[0].differs_in(Division::View(phones())));
     }
 
     /// An element may single itself out, and what it says wins over the
@@ -1296,24 +1358,32 @@ mod tests {
                 max_lines: Some(2),
                 ..SlideSettings::default()
             },
-            &StreamDefaults {
+            &[ViewDefaults {
+                id: phones(),
                 design: None,
                 slide_settings: Some(SlideSettings {
                     max_lines: Some(4),
                     ..SlideSettings::default()
                 }),
-            },
+            }],
                     &[],
 )
         .expect("a presentation");
 
         let chapter = &rp.presentation[0];
-        let stream_slides = chapter.stream_slides.as_ref().expect("a division of its own");
+        let stream_slides = &chapter
+            .view_slides
+            .get(&phones())
+            .expect("a division of its own")
+            .slides;
         assert!(
             stream_slides.len() < chapter.slides.len(),
             "whole verses, not four lines at a time"
         );
-        assert_eq!(chapter.stream_slide_map.len(), chapter.slides.len());
+        assert_eq!(
+            chapter.view_slides[&phones()].map.len(),
+            chapter.slides.len()
+        );
     }
 
     /// The wrap the service asked for is reconciled against the projection's on
@@ -1335,10 +1405,11 @@ mod tests {
                 max_lines: Some(2),
                 ..SlideSettings::default()
             },
-            &StreamDefaults {
+            &[ViewDefaults {
+                id: phones(),
                 design: None,
                 slide_settings: Some(three_lines_at_a_time),
-            },
+            }],
                     &[],
 )
         .expect("a presentation");
@@ -1347,8 +1418,12 @@ mod tests {
         // Three is not a multiple of two, so four is what was used — and the
         // proof is that every projection slide still lands inside exactly one
         // stream slide, which is what a straddle would break.
-        let stream_slides = chapter.stream_slides.as_ref().expect("a division of its own");
-        for (slide, &mapped) in chapter.slides.iter().zip(&chapter.stream_slide_map) {
+        let view = chapter
+            .view_slides
+            .get(&phones())
+            .expect("a division of its own");
+        let stream_slides = &view.slides;
+        for (slide, &mapped) in chapter.slides.iter().zip(&view.map) {
             let shown = slide_text(slide);
             if shown.is_empty() {
                 continue;
@@ -1679,7 +1754,7 @@ mod tests {
             &items.to_vec(),
             &design,
             &settings,
-            &StreamDefaults::default(),
+            &[],
                     &[],
 );
         rp.expect("build_presentation should succeed for inline markdown items")
@@ -1709,7 +1784,7 @@ mod tests {
             &items,
             &PresentationDesign::default(),
             &SlideSettings::default(),
-            &StreamDefaults::default(),
+            &[],
                     &[],
 );
 
@@ -1741,7 +1816,7 @@ mod tests {
             &items_updated,
             &PresentationDesign::default(),
             &SlideSettings::default(),
-            &StreamDefaults::default(),
+            &[],
                     &[],
 );
 
@@ -1774,7 +1849,7 @@ mod tests {
             &items_swapped,
             &PresentationDesign::default(),
             &SlideSettings::default(),
-            &StreamDefaults::default(),
+            &[],
                     &[],
 );
 
@@ -1806,12 +1881,119 @@ mod tests {
             &items_updated,
             &PresentationDesign::default(),
             &SlideSettings::default(),
-            &StreamDefaults::default(),
+            &[],
                     &[],
 );
 
         let pos = updated.position.expect("position should fall back, not be None");
         assert_eq!(pos.chapter(), 0, "should fall back to first chapter");
         assert_eq!(pos.chapter_slide(), 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // The chapter clock across a rebuild
+    // -------------------------------------------------------------------------
+
+    /// The running order is edited while the service runs — someone adds a
+    /// song further down the list while the sermon is up. The sermon has not
+    /// started again, and the monitor showing the preacher how long they have
+    /// been going must not say it has.
+    ///
+    /// This is the case the whole `chapter_entered_at` design is for, and the
+    /// one that a rebuild resetting the field would break silently: nothing
+    /// else about the presentation would look wrong.
+    #[test]
+    fn editing_the_running_order_does_not_restart_the_current_chapters_clock() {
+        let item_a = inline_md_item("a.md", "# S1\n\n---\n\n# S2");
+        let item_b = inline_md_item("b.md", "# S1\n\n---\n\n# S2\n\n---\n\n# S3");
+        let items = [item_a.clone(), item_b.clone()];
+
+        let mut rp = build_rp(&items);
+        rp.jump_to(1, 1);
+        // A time the program would never write, so that "the clock carried on"
+        // and "the clock restarted" are distinguishable. Two readings of a
+        // millisecond clock in one test are usually the same number.
+        let preaching_since = Some(crate::logic::timer::Timestamp::from_milliseconds(0));
+        rp.chapter_entered_at = preaching_since;
+
+        // The same two elements, plus a third added at the end.
+        let items_with_addition = [item_a, item_b, inline_md_item("c.md", "# Added")];
+
+        let updated = apply_presentation_update(
+            rp,
+            &items_with_addition,
+            &PresentationDesign::default(),
+            &SlideSettings::default(),
+            &[],
+            &[],
+        );
+
+        assert_eq!(
+            updated.position.as_ref().map(|position| position.chapter()),
+            Some(1),
+            "the same element should still be up"
+        );
+        assert_eq!(
+            updated.chapter_entered_at, preaching_since,
+            "the clock restarted because the running order was edited"
+        );
+    }
+
+    /// The other half: when the rebuild does move the service to a different
+    /// element — the one that was up has been deleted — that element is up
+    /// from now, and its clock says so rather than carrying the deleted one's.
+    #[test]
+    fn losing_the_current_chapter_starts_the_replacements_clock() {
+        let item_a = inline_md_item("a.md", "# S1\n\n---\n\n# S2");
+        let item_b = inline_md_item("b.md", "# S1");
+        let items = [item_a.clone(), item_b];
+
+        let mut rp = build_rp(&items);
+        rp.jump_to(1, 0);
+        let deleted_chapters_clock = Some(crate::logic::timer::Timestamp::from_milliseconds(0));
+        rp.chapter_entered_at = deleted_chapters_clock;
+
+        // The element that was up is removed from the running order.
+        let items_updated = [item_a];
+
+        let updated = apply_presentation_update(
+            rp,
+            &items_updated,
+            &PresentationDesign::default(),
+            &SlideSettings::default(),
+            &[],
+            &[],
+        );
+
+        assert!(
+            updated.chapter_entered_at.is_some(),
+            "something is up, so something is being timed"
+        );
+        assert_ne!(
+            updated.chapter_entered_at, deleted_chapters_clock,
+            "the fallback chapter inherited the clock of the one that was deleted"
+        );
+    }
+
+    /// Everything is removed from the running order. Nothing is up, so
+    /// nothing is being timed — a clock left running here would be counting
+    /// an empty screen.
+    #[test]
+    fn emptying_the_running_order_stops_the_clock() {
+        let items = [inline_md_item("a.md", "# S1")];
+        let rp = build_rp(&items);
+        assert!(rp.chapter_entered_at.is_some());
+
+        let updated = apply_presentation_update(
+            rp,
+            &[],
+            &PresentationDesign::default(),
+            &SlideSettings::default(),
+            &[],
+            &[],
+        );
+
+        assert_eq!(updated.position, None);
+        assert_eq!(updated.chapter_entered_at, None);
     }
 }
