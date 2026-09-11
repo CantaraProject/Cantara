@@ -125,6 +125,17 @@ pub mod search;
 /// Waiting a moment, on the platform's clock rather than the page's.
 pub mod timer;
 
+/// Services to test against, in one place rather than in every test module.
+///
+/// See `docs/specs/0004-testing-playwright.md`.
+#[cfg(test)]
+pub mod fixtures;
+
+/// Reading a settings file written by an older Cantara — the one thing this
+/// program does that cannot be undone.
+#[cfg(test)]
+mod settings_migration;
+
 /// Getting a video file into the page that plays it.
 pub mod video;
 

@@ -1,6 +1,7 @@
 # 0004 — Testing: what a service is allowed to do to us
 
-Status: **draft**, nothing built yet.
+Status: **stages 1 and 2 done** — the two the 3.0 release was waiting on.
+See "What stage N turned up" under each.
 
 Cantara has 735 tests over 55.000 lines, and they are good tests: named for the
 behaviour they protect, most of them carrying the reason they exist. They are
@@ -85,6 +86,39 @@ needs would have caught four of the five before anyone saw them.
 both monitor layouts. Assert on *properties*, not on a golden string — a golden
 file over generated markup breaks on every whitespace change and teaches people
 to run the update command without looking.
+
+#### What stage 1 turned up
+
+Built as [`slide_markup`](../../src/components/slide_markup.rs), 17 tests over
+the matrix, on fixtures in [`fixtures`](../../src/logic/fixtures.rs). Two
+things came out of writing it that are worth recording.
+
+**A defect, found by the second test that ran.** A notation staff and a PDF
+canvas each carry an `id` for the script that draws into them, and both were a
+fresh `Uuid` per render. So *every rendering of such a slide differed from the
+last* — and the stream compares what it is about to send against what it last
+sent, precisely so that an unchanged state is not pushed to every phone again.
+That check could never hold. A notation slide on screen meant every phone in
+the building rebuilding its page once a second, re-engraving the staff and
+restarting any video on it, for as long as the slide was up. It also defeated
+the patch-only-the-widgets path in `stream_viewer.html`, which exists to stop
+exactly that.
+
+The fix is the scope's own number instead of a random one: assigned by the
+`VirtualDom` as it builds the tree, so it is stable for the same tree and
+unique within it. Neither a random id nor a hash of the content has both
+properties.
+
+This is the argument for the tier in one example. The defect is invisible on
+the machine it happens on, it needs a phone and a stopwatch to see, and it
+looks nothing like an identifier when you are watching it.
+
+**Fixtures have to be real.** The first draft named files that did not exist.
+A picture slide is inlined by *reading* the file, so a made-up path renders as
+`<div style="width: 100%; height: 100%;"></div>` — an empty box, with nothing
+in the markup to say what it was meant to hold. The test asserting that a
+picture is drawn passed against that. A fixture that cannot fail is worse than
+no fixture, because it is counted.
 
 ### 2. Rust integration tests — the network side, end to end
 
@@ -175,22 +209,50 @@ configuration that has been rewritten wrongly is gone.
 Real settings files from real installations — 0.2, 0.3, one with monitor views —
 read, migrated, and asserted to produce the same service they described before.
 
+#### What stage 2 turned up
+
+Built as [`settings_migration`](../../src/logic/settings_migration.rs), 10
+tests over three documents in `testfiles/settings/`.
+
+**The fixtures are built, not collected.** Nobody's real settings file is in
+this repository and none should be — one carries their song folders and their
+stream password. Each fixture is instead the shape a version actually wrote,
+with a configuration in it somebody would recognise. A real file is still
+welcome: the invariant tests walk the directory rather than naming the files,
+so dropping one in covers it.
+
+**Writing them made a duplication visible.** The desktop loads settings from a
+file and the web build from local storage, and both then did the same three
+steps in a row — migrate the document, parse it, run every fixup — sharing
+nothing but the habit. That is precisely the arrangement `bring_up_to_date`
+was written to end, and it had only got half of it. The three steps are now
+`Settings::from_stored`, which is what both call and what the tests exercise.
+Testing the steps separately would have said nothing about the order they run
+in, and the order is where a migration goes wrong.
+
+The generic invariants are the ones worth naming, because they are what a
+running Cantara leans on without ever checking: there is somewhere to project,
+the reference view is one of the views, and every stored index names something
+that still exists. An index past the end is a failure this program has had
+before, and it surfaces during a service.
+
 ## Order
 
 Ordered by cost of failure, not by ease.
 
-1. **Markup tests** for every slide type × design kind. Cheapest, and catches
-   the class that produced five of nine defects.
-2. **Migration fixtures.** Small, and it guards the only irreversible thing.
+1. ~~**Markup tests** for every slide type × design kind.~~ Done: 17 tests in
+   [`slide_markup`](../../src/components/slide_markup.rs). Found one defect.
+2. ~~**Migration fixtures.**~~ Done: 10 tests in
+   [`settings_migration`](../../src/logic/settings_migration.rs).
 3. **Rust integration tests** for the network side: the error cases, the load
    property, the archive bounds.
 4. **Playwright for the stream viewer.** The highest-value browser surface.
 5. **A screenshot mode** for the desktop window, and Playwright for the
    remaining web surfaces.
 
-Tiers 1 and 2 are worth having before a 3.0 release. Tiers 3 to 5 are worth
-having before the release *after* it, and are the reason to keep the release
-after it small.
+Tiers 1 and 2 are worth having before a 3.0 release, and are now in. Tiers 3
+to 5 are worth having before the release *after* it, and are the reason to keep
+the release after it small.
 
 ## Decisions taken
 

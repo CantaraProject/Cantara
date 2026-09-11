@@ -78,6 +78,13 @@ pub mod monitor_view;
 #[cfg(feature = "desktop")]
 pub mod stream_render;
 
+/// What every kind of slide, in every kind of design, comes out as.
+///
+/// Tests only — see `docs/specs/0004-testing-playwright.md`. Gated with
+/// [`stream_render`], which is the renderer they go through.
+#[cfg(all(test, feature = "desktop"))]
+mod slide_markup;
+
 pub mod presentation_design_settings_components;
 
 pub mod settings_components;

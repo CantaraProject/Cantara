@@ -726,12 +726,9 @@ impl Settings {
     pub fn load() -> Self {
         #[cfg(target_arch = "wasm32")]
         {
-            let json = crate::logic::web_storage::text(SETTINGS_KEY);
-            let mut settings = match json {
-                Some(j) => serde_json::from_str(&migrate_settings_json(&j)).unwrap_or_default(),
-                None => Self::default(),
-            };
-            settings.bring_up_to_date();
+            let mut settings = crate::logic::web_storage::text(SETTINGS_KEY)
+                .and_then(|stored| Self::from_stored(&stored))
+                .unwrap_or_else(Self::started_fresh);
             settings.ensure_bundled_repos();
             settings
         }
@@ -754,11 +751,10 @@ impl Settings {
                 &read,
                 Some(Err(error)) if error.kind() == std::io::ErrorKind::NotFound
             );
-            let stored = read.and_then(|result| result.ok());
-            let mut settings: Settings = stored
-                .and_then(|content| serde_json::from_str(&migrate_settings_json(&content)).ok())
-                .unwrap_or_default();
-            settings.bring_up_to_date();
+            let mut settings = read
+                .and_then(|result| result.ok())
+                .and_then(|content| Self::from_stored(&content))
+                .unwrap_or_else(Self::started_fresh);
 
             // Nobody starts with an empty program if they have been using
             // Cantara 2: their library, design and metadata line are on this
@@ -771,6 +767,42 @@ impl Settings {
 
             settings
         }
+    }
+
+    /// The settings a stored document describes, brought up to the current
+    /// shape.
+    ///
+    /// The whole of reading a settings file that is not the reading: migrate
+    /// the document, parse it, then run every fixup. Both places that load —
+    /// the desktop from a file, the browser from local storage — did these
+    /// three steps in a row with nothing shared but the habit, which is
+    /// exactly the arrangement [`bring_up_to_date`](Self::bring_up_to_date)
+    /// was written to end and only got half of.
+    ///
+    /// `None` when the document cannot be understood at all. That is not an
+    /// error worth reporting: the defaults are a working configuration and the
+    /// wizard picks the user up from there. It *is* worth keeping separate
+    /// from a file that is simply not there, which is a first start and means
+    /// something else entirely — see [`load`](Self::load).
+    ///
+    /// This is also the only way the migration can be tested as the one thing
+    /// it is. Testing the steps separately says nothing about the order they
+    /// run in, and the order is where a migration goes wrong.
+    pub fn from_stored(json: &str) -> Option<Self> {
+        let mut settings: Settings = serde_json::from_str(&migrate_settings_json(json)).ok()?;
+        settings.bring_up_to_date();
+        Some(settings)
+    }
+
+    /// The configuration somebody starting with no settings gets.
+    ///
+    /// The defaults *plus the fixups* — not the bare defaults. A default
+    /// `Settings` has no views in it at all, so a first start that skipped
+    /// this would come up with nothing to project onto.
+    pub(crate) fn started_fresh() -> Self {
+        let mut settings = Self::default();
+        settings.bring_up_to_date();
+        settings
     }
 
     /// Save the current settings to storage.
