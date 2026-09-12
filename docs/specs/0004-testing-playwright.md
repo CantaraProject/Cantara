@@ -1,7 +1,7 @@
 # 0004 — Testing: what a service is allowed to do to us
 
-Status: **stages 1 and 2 done** — the two the 3.0 release was waiting on.
-See "What stage N turned up" under each.
+Status: **stages 1, 2 and 3 done.** See "What stage N turned up" under each.
+Stage 3 found a remote arbitrary file write; that one is worth reading.
 
 Cantara has 735 tests over 55.000 lines, and they are good tests: named for the
 behaviour they protect, most of them carrying the reason they exist. They are
@@ -148,6 +148,79 @@ against cyberattacks", because none of it is a browser's business:
   makes no sense must leave the presentation window untouched. That is a real
   assertion about a real risk.
 
+#### What stage 3 turned up
+
+The four items, in the order they were built. Two of them were not tests at
+all in the end: the code they were meant to test did not exist yet.
+
+**The ZIP bomb was worse than a bomb.** `logic::settings` unpacked a downloaded
+archive with `temp_dir.path().join(file.name())` and `io::copy` — no bound on
+the size, no bound on the number of entries, and **no check on the name**.
+`Path::join` with an absolute path does not append, it *replaces*: an entry
+named `/etc/passwd` would have been written to `/etc/passwd`. That is a remote
+arbitrary file write, triggered by adding a song repository somebody sent you
+a link to.
+
+So the unpacking became [`archive`](../../src/logic/archive.rs): a budget on
+total size, on any single file and on the entry count, and every path taken
+through `enclosed_name`. The budget is checked **twice** — once against the
+size the archive declares, which is cheap and turns away an obvious bomb before
+a byte is written, and again while reading, because the declared size is a
+number the attacker wrote. 14 tests.
+
+This also removed a duplication that was the reason the hole existed in two
+places: the desktop unpacked to a folder and the web build into a map, as two
+copies of the same loop, so each would have had to grow the same checks
+separately. What they share — *deciding what is safe to take* — is now one
+function; where the bytes go is still the caller's.
+
+Writing the fixtures taught something worth keeping: **a hostile fixture built
+with a well-behaved tool is not hostile.** The `zip` writer normalises an
+entry's name on the way in, so asking it for `/etc/passwd` produces a harmless
+relative `etc/passwd` and the test passes for the wrong reason. The archives
+that carry a name no writer will produce are laid out byte by byte, and there
+is a test asserting that the fixture really does carry the name — a test of a
+test, and not idle, since a fixture that quietly stopped being hostile is
+exactly the failure this whole document is about.
+
+**The damaged PDF was already survivable, and silent.** `build_presentation`
+skips an element it cannot read and builds the rest — the important half, and
+now asserted for four kinds of damaged file, for a file that is no longer
+there, and for a damaged song. What it did *not* do was say anything: the arm
+was `Err(_) => { // TODO }`. The element the operator put in the running order
+is simply not there on Sunday, with nothing anywhere to say why, and the
+natural conclusion is that they forgot to add it. It logs now. That is not
+enough — this belongs in front of the person building the order, at the moment
+they build it — and it is listed under "still open" below.
+
+**The rejected address was not rejected.** `check_network_path` is called by
+the editor, and by nothing else. The list of addresses handed to the helper was
+built **twice**, in two places, and neither checked anything — and the two had
+already begun to filter differently. A settings file is not the editor: it can
+be hand-edited, or written by another version. And a bad address fails
+quietly — a *reserved* one like `/console` is shadowed by the route that owns
+it, so the view exists, the switch says the stream is on, and whoever opens
+that address is shown somebody else's page. One `Settings::served_views` now,
+which checks, drops what it must, and keeps the rest: one typo does not cost
+the other two views their stream.
+
+**The load property, restated.** "Resist a DDoS" is not something this program
+can be, and a test claiming it would be a test claiming something false. What
+is asserted instead is *nothing arriving on the socket may disturb the
+projection*: 64 viewers at once, probes and traversal attempts, ranges that
+make no sense, connections abandoned mid-response, connections that say nothing
+at all — and after each, the service being served is still the service that is
+running. Plus the half that is easy to forget: the operator can still press
+"next" while all that is going on.
+
+**One more thing the stage turned up, from a failure of my own.** Adding the
+damaged PDFs to `testfiles/` broke two unrelated tests that count the documents
+in there, with the message `6 != 2`. `testfiles/` is *the library* — what a
+church would have — and test inputs that are not library content do not belong
+in it. Those now live in `fixtures/`. The two counting tests name the documents
+they expect instead, so the next failure says which file was missing rather
+than arithmetic.
+
 ### 3. Playwright — the browser surfaces
 
 `playwright.config.js` starts `dx serve` on port 8080 with
@@ -212,7 +285,7 @@ read, migrated, and asserted to produce the same service they described before.
 #### What stage 2 turned up
 
 Built as [`settings_migration`](../../src/logic/settings_migration.rs), 10
-tests over three documents in `testfiles/settings/`.
+tests over three documents in `fixtures/settings/`.
 
 **The fixtures are built, not collected.** Nobody's real settings file is in
 this repository and none should be — one carries their song folders and their
@@ -244,8 +317,11 @@ Ordered by cost of failure, not by ease.
    [`slide_markup`](../../src/components/slide_markup.rs). Found one defect.
 2. ~~**Migration fixtures.**~~ Done: 10 tests in
    [`settings_migration`](../../src/logic/settings_migration.rs).
-3. **Rust integration tests** for the network side: the error cases, the load
-   property, the archive bounds.
+3. ~~**Rust integration tests** for the network side.~~ Done: archive bounds
+   in [`archive`](../../src/logic/archive.rs), damaged elements in
+   [`presentation`](../../src/logic/presentation.rs), addresses in
+   [`settings`](../../src/logic/settings.rs), load in
+   [`stream::server`](../../src/logic/stream/server.rs).
 4. **Playwright for the stream viewer.** The highest-value browser surface.
 5. **A screenshot mode** for the desktop window, and Playwright for the
    remaining web surfaces.

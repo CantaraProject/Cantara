@@ -19,7 +19,7 @@
 //!
 //! # What the fixtures are
 //!
-//! `testfiles/settings/` holds one document per shape worth reading. They are
+//! `fixtures/settings/` holds one document per shape worth reading. They are
 //! **built**, not collected — nobody's real settings file is in this
 //! repository, and one would carry paths and passwords that do not belong in
 //! it. Each is the shape a version actually wrote, with a configuration in it
@@ -53,7 +53,7 @@ use crate::logic::settings::{RepositoryType, Settings, ViewOutput};
 /// Where the fixtures live.
 fn settings_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("testfiles")
+        .join("fixtures")
         .join("settings")
 }
 

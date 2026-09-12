@@ -1180,6 +1180,257 @@ mod tests {
         assert_eq!(second.revision, 2, "every change counts up");
     }
 
+    // ── What the socket may do to the service ──────────────────────────
+    //
+    // Stage 3 of `docs/specs/0004-testing-playwright.md`, and the place where
+    // the requirement it grew from needed restating. The note asked for
+    // "resistance against a DDoS attack via the network when streaming is
+    // activated". That is not a property this program can have and should not
+    // pretend to: it is a plain HTTP server on a hall network, and anything
+    // that saturates the wire has already won before a single byte reaches it.
+    //
+    // The property that *matters*, and that these can actually assert:
+    //
+    //   **Nothing arriving on the socket may disturb the projection.**
+    //
+    // The congregation is looking at the wall. Whatever a phone — or a
+    // hundred of them, or somebody in the car park with a script — does to
+    // this server, the service goes on and what it serves is still the service
+    // that is running. That is a real assertion about a real risk, and it is
+    // the one worth having.
+
+    /// A state that says which service is running, so a test can tell whether
+    /// what came back is still it.
+    fn a_named_service(title: &str) -> StreamState {
+        StreamState {
+            running: true,
+            chapters: vec![super::super::protocol::StreamChapter {
+                title: title.to_string(),
+                slides: vec![],
+            }],
+            ..StreamState::default()
+        }
+    }
+
+    /// The state the server is serving right now, read over the socket.
+    fn state_served_by(server: &StreamServer) -> StreamState {
+        client()
+            .get(at(server, "/state"))
+            .send()
+            .expect("the server still answers")
+            .json()
+            .expect("with a state")
+    }
+
+    /// A hall full of phones does not change what is being served.
+    ///
+    /// The ordinary Sunday load, which is also the shape of the attack: a lot
+    /// of clients asking for the same thing at once. The stream is built for
+    /// exactly this — the slide is rendered once per change and the same bytes
+    /// go to everybody — and this is what says so.
+    #[test]
+    fn a_hall_full_of_viewers_does_not_change_what_is_served() {
+        let mut server = serving("");
+        publish_one(&mut server, a_named_service("Amazing Grace"));
+
+        let address = at(&server, "/state");
+        let answered: usize = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..64)
+                .map(|_| {
+                    let address = address.clone();
+                    scope.spawn(move || {
+                        client()
+                            .get(&address)
+                            .send()
+                            .is_ok_and(|response| response.status().is_success())
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .filter_map(|handle| handle.join().ok())
+                .filter(|answered| *answered)
+                .count()
+        });
+
+        assert_eq!(answered, 64, "some viewers were not served");
+        assert_eq!(
+            state_served_by(&server).chapters[0].title,
+            "Amazing Grace",
+            "the service changed under load"
+        );
+    }
+
+    /// Nonsense from the network is answered and forgotten.
+    ///
+    /// Every one of these is something a real client sends by accident and a
+    /// hostile one sends on purpose. None of them may take the server with
+    /// them: what has to be true afterwards is that the *next* viewer, the
+    /// ordinary one, still gets the service.
+    #[test]
+    fn nothing_nonsensical_on_the_socket_takes_the_service_down() {
+        let mut server = serving("");
+        publish_one(&mut server, a_named_service("Amazing Grace"));
+
+        let client = client();
+        for path in [
+            "/no-such-address",
+            "/media/nothing-is-filed-under-this",
+            "/video/nor-under-this",
+            "/state/../../etc/passwd",
+            "/%2e%2e/%2e%2e/etc/passwd",
+            // A path long enough to be a probe rather than a mistake.
+            "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "/state?revision=not-a-number",
+            "/state?revision=99999999999999999999999999",
+        ] {
+            let response = client.get(at(&server, path)).send();
+
+            assert!(
+                response.is_ok(),
+                "{path} did not get an answer at all, so the server is gone"
+            );
+        }
+
+        assert_eq!(
+            state_served_by(&server).chapters[0].title,
+            "Amazing Grace",
+            "the service did not survive being probed"
+        );
+    }
+
+    /// A range request that makes no sense is refused, and the server carries
+    /// on.
+    ///
+    /// The one route that does arithmetic on a number the client chose. A
+    /// range is turned into a buffer of exactly that length, so an unchecked
+    /// one is an allocation the network gets to specify — the difference
+    /// between "refused" and "the machine running the service starts
+    /// swapping" is entirely in the parsing.
+    #[test]
+    fn a_nonsensical_range_is_refused_rather_than_believed() {
+        let mut server = serving("");
+        publish_one(&mut server, a_named_service("Amazing Grace"));
+
+        let client = client();
+        for range in [
+            "bytes=0-99999999999999999999",
+            "bytes=99999999999-1",
+            "bytes=-",
+            "bytes=abc-def",
+            "not a range header at all",
+            "bytes=0-1, 2-3, 4-5, 6-7",
+            "bytes=18446744073709551615-18446744073709551615",
+        ] {
+            let response = client
+                .get(at(&server, "/video/nothing-is-filed-under-this"))
+                .header(header::RANGE, range)
+                .send();
+
+            assert!(
+                response.is_ok(),
+                "{range:?} did not get an answer, so the server is gone"
+            );
+        }
+
+        assert_eq!(
+            state_served_by(&server).chapters[0].title,
+            "Amazing Grace",
+            "the service did not survive being asked for nonsense"
+        );
+    }
+
+    /// Viewers that leave in the middle cost the ones who stay nothing.
+    ///
+    /// The commonest thing that happens to this server, and it happens on
+    /// every slide: a phone goes to sleep, a tab is closed, somebody walks out
+    /// of range of the wi-fi. Each of those is a connection dropped halfway
+    /// through a response. A server that let one of those wedge it would fail
+    /// on an ordinary Sunday with nobody attacking anything.
+    #[test]
+    fn viewers_that_leave_halfway_through_do_not_wedge_the_stream() {
+        let mut server = serving("");
+        publish_one(&mut server, a_named_service("Amazing Grace"));
+
+        // The events stream, opened and abandoned. It is the long-lived one —
+        // a viewer holds it open for the whole service — so it is the one an
+        // abandoned connection would accumulate on.
+        for _ in 0..32 {
+            let mut connection = std::net::TcpStream::connect(("127.0.0.1", server.port()))
+                .expect("the port is open");
+            use std::io::Write;
+            let _ = connection.write_all(b"GET /events HTTP/1.1\r\nHost: x\r\n\r\n");
+            // Dropped without reading a byte of the answer.
+        }
+
+        assert_eq!(
+            state_served_by(&server).chapters[0].title,
+            "Amazing Grace",
+            "abandoned connections stopped the stream being served"
+        );
+    }
+
+    /// A connection that says nothing at all is not a connection.
+    ///
+    /// Opened and held. This is the cheapest attack there is — it costs the
+    /// other end one socket — and the assertion is the modest one that is
+    /// actually true: an ordinary viewer is still served while they are held
+    /// open. Cantara cannot promise more than that against somebody with
+    /// enough sockets, and a test claiming otherwise would be a test claiming
+    /// something false.
+    #[test]
+    fn a_viewer_is_still_served_while_silent_connections_are_held_open() {
+        let mut server = serving("");
+        publish_one(&mut server, a_named_service("Amazing Grace"));
+
+        let held: Vec<std::net::TcpStream> = (0..32)
+            .filter_map(|_| std::net::TcpStream::connect(("127.0.0.1", server.port())).ok())
+            .collect();
+        assert!(!held.is_empty(), "nothing could be connected at all");
+
+        assert_eq!(
+            state_served_by(&server).chapters[0].title,
+            "Amazing Grace",
+            "an ordinary viewer was shut out by connections that said nothing"
+        );
+
+        drop(held);
+    }
+
+    /// The service moves on while the socket is busy, and the new slide is
+    /// what is served.
+    ///
+    /// The other half of "the projection is undisturbed": not only must the
+    /// state survive the load, the operator must still be able to *change* it.
+    /// A stream that froze on the slide it was on when the load began would
+    /// leave the congregation reading the previous verse.
+    #[test]
+    fn the_service_can_still_move_on_while_the_socket_is_busy() {
+        let mut server = serving("");
+        publish_one(&mut server, a_named_service("The first song"));
+
+        let address = at(&server, "/state");
+        std::thread::scope(|scope| {
+            for _ in 0..16 {
+                let address = address.clone();
+                scope.spawn(move || {
+                    for _ in 0..4 {
+                        let _ = client().get(&address).send();
+                    }
+                });
+            }
+
+            // The operator presses "next" in the middle of all that.
+            publish_one(&mut server, a_named_service("The second song"));
+        });
+
+        assert_eq!(
+            state_served_by(&server).chapters[0].title,
+            "The second song",
+            "the stream stayed on the slide it was on when the load began"
+        );
+    }
+
     /// A video is served from where it is, in whatever piece the browser asked
     /// for. Range requests are the whole point: without them a phone will not
     /// begin playing until the entire file has arrived, and cannot seek at all.

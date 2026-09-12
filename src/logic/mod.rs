@@ -125,6 +125,10 @@ pub mod search;
 /// Waiting a moment, on the platform's clock rather than the page's.
 pub mod timer;
 
+/// Unpacking a ZIP somebody else made, without letting it decide how much of
+/// this machine it gets.
+pub mod archive;
+
 /// Services to test against, in one place rather than in every test module.
 ///
 /// See `docs/specs/0004-testing-playwright.md`.

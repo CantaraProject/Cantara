@@ -1152,6 +1152,54 @@ impl Settings {
         self.reference_view_index = 0;
     }
 
+    /// The addresses the helper should serve, and which view is at each.
+    ///
+    /// One list, built here, because it was built in two places: once when the
+    /// stream switch is thrown and once on every change to the presentation.
+    /// The two had drifted into filtering differently — harmlessly, as it
+    /// happened, but the next difference would not have been — and neither of
+    /// them checked the path at all.
+    ///
+    /// # Why the path is checked again here
+    ///
+    /// The editor already refuses an address that
+    /// [`check_network_path`] does not like, and that is the right place for
+    /// it: the person typing gets told why. But **a field is not the only way
+    /// a value gets in.** The settings are a file. It can be edited by hand,
+    /// written by a version of Cantara that allowed something this one does
+    /// not, or copied from another installation.
+    ///
+    /// A bad address that reaches the helper does not fail loudly. A path with
+    /// characters the router cannot match simply never answers; a *reserved*
+    /// one — `/console`, `/media`, `/state` — is quietly shadowed by the real
+    /// route that owns it, so the view exists, the switch says the stream is
+    /// on, and the address shows somebody else's page. Dropping it here means
+    /// the view is unreachable, which is the same outcome, arrived at without
+    /// the router being asked to arbitrate.
+    #[cfg(feature = "desktop")]
+    pub fn served_views(&self) -> Vec<crate::logic::network_server::ServedView> {
+        self.views
+            .iter()
+            .filter_map(|view| match &view.output {
+                ViewOutput::Network { path } => Some((view.id, path)),
+                ViewOutput::Screen { .. } => None,
+            })
+            .filter(|(_, path)| match check_network_path(path) {
+                Ok(()) => true,
+                Err(problem) => {
+                    log::error!(
+                        "the view at {path} is not served: {problem:?}"
+                    );
+                    false
+                }
+            })
+            .map(|(id, path)| crate::logic::network_server::ServedView {
+                path: path.clone(),
+                id,
+            })
+            .collect()
+    }
+
     /// Adds a view, and answers where it went.
     ///
     /// A new view starts as a screen view that names no screen, no design and
@@ -1818,12 +1866,15 @@ impl RepositoryType {
                             // The same wrapper directory the desktop strips
                             // after extracting — see `archive_content_root`.
                             let wrapper = archive_wrapper_directory(&archive);
-                            for i in 0..archive.len() {
-                                if let Ok(mut entry) = archive.by_index(i) {
-                                    if entry.name().ends_with('/') {
-                                        continue;
-                                    }
-                                    let name = entry.name().to_string();
+                            // The same bounded reading the desktop uses. A
+                            // browser has no disk to fill, so a bomb fills the
+                            // tab's memory instead and takes the service down
+                            // that way rather than the other.
+                            let refused = crate::logic::archive::read_entries(
+                                &mut archive,
+                                crate::logic::archive::Limits::default(),
+                                |path, entry| {
+                                    let name = path.to_string_lossy().into_owned();
                                     let name = match &wrapper {
                                         Some(wrapper) => name
                                             .strip_prefix(wrapper.as_str())
@@ -1831,13 +1882,18 @@ impl RepositoryType {
                                             .to_string(),
                                         None => name,
                                     };
-                                    let path = format!("{}/{}", prefix, name);
                                     let mut content = Vec::new();
-                                    let _ = std::io::Read::read_to_end(&mut entry, &mut content);
+                                    std::io::Read::read_to_end(entry, &mut content)?;
                                     WEB_FILES.with(|files| {
-                                        files.borrow_mut().insert(path, content);
+                                        files
+                                            .borrow_mut()
+                                            .insert(format!("{}/{}", prefix, name), content);
                                     });
-                                }
+                                    Ok(())
+                                },
+                            );
+                            if let Err(refused) = refused {
+                                log::error!("{refused}");
                             }
                         }
                         Err(e) => log::error!("Failed to parse ZIP archive: {}", e),
@@ -1932,26 +1988,30 @@ impl RepositoryType {
             .map_err(|e| format!("Failed to open downloaded ZIP file: {}", e))?;
         let mut archive =
             ZipArchive::new(file).map_err(|e| format!("Failed to parse ZIP file: {}", e))?;
-        for i in 0..archive.len() {
-            let mut file = archive
-                .by_index(i)
-                .map_err(|e| format!("Failed to access ZIP entry: {}", e))?;
-            let outpath = temp_dir.path().join(file.name());
-            if file.name().ends_with('/') {
-                fs::create_dir_all(&outpath)
-                    .map_err(|e| format!("Failed to create directory: {}", e))?;
-            } else {
-                if let Some(parent) = outpath.parent()
-                    && !parent.exists() {
-                        fs::create_dir_all(parent)
-                            .map_err(|e| format!("Failed to create parent directory: {}", e))?;
-                    }
-                let mut outfile = fs::File::create(&outpath)
-                    .map_err(|e| format!("Failed to create output file: {}", e))?;
-                io::copy(&mut file, &mut outfile)
-                    .map_err(|e| format!("Failed to write output file: {}", e))?;
-            }
-        }
+
+        // Through `archive::read_entries` rather than over the entries
+        // directly. What it adds is a bound on how much of this machine an
+        // archive gets and a guarantee that every path it hands back stays
+        // under `temp_dir` — see that module for what an archive at somebody
+        // else's URL can otherwise do. The destination is the only part that
+        // differs from the web build's unpacking, which goes through the same
+        // function.
+        let destination = temp_dir.path().to_path_buf();
+        crate::logic::archive::read_entries(
+            &mut archive,
+            crate::logic::archive::Limits::default(),
+            |path, contents| {
+                let outpath = destination.join(path);
+                if let Some(parent) = outpath.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                let mut outfile = fs::File::create(&outpath)?;
+                io::copy(contents, &mut outfile)?;
+                Ok(())
+            },
+        )
+        .map_err(|refused| refused.to_string())?;
+
         Ok(temp_dir)
     }
 }
@@ -3462,6 +3522,116 @@ mod tests {
     // Views, and the migration from the two outputs Cantara used to have.
     // See docs/specs/0003-add-monitor-view.md.
     // -------------------------------------------------------------------------
+
+    // What the helper is told to serve. See `Settings::served_views` and
+    // stage 3 of docs/specs/0004-testing-playwright.md.
+
+    /// The ordinary case: a network view's address is served, a screen view's
+    /// is not.
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn only_the_network_views_are_offered_to_the_helper() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        // `ensure_views` makes a projection and a stream; give the stream a
+        // name of its own so the assertion is about which was chosen.
+        settings.views[1].output = ViewOutput::Network {
+            path: "/buehne".to_string(),
+        };
+
+        let served = settings.served_views();
+
+        assert_eq!(served.len(), 1, "the projection was offered as an address");
+        assert_eq!(served[0].path, "/buehne");
+        assert_eq!(served[0].id, settings.views[1].id);
+    }
+
+    /// An address the editor would refuse never reaches the helper.
+    ///
+    /// The settings are a file, and the editor is not the only way a value
+    /// gets into one. What makes this worth a test rather than a shrug is how
+    /// it fails: a reserved address does not error, it is *shadowed* by the
+    /// route that owns it, so the view exists, the switch says the stream is
+    /// on, and whoever opens that address is shown somebody else's page.
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn an_address_the_editor_would_refuse_is_not_served() {
+        for bad in [
+            CONSOLE_PATH,
+            ASSETS_PREFIX,
+            "/state",
+            "not-absolute",
+            "",
+            "/hat räume",
+            "/../etc",
+            "/a?b=c",
+        ] {
+            let mut settings = Settings::default();
+            settings.ensure_views();
+            settings.views[1].output = ViewOutput::Network {
+                path: bad.to_string(),
+            };
+
+            assert!(
+                settings.served_views().is_empty(),
+                "{bad:?} was handed to the helper, and check_network_path says                  {:?}",
+                check_network_path(bad)
+            );
+        }
+    }
+
+    /// One bad address does not cost the good ones.
+    ///
+    /// A service with three views, one of them mis-addressed by a hand edit,
+    /// must still stream the other two. Refusing the whole list would turn a
+    /// typo into no stream at all.
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn a_single_bad_address_does_not_silence_the_others() {
+        let settings = Settings {
+            views: vec![
+            View {
+                id: uuid::Uuid::from_u128(1),
+                name: "Gemeinde".to_string(),
+                design_index: None,
+                slide_settings_index: None,
+                output: ViewOutput::Network {
+                    path: "/".to_string(),
+                },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            },
+            View {
+                id: uuid::Uuid::from_u128(2),
+                name: "Vertippt".to_string(),
+                design_index: None,
+                slide_settings_index: None,
+                output: ViewOutput::Network {
+                    path: CONSOLE_PATH.to_string(),
+                },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            },
+            View {
+                id: uuid::Uuid::from_u128(3),
+                name: "Buehne".to_string(),
+                design_index: None,
+                slide_settings_index: None,
+                output: ViewOutput::Network {
+                    path: "/buehne".to_string(),
+                },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            },
+            ],
+            ..Settings::default()
+        };
+
+        let served = settings.served_views();
+
+        assert_eq!(served.len(), 2);
+        assert!(served.iter().all(|view| view.path != CONSOLE_PATH));
+    }
 
     /// A settings file from before views existed gets the two it always had,
     /// in the order the reference view is first.

@@ -386,22 +386,7 @@ fn App() -> Element {
             // helper did not know would be shown some other view's slides.
             // Cheap and quiet when nothing has changed — see `serve_views`.
             #[cfg(feature = "desktop")]
-            logic::network_host::serve_views(
-                settings
-                    .read()
-                    .views
-                    .iter()
-                    .filter_map(|view| match &view.output {
-                        logic::settings::ViewOutput::Network { path } => {
-                            Some(logic::network_server::ServedView {
-                                path: path.clone(),
-                                id: view.id,
-                            })
-                        }
-                        logic::settings::ViewOutput::Screen { .. } => None,
-                    })
-                    .collect(),
-            );
+            logic::network_host::serve_views(settings.read().served_views());
 
             #[cfg(feature = "desktop")]
             logic::network_host::publish(presentations.first().cloned());

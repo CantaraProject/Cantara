@@ -648,21 +648,45 @@ pub mod tests {
         );
     }
 
+    /// The documents in the test library are the ones the scan finds.
+    ///
+    /// Named rather than counted. This asserted `len() == 2` and duly broke
+    /// when fixtures were added elsewhere in the tree — with the message
+    /// `6 != 2`, which says nothing about what was found or what was wanted.
+    /// Naming them makes the failure legible and makes adding a document to
+    /// the library a deliberate act rather than a way to break two unrelated
+    /// tests.
     #[test]
     fn traverse_test_dir_pdf() {
-        let dir = Path::new("testfiles");
-        assert_eq!(find_files_with_ending(dir, vec!["pdf"]).len(), 2);
+        let found: Vec<String> = find_files_with_ending(Path::new("testfiles"), vec!["pdf"])
+            .iter()
+            .filter_map(|path| path.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .collect();
+
+        for expected in ["Example.pdf", "MultiPage.pdf"] {
+            assert!(
+                found.iter().any(|name| name == expected),
+                "{expected} was not found; the scan turned up {found:?}"
+            );
+        }
     }
 
     #[test]
     fn get_source_files_includes_pdf() {
-        let dir = Path::new("testfiles");
-        let source_files = get_source_files(dir);
-        let pdf_files: Vec<&SourceFile> = source_files
+        let source_files = get_source_files(Path::new("testfiles"));
+        let pdf_files: Vec<String> = source_files
             .iter()
             .filter(|sf| sf.file_type == SourceFileType::Pdf)
+            .map(|sf| sf.name.clone())
             .collect();
-        assert_eq!(pdf_files.len(), 2);
+
+        for expected in ["Example", "MultiPage"] {
+            assert!(
+                pdf_files.iter().any(|name| name == expected),
+                "{expected} was not read as a document; the library holds {pdf_files:?}"
+            );
+        }
     }
 
     /// Length of an MD5 hash in hexadecimal representation (16 bytes × 2 hex chars per byte).
