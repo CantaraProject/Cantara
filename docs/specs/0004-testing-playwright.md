@@ -505,6 +505,41 @@ than arguing would have.
   through it carry the project's context options — checked with a throwaway
   spec rather than assumed.
 
+### The macOS failure: a race that was always there
+
+After Windows went green, macOS failed — and on a test nobody in this work had
+touched, `search::tests::search_pdf_with_text`. It passed on Linux and on
+Windows.
+
+That shape is worth recognising on sight. **The code is the same on all three
+platforms; only the interleaving differs.** A failure on one platform and not
+the others, in a test with no platform-dependent code in it, is a scheduling
+race until proved otherwise.
+
+It was. The search index is a handful of global maps, and
+`refresh_search_cache` **clears** them before filling them. Rust runs tests in
+parallel. So `search_pdf_with_text` filled the index with a PDF's page text and
+then read it back, while `refresh_cache_includes_markdown` — running beside it —
+refreshed the same global index with a single markdown file and wiped the pages
+out from under it. Nothing about PDFs, or searching, or macOS.
+
+Diagnosed rather than guessed: reverting the fix and running the search tests
+twenty times at eight threads reproduced it **on Linux, once in twenty**. With
+the fix, nought in twenty, and nought in five full-suite runs at sixteen
+threads. A fix for a race that has only been *reasoned* about is a fix nobody
+can tell from a coincidence.
+
+The remedy is the one this codebase already uses for the same problem:
+`ONE_HELPER_AT_A_TIME` serialises the tests that share the network helper, and
+`ONE_SEARCH_AT_A_TIME` now serialises the ten that share the search index.
+
+The wider point belongs in this document rather than beside the fix. A suite of
+785 tests will contain races, and a race that fires once in twenty runs is
+worse than a test that fails every time: it teaches people to press the button
+again. This one had been in the repository for some while, firing on whichever
+platform happened to interleave badly, and it surfaced here only because this
+work made CI run the suite where somebody was watching.
+
 ### The one that improved a test instead of the code
 
 The load test asked for a range on a video id nothing was registered under, so
@@ -536,6 +571,9 @@ assembling the file wrongly.
   under `continue-on-error`; that should come off once it has.
 * **Playwright does not touch the web build's own pages** — selection,
   settings, the design editor.
+* **Nothing systematically looks for the remaining races.** One was found by
+  CI failing on macOS; there is no reason to think it was the only one. Running
+  the suite repeatedly at a high thread count is cheap and is not done.
 * **Nothing measures colour.** Geometry cannot see whether anything was
   painted: an element of the right size in black on black measures perfectly.
   A person still has to look at the screen before a release, and the checklist
