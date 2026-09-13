@@ -1,7 +1,9 @@
 # 0004 — Testing: what a service is allowed to do to us
 
-Status: **all five stages done.** See "What stage N turned up" under each.
-Stage 3 found a remote arbitrary file write; that one is worth reading.
+Status: **all five stages done**, and the review of them applied — see "What
+the review turned up" at the end. Stage 3 found a remote arbitrary file write
+and the review found three more holes of the same kind; those two sections are
+the ones worth reading.
 
 Cantara has 735 tests over 55.000 lines, and they are good tests: named for the
 behaviour they protect, most of them carrying the reason they exist. They are
@@ -412,10 +414,129 @@ arbitrary file write and that changed the arithmetic.
   suite is worth the wait, and one platform is enough: the surfaces Playwright
   reaches are served over HTTP and rendered by the browser it brings with it,
   so a second operating system would exercise the same code twice.
-* **Fixture media is fetched, not committed.** The *addresses* are committed —
-  a Wikimedia URL and a checksum — and the files are downloaded once and
-  cached. The checksum is what makes this reproducible; without it a fetched
-  fixture is whatever the far end serves today.
+* **Fixture media is fetched, not committed** — *and in the end nothing had to
+  be fetched at all.* The decision was made for the large public-domain files
+  the original note asked for. What the tests actually needed turned out to be
+  a one-page PDF and an eight-by-eight PNG of 74 bytes, both of which are in
+  `testfiles/` and cost the repository nothing. The decision stands for the day
+  something genuinely large is wanted; until then there is no network
+  dependency in the suite, which is better than the arrangement it was
+  authorising.
 * **The screenshot mode asserts on measured geometry, not on images.** A font
   update must not turn the whole suite red, and geometry is what the scaling
   work in 0003 was verified by — correctly, as it turned out.
+
+## What the review turned up
+
+The pull request drew a machine review of thirteen comments. It was a good
+review — most were correct, and three found defects worse than anything the
+tests had. It is recorded here because the *pattern* is the interesting part.
+
+### The pipeline failure
+
+Windows only, and mine: a test compared a path against `"etc/passwd"` while
+that platform spells it `etc\passwd`. **A path is not its spelling.** The
+helper the tests use now hands back a `PathBuf` and the assertion is built from
+components. Nothing about the extractor was wrong.
+
+Worth noting where the review got this one: it flagged the same test for the
+wrong reason — it read the crate's `enclosed_name` documentation ("can't be an
+absolute path") as meaning an absolute entry is *rejected*, and recommended
+asserting a refusal. It is not rejected; it is made **relative**, which is
+equally safe. Acting on the suggestion would have inverted a correct test. My
+own comment above that call had said the same misleading thing, which is
+presumably where the reading came from; it now says which of the two happens.
+
+### Three real defects, all the same shape
+
+Each is a place where a comment claimed a guarantee the code did not give.
+
+* **The budget was not hard.** `read_entries` handed the callback one byte more
+  than the limit, so a file of exactly the remaining size could be told from
+  one cut off at the ceiling. Neat, and wrong: the sentinel byte *reaches the
+  callback*, which has already written it. On the desktop that is one byte past
+  a gibibyte; in the browser the callback stores what it is given. The
+  distinction is now made after the callback, by probing the entry. The test
+  that should have caught it asserted `written <= 1025` — written around the
+  implementation rather than around the promise.
+* **The download was never bounded.** The archive limits bound what an archive
+  *expands to*; the body was read into memory in one call before any of them
+  ran. A server could exhaust the machine with the compressed response and meet
+  no limit at all — while the comment beside it claimed this path "bounds how
+  much of this machine an archive gets". The desktop download is now streamed
+  to disk against a `download_bytes` budget.
+* **Half an archive was still a repository.** `read_entries` stops at the first
+  refusal on the stated principle that half an archive is no use. The web
+  build's callback wrote each file into the global map as it arrived, so an
+  archive whose tenth entry was hostile left nine files behind and the code
+  read them back as a working repository. Entries are staged and published only
+  on success.
+
+### Three multi-view defects left over from 0003
+
+Streaming bugs rather than testing ones, and all of the "a view silently does
+not work" class this spec keeps meeting.
+
+* **Media was collected for one view.** The picture handoff still asked the
+  singular `stream_view()`, from before a service could be streamed at several
+  addresses. A second network view with a division of its own has slides the
+  first never shows, so its pictures were never sent: that address named
+  `media/<id>` and the server had nothing under it.
+* **A view added mid-service got no HTML.** `serve_views` updates the
+  addresses; `publish` returns early when the presentation has not changed.
+  Between them, a view added or re-designed during a service was an address
+  with nothing behind it — or, worse, with the *old* design's markup, which
+  looks like it is working.
+* **Two views could claim one address.** The helper keeps one view per path, so
+  the second vanished. `served_views` now reports and drops it, as it already
+  did for a reserved path.
+
+### Two things the review got wrong
+
+Recorded because "the reviewer said so" is not a reason, and checking cost less
+than arguing would have.
+
+* **`GDK_BACKEND=x11` is not a regression.** Flagged as having been moved out
+  of the Wayland/DRI condition. `git show 6a97744:src/main.rs` has it outside
+  that condition too; the extraction changed nothing. Whether it *should* be
+  conditional is a fair question and a separate one.
+* **`browser.newPage()` does inherit `baseURL`.** Flagged as breaking a test
+  that demonstrably passes. Playwright Test wraps `browser` so pages made
+  through it carry the project's context options — checked with a throwaway
+  spec rather than assumed.
+
+### The one that improved a test instead of the code
+
+The load test asked for a range on a video id nothing was registered under, so
+every request was answered 404 *at the lookup* and the range was never parsed.
+It asserted only that a response came back — which it would have done on a
+server that believed every range it was given. It now registers a real video
+and asserts `416`.
+
+That immediately found something, and it was the test's fault again: a
+multi-range request is answered `206` with the first range, which
+`parse_byte_range` does deliberately and the RFC permits. The assertion now
+checks that `Content-Range` names the piece actually sent — the property that
+matters, because a 206 whose header disagrees with its body has a player
+assembling the file wrongly.
+
+## Still open
+
+* **A damaged element says nothing to the person building the order.** It is
+  skipped and logged, and that is all. The right behaviour is to say so where
+  the running order is built, while there is still time to act. See
+  `build_presentation`.
+* **The web build's download is bounded only by the archive limits.** The
+  desktop streams its download against a budget; the browser still reads the
+  body in one call, because `bytes_stream` needs a reqwest feature this project
+  does not enable. The exposure is a tab's memory rather than a machine's, and
+  the browser imposes limits of its own — but it is not the same guarantee, and
+  it should not be described as if it were.
+* **The window check has not been watched go green on a runner.** It is in CI
+  under `continue-on-error`; that should come off once it has.
+* **Playwright does not touch the web build's own pages** — selection,
+  settings, the design editor.
+* **Nothing measures colour.** Geometry cannot see whether anything was
+  painted: an element of the right size in black on black measures perfectly.
+  A person still has to look at the screen before a release, and the checklist
+  should say so rather than implying the suite covers it.

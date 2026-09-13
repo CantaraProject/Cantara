@@ -85,6 +85,12 @@ test.describe('each address shows its own view', () => {
 
     const drawn = [];
     for (const address of Object.values(ADDRESSES)) {
+      // `browser.newPage()` and not the `page` fixture, because this test
+      // needs three of them. A review flagged this as broken on the grounds
+      // that a raw page does not inherit `use.baseURL`; it does — Playwright
+      // Test wraps `browser` so that pages made through it carry the project's
+      // context options. Checked rather than assumed: a throwaway spec calling
+      // `goto('/')` on such a page landed on http://127.0.0.1:8430/.
       const page = await browser.newPage();
       const stage = await open(page, address);
       drawn.push(await stage.innerHTML());

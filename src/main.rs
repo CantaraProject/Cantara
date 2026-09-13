@@ -402,25 +402,44 @@ fn App() -> Element {
                 // Which pictures are wanted is decided from the same state the
                 // server will build, by the same function, so the names match
                 // without either side being told them.
-                // Which view the phones are being shown. The pictures a
-                // viewer will ask for are that view's, not the projection's —
-                // a view with a division of its own has slides the wall never
-                // shows.
-                let division = settings
+                // Every view the phones can reach, not just one of them.
+                //
+                // This asked `stream_view()` — the singular, from before a
+                // service could be streamed at several addresses at once — and
+                // collected the pictures of that view alone. A second network
+                // view with a division of its own has slides the first never
+                // shows, so its pictures were never rendered or sent: the
+                // markup at that address named `media/<id>`, the server had
+                // nothing under it, and the viewer got an empty box. Which
+                // address it happened to be depended on the order of the view
+                // list, which is not a thing anybody would think to check.
+                //
+                // `served_views` is the same list the helper is offering, so
+                // the pictures and the addresses cannot disagree about which
+                // views exist.
+                let divisions: Vec<logic::states::Division> = settings
                     .read()
-                    .stream_view()
+                    .served_views()
+                    .iter()
                     .map(|view| logic::states::Division::View(view.id))
-                    .unwrap_or(logic::states::Division::Projection);
+                    .collect();
+                let divisions = if divisions.is_empty() {
+                    vec![logic::states::Division::Projection]
+                } else {
+                    divisions
+                };
 
-                let state = StreamState::of(
-                    presentations.first().unwrap_or(&RunningPresentation::new(vec![])),
-                    0,
-                    division,
+                let empty = RunningPresentation::new(vec![]);
+                let running = presentations.first().unwrap_or(&empty);
+                let wanted = logic::network_host::media_wanted(
+                    divisions
+                        .iter()
+                        .flat_map(|division| StreamState::of(running, 0, *division).media())
+                        .collect::<std::collections::BTreeSet<String>>(),
                 );
-                let wanted = logic::network_host::media_wanted(state.media());
                 if !wanted.is_empty() {
                     let sources =
-                        logic::stream::protocol::media_sources(&presentations, &[division]);
+                        logic::stream::protocol::media_sources(&presentations, &divisions);
                     spawn(async move {
                         for id in wanted {
                             let Some(source) = sources.get(&id) else {

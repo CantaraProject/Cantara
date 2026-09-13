@@ -1312,6 +1312,18 @@ mod tests {
         let mut server = serving("");
         publish_one(&mut server, a_named_service("Amazing Grace"));
 
+        // A video that is really there.
+        //
+        // This asked for an id nothing was filed under, so every request was
+        // answered 404 *at the lookup* and the range was never parsed at all —
+        // the test asserted only that a response came back, which it would
+        // have done just as happily on a server that believed every range it
+        // was given. A test of range handling has to get as far as the range.
+        let folder = tempfile::tempdir().expect("a temporary folder");
+        let path = folder.path().join("clip.mp4");
+        std::fs::write(&path, (0..=255u8).collect::<Vec<u8>>()).expect("written");
+        server.publish_video("a-clip".to_string(), path);
+
         let client = client();
         for range in [
             "bytes=0-99999999999999999999",
@@ -1319,19 +1331,60 @@ mod tests {
             "bytes=-",
             "bytes=abc-def",
             "not a range header at all",
-            "bytes=0-1, 2-3, 4-5, 6-7",
             "bytes=18446744073709551615-18446744073709551615",
+            // Past the end of a 256-byte file. Worth its place: this is the one
+            // that would turn into an enormous allocation if a start beyond the
+            // file were not refused before the length is worked out.
+            "bytes=300-400",
         ] {
             let response = client
-                .get(at(&server, "/video/nothing-is-filed-under-this"))
+                .get(at(&server, "/video/a-clip"))
                 .header(header::RANGE, range)
-                .send();
+                .send()
+                .unwrap_or_else(|error| panic!("{range:?} got no answer at all: {error}"));
 
-            assert!(
-                response.is_ok(),
-                "{range:?} did not get an answer, so the server is gone"
+            // Refused, and refused *as a range problem*. Answering the start of
+            // the file instead would be worse than an error: a player that
+            // asked to resume ten minutes in would silently play the opening.
+            assert_eq!(
+                response.status(),
+                reqwest::StatusCode::RANGE_NOT_SATISFIABLE,
+                "{range:?} was not refused; the server answered {}",
+                response.status()
             );
         }
+
+        // And a range that does make sense still works, so the check above is
+        // not simply refusing everything.
+        let good = client
+            .get(at(&server, "/video/a-clip"))
+            .header(header::RANGE, "bytes=10-19")
+            .send()
+            .expect("answers");
+        assert_eq!(good.status(), reqwest::StatusCode::PARTIAL_CONTENT);
+
+        // Several ranges at once is *not* nonsense, and the first draft of this
+        // test said it was. `parse_byte_range` deliberately serves the first of
+        // them — permitted, and what a player asking for one piece at a time
+        // gets anyway. What matters is that the answer says which piece it is:
+        // a 206 whose `Content-Range` did not match the bytes in it would have
+        // a player assembling the file wrongly, which is far worse than a
+        // refusal.
+        let several = client
+            .get(at(&server, "/video/a-clip"))
+            .header(header::RANGE, "bytes=0-1, 2-3, 4-5")
+            .send()
+            .expect("answers");
+        assert_eq!(several.status(), reqwest::StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            several
+                .headers()
+                .get(header::CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok()),
+            Some("bytes 0-1/256"),
+            "the answer does not say which of the ranges it is"
+        );
+        assert_eq!(several.bytes().expect("bytes").as_ref(), &[0u8, 1u8]);
 
         assert_eq!(
             state_served_by(&server).chapters[0].title,

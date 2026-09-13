@@ -25,6 +25,18 @@ pub fn prepare() {
                 std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
             }
         }
+        // Unconditional, and deliberately left that way when this moved here.
+        //
+        // A review read the extraction as a regression — as though the x11
+        // override had previously been inside the Wayland/DRI condition above.
+        // It was not: `git show 6a97744:src/main.rs` has it outside, exactly as
+        // it is here, and this move changed no behaviour at all.
+        //
+        // Whether it *should* be conditional is a fair question and a separate
+        // one. It predates this file, it affects the projection window that
+        // every service runs on, and a change to it belongs with somebody who
+        // can try it on a machine without XWayland — not with a refactoring
+        // that was only meant to stop the measuring window coming up blank.
         unsafe {
             std::env::set_var("GDK_BACKEND", "x11");
         }

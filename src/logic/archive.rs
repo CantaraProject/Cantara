@@ -64,6 +64,18 @@ pub struct Limits {
     /// almost no bytes and is still an attack: every one of them is an inode,
     /// a directory entry and a scan of the library afterwards.
     pub entries: usize,
+    /// How large the **download itself** may be, before anything is unpacked.
+    ///
+    /// The budgets above bound what an archive expands to. They say nothing
+    /// about the archive, and for a while the comments here claimed otherwise:
+    /// the body was read into memory in one call before any of this ran, so a
+    /// server could exhaust the machine with the *compressed* response and
+    /// never reach a single limit. A bound on unpacking is not a bound on
+    /// downloading, and only one of the two was there.
+    ///
+    /// Smaller than [`total_bytes`](Self::total_bytes), because this is a
+    /// compressed archive and the other is what it becomes.
+    pub download_bytes: u64,
 }
 
 impl Default for Limits {
@@ -79,6 +91,9 @@ impl Default for Limits {
             // library's problem.
             entry_bytes: 256 * 1024 * 1024,
             entries: 50_000,
+            // 256 MiB on the wire. A zipball of the largest song repository
+            // anybody publishes is single-digit megabytes.
+            download_bytes: 256 * 1024 * 1024,
         }
     }
 }
@@ -187,9 +202,24 @@ where
             continue;
         }
 
-        // The safe reading of the name: `None` for anything absolute, anything
-        // that climbs out with `..`, and anything with a NUL in it. The raw
-        // name is only used to say which entry was refused.
+        // The safe reading of the name. It does two different things, and the
+        // difference matters enough that getting it wrong has already misled
+        // one reviewer of this file:
+        //
+        // * `None` for a name that would land *outside* — one that climbs out
+        //   with `..`, or that holds a NUL. Those are refused below.
+        // * A **relative** path for a name that merely looks dangerous. A
+        //   leading `/` is dropped and a Windows drive prefix with it, so
+        //   `/etc/passwd` comes back as `etc/passwd`, which is safe under any
+        //   destination. The crate's own documentation says the result "can't
+        //   be an absolute path", which is easy to read as "an absolute entry
+        //   is rejected". It is not; it is *made relative*.
+        //
+        // Both outcomes are safe, which is the property that matters — see
+        // `no_entry_can_be_written_outside_the_folder_it_is_unpacked_into`,
+        // which asserts that and not which of the two happened.
+        //
+        // The raw name is only used to say which entry was refused.
         let Some(path): Option<PathBuf> = entry.enclosed_name() else {
             return Err(Refused::EscapesTheFolder {
                 name: entry.name().to_string(),
@@ -210,12 +240,24 @@ where
             });
         }
 
-        // One byte more than is left, so that reading it *dry* is
-        // distinguishable from reading it to the end. Without the extra byte a
-        // file of exactly the remaining size would look like one that had been
-        // cut off.
-        let ceiling = remaining.min(limits.entry_bytes).saturating_add(1);
-        let mut bounded = entry.by_ref().take(ceiling);
+        // Exactly what is left, and not a byte more.
+        //
+        // This gave the caller `remaining + 1` — one byte over the budget — so
+        // that a file of precisely the remaining size could be told from one
+        // that had been cut off at the ceiling. It read well and it was wrong:
+        // **the sentinel byte reaches `keep`**, which has already written it by
+        // the time the overrun is noticed. On the desktop that is one byte past
+        // a budget measured in gibibytes and nobody would ever see it; in the
+        // browser the callback stores what it is given into a map that is read
+        // afterwards, so the contract said "hard limit" and the code said
+        // "hard limit, plus whatever the last entry managed".
+        //
+        // The distinction the extra byte bought is still needed, so it is made
+        // *after* the callback instead: read one more byte from the entry
+        // itself. If anything comes back, the file was larger than it was
+        // allowed to be — and nothing outside the budget was ever handed on.
+        let allowance = remaining.min(limits.entry_bytes);
+        let mut bounded = entry.by_ref().take(allowance);
 
         let mut counted = CountingReader {
             inner: &mut bounded,
@@ -226,10 +268,19 @@ where
         })?;
         let actually_read = counted.read;
 
+        // Is there more? Only asked when the allowance was used up, because
+        // that is the only case in which there could be.
+        let overran = actually_read >= allowance && {
+            let mut probe = [0u8; 1];
+            // A read that fails is not evidence of an overrun; an archive that
+            // cannot be read further is reported as unreadable elsewhere.
+            matches!(entry.read(&mut probe), Ok(1))
+        };
+
         // The index said one thing and the file was another. Nothing legitimate
         // does this, and it is exactly what a bomb built to get past a
         // header check looks like.
-        if actually_read >= ceiling {
+        if overran {
             return Err(Refused::TooLarge {
                 allowed: limits.total_bytes,
             });
@@ -371,15 +422,21 @@ mod tests {
     }
 
     /// Everything that came out, as (path, contents).
+    ///
+    /// The path stays a `PathBuf`. It was a `String` and that broke the
+    /// Windows build: a test comparing against `"etc/passwd"` fails there
+    /// against `etc\passwd`, which is the *same path* spelled the way that
+    /// platform spells it. A path is not its spelling, and a test that
+    /// compares spellings is testing the separator.
     fn unpack(
         archive: &mut ZipArchive<Cursor<Vec<u8>>>,
         limits: Limits,
-    ) -> Result<Vec<(String, Vec<u8>)>, Refused> {
+    ) -> Result<Vec<(PathBuf, Vec<u8>)>, Refused> {
         let mut taken = Vec::new();
         read_entries(archive, limits, |path, reader| {
             let mut contents = Vec::new();
             reader.read_to_end(&mut contents)?;
-            taken.push((path.to_string_lossy().into_owned(), contents));
+            taken.push((path.to_path_buf(), contents));
             Ok(())
         })?;
         Ok(taken)
@@ -502,8 +559,12 @@ mod tests {
         let taken = unpack(&mut zip, Limits::default()).expect("it is made safe, not refused");
 
         assert_eq!(taken.len(), 1);
+        // Built from components rather than written as `"etc/passwd"`: the
+        // separator is the platform's, and this assertion is about where the
+        // entry lands, not about which character separates the parts.
         assert_eq!(
-            taken[0].0, "etc/passwd",
+            taken[0].0,
+            PathBuf::from("etc").join("passwd"),
             "the leading slash survived, so joining this onto a destination \
              would write to the real /etc/passwd"
         );
@@ -677,8 +738,12 @@ mod tests {
             matches!(refusal, Err(Refused::TooLarge { .. })),
             "got {refusal:?}"
         );
+        // **Exactly** the budget, not the budget plus a sentinel. This read
+        // `<= 1025` and passed, which is how the extra byte went unnoticed:
+        // the assertion had been written around the implementation instead of
+        // around the promise. See `read_entries` for what that byte cost.
         assert!(
-            written <= 1025,
+            written <= 1024,
             "{written} bytes were handed to the caller against a budget of 1024"
         );
     }

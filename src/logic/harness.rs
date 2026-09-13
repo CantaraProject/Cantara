@@ -353,8 +353,18 @@ fn show(name: &str, widgets: bool) -> Result<(), String> {
 
     let mut held = SHOWING.lock().map_err(|_| "the harness is confused")?;
     *held = Some(running.clone());
-    crate::logic::network_host::publish(Some(running.clone()));
+    // The pictures first, then the slide that refers to them.
+    //
+    // The other order raced: the helper can broadcast HTML naming
+    // `media/<id>` and answer a viewer's request for it before the picture has
+    // arrived. A 404 to an `<img>` is final — the browser does not try again —
+    // so a viewer who happened to connect in that window saw an empty box for
+    // as long as the slide was up.
+    //
+    // Registering first cannot race the other way: a picture nothing refers to
+    // is simply unused.
     hand_over_media(&running);
+    crate::logic::network_host::publish(Some(running));
     Ok(())
 }
 
@@ -413,7 +423,11 @@ fn advance(by: i32) -> Result<usize, String> {
     }
 
     let position = running.position.as_ref().map(|at| at.slide_total()).unwrap_or(0);
-    crate::logic::network_host::publish(Some(running.clone()));
+    let moved = running.clone();
+    // Media first, then the slide — the same ordering `show` explains. Moving
+    // to another slide is moving to other pictures.
+    hand_over_media(&moved);
+    crate::logic::network_host::publish(Some(moved));
     Ok(position)
 }
 

@@ -1178,6 +1178,21 @@ impl Settings {
     /// the router being asked to arbitrate.
     #[cfg(feature = "desktop")]
     pub fn served_views(&self) -> Vec<crate::logic::network_server::ServedView> {
+        // Addresses already given out, so that a second view claiming one is
+        // caught here rather than downstream.
+        //
+        // The helper keeps a map from path to view. Two views at `/stage`
+        // means one entry, so the second view simply *is not served* — the
+        // list in the settings shows it, the switch says the stream is on, and
+        // whoever opens that address is shown the other view's design. Nothing
+        // anywhere reports it. That is the same shape as the reserved-path
+        // problem below and needs the same treatment.
+        //
+        // Compared without regard to case, because a browser will not
+        // distinguish `/Stage` from `/stage` either — see `check_network_path`,
+        // which reserves its own paths the same way.
+        let mut taken: Vec<String> = Vec::new();
+
         self.views
             .iter()
             .filter_map(|view| match &view.output {
@@ -1192,6 +1207,19 @@ impl Settings {
                     );
                     false
                 }
+            })
+            .filter(|(_, path)| {
+                // The first view to claim an address keeps it. Which of the two
+                // that is hardly matters — both readings are arbitrary — but
+                // *saying* one of them is not served does.
+                if taken.iter().any(|other| other.eq_ignore_ascii_case(path)) {
+                    log::error!(
+                        "two views are set to {path}; only the first is served"
+                    );
+                    return false;
+                }
+                taken.push((*path).clone());
+                true
             })
             .map(|(id, path)| crate::logic::network_server::ServedView {
                 path: path.clone(),
@@ -1870,6 +1898,22 @@ impl RepositoryType {
                             // browser has no disk to fill, so a bomb fills the
                             // tab's memory instead and takes the service down
                             // that way rather than the other.
+                            // Collected first, published afterwards.
+                            //
+                            // `read_entries` stops at the first thing it
+                            // refuses, on the principle that half an archive is
+                            // not a repository. Writing each file into
+                            // `WEB_FILES` as it arrived quietly broke that: a
+                            // ZIP whose *tenth* entry was a bomb or a hostile
+                            // name still left nine files in the global map, and
+                            // the code below then read them back and reported a
+                            // working repository. The refusal was logged and
+                            // otherwise had no effect.
+                            //
+                            // Staging costs one copy of an archive already
+                            // bounded to `total_bytes`, which is the price of
+                            // the contract actually holding.
+                            let mut staged: Vec<(String, Vec<u8>)> = Vec::new();
                             let refused = crate::logic::archive::read_entries(
                                 &mut archive,
                                 crate::logic::archive::Limits::default(),
@@ -1884,16 +1928,18 @@ impl RepositoryType {
                                     };
                                     let mut content = Vec::new();
                                     std::io::Read::read_to_end(entry, &mut content)?;
-                                    WEB_FILES.with(|files| {
-                                        files
-                                            .borrow_mut()
-                                            .insert(format!("{}/{}", prefix, name), content);
-                                    });
+                                    staged.push((format!("{}/{}", prefix, name), content));
                                     Ok(())
                                 },
                             );
-                            if let Err(refused) = refused {
-                                log::error!("{refused}");
+                            match refused {
+                                Ok(()) => WEB_FILES.with(|files| {
+                                    let mut files = files.borrow_mut();
+                                    for (path, content) in staged {
+                                        files.insert(path, content);
+                                    }
+                                }),
+                                Err(refused) => log::error!("{refused}"),
                             }
                         }
                         Err(e) => log::error!("Failed to parse ZIP archive: {}", e),
@@ -1976,14 +2022,44 @@ impl RepositoryType {
                 response.status()
             ));
         }
+        // Streamed to the file a chunk at a time, with a running total.
+        //
+        // It was `response.bytes()`, which reads the **whole** body into
+        // memory before anything looks at it — so the archive limits below,
+        // and the comment claiming they bound "how much of this machine an
+        // archive gets", were both applied after the damage could already have
+        // been done. A server can serve a hundred gigabytes to a request for a
+        // song repository, and nothing here would have objected until it was
+        // over.
+        //
+        // Two properties now, where there were none: the body never sits in
+        // memory whole, and it stops at `download_bytes`.
+        let limits = crate::logic::archive::Limits::default();
         let mut file = fs::File::create(&zip_path)
             .map_err(|e| format!("Failed to create temporary file: {}", e))?;
-        let content = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read response body: {}", e))?;
-        file.write_all(&content)
-            .map_err(|e| format!("Failed to write to temporary file: {}", e))?;
+        let mut downloaded: u64 = 0;
+        let mut response = response;
+        loop {
+            let chunk = response
+                .chunk()
+                .await
+                .map_err(|e| format!("Failed to read response body: {}", e))?;
+            let Some(chunk) = chunk else {
+                break;
+            };
+            downloaded = downloaded.saturating_add(chunk.len() as u64);
+            if downloaded > limits.download_bytes {
+                return Err(format!(
+                    "the download is larger than {} MB, which is more than a song \
+                     repository should be",
+                    limits.download_bytes / (1024 * 1024)
+                ));
+            }
+            file.write_all(&chunk)
+                .map_err(|e| format!("Failed to write to temporary file: {}", e))?;
+        }
+        drop(file);
+
         let file = fs::File::open(&zip_path)
             .map_err(|e| format!("Failed to open downloaded ZIP file: {}", e))?;
         let mut archive =
@@ -1999,7 +2075,7 @@ impl RepositoryType {
         let destination = temp_dir.path().to_path_buf();
         crate::logic::archive::read_entries(
             &mut archive,
-            crate::logic::archive::Limits::default(),
+            limits,
             |path, contents| {
                 let outpath = destination.join(path);
                 if let Some(parent) = outpath.parent() {
@@ -2011,6 +2087,29 @@ impl RepositoryType {
             },
         )
         .map_err(|refused| refused.to_string())?;
+
+        // The download itself must not be left lying among what came out of
+        // it.
+        //
+        // `archive_content_root` strips a zipball's wrapper directory —
+        // `cantara-songrepo-4f2ab9c` — only when it is the *sole* entry in the
+        // folder, and the wrapper's name carries the commit it was built from.
+        // `download.zip` sitting beside it makes two entries, so the wrapper
+        // was never stripped, so every file's `relative_path` began with a name
+        // that changes on every update. The identifiers the detail view puts
+        // in its URLs are derived from that path, and they are meant to outlive
+        // both the download and the update: a link to a song stopped resolving
+        // as soon as the repository was refreshed.
+        //
+        // Removed rather than downloaded elsewhere, because "elsewhere" is a
+        // second temporary directory to create, clean up and get wrong on
+        // Android.
+        if let Err(error) = fs::remove_file(&zip_path) {
+            // Not fatal. The repository is extracted and usable; what suffers
+            // is the stability of its identifiers, and refusing the whole
+            // download over it would be the worse trade.
+            log::warn!("the downloaded archive could not be removed: {error}");
+        }
 
         Ok(temp_dir)
     }
@@ -3631,6 +3730,66 @@ mod tests {
 
         assert_eq!(served.len(), 2);
         assert!(served.iter().all(|view| view.path != CONSOLE_PATH));
+    }
+
+    /// Two views set to the same address: the second is not served, and says
+    /// so.
+    ///
+    /// The helper keeps one view per path, so without this the second view
+    /// vanished — present in the settings, absent from the network, and
+    /// nothing anywhere saying which of the two the address was showing.
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn two_views_at_one_address_do_not_both_claim_it() {
+        let at = |id: u128, path: &str| View {
+            id: uuid::Uuid::from_u128(id),
+            name: format!("View {id}"),
+            design_index: None,
+            slide_settings_index: None,
+            output: ViewOutput::Network {
+                path: path.to_string(),
+            },
+            enabled: true,
+            focus: ViewFocus::Follow,
+        };
+
+        let settings = Settings {
+            views: vec![at(1, "/stage"), at(2, "/stage"), at(3, "/buehne")],
+            ..Settings::default()
+        };
+
+        let served = settings.served_views();
+
+        assert_eq!(served.len(), 2, "the duplicate was served as well");
+        assert_eq!(served[0].id, uuid::Uuid::from_u128(1), "the first keeps it");
+        assert_eq!(served[1].path, "/buehne", "the unrelated view still works");
+    }
+
+    /// Addresses differing only in case are the same address.
+    ///
+    /// A browser will not distinguish them, so neither may this — the same
+    /// reasoning `check_network_path` uses for its reserved paths.
+    #[test]
+    #[cfg(feature = "desktop")]
+    fn two_addresses_differing_only_in_case_are_one_address() {
+        let at = |id: u128, path: &str| View {
+            id: uuid::Uuid::from_u128(id),
+            name: format!("View {id}"),
+            design_index: None,
+            slide_settings_index: None,
+            output: ViewOutput::Network {
+                path: path.to_string(),
+            },
+            enabled: true,
+            focus: ViewFocus::Follow,
+        };
+
+        let settings = Settings {
+            views: vec![at(1, "/Stage"), at(2, "/stage")],
+            ..Settings::default()
+        };
+
+        assert_eq!(settings.served_views().len(), 1);
     }
 
     /// A settings file from before views existed gets the two it always had,
