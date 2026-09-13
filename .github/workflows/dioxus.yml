@@ -104,11 +104,11 @@ jobs:
           OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
           OPENSSL_INCLUDE_DIR: /usr/include
         run: cargo clippy --all-targets --features test-harness -- -D warnings
-      - name: Install the browser tests
+      # Only the browser itself: `npm install` above already brought in
+      # `@playwright/test` along with everything else this project needs.
+      - name: Install the browser the tests drive
         if: matrix.os == 'ubuntu-latest'
-        run: |-
-          npm ci || npm install
-          npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium
       - name: Run the browser tests
         if: matrix.os == 'ubuntu-latest'
         env:
