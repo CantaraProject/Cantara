@@ -452,12 +452,7 @@ pub fn PresentationPage() -> Element {
         // This div is needed for fullscreen mode
         div {
             tabindex: 0,
-            style: "
-                    all: initial;
-                    margin:0;
-                    width:100%;
-                    height:100%;
-                ",
+            style: PRESENTATION_WINDOW_STYLE,
             onclick: move |_| {
                 // Close context menu on any click
                 show_context_menu.set(false);
@@ -2375,6 +2370,23 @@ fn SimplePictureSlideComponent(
         }
     }
 }
+
+/// The box the whole projection is drawn in: the window, and nothing of the
+/// surrounding page.
+///
+/// `all: initial` because this window shows a design and not an application —
+/// nothing PicoCSS puts on a page belongs on a wall. The full width and height
+/// because everything inside is sized as a share of it: a `.presentation` given
+/// `height: 100%` against a parent with no height is a `.presentation` of no
+/// height, and what that looks like is a black strip across the top of an
+/// otherwise white screen.
+///
+/// Shared with [`crate::logic::measure`], which opens a window to check that
+/// the projection is drawn correctly. Written out there as well, it came up
+/// 1264×377 in a 1280×720 window and reported that as fine — a measuring rig
+/// reproducing the very failure it is meant to detect.
+pub(crate) const PRESENTATION_WINDOW_STYLE: &str =
+    "all: initial; margin: 0; width: 100%; height: 100%;";
 
 /// The box a picture is fitted into: the whole cell, centred.
 ///

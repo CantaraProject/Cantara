@@ -18,6 +18,12 @@
 //! module can be reached from nowhere else, which is how the same fixture came
 //! to be written twice before this existed.
 //!
+//! It is also compiled — outside `cfg(test)` — into the build the browser
+//! tests drive; see [`crate::logic::harness`]. A Playwright test asking for
+//! "the service with a video in it" and a Rust test asserting on one have to
+//! mean the same service, or a browser failure says nothing about the markup
+//! test that passed.
+//!
 //! # Why the values are what they are
 //!
 //! Nothing here is arbitrary, and where something looks it, it is not:
@@ -38,7 +44,29 @@
 //! * The ids are fixed ([`uuid::Uuid::from_u128`]) rather than fresh. A test
 //!   that names a view has to be able to name the same view twice.
 
-#![cfg(test)]
+// A library of fixtures, not a set of call sites. Which of these is used
+// depends on the build: the browser harness wants the services and none of the
+// marks, the markup matrix wants both, and a test added tomorrow will want
+// something that nothing uses today. Warning about the rest would mean either
+// deleting fixtures that are about to be needed or annotating them one at a
+// time, and neither is worth doing to a file whose whole job is to offer more
+// than any one caller uses.
+#![allow(dead_code, reason = "a fixture library is used differently by each build")]
+// The rule against `expect` outside tests is right and this is the one place
+// it should not apply. These functions build the *fixtures themselves*: a
+// failure means the song this file contains no longer parses, or the picture
+// beside it is not a picture. There is nothing to recover to — a test that
+// carried on with no slides would assert against an empty stage and pass, and
+// the browser harness must not serve a service it could not build. Failing
+// loudly, at the first call, naming the fixture, is the behaviour wanted.
+//
+// The module was `cfg(test)` when this was written, so the lint did not see
+// it; it does now that the harness build compiles it too. The reasoning has
+// not changed, only who can read it.
+#![allow(
+    clippy::expect_used,
+    reason = "a fixture that cannot be built has no fallback worth having"
+)]
 
 use cantara_songlib::slides::{
     Slide, SlideContent, SlideRow, SlideSettings, SimplePictureSlide,

@@ -1,6 +1,6 @@
 # 0004 — Testing: what a service is allowed to do to us
 
-Status: **stages 1, 2 and 3 done.** See "What stage N turned up" under each.
+Status: **all five stages done.** See "What stage N turned up" under each.
 Stage 3 found a remote arbitrary file write; that one is worth reading.
 
 Cantara has 735 tests over 55.000 lines, and they are good tests: named for the
@@ -237,6 +237,78 @@ What is worth testing here, in order of what failure costs:
 3. **The web build.** Choose songs, build a running order, open the settings,
    edit a design, see the preview change.
 
+#### What stages 4 and 5 turned up
+
+**Stage 4 does not fake the server.** The tempting shortcut was to serve the
+viewer page from a little test server with a canned state behind it. That would
+have been quick and worth very little: every defect worth catching here lives
+in the path *between* Cantara and the page, and a canned state is that path
+removed. So [`harness`](../../src/logic/harness.rs) calls `enable_viewer` and
+`publish` — the same functions the stream switch and the presentation loop
+call — and everything after them is real: the real helper process, the real
+rendering, the real socket, the real page. What is replaced is the window: a
+test asks over HTTP instead of an operator pressing keys.
+
+It is behind a **cargo feature, not a flag**. It opens a port and takes
+instructions on it, which is exactly what the rest of this program is careful
+not to do — the network side is a separate process that knows nothing precisely
+so that a service cannot be changed by whatever reaches the socket. "Only
+reachable if you pass `--harness`" is reasoning that holds until somebody finds
+a way to pass it. A released Cantara does not contain this code.
+
+16 tests in [`tests/browser`](../../tests/browser/), and writing them found
+three things:
+
+* **The harness's own claim was too strong.** It said it ran "the same two
+  functions the presentation loop calls"; the loop calls more than two. Two
+  tests failed because of it — the clock on a streamed monitor never moved,
+  because `refresh_time_widgets` is called on a timer by Cantara's loop and the
+  harness had no timer. That is a defect the harness would have *hidden*: the
+  browser test would have gone green on a Cantara whose streamed clocks had
+  frozen.
+* **The harness fell back to another port in silence.** Cantara moves to a free
+  port when the chosen one is taken, which is right for a person and wrong
+  here — the tests open a fixed address, so a moved harness left Playwright
+  waiting on a port nothing answered, and the message was "the server never
+  started". Scaffolding failing the way the product must not is not acceptable
+  in a suite about exactly that. It now refuses to start.
+* **A PDF page cannot be rasterised without a window.** That rendering is
+  pdf.js, inside the web view. The harness stands a known picture in under the
+  right name, which tests the half that actually broke in 0003 — the markup
+  asked for `media/<id>` and the server held the page under a *different* id.
+  A browser test here may assert that a page resolves to a picture the viewer
+  can load. It may not assert that the picture is the right page.
+
+**Stage 5 measures geometry, as decided.**
+[`measure`](../../src/logic/measure.rs) opens the real projection window, draws
+five services through `DesignedPresentation` — the same decision point the
+projection uses — and checks the numbers. Every rule in it is one of 0003's
+reported defects turned into an inequality: a stage of no size, a stage that is
+a strip, a slide scaled to nothing, a slide overflowing its frame, a text slide
+with no text.
+
+Building it found a duplication of the worst kind. The Linux window preparation
+(`GDK_BACKEND`, `WEBKIT_DISABLE_DMABUF_RENDERER`) lived inside `launch_app` and
+nowhere else, which was right while that was the only thing opening a window.
+The measure window came up blank without it — **a measuring rig reproducing the
+exact failure it exists to detect.** Same again with the page's wrapper: without
+`all: initial; width:100%; height:100%` the stage measured 1264×377 in a
+1280×720 window, and the first version of these checks reported that as fine.
+Both are now one shared thing (`window_platform::prepare`,
+`PRESENTATION_WINDOW_STYLE`).
+
+And a smaller lesson worth keeping: **stdout is block-buffered when it is not a
+terminal.** Every diagnostic this mode printed sat in a buffer until the process
+ended, so a cut-short run produced nothing and looked identical to a hang. The
+runs worth reading are exactly the ones that do not exit cleanly.
+
+**Honest status of stage 5.** Its rules are unit-tested and it produced real
+measurements against a real window — but the machine it was built on stopped
+opening GUI windows part-way through (Cantara itself no longer opens one there
+either), so the end-to-end run could not be repeated. It is wired into CI under
+`xvfb` with `continue-on-error` until it has proved itself on a runner, which is
+the honest place for a check nobody has yet watched go green twice.
+
 ### What no tier reaches
 
 The desktop presentation window and a monitor view on a second screen. Naming
@@ -322,13 +394,17 @@ Ordered by cost of failure, not by ease.
    [`presentation`](../../src/logic/presentation.rs), addresses in
    [`settings`](../../src/logic/settings.rs), load in
    [`stream::server`](../../src/logic/stream/server.rs).
-4. **Playwright for the stream viewer.** The highest-value browser surface.
-5. **A screenshot mode** for the desktop window, and Playwright for the
-   remaining web surfaces.
+4. ~~**Playwright for the stream viewer.**~~ Done: 16 tests in
+   [`tests/browser`](../../tests/browser/), driven against
+   [`harness`](../../src/logic/harness.rs).
+5. ~~**A screenshot mode** for the desktop window.~~ Done as a *geometry* mode:
+   [`measure`](../../src/logic/measure.rs). Playwright for the remaining web
+   surfaces — the selection page, the settings, the design editor — is still
+   open, and is the smallest of what is left.
 
-Tiers 1 and 2 are worth having before a 3.0 release, and are now in. Tiers 3
-to 5 are worth having before the release *after* it, and are the reason to keep
-the release after it small.
+All five are in. Tiers 1 and 2 were the ones 3.0 was waiting on; 3 to 5 were
+meant to come after it, and arrived early because stage 3 turned up a remote
+arbitrary file write and that changed the arithmetic.
 
 ## Decisions taken
 

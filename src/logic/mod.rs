@@ -131,9 +131,22 @@ pub mod archive;
 
 /// Services to test against, in one place rather than in every test module.
 ///
-/// See `docs/specs/0004-testing-playwright.md`.
-#[cfg(test)]
+/// Also in the `test-harness` build, which serves these same services to a
+/// browser — see [`harness`]. See `docs/specs/0004-testing-playwright.md`.
+#[cfg(any(test, feature = "test-harness"))]
 pub mod fixtures;
+
+/// Starting Cantara in a shape a browser test can drive.
+///
+/// Behind a feature that a release build does not turn on: it opens a port and
+/// takes instructions on it, which is precisely what the rest of this program
+/// is careful not to do.
+#[cfg(all(feature = "desktop", feature = "test-harness"))]
+pub mod harness;
+
+/// Checking the projection window itself, which no browser can reach.
+#[cfg(all(feature = "desktop", feature = "test-harness"))]
+pub mod measure;
 
 /// Reading a settings file written by an older Cantara — the one thing this
 /// program does that cannot be undone.
@@ -187,6 +200,10 @@ pub mod web_storage;
 
 #[cfg(feature = "desktop")]
 pub mod screens;
+
+/// What has to be true of the environment before a window is opened.
+#[cfg(feature = "desktop")]
+pub mod window_platform;
 
 /// Remembering the main window's size between sessions. Only the desktop has
 /// a window whose size is the user's to choose.

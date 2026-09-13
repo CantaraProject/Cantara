@@ -142,6 +142,12 @@ js-sys = "0.3"
 
 [features]
 default = ["desktop"]
+# Compiles the browser-test entry point in `logic::harness` and the services in
+# `logic::fixtures` that it serves. Deliberately not in `default`: the harness
+# opens a port and takes instructions on it, and a released Cantara should not
+# have that in it at all — not behind a flag, not behind a check. See
+# `docs/specs/0004-testing-playwright.md`.
+test-harness = []
 web = ["dioxus/web", "dioxus-motion/web"]
 desktop = [
     "dioxus/desktop",

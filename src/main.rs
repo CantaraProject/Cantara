@@ -150,26 +150,28 @@ fn main() {
             }
             return;
         }
+
+        // Started to be driven by a browser test rather than by a person.
+        // Only in a build that asked for it — see [`logic::harness`] for why
+        // this is a cargo feature and not merely a flag.
+        #[cfg(feature = "test-harness")]
+        if arguments.get(1).map(String::as_str) == Some(logic::harness::FLAG) {
+            // With `measure`, the window itself is what is being checked —
+            // see [`logic::measure`], which is the only tier that reaches it.
+            if arguments.get(2).map(String::as_str) == Some("measure") {
+                logic::measure::run();
+            }
+            if let Err(reason) = logic::harness::run() {
+                eprintln!("{reason}");
+                std::process::exit(1);
+            }
+            return;
+        }
     }
 
     #[cfg(feature = "desktop")]
     fn launch_app() {
-        #[cfg(target_os = "linux")]
-        {
-            if std::path::Path::new("/dev/dri").exists()
-                && std::env::var("XDG_SESSION_TYPE").unwrap_or_default() == "wayland"
-            {
-                // Gnome Webkit is currently buggy under Wayland and KDE, so we will run it with XWayland mode.
-                // See: https://github.com/DioxusLabs/dioxus/issues/3667
-                unsafe {
-                    // Disable explicit sync for NVIDIA drivers on Linux when using Way
-                    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-                }
-            }
-            unsafe {
-                std::env::set_var("GDK_BACKEND", "x11");
-            }
-        }
+        logic::window_platform::prepare();
 
         use dioxus::desktop::tao;
 

@@ -4,5 +4,13 @@
     "abcjs": "^6.4.3",
     "pdfjs-dist": "^5.5.207",
     "pptxgenjs": "^4.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  },
+  "scripts": {
+    "test:browser": "playwright test",
+    "test:browser:ui": "playwright test --ui",
+    "test:window": "cargo build --features test-harness && ./target/debug/cantara --test-harness measure"
   }
 }
