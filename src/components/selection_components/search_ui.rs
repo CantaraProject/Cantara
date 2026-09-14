@@ -247,7 +247,19 @@ pub(crate) fn SearchInput(
                 name: "search",
                 placeholder: t!("search").to_string(),
                 aria_label: t!("search").to_string(),
-                value: input_signal,
+                // `initial_value`, not `value`: the field writes the query, and
+                // nothing else ever does, so binding the signal back into the
+                // element could only ever undo what the user just typed.
+                //
+                // `value` is a volatile attribute — every render writes it into
+                // the element, whether or not the query changed. Between a
+                // keystroke and the render it causes lies a round trip, and a
+                // letter typed inside that window was overwritten by the older
+                // query before its own event had been handled: typing quickly
+                // lost letters, the more so the longer the search took. With
+                // `initial_value` the element keeps what was typed into it and
+                // the signal follows along.
+                initial_value: input_signal(),
                 oninput: move |event| {
                     input_signal.set(event.value());
                 },
