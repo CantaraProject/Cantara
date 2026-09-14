@@ -409,17 +409,19 @@ pub fn Detail(element: Vec<String>) -> Element {
                         );
                     },
                 }
-            }
 
-            if search_visible() {
-                SearchResults {
-                    search_results,
-                    selected_items,
-                    search_visible,
-                    source_files,
-                    active_detailed_item_id,
-                    active_result,
-                    click_action: ItemClickAction::OpenDetail,
+                // Inside the bar, so that the list can be hung off its bottom
+                // edge rather than off a guess at how tall it is.
+                if search_visible() {
+                    SearchResults {
+                        search_results,
+                        selected_items,
+                        search_visible,
+                        source_files,
+                        active_detailed_item_id,
+                        active_result,
+                        click_action: ItemClickAction::OpenDetail,
+                    }
                 }
             }
 

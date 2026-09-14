@@ -244,6 +244,19 @@ pub fn Selection() -> Element {
                         );
                     },
                 }
+
+                // Inside the bar, so that the list can be hung off its bottom
+                // edge rather than off a guess at how tall it is.
+                if search_visible() {
+                    SearchResults {
+                        search_results,
+                        selected_items,
+                        search_visible,
+                        source_files,
+                        active_detailed_item_id,
+                        active_result,
+                    }
+                }
             }
 
             // Running presentation indicator bar
@@ -286,17 +299,6 @@ pub fn Selection() -> Element {
                 }
             }
 
-            // Display search results if there are any and search_visible is true
-            if search_visible() {
-                SearchResults {
-                    search_results,
-                    selected_items,
-                    search_visible,
-                    source_files,
-                    active_detailed_item_id,
-                    active_result,
-                }
-            }
             main {
                 id: "selection-content",
                 class: "content content-background height-100",
