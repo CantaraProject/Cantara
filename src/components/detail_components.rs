@@ -340,9 +340,26 @@ pub fn Detail(element: Vec<String>) -> Element {
     let mut search_results: Signal<Vec<crate::logic::search::SearchResult>> = use_signal(Vec::new);
     let mut search_visible: Signal<bool> = use_signal(|| false);
     let input_element_signal: Signal<Option<std::rc::Rc<MountedData>>> = use_signal(|| None);
+    // Which hit the keyboard is on, so that Enter opens one without a click.
+    let mut active_result: Signal<usize> = use_signal(|| 0);
+
+    // The one way a hit is taken, whether it was clicked or pressed Enter on.
+    // Here a hit is opened rather than collected — the search itself is the
+    // selection view's, only what a hit means differs.
+    let picker = crate::components::selection_components::search_ui::ResultPicker {
+        results: search_results,
+        query: filter_string,
+        action: ItemClickAction::OpenDetail,
+        selected_items,
+        source_files,
+        active_detailed_item_id,
+    };
 
     use_effect(move || {
         let query = filter_string.read().clone();
+        // A changed query is a different list, so the keyboard starts at its
+        // best hit again.
+        active_result.set(0);
         if query.is_empty() {
             search_results.set(Vec::new());
             search_visible.set(false);
@@ -388,18 +405,14 @@ pub fn Detail(element: Vec<String>) -> Element {
                 SearchInput {
                     input_signal: filter_string,
                     element_signal: input_element_signal,
-                    on_escape: move |_| search_visible.set(false),
+                    picker,
+                    active_result,
                 }
-            }
 
-            if search_visible() {
-                SearchResults {
-                    search_results,
-                    selected_items,
-                    search_visible,
-                    source_files,
-                    active_detailed_item_id,
-                    click_action: ItemClickAction::OpenDetail,
+                // Inside the bar, so that the list can be hung off its bottom
+                // edge rather than off a guess at how tall it is.
+                if search_visible() {
+                    SearchResults { picker, active_result }
                 }
             }
 
@@ -522,6 +535,10 @@ pub fn ViewModeToggle() -> Element {
 
     rsx! {
         button {
+            // Named, so that the browser tests can reach the other view
+            // without going through a tooltip that is translated — see
+            // `tests/browser/library.js`.
+            id: "view-mode-toggle",
             class: "outline secondary smaller-buttons",
             title: if in_detail { t!("detail.to_selection").to_string() } else { t!("detail.to_detail").to_string() },
             onclick: move |_| {

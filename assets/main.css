@@ -50,6 +50,8 @@ body {
 
 /* Fixed top bar */
 .top-bar {
+    /* The search results hang off its bottom edge — see `.search-results`. */
+    position: relative;
     width: 100%;
     background-color: var(--pico-background-color);
     border-bottom: 1px solid var(--pico-border-color);
@@ -520,17 +522,27 @@ div.inline-div {
     border-radius: 10px;
 }
 
+/* The hits, hung under the search field.
+ *
+ * Measured from the bottom edge of the bar the field sits in — which is why the
+ * list lives inside that bar in the markup, and the bar is a positioning
+ * parent. It used to hang off the page at a fixed 80px, a guess at how tall the
+ * bar is, and every time the guess was off by a few pixels a strip of the page
+ * behind showed through between the field and its results.
+ *
+ * `100%` is the bar's height, so the list runs from there to the bottom of the
+ * window. */
 .search-results {
     position: absolute;
     z-index: 1000;
+    left: 0;
     width: 100%;
     min-height: 300px;
     overflow-y: auto;
-    top: 80px;
-    bottom: 0;
-    margin-top: 5px;
+    top: 100%;
+    height: calc(100dvh - 100%);
     border: 1px solid var(--pico-border-color);
-    border-radius: 4px;
+    border-radius: 0 0 4px 4px;
     padding: 10px;
     background-color: var(--pico-background-color);
     box-shadow: 0 4px 8px rgba(0,0,0,0.1);
@@ -540,6 +552,19 @@ div.inline-div {
 .search-result {
     padding: 0.4rem 0.2rem;
     border-bottom: 1px solid var(--pico-border-color);
+}
+
+/* The hit the keyboard is on, and the one Enter would take.
+ *
+ * Marked down the side rather than by a background: the passage below a hit is
+ * already a box of its own, and tinting the whole row would put a box inside a
+ * box. The bar keeps the text where it is, so walking the list does not make it
+ * jump. */
+.search-result-active {
+    border-left: 3px solid var(--pico-primary);
+    padding-left: calc(0.2rem - 3px);
+    margin-left: 0;
+    background-color: var(--pico-card-sectioning-background-color);
 }
 
 .search-result-title {

@@ -588,6 +588,74 @@ checks that `Content-Range` names the piece actually sent — the property that
 matters, because a 206 whose header disagrees with its body has a player
 assembling the file wrongly.
 
+## The first of the web build's own pages: the search
+
+[`search-keyboard.spec.js`](../../tests/browser/search-keyboard.spec.js), 14
+tests over looking a song up and taking one with the keyboard. It closes the
+first half of the "Playwright does not touch the web build's own pages" item
+below, and three things came out of writing it.
+
+**The library is compiled in, not seeded.** The stream tests put a service on
+the stream through a control port; there is no equivalent here, and inventing
+one would have meant a second harness. There was no need:
+`CANTARA_BUNDLED_REPOS=local/testsongs` already makes `build.rs` embed
+`bundled_repos/local/testsongs` into the WebAssembly, and
+`Settings::ensure_bundled_repos` already loads it and skips the wizard. So the
+page opens with a library and nothing to set up. The cost is that
+`playwright.config.js` now starts two servers for every run.
+
+**It went green locally and red in CI, twice, for two reasons worth keeping.**
+
+*The library was not in the repository.* `bundled_repos/` is `.gitignore`d —
+in a release build CI clones real song repositories into it — so on a fresh
+checkout it does not exist. The way that failed is the part worth recording:
+`build.rs` takes the *list* of repositories from the environment variable and
+their *files* from the directory, and does not mind when the directory is
+missing. It emitted a repository with no files behind it,
+`ensure_bundled_repos` saw a bundled repository and skipped the welcome wizard,
+and the tests were handed an application that looked entirely healthy — right
+route, search field present — with an empty library and nothing to find. The
+library is now copied from `testfiles/`, which is in the repository, by
+[`bundle-library.mjs`](../../tests/browser/bundle-library.mjs).
+
+*A development server says it is ready before it is.* `dx serve` opens its port
+within two seconds and answers **200** while it builds, with a shell that has
+no WebAssembly behind it. Playwright decides a server is ready by reading a
+status code, so it cannot tell that apart from the finished application, and no
+choice of URL helps — the dev server answers 200 for missing assets too. CI
+declared it ready at two seconds and ran the whole suite against a page that
+was five minutes from existing. Locally the retries had covered the gap, which
+is worse than failing: the suite was green until the build was slow. The tests
+are now given [`serve-web.mjs`](../../tests/browser/serve-web.mjs), forty lines
+of static file server that opens its port after `dx build` has finished, so
+that "the port is open" means "the application is there". Nothing in these
+tests needs hot reloading; every one of them navigates.
+
+**A test asserted the old behaviour and was right to fail.** Escape used to put
+the result list away and leave the query standing, to be corrected rather than
+retyped. That is not a behaviour this field can have any more: a browser empties
+an `input type="search"` on Escape *by itself, without firing an event*, and the
+field now keeps its own text instead of being redrawn from the query — so what
+the user saw was an empty field over a query Cantara still believed in. Escape
+now says so outright and clears both. The divergence had been shipped and
+nobody had noticed; the test found it on its first run.
+
+**Two regression tests were written, then deleted.** They were for the
+swallowed letters — the defect that started all of this — and the honest way to
+check a regression test is to put the defect back. So the old `value:` binding
+went back in and the tests were run against it. **They passed.** They had to:
+the old binding loses a letter only if a redraw can land between a keystroke
+and the event reaching Rust, which in the desktop's `wry` window is an IPC round
+trip across a process boundary and in the web build is not a gap at all — the
+event and its redraw are one turn of one event loop.
+
+So the defect is a desktop defect, and "What can actually be reached" at the top
+of this document already said Playwright cannot go there. What is left is one
+test of the surface as a browser behaves, labelled with exactly what it does
+not cover. A test that cannot fail on the defect it is named after is worse
+than no test: it is a claim of coverage that is not there, and it would have
+been kept without that fifteen-minute check.
+
 ## Still open
 
 * **A damaged element says nothing to the person building the order.** It is
@@ -602,8 +670,9 @@ assembling the file wrongly.
   it should not be described as if it were.
 * **The window check has not been watched go green on a runner.** It is in CI
   under `continue-on-error`; that should come off once it has.
-* **Playwright does not touch the web build's own pages** — selection,
-  settings, the design editor.
+* **Playwright does not touch most of the web build's own pages** — settings
+  and the design editor. The search over the library is now covered; see
+  below.
 * **Nothing systematically looks for the remaining races.** One was found by
   CI failing on macOS; there is no reason to think it was the only one. Running
   the suite repeatedly at a high thread count is cheap and is not done.

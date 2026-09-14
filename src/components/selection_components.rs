@@ -18,11 +18,11 @@ pub(crate) mod source_items;
 
 use self::export_ui::ExportMenu;
 use self::presentation_options::PresentationOptions;
-use self::search_ui::{SearchInput, SearchResults};
+use self::search_ui::{ResultPicker, SearchInput, SearchResults};
 use self::selected_list::SelectedItems;
 use self::sidebar::SelectionFilterSideBar;
 use self::source_items::{
-    process_dropped_files, ImageSourceItems, MarkdownSourceItems, PdfSourceItems, SongSourceItems,
+    process_dropped_files, ImageSourceItems, ItemClickAction, MarkdownSourceItems, PdfSourceItems, SongSourceItems,
     VideoSourceItems,
     SourceDetailView,
 };
@@ -79,9 +79,11 @@ pub fn Selection() -> Element {
     let filter_string: Signal<String> = use_signal(|| "".to_string());
     let mut search_results: Signal<Vec<SearchResult>> = use_signal(Vec::new);
     let mut search_visible: Signal<bool> = use_signal(|| false);
+    // Which hit the keyboard is on, so that Enter takes one without a click.
+    let mut active_result: Signal<usize> = use_signal(|| 0);
 
     let source_files: Signal<Vec<SourceFile>> = use_context();
-    let mut selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
+    let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
     // Shared with the detail view and kept across mounts — see
@@ -106,8 +108,23 @@ pub fn Selection() -> Element {
 
     let mut show_export_menu: Signal<bool> = use_signal(|| false);
 
+    // The one way a hit is taken, whether it was clicked, pressed Enter on or
+    // named by its shortcut.
+    let picker = ResultPicker {
+        results: search_results,
+        query: filter_string,
+        action: ItemClickAction::AddToSelection,
+        selected_items,
+        source_files,
+        active_detailed_item_id,
+    };
+
     use_effect(move || {
         let query = filter_string.read().clone();
+        // A changed query is a different list, so the keyboard starts at its
+        // best hit again — which is what lets a search just typed be taken with
+        // Enter alone.
+        active_result.set(0);
         if !query.is_empty() {
             let results = search_source_files(&source_files.read(), &query);
             let has_results = !results.is_empty();
@@ -208,13 +225,10 @@ pub fn Selection() -> Element {
                     return;
                 };
                 let index = if digit == 0 { 9 } else { (digit as usize) - 1 };
-                let Some(result) = search_results.read().get(index).cloned() else {
+                if index >= search_results.read().len() {
                     return;
-                };
-                selected_items
-                    .write()
-                    .push(SelectedItemRepresentation::new_with_sourcefile(result.source_file));
-                search_visible.set(false);
+                }
+                picker.take(index);
                 event.prevent_default();
                 event.stop_propagation();
             },
@@ -222,7 +236,14 @@ pub fn Selection() -> Element {
                 SearchInput {
                     input_signal: filter_string,
                     element_signal: input_element_signal,
-                    on_escape: move |_| search_visible.set(false),
+                    picker,
+                    active_result,
+                }
+
+                // Inside the bar, so that the list can be hung off its bottom
+                // edge rather than off a guess at how tall it is.
+                if search_visible() {
+                    SearchResults { picker, active_result }
                 }
             }
 
@@ -266,16 +287,6 @@ pub fn Selection() -> Element {
                 }
             }
 
-            // Display search results if there are any and search_visible is true
-            if search_visible() {
-                SearchResults {
-                    search_results,
-                    selected_items,
-                    search_visible,
-                    source_files,
-                    active_detailed_item_id,
-                }
-            }
             main {
                 id: "selection-content",
                 class: "content content-background height-100",
