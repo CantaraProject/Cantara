@@ -150,26 +150,28 @@ fn main() {
             }
             return;
         }
+
+        // Started to be driven by a browser test rather than by a person.
+        // Only in a build that asked for it — see [`logic::harness`] for why
+        // this is a cargo feature and not merely a flag.
+        #[cfg(feature = "test-harness")]
+        if arguments.get(1).map(String::as_str) == Some(logic::harness::FLAG) {
+            // With `measure`, the window itself is what is being checked —
+            // see [`logic::measure`], which is the only tier that reaches it.
+            if arguments.get(2).map(String::as_str) == Some("measure") {
+                logic::measure::run();
+            }
+            if let Err(reason) = logic::harness::run() {
+                eprintln!("{reason}");
+                std::process::exit(1);
+            }
+            return;
+        }
     }
 
     #[cfg(feature = "desktop")]
     fn launch_app() {
-        #[cfg(target_os = "linux")]
-        {
-            if std::path::Path::new("/dev/dri").exists()
-                && std::env::var("XDG_SESSION_TYPE").unwrap_or_default() == "wayland"
-            {
-                // Gnome Webkit is currently buggy under Wayland and KDE, so we will run it with XWayland mode.
-                // See: https://github.com/DioxusLabs/dioxus/issues/3667
-                unsafe {
-                    // Disable explicit sync for NVIDIA drivers on Linux when using Way
-                    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-                }
-            }
-            unsafe {
-                std::env::set_var("GDK_BACKEND", "x11");
-            }
-        }
+        logic::window_platform::prepare();
 
         use dioxus::desktop::tao;
 
@@ -386,22 +388,7 @@ fn App() -> Element {
             // helper did not know would be shown some other view's slides.
             // Cheap and quiet when nothing has changed — see `serve_views`.
             #[cfg(feature = "desktop")]
-            logic::network_host::serve_views(
-                settings
-                    .read()
-                    .views
-                    .iter()
-                    .filter_map(|view| match &view.output {
-                        logic::settings::ViewOutput::Network { path } => {
-                            Some(logic::network_server::ServedView {
-                                path: path.clone(),
-                                id: view.id,
-                            })
-                        }
-                        logic::settings::ViewOutput::Screen { .. } => None,
-                    })
-                    .collect(),
-            );
+            logic::network_host::serve_views(settings.read().served_views());
 
             #[cfg(feature = "desktop")]
             logic::network_host::publish(presentations.first().cloned());
@@ -415,25 +402,44 @@ fn App() -> Element {
                 // Which pictures are wanted is decided from the same state the
                 // server will build, by the same function, so the names match
                 // without either side being told them.
-                // Which view the phones are being shown. The pictures a
-                // viewer will ask for are that view's, not the projection's —
-                // a view with a division of its own has slides the wall never
-                // shows.
-                let division = settings
+                // Every view the phones can reach, not just one of them.
+                //
+                // This asked `stream_view()` — the singular, from before a
+                // service could be streamed at several addresses at once — and
+                // collected the pictures of that view alone. A second network
+                // view with a division of its own has slides the first never
+                // shows, so its pictures were never rendered or sent: the
+                // markup at that address named `media/<id>`, the server had
+                // nothing under it, and the viewer got an empty box. Which
+                // address it happened to be depended on the order of the view
+                // list, which is not a thing anybody would think to check.
+                //
+                // `served_views` is the same list the helper is offering, so
+                // the pictures and the addresses cannot disagree about which
+                // views exist.
+                let divisions: Vec<logic::states::Division> = settings
                     .read()
-                    .stream_view()
+                    .served_views()
+                    .iter()
                     .map(|view| logic::states::Division::View(view.id))
-                    .unwrap_or(logic::states::Division::Projection);
+                    .collect();
+                let divisions = if divisions.is_empty() {
+                    vec![logic::states::Division::Projection]
+                } else {
+                    divisions
+                };
 
-                let state = StreamState::of(
-                    presentations.first().unwrap_or(&RunningPresentation::new(vec![])),
-                    0,
-                    division,
+                let empty = RunningPresentation::new(vec![]);
+                let running = presentations.first().unwrap_or(&empty);
+                let wanted = logic::network_host::media_wanted(
+                    divisions
+                        .iter()
+                        .flat_map(|division| StreamState::of(running, 0, *division).media())
+                        .collect::<std::collections::BTreeSet<String>>(),
                 );
-                let wanted = logic::network_host::media_wanted(state.media());
                 if !wanted.is_empty() {
                     let sources =
-                        logic::stream::protocol::media_sources(&presentations, &[division]);
+                        logic::stream::protocol::media_sources(&presentations, &divisions);
                     spawn(async move {
                         for id in wanted {
                             let Some(source) = sources.get(&id) else {

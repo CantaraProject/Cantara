@@ -62,58 +62,58 @@ pub mod states;
 
 pub mod sourcefiles;
 
-/// Only the web build has a use for the repositories that were embedded at
-/// build time: it is the one without a file system to read them from.
+// Only the web build has a use for the repositories that were embedded at
+// build time: it is the one without a file system to read them from.
 #[cfg(target_arch = "wasm32")]
 pub mod bundled_repos;
 
 pub mod detail;
-/// Reading one source's tag names as another's, without changing a file.
+// Reading one source's tag names as another's, without changing a file.
 pub mod tag_mapping;
-/// Making a song out of text somebody pasted in.
-///
-/// Only the builds that can write the song out afterwards: the text is pasted
-/// into the dialog in [`crate::components::element_creation`], and a browser
-/// has no folder to put the file in.
+// Making a song out of text somebody pasted in.
+//
+// Only the builds that can write the song out afterwards: the text is pasted
+// into the dialog in [`crate::components::element_creation`], and a browser
+// has no folder to put the file in.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod song_text;
-/// Putting a file into a repository, and moving it between them.
-/// A browser has no folders to move anything between.
+// Putting a file into a repository, and moving it between them.
+// A browser has no folders to move anything between.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod repository_files;
-/// Where the translations live, and what keeps every one of them findable.
+// Where the translations live, and what keeps every one of them findable.
 pub mod localisation;
-/// The second reading of the same service: what the network stream shows.
+// The second reading of the same service: what the network stream shows.
 pub mod stream_view;
 pub mod element_id;
 pub mod images;
 pub mod pdf;
-/// Which pages of a PDF belong in the presentation.
+// Which pages of a PDF belong in the presentation.
 pub mod pdf_pages;
 
-/// Offering the running presentation to browsers on the local network.
-///
-/// Only a desktop build. There is no server in a browser, and a phone has no
-/// network side either — [`network_host`] and [`network_server`], which are
-/// the only things that put one up, are gated the same way. Compiled more
-/// widely than that it is a protocol and a server nothing can reach, and every
-/// item in it warns as unused on the builds that cannot use it.
+// Offering the running presentation to browsers on the local network.
+//
+// Only a desktop build. There is no server in a browser, and a phone has no
+// network side either — [`network_host`] and [`network_server`], which are
+// the only things that put one up, are gated the same way. Compiled more
+// widely than that it is a protocol and a server nothing can reach, and every
+// item in it warns as unused on the builds that cannot use it.
 #[cfg(feature = "desktop")]
 pub mod stream;
 pub mod export;
 pub mod fonts;
-/// Writing the running order to a file and reading one back — Cantara 3's own
-/// archive and the two formats Cantara 2 wrote.
+// Writing the running order to a file and reading one back — Cantara 3's own
+// archive and the two formats Cantara 2 wrote.
 pub mod selection_io;
-/// Handing a single design or slide division to somebody else.
+// Handing a single design or slide division to somebody else.
 pub mod settings_io;
-/// Taking a Cantara 2 installation over, the first time Cantara 3 starts.
-///
-/// A browser can reach neither the old configuration file nor the song folder
-/// it points at, so there is nothing there to take over.
+// Taking a Cantara 2 installation over, the first time Cantara 3 starts.
+//
+// A browser can reach neither the old configuration file nor the song folder
+// it points at, so there is nothing there to take over.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod legacy_import;
-/// Saying in words what a slide division does.
+// Saying in words what a slide division does.
 pub mod slide_summary;
 pub mod pptx;
 pub mod presentation;
@@ -122,58 +122,90 @@ pub mod conversions;
 pub mod css;
 pub mod search;
 
-/// Waiting a moment, on the platform's clock rather than the page's.
+// Waiting a moment, on the platform's clock rather than the page's.
 pub mod timer;
 
-/// Getting a video file into the page that plays it.
+// Unpacking a ZIP somebody else made, without letting it decide how much of
+// this machine it gets.
+pub mod archive;
+
+// Services to test against, in one place rather than in every test module.
+//
+// Also in the `test-harness` build, which serves these same services to a
+// browser — see [`harness`]. See `docs/specs/0004-testing-playwright.md`.
+#[cfg(any(test, feature = "test-harness"))]
+pub mod fixtures;
+
+// Starting Cantara in a shape a browser test can drive.
+//
+// Behind a feature that a release build does not turn on: it opens a port and
+// takes instructions on it, which is precisely what the rest of this program
+// is careful not to do.
+#[cfg(all(feature = "desktop", feature = "test-harness"))]
+pub mod harness;
+
+// Checking the projection window itself, which no browser can reach.
+#[cfg(all(feature = "desktop", feature = "test-harness"))]
+pub mod measure;
+
+// Reading a settings file written by an older Cantara — the one thing this
+// program does that cannot be undone.
+#[cfg(test)]
+mod settings_migration;
+
+// Getting a video file into the page that plays it.
 pub mod video;
 
-/// Handing a video to a web view that will not take one any other way.
-///
-/// Only the WebKitGTK platforms need it — Windows and macOS play a video
-/// straight off the asset handler — and only a desktop build has a web view
-/// of its own to feed. See the module's own documentation for what WebKitGTK
-/// refuses and why the answer is a socket.
+// Handing a video to a web view that will not take one any other way.
+//
+// Only the WebKitGTK platforms need it — Windows and macOS play a video
+// straight off the asset handler — and only a desktop build has a web view
+// of its own to feed. See the module's own documentation for what WebKitGTK
+// refuses and why the answer is a socket.
 #[cfg(all(feature = "desktop", not(any(target_os = "windows", target_os = "macos"))))]
 pub mod video_server;
 
-/// Reading a library is thousands of independent file reads, and only the
-/// native builds have threads to spread them over.
+// Reading a library is thousands of independent file reads, and only the
+// native builds have threads to spread them over.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod parallel;
 
 #[cfg(target_arch = "wasm32")]
 pub mod sync;
 
-/// Where a presenter console is being shown, which a handful of its
-/// behaviours depend on.
+// Where a presenter console is being shown, which a handful of its
+// behaviours depend on.
 pub mod console_host;
 
-/// Putting an address on the clipboard of whoever is looking at the page.
+// Putting an address on the clipboard of whoever is looking at the page.
 pub mod clipboard;
 
-/// The bridge to a presenter console running in a browser on the network.
-/// There is no server inside a browser, so the web build has no bridge.
+// The bridge to a presenter console running in a browser on the network.
+// There is no server inside a browser, so the web build has no bridge.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod remote_console;
 
-/// Cantara's network side: a helper process that serves the presenter console
-/// *and* the stream to viewers from one socket, and the half of Cantara that
-/// starts it, tells it what to offer, and feeds it. Only the desktop has
-/// either to offer.
+// Cantara's network side: a helper process that serves the presenter console
+// *and* the stream to viewers from one socket, and the half of Cantara that
+// starts it, tells it what to offer, and feeds it. Only the desktop has
+// either to offer.
 #[cfg(feature = "desktop")]
 pub mod network_server;
 #[cfg(feature = "desktop")]
 pub mod network_host;
 
-/// The browser's local storage. Only the web build has one.
+// The browser's local storage. Only the web build has one.
 #[cfg(target_arch = "wasm32")]
 pub mod web_storage;
 
 #[cfg(feature = "desktop")]
 pub mod screens;
 
-/// Remembering the main window's size between sessions. Only the desktop has
-/// a window whose size is the user's to choose.
+// What has to be true of the environment before a window is opened.
+#[cfg(feature = "desktop")]
+pub mod window_platform;
+
+// Remembering the main window's size between sessions. Only the desktop has
+// a window whose size is the user's to choose.
 #[cfg(feature = "desktop")]
 pub mod window_state;

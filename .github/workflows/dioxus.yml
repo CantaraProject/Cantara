@@ -35,8 +35,12 @@ jobs:
         uses: cargo-bins/cargo-binstall@main
       - name: Run npm install
         run: npm install
-      - name: Install dioxus-cli
+      - name: Install dioxus-cli on Linux and Windows
+        if: matrix.os != 'macos-latest'
         run: cargo binstall -y --locked dioxus-cli@${{ env.DIOXUS_CLI_VERSION }}
+      - name: Install dioxus-cli on macOS
+        if: matrix.os == 'macos-latest'
+        run: cargo install --locked dioxus-cli --version ${{ env.DIOXUS_CLI_VERSION }}
       - name: Install dependencies under Linux
         if: matrix.os == 'ubuntu-latest'
         run: |-
@@ -90,6 +94,68 @@ jobs:
           OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
           OPENSSL_INCLUDE_DIR: /usr/include
         run: cargo clippy --all-targets -- -D warnings
+      # The browser tests. Ubuntu only, and on every push — the decision is
+      # recorded in `docs/specs/0004-testing-playwright.md`: every surface
+      # Playwright reaches here is served over HTTP and drawn by the browser it
+      # brings with it, so a second operating system would exercise the same
+      # code twice.
+      #
+      # The server under test is Cantara itself, started by Playwright's
+      # `webServer` — see `playwright.config.js`. It needs the `test-harness`
+      # feature, which `default` deliberately does not include.
+      - name: Check the harness and its fixtures
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          OPENSSL_ROOT_DIR: /usr
+          OPENSSL_DIR: /usr
+          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
+          OPENSSL_INCLUDE_DIR: /usr/include
+        run: cargo clippy --all-targets --features test-harness -- -D warnings
+      # Only the browser itself: `npm install` above already brought in
+      # `@playwright/test` along with everything else this project needs.
+      - name: Install the browser the tests drive
+        if: matrix.os == 'ubuntu-latest'
+        run: npx playwright install --with-deps chromium
+      - name: Run the browser tests
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          OPENSSL_ROOT_DIR: /usr
+          OPENSSL_DIR: /usr
+          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
+          OPENSSL_INCLUDE_DIR: /usr/include
+        run: npx playwright test
+      - name: Upload the browser test report
+        if: matrix.os == 'ubuntu-latest' && failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |-
+            playwright-report/
+            test-results/
+          retention-days: 7
+      # The projection window, which Playwright cannot reach — see
+      # `src/logic/measure.rs`. It needs a display, so it is run under a
+      # virtual one; the checks are on measured geometry, which is stable
+      # across whatever fonts the runner happens to have.
+      #
+      # `continue-on-error` while this settles: a headless runner's web view is
+      # a different proposition from a desktop's, and a check that has not yet
+      # proved itself there should report rather than block. Remove it once it
+      # has run green for a while.
+      - name: Measure the projection window
+        if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+        env:
+          OPENSSL_ROOT_DIR: /usr
+          OPENSSL_DIR: /usr
+          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
+          OPENSSL_INCLUDE_DIR: /usr/include
+        run: |-
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          cargo build --features test-harness
+          xvfb-run -a --server-args="-screen 0 1600x1000x24" \
+            ./target/debug/cantara --test-harness measure
       - name: Build desktop release
         env:
           # OpenSSL environment variables

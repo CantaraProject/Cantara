@@ -80,6 +80,49 @@ dx serve
 
 This will start a development server with hot reloading.
 
+## Running tests
+
+Cantara is texted extensively to ensure a high stability and code quality. All tests run as part of the CI pipeline. However, they can also be manually started during the development process.
+
+### Rust module and integration tests
+
+```bash
+cargo test
+```
+
+The Rust tests cover the logic, the settings migration, the network side, and the
+markup every kind of slide produces in every kind of design. No browser.
+
+In addition to that, `clippy` is used to enforce an idiomatic code syntax:
+
+```bash
+cargo clippy --all-targets -- -D warnings
+```
+
+There is a `test-harness` build feature which allows some additional remote control for additional testing purposes.
+
+```bash
+cargo test --features test-harness
+cargo clippy --all-targets --features test-harness -- -D warnings
+```
+
+### Browser tests via Playwright
+
+```bash
+npm install                 # once
+npx playwright install chromium   # once
+npm run test:browser
+```
+
+### The window test
+
+```bash
+npm run test:window
+```
+
+Opens the real projection window and tests the geometry towards the window behavior.
+### In CI
+
 ## Project Structure and Documentation
 
 The project is documented with Rust's documentation features.

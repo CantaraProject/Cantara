@@ -1,0 +1,397 @@
+{
+  "repositories": [
+    {
+      "name": "Gemeindelieder",
+      "removable": true,
+      "writing_permissions": true,
+      "repository_type": {
+        "LocaleFilePath": "/home/gemeinde/Lieder"
+      }
+    }
+  ],
+  "wizard_completed": true,
+  "presentation_designs": [
+    {
+      "name": "Default",
+      "description": "",
+      "presentation_design_settings": {
+        "Template": {
+          "fonts": [
+            {
+              "font_family": null,
+              "font_size": {
+                "Pt": 32.0
+              },
+              "shadow": false,
+              "line_height": 1.2,
+              "color": {
+                "r": 255,
+                "g": 255,
+                "b": 255,
+                "a": 255
+              },
+              "horizontal_alignment": "Centered",
+              "weight": 400,
+              "italic": false,
+              "outline": null,
+              "shadow_style": {
+                "color": {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0,
+                  "a": 180
+                },
+                "offset_x": 2.0,
+                "offset_y": 2.0,
+                "blur": 6.0
+              },
+              "language": null
+            },
+            {
+              "font_family": null,
+              "font_size": {
+                "Pt": 22.4
+              },
+              "shadow": false,
+              "line_height": 1.2,
+              "color": {
+                "r": 255,
+                "g": 255,
+                "b": 255,
+                "a": 255
+              },
+              "horizontal_alignment": "Centered",
+              "weight": 400,
+              "italic": false,
+              "outline": null,
+              "shadow_style": {
+                "color": {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0,
+                  "a": 180
+                },
+                "offset_x": 2.0,
+                "offset_y": 2.0,
+                "blur": 6.0
+              },
+              "language": null
+            },
+            {
+              "font_family": null,
+              "font_size": {
+                "Pt": 16.0
+              },
+              "shadow": false,
+              "line_height": 1.2,
+              "color": {
+                "r": 255,
+                "g": 255,
+                "b": 255,
+                "a": 255
+              },
+              "horizontal_alignment": "Centered",
+              "weight": 400,
+              "italic": false,
+              "outline": null,
+              "shadow_style": {
+                "color": {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0,
+                  "a": 180
+                },
+                "offset_x": 2.0,
+                "offset_y": 2.0,
+                "blur": 6.0
+              },
+              "language": null
+            }
+          ],
+          "headline_index": 0,
+          "spoiler_index": 1,
+          "meta_index": 2,
+          "vertical_alignment": "Middle",
+          "spoiler_content_fontsize_factor": 0.6,
+          "background_color": {
+            "r": 0,
+            "g": 0,
+            "b": 0
+          },
+          "background_transparency": 0,
+          "padding": {
+            "top": {
+              "Px": 20.0
+            },
+            "bottom": {
+              "Px": 20.0
+            },
+            "left": {
+              "Px": 20.0
+            },
+            "right": {
+              "Px": 20.0
+            }
+          },
+          "background_image": null,
+          "main_content_spoiler_content_padding": {
+            "Px": 20.0
+          },
+          "notation": {
+            "width_percent": 100.0,
+            "horizontal_alignment": "Centered",
+            "staff_line_height": 1.0,
+            "font_size": {
+              "Pt": 22.4
+            }
+          },
+          "title_bold": false
+        }
+      }
+    },
+    {
+      "name": "B\u00fchnenmonitor",
+      "description": "",
+      "presentation_design_settings": {
+        "Monitor": {
+          "base": {
+            "fonts": [
+              {
+                "font_family": null,
+                "font_size": {
+                  "Pt": 32.0
+                },
+                "shadow": false,
+                "line_height": 1.2,
+                "color": {
+                  "r": 255,
+                  "g": 255,
+                  "b": 255,
+                  "a": 255
+                },
+                "horizontal_alignment": "Centered",
+                "weight": 400,
+                "italic": false,
+                "outline": null,
+                "shadow_style": {
+                  "color": {
+                    "r": 0,
+                    "g": 0,
+                    "b": 0,
+                    "a": 180
+                  },
+                  "offset_x": 2.0,
+                  "offset_y": 2.0,
+                  "blur": 6.0
+                },
+                "language": null
+              },
+              {
+                "font_family": null,
+                "font_size": {
+                  "Pt": 22.4
+                },
+                "shadow": false,
+                "line_height": 1.2,
+                "color": {
+                  "r": 255,
+                  "g": 255,
+                  "b": 255,
+                  "a": 255
+                },
+                "horizontal_alignment": "Centered",
+                "weight": 400,
+                "italic": false,
+                "outline": null,
+                "shadow_style": {
+                  "color": {
+                    "r": 0,
+                    "g": 0,
+                    "b": 0,
+                    "a": 180
+                  },
+                  "offset_x": 2.0,
+                  "offset_y": 2.0,
+                  "blur": 6.0
+                },
+                "language": null
+              },
+              {
+                "font_family": null,
+                "font_size": {
+                  "Pt": 16.0
+                },
+                "shadow": false,
+                "line_height": 1.2,
+                "color": {
+                  "r": 255,
+                  "g": 255,
+                  "b": 255,
+                  "a": 255
+                },
+                "horizontal_alignment": "Centered",
+                "weight": 400,
+                "italic": false,
+                "outline": null,
+                "shadow_style": {
+                  "color": {
+                    "r": 0,
+                    "g": 0,
+                    "b": 0,
+                    "a": 180
+                  },
+                  "offset_x": 2.0,
+                  "offset_y": 2.0,
+                  "blur": 6.0
+                },
+                "language": null
+              }
+            ],
+            "headline_index": 0,
+            "spoiler_index": 1,
+            "meta_index": 2,
+            "vertical_alignment": "Middle",
+            "spoiler_content_fontsize_factor": 0.6,
+            "background_color": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "background_transparency": 0,
+            "padding": {
+              "top": {
+                "Px": 20.0
+              },
+              "bottom": {
+                "Px": 20.0
+              },
+              "left": {
+                "Px": 20.0
+              },
+              "right": {
+                "Px": 20.0
+              }
+            },
+            "background_image": null,
+            "main_content_spoiler_content_padding": {
+              "Px": 20.0
+            },
+            "notation": {
+              "width_percent": 100.0,
+              "horizontal_alignment": "Centered",
+              "staff_line_height": 1.0,
+              "font_size": {
+                "Pt": 22.4
+              }
+            },
+            "title_bold": false
+          },
+          "layout": {
+            "Speaker": {
+              "next_slide_share": 0.25,
+              "next_position": "Right"
+            }
+          },
+          "widgets": [
+            {
+              "kind": {
+                "Clock": {
+                  "with_date": false
+                }
+              },
+              "placement": "TopRight"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "song_slide_settings": [
+    {
+      "name": "",
+      "description": "",
+      "title_slide": true,
+      "show_spoiler": true,
+      "show_meta_information": {
+        "title_slide": true,
+        "first_slide": true,
+        "last_slide": true,
+        "all_slides": false
+      },
+      "meta_syntax": "",
+      "empty_last_slide": true,
+      "max_lines": null,
+      "language": {
+        "SingleLanguage": null
+      }
+    }
+  ],
+  "default_design_index": 0,
+  "default_slide_settings_index": 0,
+  "import_repository_index": 0,
+  "always_start_fullscreen": false,
+  "presentation_screen": null,
+  "presenter_screen": null,
+  "show_presenter_console": true,
+  "presenter_console_in_main_window": true,
+  "presenter_console_view": "Text",
+  "presenter_console_grid_size": 250,
+  "sidebar_order": [
+    "Songs",
+    "Pictures",
+    "Videos",
+    "Pdfs",
+    "Markdown"
+  ],
+  "show_design_preview": true,
+  "stream": {
+    "port": 8420,
+    "password": "",
+    "remote_password": "",
+    "design_index": null,
+    "slide_settings_index": null
+  },
+  "tag_mappings": [],
+  "views": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Projektion",
+      "design_index": null,
+      "slide_settings_index": null,
+      "output": {
+        "Screen": {
+          "monitor_name": "HDMI-2"
+        }
+      },
+      "enabled": true,
+      "focus": "Follow"
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "name": "B\u00fchne",
+      "design_index": 1,
+      "slide_settings_index": null,
+      "output": {
+        "Screen": {
+          "monitor_name": "DP-3"
+        }
+      },
+      "enabled": true,
+      "focus": "Follow"
+    },
+    {
+      "id": "33333333-3333-3333-3333-333333333333",
+      "name": "\u00dcbertragung",
+      "design_index": null,
+      "slide_settings_index": null,
+      "output": {
+        "Network": {
+          "path": "/"
+        }
+      },
+      "enabled": false,
+      "focus": "Follow"
+    }
+  ],
+  "reference_view_index": 0
+}

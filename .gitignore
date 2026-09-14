@@ -14,3 +14,8 @@
 # Idea config files
 .idea/
 .claude/
+# The browser tests' output. The report is worth reading when something fails
+# and worth nothing afterwards; CI keeps it as an artifact instead.
+/playwright-report
+/test-results
+/.playwright

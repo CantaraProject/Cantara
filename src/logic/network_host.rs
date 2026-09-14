@@ -111,6 +111,25 @@ pub fn serve_views(views: Vec<super::network_server::ServedView>) {
     }
 
     let _ = offer(0, |offer| offer.views = views);
+
+    // The rendering that was last sent was made *for the old list*, and
+    // `publish` skips its work whenever the presentation itself has not
+    // changed. Between those two facts, a view added or re-addressed during a
+    // service reached the helper as an address with no HTML behind it: the
+    // page opened, connected, and sat on "waiting for the presentation to
+    // begin" until the operator happened to change a slide. Changing a view's
+    // *design* was worse — the address answered with the old design's markup,
+    // which looks like it is working.
+    //
+    // Forgetting what was last sent is what makes the next publish do the
+    // work. It is a change to the presentation as far as the helper is
+    // concerned, because what the helper is shown is the presentation *through
+    // this list of views*.
+    if let Ok(mut held) = helper().lock()
+        && let Some(running) = held.as_mut()
+    {
+        running.last_sent = None;
+    }
 }
 
 /// Stops offering it. The helper stays up while the console is still on.

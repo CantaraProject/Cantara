@@ -276,52 +276,15 @@ fn StreamRoot(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logic::settings::{
-        MonitorDesign, MonitorLayout, MonitorWidget, PresentationDesignSettings,
-        SpeakerNextPosition, WidgetKind, WidgetPlacement,
-    };
-    use crate::logic::sourcefiles::{SourceFile, SourceFileType};
-    use crate::logic::states::SlideChapter;
-    use cantara_songlib::slides::SlideSettings;
+    use crate::logic::fixtures;
+    use crate::logic::settings::{MonitorLayout, SpeakerNextPosition, WidgetKind, WidgetPlacement};
+    use crate::logic::settings::MonitorWidget;
 
-    /// A short service of one song, built the way a presentation is.
-    fn service() -> RunningPresentation {
-        let slides = crate::logic::presentation::slides_from_song_content(
-            "#title: Amazing Grace\n\nAmazing grace how sweet the sound\nThat saved a wretch like me\n\n---\n\nI once was lost but now am found\nWas blind but now I see\n",
-            "Amazing Grace.song",
-            &SlideSettings::default(),
-            "Amazing Grace",
-            &[],
-        )
-        .expect("the preview song builds into slides");
-
-        let chapter = SlideChapter::new(
-            slides,
-            SourceFile {
-                name: "Amazing Grace".to_string(),
-                path: std::path::PathBuf::from("Amazing Grace.song"),
-                file_type: SourceFileType::Song,
-                md5_hash: None,
-                relative_path: None,
-            },
-            None,
-            None,
-        );
-
-        RunningPresentation::new(vec![chapter])
-    }
-
-    fn monitor_design(layout: MonitorLayout, widgets: Vec<MonitorWidget>) -> PresentationDesign {
-        PresentationDesign {
-            name: "Stage".to_string(),
-            description: String::new(),
-            presentation_design_settings: PresentationDesignSettings::Monitor(MonitorDesign {
-                layout,
-                widgets,
-                ..MonitorDesign::default()
-            }),
-        }
-    }
+    // The services and designs these tests render come from
+    // [`crate::logic::fixtures`]. They used to be built here, and the same two
+    // helpers were then written a second time for the markup matrix — which is
+    // how two tests come to disagree about what "a song" is and a failure in
+    // one stops saying anything about the other.
 
     /// The ordinary case: an audience design renders the slide that is up.
     ///
@@ -330,7 +293,7 @@ mod tests {
     /// changed.
     #[test]
     fn an_audience_design_renders_the_slide_that_is_up() {
-        let mut running = service();
+        let mut running = fixtures::song_service();
         running.jump_to(0, 1);
 
         let html = render_presentation(&running, None);
@@ -350,12 +313,12 @@ mod tests {
     /// of layouts. Now the layout is what is rendered.
     #[test]
     fn a_monitor_design_renders_its_layout_and_not_a_bare_slide() {
-        let mut running = service();
+        let mut running = fixtures::song_service();
         running.jump_to(0, 1);
 
         let html = render_presentation(
             &running,
-            Some(monitor_design(
+            Some(fixtures::monitor_design(
                 MonitorLayout::SlideList { context: None },
                 Vec::new(),
             )),
@@ -375,12 +338,11 @@ mod tests {
     /// the point of it, and something a single-slide renderer cannot express.
     #[test]
     fn the_slide_list_renders_more_than_the_current_slide() {
-        let mut running = service();
-        running.jump_to(0, 0);
+        let running = fixtures::song_service();
 
         let html = render_presentation(
             &running,
-            Some(monitor_design(
+            Some(fixtures::monitor_design(
                 MonitorLayout::SlideList { context: None },
                 Vec::new(),
             )),
@@ -399,12 +361,11 @@ mod tests {
     /// The speaker layout renders both slides and says which is which.
     #[test]
     fn the_speaker_layout_renders_the_current_slide_and_the_next() {
-        let mut running = service();
-        running.jump_to(0, 0);
+        let running = fixtures::song_service();
 
         let html = render_presentation(
             &running,
-            Some(monitor_design(
+            Some(fixtures::monitor_design(
                 MonitorLayout::Speaker {
                     next_slide_share: 0.25,
                     next_position: SpeakerNextPosition::default(),
@@ -421,12 +382,11 @@ mod tests {
     /// page had no notion of them at all.
     #[test]
     fn widgets_are_rendered_into_the_stream() {
-        let mut running = service();
-        running.jump_to(0, 0);
+        let running = fixtures::song_service();
 
         let html = render_presentation(
             &running,
-            Some(monitor_design(
+            Some(fixtures::monitor_design(
                 MonitorLayout::SlideList { context: None },
                 vec![
                     MonitorWidget {
@@ -456,13 +416,12 @@ mod tests {
     /// elaborate way of ignoring the design.
     #[test]
     fn the_design_is_what_decides_the_rendering() {
-        let mut running = service();
-        running.jump_to(0, 0);
+        let running = fixtures::song_service();
 
         let audience = render_presentation(&running, None);
         let monitor = render_presentation(
             &running,
-            Some(monitor_design(
+            Some(fixtures::monitor_design(
                 MonitorLayout::SlideList { context: None },
                 Vec::new(),
             )),
@@ -482,7 +441,7 @@ mod tests {
         let audience = render_presentation(&running, None);
         let monitor = render_presentation(
             &running,
-            Some(monitor_design(
+            Some(fixtures::monitor_design(
                 MonitorLayout::SlideList { context: None },
                 Vec::new(),
             )),
@@ -500,7 +459,7 @@ mod tests {
     /// would make every republish look like a change.
     #[test]
     fn the_same_presentation_renders_the_same_way_twice() {
-        let mut running = service();
+        let mut running = fixtures::song_service();
         running.jump_to(0, 1);
 
         assert_eq!(
@@ -605,8 +564,7 @@ mod tests {
         //
         // The guard against regression is the provider's presence; this keeps
         // the reason for it written down beside the code.
-        let mut running = service();
-        running.jump_to(0, 0);
+        let running = fixtures::song_service();
 
         let html = render_presentation(&running, None);
 
@@ -625,45 +583,12 @@ mod tests {
     /// is shown is what that view was set to, layout and widgets included.
     #[test]
     fn a_monitor_design_on_the_stream_view_streams_as_a_monitor_view() {
-        use cantara_songlib::slides::SlideSettings;
-
-        let slides = crate::logic::presentation::slides_from_song_content(
-            "#title: Amazing Grace\n\nAmazing grace how sweet the sound\n",
-            "Amazing Grace.song",
-            &SlideSettings::default(),
-            "Amazing Grace",
-            &[],
-        )
-        .expect("the song builds into slides");
-
-        let mut chapter = SlideChapter::new(
-            slides,
-            SourceFile {
-                name: "Amazing Grace".to_string(),
-                path: std::path::PathBuf::from("Amazing Grace.song"),
-                file_type: SourceFileType::Song,
-                md5_hash: None,
-                relative_path: None,
-            },
-            None,
-            None,
-        );
-        // What `StreamDefaults` puts on a chapter when the stream view names a
-        // design of its own.
-        let phones = uuid::Uuid::from_u128(5);
-        chapter.view_slides.insert(
+        let phones = fixtures::view_id(5);
+        let running = fixtures::shown_in(
+            fixtures::song_service(),
             phones,
-            crate::logic::states::ViewDivision {
-                design: Some(monitor_design(
-                    MonitorLayout::SlideList { context: None },
-                    Vec::new(),
-                )),
-                ..crate::logic::states::ViewDivision::default()
-            },
+            fixtures::slide_list_design(),
         );
-
-        let mut running = RunningPresentation::new(vec![chapter]);
-        running.jump_to(0, 0);
 
         // Exactly what `network_host::publish` renders with.
         let html = render_presentation(
@@ -686,12 +611,11 @@ mod tests {
     /// markup is the size to scale *from*.
     #[test]
     fn the_speaker_layout_carries_what_the_browser_needs_to_scale() {
-        let mut running = service();
-        running.jump_to(0, 0);
+        let running = fixtures::song_service();
 
         let beside = render_presentation(
             &running,
-            Some(monitor_design(
+            Some(fixtures::monitor_design(
                 MonitorLayout::Speaker {
                     next_slide_share: 0.25,
                     next_position: SpeakerNextPosition::Right,
@@ -715,7 +639,7 @@ mod tests {
 
         let below = render_presentation(
             &running,
-            Some(monitor_design(
+            Some(fixtures::monitor_design(
                 MonitorLayout::Speaker {
                     next_slide_share: 0.25,
                     next_position: SpeakerNextPosition::Below,
@@ -735,12 +659,11 @@ mod tests {
     /// silently becoming a share of the other axis.
     #[test]
     fn the_share_follows_the_direction_the_slides_are_stacked_in() {
-        let mut running = service();
-        running.jump_to(0, 0);
+        let running = fixtures::song_service();
 
         let beside = render_presentation(
             &running,
-            Some(monitor_design(
+            Some(fixtures::monitor_design(
                 MonitorLayout::Speaker {
                     next_slide_share: 0.25,
                     next_position: SpeakerNextPosition::Right,
@@ -756,7 +679,7 @@ mod tests {
 
         let below = render_presentation(
             &running,
-            Some(monitor_design(
+            Some(fixtures::monitor_design(
                 MonitorLayout::Speaker {
                     next_slide_share: 0.25,
                     next_position: SpeakerNextPosition::Below,
@@ -789,7 +712,7 @@ mod tests {
                 // 0: what the wall shows.
                 PresentationDesign::default(),
                 // 1: the stage monitor.
-                monitor_design(MonitorLayout::SlideList { context: None }, Vec::new()),
+                fixtures::monitor_design(MonitorLayout::SlideList { context: None }, Vec::new()),
             ],
             default_design_index: 0,
             ..Settings::default()
@@ -835,13 +758,7 @@ mod tests {
 
         // The running order, built exactly as the program builds it.
         let item = crate::logic::states::SelectedItemRepresentation::new_with_sourcefile(
-            SourceFile {
-                name: "Amazing Grace".to_string(),
-                path: std::path::PathBuf::from("testfiles/Amazing Grace.song"),
-                file_type: SourceFileType::Song,
-                md5_hash: None,
-                relative_path: None,
-            },
+            fixtures::source_file("Amazing Grace.song", crate::logic::sourcefiles::SourceFileType::Song),
         );
         let mut running = crate::logic::presentation::build_presentation(
             &vec![item],
@@ -888,10 +805,9 @@ mod tests {
     fn a_second_later_only_the_widgets_have_changed() {
         use crate::logic::timer::Timestamp;
 
-        let mut running = service();
-        running.jump_to(0, 0);
+        let mut running = fixtures::song_service();
 
-        let design = monitor_design(
+        let design = fixtures::monitor_design(
             MonitorLayout::SlideList { context: None },
             vec![MonitorWidget {
                 kind: WidgetKind::ChapterTimer {
@@ -956,38 +872,10 @@ mod tests {
         );
     }
 
-    /// A PDF page gets a cell with a height, exactly as a picture and a video
-    /// do.
-    ///
-    /// `height: 100%` against a parent that has none is nothing, and that is
-    /// what left a page sitting small in the middle. On this machine it never
-    /// showed: pdf.js sizes its own canvas.
-    #[test]
-    fn a_pdf_slide_is_given_a_cell_to_fill() {
-        use cantara_songlib::slides::Slide;
-
-        let chapter = SlideChapter::new(
-            vec![Slide::new_pdf_page_slide("/srv/Handout.pdf".to_string(), 1)],
-            SourceFile {
-                name: "Handout".to_string(),
-                path: std::path::PathBuf::from("Handout.pdf"),
-                file_type: SourceFileType::Pdf,
-                md5_hash: None,
-                relative_path: None,
-            },
-            None,
-            None,
-        );
-        let mut running = RunningPresentation::new(vec![chapter]);
-        running.jump_to(0, 0);
-
-        let html = render_presentation(&running, None);
-
-        assert!(
-            html.contains(r#"class="slide-container "#) && html.contains("height: 100%"),
-            "the page has no cell to fill: {html}"
-        );
-    }
+    // "A PDF slide is given a cell to fill" lived here. It is now one case of
+    // [`crate::components::slide_markup::tests::media_slides_are_given_a_cell_to_fill`],
+    // which asserts the same property for a picture and a video as well —
+    // they share the rule and shared it before there was a test for it.
 
     /// The real Linux form, which carries a one-time token between the origin
     /// and the handler. That token is this machine's; a phone must not be
@@ -1037,20 +925,11 @@ mod tests {
         use cantara_songlib::slides::{Slide, SlideContent, VideoSlide};
 
         let media = |content: SlideContent| {
-            let chapter = SlideChapter::new(
+            let running = fixtures::service_of(
                 vec![Slide { slide_content: content, linked_file: None }],
-                SourceFile {
-                    name: "Clip".to_string(),
-                    path: std::path::PathBuf::from("Clip.mp4"),
-                    file_type: SourceFileType::Video,
-                    md5_hash: None,
-                    relative_path: None,
-                },
-                None,
-                None,
+                "Clip.mp4",
+                crate::logic::sourcefiles::SourceFileType::Video,
             );
-            let mut running = RunningPresentation::new(vec![chapter]);
-            running.jump_to(0, 0);
             render_presentation(&running, None)
         };
 
@@ -1072,8 +951,7 @@ mod tests {
     /// and the one that would make the stream look frozen if it failed.
     #[test]
     fn moving_to_another_slide_changes_the_rendering() {
-        let mut running = service();
-        running.jump_to(0, 0);
+        let mut running = fixtures::song_service();
         let first = render_presentation(&running, None);
 
         running.next_slide();

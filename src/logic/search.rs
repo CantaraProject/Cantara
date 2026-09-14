@@ -103,7 +103,8 @@ pub fn pdf_page_count(_path: &std::path::Path) -> Option<u32> {
 /// The text of one page of a PDF, if the index already holds it.
 ///
 /// Desktop only — the web build has no path to look the document up by and
-/// goes through [`extract_pdf_page_text_from_bytes`] instead.
+/// goes through `extract_pdf_page_text_from_bytes` instead — a `wasm32`-only
+/// function, so it is named here rather than linked.
 ///
 /// Never parses the document: this is called while a presentation is running,
 /// where a pause of a second would be on the screen for everyone to see.
@@ -798,8 +799,39 @@ mod tests {
 
     /// The name is the stronger statement, so it comes first even when another
     /// song quotes the words in its text.
+    /// One test at a time, where the search cache is concerned.
+    ///
+    /// The index is a handful of global maps and `refresh_search_cache`
+    /// **clears** them before filling them. Rust runs tests in parallel, so a
+    /// test that filled the cache with a PDF's pages and then read it back was
+    /// racing every other test in this module: one of them calls
+    /// `invalidate_search_cache`, another refreshes the cache with a single
+    /// markdown file, and either wipes what the first was about to look at.
+    ///
+    /// It failed on macOS and nowhere else, which is what a scheduling race
+    /// looks like from the outside — the code is the same on all three, only
+    /// the interleaving differs. Left alone it would have gone on failing
+    /// occasionally, on one platform, for reasons having nothing to do with
+    /// searching.
+    ///
+    /// The same treatment `ONE_HELPER_AT_A_TIME` gives the network tests, for
+    /// the same reason: a global cannot be shared by tests that run at once.
+    static ONE_SEARCH_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Takes the lock above, and keeps it for as long as the guard lives.
+    ///
+    /// A poisoned lock means another search test panicked. The guard is still
+    /// what serialises this one, so it is taken either way — the alternative
+    /// is one genuine failure turning every other test in the module red.
+    fn one_search_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        ONE_SEARCH_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|held| held.into_inner())
+    }
+
     #[test]
     fn a_name_match_outranks_a_content_match() {
+        let _one_at_a_time = one_search_at_a_time();
         invalidate_search_cache();
         let library = vec![
             song("Alas, and Did My Savior Bleed", "testfiles/Alas, and Did My Savior Bleed.song"),
@@ -818,6 +850,7 @@ mod tests {
     /// or every second query would hit them.
     #[test]
     fn a_song_is_indexed_as_lyrics_rather_than_as_its_file() {
+        let _one_at_a_time = one_search_at_a_time();
         invalidate_search_cache();
         let (indexed, _) = index_text(&song("Amazing Grace", "testfiles/Amazing Grace.song.yml"))
             .expect("the song can be read");
@@ -836,6 +869,7 @@ mod tests {
     /// search for a line of the lyrics finds the song.
     #[test]
     fn the_notation_is_not_searchable_but_the_lyrics_are() {
+        let _one_at_a_time = one_search_at_a_time();
         invalidate_search_cache();
         let library = vec![song("Amazing Grace", "testfiles/Amazing Grace.song.yml")];
 
@@ -857,6 +891,7 @@ mod tests {
     /// grammar.
     #[test]
     fn the_words_of_a_query_are_found_in_any_order() {
+        let _one_at_a_time = one_search_at_a_time();
         invalidate_search_cache();
         let library = vec![song("Amazing Grace", "testfiles/Amazing Grace.song.yml")];
 
@@ -935,6 +970,7 @@ mod tests {
     /// labelled with the verse it belongs to rather than with nothing.
     #[test]
     fn a_song_hit_is_labelled_with_its_verse() {
+        let _one_at_a_time = one_search_at_a_time();
         invalidate_search_cache();
         let library = vec![song("Amazing Grace", "testfiles/Amazing Grace.song.yml")];
 
@@ -1085,6 +1121,7 @@ mod tests {
 
     #[test]
     fn search_markdown_content() {
+        let _one_at_a_time = one_search_at_a_time();
         invalidate_search_cache();
         let sf = file("example", "testfiles/example.md", SourceFileType::Markdown);
 
@@ -1105,6 +1142,7 @@ mod tests {
 
     #[test]
     fn search_pdf_content() {
+        let _one_at_a_time = one_search_at_a_time();
         // This PDF fixture is expected to have no extractable text; it should not produce matches.
         invalidate_search_cache();
         let sf = file("Example", "testfiles/Example.pdf", SourceFileType::Pdf);
@@ -1119,6 +1157,7 @@ mod tests {
 
     #[test]
     fn search_pdf_with_text() {
+        let _one_at_a_time = one_search_at_a_time();
         // MultiPage.pdf has pages with embedded text ("Page 1", "Page 2", "Page 3").
         // Query "page 2" contains a space+digit so it matches the content but not the
         // filename "MultiPage" (which would only match the bare word "page").
@@ -1139,6 +1178,7 @@ mod tests {
 
     #[test]
     fn refresh_cache_includes_markdown() {
+        let _one_at_a_time = one_search_at_a_time();
         let sf = file("example", "testfiles/example.md", SourceFileType::Markdown);
         invalidate_search_cache();
         refresh_search_cache(std::slice::from_ref(&sf));
@@ -1154,6 +1194,7 @@ mod tests {
 
     #[test]
     fn refresh_cache_includes_pdf_text() {
+        let _one_at_a_time = one_search_at_a_time();
         // MultiPage.pdf has embedded text ("Page 1", "Page 2", "Page 3") across its pages.
         let sf = file("MultiPage", "testfiles/MultiPage.pdf", SourceFileType::Pdf);
         invalidate_search_cache();

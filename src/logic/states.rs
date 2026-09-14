@@ -120,7 +120,8 @@ pub struct SelectedItemRepresentation {
     /// The source file of the selected item
     pub source_file: SourceFile,
 
-    /// The [PresentationDesignSettings] as an option. If [None], the default [PresentationDesign] will be used.
+    /// The [`PresentationDesign`] as an option. If [`None`], the default one
+    /// is used.
     pub presentation_design_option: Option<PresentationDesign>,
 
     /// The [PresentationDesign] as an option. If [None], the default [PresentationDesign] will be used.

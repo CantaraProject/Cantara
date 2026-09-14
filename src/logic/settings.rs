@@ -78,7 +78,7 @@ pub struct Settings {
     ///
     /// Only a local folder can be written to, so a position naming any other
     /// kind of repository is read as "the first local one" — see
-    /// [`Self::import_repository_path`].
+    /// [`Self::import_repository_index`].
     #[serde(default)]
     pub import_repository_index: usize,
 
@@ -726,12 +726,9 @@ impl Settings {
     pub fn load() -> Self {
         #[cfg(target_arch = "wasm32")]
         {
-            let json = crate::logic::web_storage::text(SETTINGS_KEY);
-            let mut settings = match json {
-                Some(j) => serde_json::from_str(&migrate_settings_json(&j)).unwrap_or_default(),
-                None => Self::default(),
-            };
-            settings.bring_up_to_date();
+            let mut settings = crate::logic::web_storage::text(SETTINGS_KEY)
+                .and_then(|stored| Self::from_stored(&stored))
+                .unwrap_or_else(Self::started_fresh);
             settings.ensure_bundled_repos();
             settings
         }
@@ -754,11 +751,10 @@ impl Settings {
                 &read,
                 Some(Err(error)) if error.kind() == std::io::ErrorKind::NotFound
             );
-            let stored = read.and_then(|result| result.ok());
-            let mut settings: Settings = stored
-                .and_then(|content| serde_json::from_str(&migrate_settings_json(&content)).ok())
-                .unwrap_or_default();
-            settings.bring_up_to_date();
+            let mut settings = read
+                .and_then(|result| result.ok())
+                .and_then(|content| Self::from_stored(&content))
+                .unwrap_or_else(Self::started_fresh);
 
             // Nobody starts with an empty program if they have been using
             // Cantara 2: their library, design and metadata line are on this
@@ -771,6 +767,42 @@ impl Settings {
 
             settings
         }
+    }
+
+    /// The settings a stored document describes, brought up to the current
+    /// shape.
+    ///
+    /// The whole of reading a settings file that is not the reading: migrate
+    /// the document, parse it, then run every fixup. Both places that load —
+    /// the desktop from a file, the browser from local storage — did these
+    /// three steps in a row with nothing shared but the habit, which is
+    /// exactly the arrangement [`bring_up_to_date`](Self::bring_up_to_date)
+    /// was written to end and only got half of.
+    ///
+    /// `None` when the document cannot be understood at all. That is not an
+    /// error worth reporting: the defaults are a working configuration and the
+    /// wizard picks the user up from there. It *is* worth keeping separate
+    /// from a file that is simply not there, which is a first start and means
+    /// something else entirely — see [`load`](Self::load).
+    ///
+    /// This is also the only way the migration can be tested as the one thing
+    /// it is. Testing the steps separately says nothing about the order they
+    /// run in, and the order is where a migration goes wrong.
+    pub fn from_stored(json: &str) -> Option<Self> {
+        let mut settings: Settings = serde_json::from_str(&migrate_settings_json(json)).ok()?;
+        settings.bring_up_to_date();
+        Some(settings)
+    }
+
+    /// The configuration somebody starting with no settings gets.
+    ///
+    /// The defaults *plus the fixups* — not the bare defaults. A default
+    /// `Settings` has no views in it at all, so a first start that skipped
+    /// this would come up with nothing to project onto.
+    pub(crate) fn started_fresh() -> Self {
+        let mut settings = Self::default();
+        settings.bring_up_to_date();
+        settings
     }
 
     /// Save the current settings to storage.
@@ -1120,6 +1152,82 @@ impl Settings {
         self.reference_view_index = 0;
     }
 
+    /// The addresses the helper should serve, and which view is at each.
+    ///
+    /// One list, built here, because it was built in two places: once when the
+    /// stream switch is thrown and once on every change to the presentation.
+    /// The two had drifted into filtering differently — harmlessly, as it
+    /// happened, but the next difference would not have been — and neither of
+    /// them checked the path at all.
+    ///
+    /// # Why the path is checked again here
+    ///
+    /// The editor already refuses an address that
+    /// [`check_network_path`] does not like, and that is the right place for
+    /// it: the person typing gets told why. But **a field is not the only way
+    /// a value gets in.** The settings are a file. It can be edited by hand,
+    /// written by a version of Cantara that allowed something this one does
+    /// not, or copied from another installation.
+    ///
+    /// A bad address that reaches the helper does not fail loudly. A path with
+    /// characters the router cannot match simply never answers; a *reserved*
+    /// one — `/console`, `/media`, `/state` — is quietly shadowed by the real
+    /// route that owns it, so the view exists, the switch says the stream is
+    /// on, and the address shows somebody else's page. Dropping it here means
+    /// the view is unreachable, which is the same outcome, arrived at without
+    /// the router being asked to arbitrate.
+    #[cfg(feature = "desktop")]
+    pub fn served_views(&self) -> Vec<crate::logic::network_server::ServedView> {
+        // Addresses already given out, so that a second view claiming one is
+        // caught here rather than downstream.
+        //
+        // The helper keeps a map from path to view. Two views at `/stage`
+        // means one entry, so the second view simply *is not served* — the
+        // list in the settings shows it, the switch says the stream is on, and
+        // whoever opens that address is shown the other view's design. Nothing
+        // anywhere reports it. That is the same shape as the reserved-path
+        // problem below and needs the same treatment.
+        //
+        // Compared without regard to case, because a browser will not
+        // distinguish `/Stage` from `/stage` either — see `check_network_path`,
+        // which reserves its own paths the same way.
+        let mut taken: Vec<String> = Vec::new();
+
+        self.views
+            .iter()
+            .filter_map(|view| match &view.output {
+                ViewOutput::Network { path } => Some((view.id, path)),
+                ViewOutput::Screen { .. } => None,
+            })
+            .filter(|(_, path)| match check_network_path(path) {
+                Ok(()) => true,
+                Err(problem) => {
+                    log::error!(
+                        "the view at {path} is not served: {problem:?}"
+                    );
+                    false
+                }
+            })
+            .filter(|(_, path)| {
+                // The first view to claim an address keeps it. Which of the two
+                // that is hardly matters — both readings are arbitrary — but
+                // *saying* one of them is not served does.
+                if taken.iter().any(|other| other.eq_ignore_ascii_case(path)) {
+                    log::error!(
+                        "two views are set to {path}; only the first is served"
+                    );
+                    return false;
+                }
+                taken.push((*path).clone());
+                true
+            })
+            .map(|(id, path)| crate::logic::network_server::ServedView {
+                path: path.clone(),
+                id,
+            })
+            .collect()
+    }
+
     /// Adds a view, and answers where it went.
     ///
     /// A new view starts as a screen view that names no screen, no design and
@@ -1194,7 +1302,7 @@ impl Settings {
     /// The one place that reads a view's design choice, so that the rule for
     /// an index left pointing past the end of the list — read as no choice,
     /// rather than panicking or silently showing the wrong design — is stated
-    /// once. Same rule as [`crate::logic::stream_view::StreamDefaults::of`],
+    /// once. Same rule as [`crate::logic::stream_view::ViewDefaults`],
     /// which this eventually replaces.
     pub fn design_of_view(&self, view: &View) -> Option<PresentationDesign> {
         view.design_index
@@ -1550,7 +1658,8 @@ impl RepositoryType {
         format!("github://{}/{}", owner, repo)
     }
 
-    /// Parses a GitHub repository identifier string (e.g. "owner/repo" or "https://github.com/owner/repo")
+    /// Parses a GitHub repository identifier string (e.g. `owner/repo` or
+    /// `https://github.com/owner/repo`)
     /// into (owner, repo) tuple. Returns None if the format is invalid.
     pub fn parse_github_repo(input: &str) -> Option<(String, String)> {
         let trimmed = input.trim().trim_end_matches('/');
@@ -1786,12 +1895,31 @@ impl RepositoryType {
                             // The same wrapper directory the desktop strips
                             // after extracting — see `archive_content_root`.
                             let wrapper = archive_wrapper_directory(&archive);
-                            for i in 0..archive.len() {
-                                if let Ok(mut entry) = archive.by_index(i) {
-                                    if entry.name().ends_with('/') {
-                                        continue;
-                                    }
-                                    let name = entry.name().to_string();
+                            // The same bounded reading the desktop uses. A
+                            // browser has no disk to fill, so a bomb fills the
+                            // tab's memory instead and takes the service down
+                            // that way rather than the other.
+                            // Collected first, published afterwards.
+                            //
+                            // `read_entries` stops at the first thing it
+                            // refuses, on the principle that half an archive is
+                            // not a repository. Writing each file into
+                            // `WEB_FILES` as it arrived quietly broke that: a
+                            // ZIP whose *tenth* entry was a bomb or a hostile
+                            // name still left nine files in the global map, and
+                            // the code below then read them back and reported a
+                            // working repository. The refusal was logged and
+                            // otherwise had no effect.
+                            //
+                            // Staging costs one copy of an archive already
+                            // bounded to `total_bytes`, which is the price of
+                            // the contract actually holding.
+                            let mut staged: Vec<(String, Vec<u8>)> = Vec::new();
+                            let refused = crate::logic::archive::read_entries(
+                                &mut archive,
+                                crate::logic::archive::Limits::default(),
+                                |path, entry| {
+                                    let name = path.to_string_lossy().into_owned();
                                     let name = match &wrapper {
                                         Some(wrapper) => name
                                             .strip_prefix(wrapper.as_str())
@@ -1799,13 +1927,20 @@ impl RepositoryType {
                                             .to_string(),
                                         None => name,
                                     };
-                                    let path = format!("{}/{}", prefix, name);
                                     let mut content = Vec::new();
-                                    let _ = std::io::Read::read_to_end(&mut entry, &mut content);
-                                    WEB_FILES.with(|files| {
-                                        files.borrow_mut().insert(path, content);
-                                    });
-                                }
+                                    std::io::Read::read_to_end(entry, &mut content)?;
+                                    staged.push((format!("{}/{}", prefix, name), content));
+                                    Ok(())
+                                },
+                            );
+                            match refused {
+                                Ok(()) => WEB_FILES.with(|files| {
+                                    let mut files = files.borrow_mut();
+                                    for (path, content) in staged {
+                                        files.insert(path, content);
+                                    }
+                                }),
+                                Err(refused) => log::error!("{refused}"),
                             }
                         }
                         Err(e) => log::error!("Failed to parse ZIP archive: {}", e),
@@ -1888,38 +2023,95 @@ impl RepositoryType {
                 response.status()
             ));
         }
+        // Streamed to the file a chunk at a time, with a running total.
+        //
+        // It was `response.bytes()`, which reads the **whole** body into
+        // memory before anything looks at it — so the archive limits below,
+        // and the comment claiming they bound "how much of this machine an
+        // archive gets", were both applied after the damage could already have
+        // been done. A server can serve a hundred gigabytes to a request for a
+        // song repository, and nothing here would have objected until it was
+        // over.
+        //
+        // Two properties now, where there were none: the body never sits in
+        // memory whole, and it stops at `download_bytes`.
+        let limits = crate::logic::archive::Limits::default();
         let mut file = fs::File::create(&zip_path)
             .map_err(|e| format!("Failed to create temporary file: {}", e))?;
-        let content = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read response body: {}", e))?;
-        file.write_all(&content)
-            .map_err(|e| format!("Failed to write to temporary file: {}", e))?;
+        let mut downloaded: u64 = 0;
+        let mut response = response;
+        loop {
+            let chunk = response
+                .chunk()
+                .await
+                .map_err(|e| format!("Failed to read response body: {}", e))?;
+            let Some(chunk) = chunk else {
+                break;
+            };
+            downloaded = downloaded.saturating_add(chunk.len() as u64);
+            if downloaded > limits.download_bytes {
+                return Err(format!(
+                    "the download is larger than {} MB, which is more than a song \
+                     repository should be",
+                    limits.download_bytes / (1024 * 1024)
+                ));
+            }
+            file.write_all(&chunk)
+                .map_err(|e| format!("Failed to write to temporary file: {}", e))?;
+        }
+        drop(file);
+
         let file = fs::File::open(&zip_path)
             .map_err(|e| format!("Failed to open downloaded ZIP file: {}", e))?;
         let mut archive =
             ZipArchive::new(file).map_err(|e| format!("Failed to parse ZIP file: {}", e))?;
-        for i in 0..archive.len() {
-            let mut file = archive
-                .by_index(i)
-                .map_err(|e| format!("Failed to access ZIP entry: {}", e))?;
-            let outpath = temp_dir.path().join(file.name());
-            if file.name().ends_with('/') {
-                fs::create_dir_all(&outpath)
-                    .map_err(|e| format!("Failed to create directory: {}", e))?;
-            } else {
-                if let Some(parent) = outpath.parent()
-                    && !parent.exists() {
-                        fs::create_dir_all(parent)
-                            .map_err(|e| format!("Failed to create parent directory: {}", e))?;
-                    }
-                let mut outfile = fs::File::create(&outpath)
-                    .map_err(|e| format!("Failed to create output file: {}", e))?;
-                io::copy(&mut file, &mut outfile)
-                    .map_err(|e| format!("Failed to write output file: {}", e))?;
-            }
+
+        // Through `archive::read_entries` rather than over the entries
+        // directly. What it adds is a bound on how much of this machine an
+        // archive gets and a guarantee that every path it hands back stays
+        // under `temp_dir` — see that module for what an archive at somebody
+        // else's URL can otherwise do. The destination is the only part that
+        // differs from the web build's unpacking, which goes through the same
+        // function.
+        let destination = temp_dir.path().to_path_buf();
+        crate::logic::archive::read_entries(
+            &mut archive,
+            limits,
+            |path, contents| {
+                let outpath = destination.join(path);
+                if let Some(parent) = outpath.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                let mut outfile = fs::File::create(&outpath)?;
+                io::copy(contents, &mut outfile)?;
+                Ok(())
+            },
+        )
+        .map_err(|refused| refused.to_string())?;
+
+        // The download itself must not be left lying among what came out of
+        // it.
+        //
+        // `archive_content_root` strips a zipball's wrapper directory —
+        // `cantara-songrepo-4f2ab9c` — only when it is the *sole* entry in the
+        // folder, and the wrapper's name carries the commit it was built from.
+        // `download.zip` sitting beside it makes two entries, so the wrapper
+        // was never stripped, so every file's `relative_path` began with a name
+        // that changes on every update. The identifiers the detail view puts
+        // in its URLs are derived from that path, and they are meant to outlive
+        // both the download and the update: a link to a song stopped resolving
+        // as soon as the repository was refreshed.
+        //
+        // Removed rather than downloaded elsewhere, because "elsewhere" is a
+        // second temporary directory to create, clean up and get wrong on
+        // Android.
+        if let Err(error) = fs::remove_file(&zip_path) {
+            // Not fatal. The repository is extracted and usable; what suffers
+            // is the stability of its identifiers, and refusing the whole
+            // download over it would be the worse trade.
+            log::warn!("the downloaded archive could not be removed: {error}");
         }
+
         Ok(temp_dir)
     }
 }
@@ -3062,7 +3254,7 @@ impl CssSize {
     }
 
     /// Sets a float and keeps the unit
-    /// If the enum is [Null], it will turn into a [CssSize::Px].
+    /// If the enum is [`CssSize::Null`], it will turn into a [`CssSize::Px`].
     pub fn set_float(&mut self, value: f32) {
         match self {
             CssSize::Px(x) => *x = value,
@@ -3430,6 +3622,176 @@ mod tests {
     // Views, and the migration from the two outputs Cantara used to have.
     // See docs/specs/0003-add-monitor-view.md.
     // -------------------------------------------------------------------------
+
+    // What the helper is told to serve. See `Settings::served_views` and
+    // stage 3 of docs/specs/0004-testing-playwright.md.
+
+    /// The ordinary case: a network view's address is served, a screen view's
+    /// is not.
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn only_the_network_views_are_offered_to_the_helper() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+        // `ensure_views` makes a projection and a stream; give the stream a
+        // name of its own so the assertion is about which was chosen.
+        settings.views[1].output = ViewOutput::Network {
+            path: "/buehne".to_string(),
+        };
+
+        let served = settings.served_views();
+
+        assert_eq!(served.len(), 1, "the projection was offered as an address");
+        assert_eq!(served[0].path, "/buehne");
+        assert_eq!(served[0].id, settings.views[1].id);
+    }
+
+    /// An address the editor would refuse never reaches the helper.
+    ///
+    /// The settings are a file, and the editor is not the only way a value
+    /// gets into one. What makes this worth a test rather than a shrug is how
+    /// it fails: a reserved address does not error, it is *shadowed* by the
+    /// route that owns it, so the view exists, the switch says the stream is
+    /// on, and whoever opens that address is shown somebody else's page.
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn an_address_the_editor_would_refuse_is_not_served() {
+        for bad in [
+            CONSOLE_PATH,
+            ASSETS_PREFIX,
+            "/state",
+            "not-absolute",
+            "",
+            "/hat räume",
+            "/../etc",
+            "/a?b=c",
+        ] {
+            let mut settings = Settings::default();
+            settings.ensure_views();
+            settings.views[1].output = ViewOutput::Network {
+                path: bad.to_string(),
+            };
+
+            assert!(
+                settings.served_views().is_empty(),
+                "{bad:?} was handed to the helper, and check_network_path says                  {:?}",
+                check_network_path(bad)
+            );
+        }
+    }
+
+    /// One bad address does not cost the good ones.
+    ///
+    /// A service with three views, one of them mis-addressed by a hand edit,
+    /// must still stream the other two. Refusing the whole list would turn a
+    /// typo into no stream at all.
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn a_single_bad_address_does_not_silence_the_others() {
+        let settings = Settings {
+            views: vec![
+            View {
+                id: uuid::Uuid::from_u128(1),
+                name: "Gemeinde".to_string(),
+                design_index: None,
+                slide_settings_index: None,
+                output: ViewOutput::Network {
+                    path: "/".to_string(),
+                },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            },
+            View {
+                id: uuid::Uuid::from_u128(2),
+                name: "Vertippt".to_string(),
+                design_index: None,
+                slide_settings_index: None,
+                output: ViewOutput::Network {
+                    path: CONSOLE_PATH.to_string(),
+                },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            },
+            View {
+                id: uuid::Uuid::from_u128(3),
+                name: "Buehne".to_string(),
+                design_index: None,
+                slide_settings_index: None,
+                output: ViewOutput::Network {
+                    path: "/buehne".to_string(),
+                },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            },
+            ],
+            ..Settings::default()
+        };
+
+        let served = settings.served_views();
+
+        assert_eq!(served.len(), 2);
+        assert!(served.iter().all(|view| view.path != CONSOLE_PATH));
+    }
+
+    /// Two views set to the same address: the second is not served, and says
+    /// so.
+    ///
+    /// The helper keeps one view per path, so without this the second view
+    /// vanished — present in the settings, absent from the network, and
+    /// nothing anywhere saying which of the two the address was showing.
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn two_views_at_one_address_do_not_both_claim_it() {
+        let at = |id: u128, path: &str| View {
+            id: uuid::Uuid::from_u128(id),
+            name: format!("View {id}"),
+            design_index: None,
+            slide_settings_index: None,
+            output: ViewOutput::Network {
+                path: path.to_string(),
+            },
+            enabled: true,
+            focus: ViewFocus::Follow,
+        };
+
+        let settings = Settings {
+            views: vec![at(1, "/stage"), at(2, "/stage"), at(3, "/buehne")],
+            ..Settings::default()
+        };
+
+        let served = settings.served_views();
+
+        assert_eq!(served.len(), 2, "the duplicate was served as well");
+        assert_eq!(served[0].id, uuid::Uuid::from_u128(1), "the first keeps it");
+        assert_eq!(served[1].path, "/buehne", "the unrelated view still works");
+    }
+
+    /// Addresses differing only in case are the same address.
+    ///
+    /// A browser will not distinguish them, so neither may this — the same
+    /// reasoning `check_network_path` uses for its reserved paths.
+    #[test]
+    #[cfg(feature = "desktop")]
+    fn two_addresses_differing_only_in_case_are_one_address() {
+        let at = |id: u128, path: &str| View {
+            id: uuid::Uuid::from_u128(id),
+            name: format!("View {id}"),
+            design_index: None,
+            slide_settings_index: None,
+            output: ViewOutput::Network {
+                path: path.to_string(),
+            },
+            enabled: true,
+            focus: ViewFocus::Follow,
+        };
+
+        let settings = Settings {
+            views: vec![at(1, "/Stage"), at(2, "/stage")],
+            ..Settings::default()
+        };
+
+        assert_eq!(settings.served_views().len(), 1);
+    }
 
     /// A settings file from before views existed gets the two it always had,
     /// in the order the reference view is first.

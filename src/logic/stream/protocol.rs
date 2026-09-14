@@ -463,7 +463,7 @@ impl StreamState {
     /// Apart from [`media`](Self::media) because the two are handed over
     /// differently: a picture is sent as bytes and held in memory, while a
     /// video is registered by its path and served from there in pieces. See
-    /// [`crate::logic::stream::publish_video`].
+    /// [`StreamServer::publish_video`](crate::logic::stream::server::StreamServer::publish_video).
     pub fn videos(&self) -> Vec<String> {
         let mut named: Vec<String> = Vec::new();
         for chapter in &self.chapters {

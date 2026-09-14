@@ -675,8 +675,27 @@ pub fn build_presentation(
             StreamView::Build(view_defaults),
         ) {
             Ok(chapter) => presentation.push(chapter),
-            Err(_) => {
-                // TODO: Implement error handling, the user should get a message if an error occurs...
+            Err(error) => {
+                // Skipped, and the rest of the service is built around it. A
+                // damaged handout must not cost the four songs on either side
+                // of it — see the tests below.
+                //
+                // Said out loud, at least in the log. It used to be passed
+                // over in silence, and silence is the worst of the available
+                // behaviours: the element the operator put in the order is
+                // simply not there on Sunday, with nothing anywhere to say
+                // why, and the natural conclusion is that they forgot to add
+                // it.
+                //
+                // A log line is not enough — this belongs in front of the
+                // person building the order, at the moment they build it, and
+                // that is still open. It is recorded as such in
+                // `docs/specs/0004-testing-playwright.md`. What is fixed here
+                // is that the information now exists somewhere.
+                log::error!(
+                    "{} could not be read and is not in the presentation: {error}",
+                    selected_item.source_file.path.display()
+                );
             }
         }
     }
@@ -1032,6 +1051,175 @@ mod tests {
 
     use super::*;
     use cantara_songlib::slides::LanguageConfiguration;
+
+    // ── What a damaged file does to a service ──────────────────────────
+    //
+    // Stage 3 of `docs/specs/0004-testing-playwright.md`. A running order is
+    // built from files the operator points at, and one of them can be
+    // anything: a PDF that was cut off by a failed download, a note somebody
+    // saved with the wrong extension, a file of nought bytes left by a program
+    // that crashed while writing it. None of those is exotic. All of them are
+    // in `fixtures/damaged/`.
+    //
+    // What matters is not that a damaged file is read — it cannot be — but
+    // what its presence does to *the rest of the service*.
+
+    /// Every damaged file in the folder, as (name, entry).
+    fn damaged_elements() -> Vec<(String, SelectedItemRepresentation)> {
+        let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join("damaged");
+
+        let mut found: Vec<(String, SelectedItemRepresentation)> = std::fs::read_dir(&folder)
+            .expect("the damaged fixtures are in the repository")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.is_file())
+            .map(|path| {
+                let name = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let item = SelectedItemRepresentation::new_with_sourcefile(SourceFile {
+                    name: name.clone(),
+                    path: path.clone(),
+                    file_type: SourceFileType::Pdf,
+                    md5_hash: None,
+                    relative_path: None,
+                });
+                (name, item)
+            })
+            .collect();
+
+        found.sort_by(|(a, _), (b, _)| a.cmp(b));
+        assert!(!found.is_empty(), "there are no damaged fixtures to test with");
+        found
+    }
+
+    /// A song that reads, for the running order to be built around.
+    fn a_song_that_works() -> SelectedItemRepresentation {
+        SelectedItemRepresentation::new_with_sourcefile(SourceFile {
+            name: "Amazing Grace".to_string(),
+            path: PathBuf::from("testfiles/Amazing Grace.song"),
+            file_type: SourceFileType::Song,
+            md5_hash: None,
+            relative_path: None,
+        })
+    }
+
+    /// A damaged PDF does not stop the running order being built.
+    ///
+    /// **The property that matters during a service.** The reading is a PDF
+    /// somebody downloaded this morning and it arrived truncated; the four
+    /// songs around it are fine. If the whole order refuses to build, the
+    /// service has nothing at all — which is a far worse Sunday than one
+    /// missing handout.
+    #[test]
+    fn a_damaged_pdf_does_not_take_the_rest_of_the_service_with_it() {
+        for (name, damaged) in damaged_elements() {
+            let order = vec![a_song_that_works(), damaged, a_song_that_works()];
+
+            let running = build_presentation(
+                &order,
+                &PresentationDesign::default(),
+                &SlideSettings::default(),
+                &[],
+                &[],
+            )
+            .unwrap_or_else(|| panic!("{name} took the whole running order with it"));
+
+            assert_eq!(
+                running.presentation.len(),
+                2,
+                "{name}: the songs around the damaged file did not both survive"
+            );
+        }
+    }
+
+    /// A damaged PDF contributes no slides rather than an empty one.
+    ///
+    /// The alternative would be worse than leaving it out: a blank slide in
+    /// the middle of a service looks exactly like a working element that has
+    /// gone wrong, and the operator presses on past it wondering what happened.
+    #[test]
+    fn a_damaged_pdf_contributes_nothing_rather_than_a_blank_slide() {
+        for (name, damaged) in damaged_elements() {
+            let running = build_presentation(
+                &vec![damaged],
+                &PresentationDesign::default(),
+                &SlideSettings::default(),
+                &[],
+                &[],
+            );
+
+            assert!(
+                running.is_none(),
+                "{name} produced a running order out of a file that cannot be read"
+            );
+        }
+    }
+
+    /// A file that is not there at all behaves the same way.
+    ///
+    /// A saved running order names files by path, and between saving it and
+    /// opening it on Sunday a folder can be moved or a stick unplugged. The
+    /// missing file is a damaged file as far as this is concerned, and it must
+    /// not be a different code path — a service is not the place to find out
+    /// that "unreadable" and "absent" were handled separately.
+    #[test]
+    fn a_file_that_is_no_longer_there_is_skipped_like_a_damaged_one() {
+        let missing = SelectedItemRepresentation::new_with_sourcefile(SourceFile {
+            name: "Gone".to_string(),
+            path: PathBuf::from("/srv/no-such-folder/Gone.pdf"),
+            file_type: SourceFileType::Pdf,
+            md5_hash: None,
+            relative_path: None,
+        });
+
+        let running = build_presentation(
+            &vec![a_song_that_works(), missing],
+            &PresentationDesign::default(),
+            &SlideSettings::default(),
+            &[],
+            &[],
+        )
+        .expect("the song still builds");
+
+        assert_eq!(running.presentation.len(), 1);
+    }
+
+    /// A damaged song file is skipped the same way a damaged PDF is.
+    ///
+    /// The same property one type over, because the two go down different
+    /// branches of `create_presentation_slides` and only one of them was ever
+    /// exercised by a test.
+    #[test]
+    fn a_damaged_song_file_is_skipped_too() {
+        let broken = SelectedItemRepresentation::new_with_sourcefile(SourceFile {
+            name: "Broken".to_string(),
+            path: PathBuf::from("fixtures/damaged/NotReallyA.pdf"),
+            file_type: SourceFileType::Song,
+            md5_hash: None,
+            relative_path: None,
+        });
+
+        let running = build_presentation(
+            &vec![a_song_that_works(), broken],
+            &PresentationDesign::default(),
+            &SlideSettings::default(),
+            &[],
+            &[],
+        )
+        .expect("the song that reads still builds");
+
+        // A `.pdf` read as a song goes to the importer chosen by its name,
+        // which has none for that extension. What it must not do is take the
+        // song with it.
+        assert!(
+            !running.presentation.is_empty(),
+            "a file that is not a song took the running order with it"
+        );
+    }
 
     /// Prints one complex slide, so the exact ABC handed to abcjs can be seen
     /// with `cargo test dump_complex_slide -- --nocapture --ignored`.

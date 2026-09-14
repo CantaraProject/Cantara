@@ -1207,24 +1207,11 @@ fn StreamSwitch() -> Element {
                     // Every address the helper is to serve, and the view
                     // behind each. Without these the helper would not know
                     // which slides belong at which address.
-                    let views: Vec<crate::logic::network_server::ServedView> = settings
-                        .read()
-                        .views
-                        .iter()
-                        .filter(|view| view.enabled || matches!(
-                            view.output,
-                            ViewOutput::Network { .. }
-                        ))
-                        .filter_map(|view| match &view.output {
-                            ViewOutput::Network { path } => {
-                                Some(crate::logic::network_server::ServedView {
-                                    path: path.clone(),
-                                    id: view.id,
-                                })
-                            }
-                            ViewOutput::Screen { .. } => None,
-                        })
-                        .collect();
+                    // The same list `serve_views` keeps in step while the
+                    // service runs — see [`Settings::served_views`]. Built
+                    // here as well once, and the two had already begun to
+                    // differ.
+                    let views = settings.read().served_views();
                     starting.set(true);
                     spawn(async move {
                         let started = starting_a_helper(move || {

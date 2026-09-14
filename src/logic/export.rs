@@ -29,8 +29,10 @@ use cantara_songlib::song::Song;
 /// has: sheet music and a running order have nothing to do with each other,
 /// and offering LilyPond next to `.cantara.zip` in one list only invites the
 /// wrong one to be picked. Every [`ExportFormat`] belongs to exactly one of
-/// these — [`ExportCategory::of`] is what says which, and a test holds the two
-/// lists to each other.
+/// these — `ExportCategory::of` is what says which. It exists only under
+/// `cfg(test)`, which is why it is named here rather than linked: the dialog
+/// never asks, because it offers the formats of the category the user already
+/// picked. What it is for is the test that holds the two lists to each other.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ExportCategory {
     /// The running order itself, as a file that can be opened again. Not an

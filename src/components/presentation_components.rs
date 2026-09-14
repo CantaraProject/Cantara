@@ -452,12 +452,7 @@ pub fn PresentationPage() -> Element {
         // This div is needed for fullscreen mode
         div {
             tabindex: 0,
-            style: "
-                    all: initial;
-                    margin:0;
-                    width:100%;
-                    height:100%;
-                ",
+            style: PRESENTATION_WINDOW_STYLE,
             onclick: move |_| {
                 // Close context menu on any click
                 show_context_menu.set(false);
@@ -1425,7 +1420,27 @@ pub(crate) fn AbcNotationRenderer(
     #[props(default)]
     inherit_color: bool,
 ) -> Element {
-    let container_id = use_hook(|| format!("abc-{}", Uuid::new_v4().as_simple()));
+    // A handle for the script below to find this container by, and nothing
+    // more — the stream's own engraver walks `[data-abc]` and never looks at
+    // it.
+    //
+    // The scope's number rather than a fresh [`Uuid`], because a random one
+    // made **every rendering of a notation slide different from the last**.
+    // That is not cosmetic: the stream compares what it is about to send
+    // against what it last sent, so an id that changed each time meant a slide
+    // with notation on it was republished to every phone in the building on
+    // every tick of the widget clock — a second apart, all service long. Each
+    // of those republishes rebuilt the page's stage, which re-engraves the
+    // staff and restarts any video on it. The same instability defeated the
+    // patch-only-the-widgets path in `stream_viewer.html`, which is what keeps
+    // a slide from being rebuilt once a second in the first place.
+    //
+    // A scope id is assigned by the `VirtualDom` as it builds the tree, so it
+    // is the same number for the same tree and a different one for each
+    // container within it — stable *and* unique, which is exactly the pair of
+    // properties a handle here needs and which neither a random id nor a hash
+    // of the notation has on its own.
+    let container_id = use_hook(|| format!("abc-{}", dioxus::core::current_scope_id().0));
 
     let notation_style = {
         let mut css = CssHandler::new();
@@ -2356,6 +2371,24 @@ fn SimplePictureSlideComponent(
     }
 }
 
+/// The box the whole projection is drawn in: the window, and nothing of the
+/// surrounding page.
+///
+/// `all: initial` because this window shows a design and not an application —
+/// nothing PicoCSS puts on a page belongs on a wall. The full width and height
+/// because everything inside is sized as a share of it: a `.presentation` given
+/// `height: 100%` against a parent with no height is a `.presentation` of no
+/// height, and what that looks like is a black strip across the top of an
+/// otherwise white screen.
+///
+/// Shared with `crate::logic::measure` — which is behind the `test-harness`
+/// feature, so it is named here rather than linked — which opens a window to check that
+/// the projection is drawn correctly. Written out there as well, it came up
+/// 1264×377 in a 1280×720 window and reported that as fine — a measuring rig
+/// reproducing the very failure it is meant to detect.
+pub(crate) const PRESENTATION_WINDOW_STYLE: &str =
+    "all: initial; margin: 0; width: 100%; height: 100%;";
+
 /// The box a picture is fitted into: the whole cell, centred.
 ///
 /// Shared with [`crate::components::stream_render`], which turns a PDF page
@@ -2411,9 +2444,17 @@ pub(crate) fn PdfPageCanvas(
     transition: String,
 ) -> Element {
     // One identity per mount. The element outlives a slide, so this must not
-    // be derived from the page.
-    let mount_id = use_hook(Uuid::new_v4);
-    let canvas_id = format!("pdf-canvas-{}", mount_id.as_simple());
+    // be derived from the page — the canvas holds the page that is up until
+    // the next one has been drawn, and an id that moved with the page would
+    // change under the effect that is drawing into it.
+    //
+    // The scope's number rather than a fresh [`Uuid`], for the reason spelled
+    // out at [`AbcNotationRenderer`]: a random id makes every rendering of the
+    // slide differ from the last, which turns the stream's "this has not
+    // changed" check into "this changes every second". A scope id is stable
+    // for the same tree and unique within it, so two pages of the same
+    // document side by side on a stage monitor still get a canvas each.
+    let canvas_id = use_hook(|| format!("pdf-canvas-{}", dioxus::core::current_scope_id().0));
 
     // Drawn when the canvas appears *and* again whenever the page changes.
     // `onmounted` fires only when the element is created, and this element is
