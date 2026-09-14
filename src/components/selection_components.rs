@@ -236,7 +236,6 @@ pub fn Selection() -> Element {
                 SearchInput {
                     input_signal: filter_string,
                     element_signal: input_element_signal,
-                    on_escape: move |_| search_visible.set(false),
                     picker,
                     active_result,
                 }

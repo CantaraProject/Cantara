@@ -17,6 +17,14 @@ export const STREAM = 'http://127.0.0.1:8430';
 /// see `logic::harness`.
 export const CONTROL = 'http://127.0.0.1:8431';
 
+/// Where the web build is served: Cantara's own pages, rather than the stream
+/// the helper serves. A separate server and a separate base address, because
+/// they are separate programs — one is the application compiled to
+/// WebAssembly, the other is the network side of the desktop one.
+///
+/// The port and the `/Cantara/` path are `Dioxus.toml`'s, not chosen here.
+export const WEB = 'http://127.0.0.1:8080';
+
 export default defineConfig({
   testDir: './tests/browser',
 
@@ -53,19 +61,44 @@ export default defineConfig({
   // decision recorded in the spec, and this is where it is spent.
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 
-  webServer: {
-    // Built with the feature that compiles the harness in. A plain `cargo run`
-    // starts Cantara's window instead and the tests would wait for a page that
-    // is never served.
-    command: 'cargo run --features test-harness -- --test-harness',
-    url: STREAM,
-    // Locally, an already-running harness is reused — a Rust rebuild between
-    // every run of a browser test is a minute nobody spends twice. In CI there
-    // is nothing to reuse and a stale process would be a lie.
-    reuseExistingServer: !process.env.CI,
-    // A cold `cargo build` of this program is not quick.
-    timeout: 300000,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  },
+  // Two servers, because the tests look at two programs. Both are started for
+  // any run, which costs a WebAssembly build even when only the stream tests
+  // are being run; `reuseExistingServer` makes that a once-per-session cost
+  // locally, and in CI a run builds both anyway.
+  webServer: [
+    {
+      // Built with the feature that compiles the harness in. A plain
+      // `cargo run` starts Cantara's window instead and the tests would wait
+      // for a page that is never served.
+      command: 'cargo run --features test-harness -- --test-harness',
+      url: STREAM,
+      // Locally, an already-running harness is reused — a Rust rebuild between
+      // every run of a browser test is a minute nobody spends twice. In CI
+      // there is nothing to reuse and a stale process would be a lie.
+      reuseExistingServer: !process.env.CI,
+      // A cold `cargo build` of this program is not quick.
+      timeout: 300000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      // The web build, with a library compiled into it.
+      //
+      // `CANTARA_BUNDLED_REPOS` is what `build.rs` reads to embed
+      // `bundled_repos/local/testsongs`, and what makes
+      // `Settings::ensure_bundled_repos` skip the welcome wizard. Without it
+      // the page these tests open is the wizard, asking for a folder no
+      // browser can give it. See `tests/browser/library.js`.
+      command: 'CANTARA_BUNDLED_REPOS=local/testsongs dx serve --platform web',
+      // The served page, not the bare origin: `Dioxus.toml` sets a base path,
+      // and the origin answers 404 until the build is finished either way.
+      url: `${WEB}/Cantara/`,
+      reuseExistingServer: !process.env.CI,
+      // A cold build of this one is a WebAssembly build, which is slower again
+      // than the native one above.
+      timeout: 600000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  ],
 });

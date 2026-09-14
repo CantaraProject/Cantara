@@ -588,6 +588,47 @@ checks that `Content-Range` names the piece actually sent — the property that
 matters, because a 206 whose header disagrees with its body has a player
 assembling the file wrongly.
 
+## The first of the web build's own pages: the search
+
+[`search-keyboard.spec.js`](../../tests/browser/search-keyboard.spec.js), 14
+tests over looking a song up and taking one with the keyboard. It closes the
+first half of the "Playwright does not touch the web build's own pages" item
+below, and three things came out of writing it.
+
+**The library is compiled in, not seeded.** The stream tests put a service on
+the stream through a control port; there is no equivalent here, and inventing
+one would have meant a second harness. There was no need:
+`CANTARA_BUNDLED_REPOS=local/testsongs` already makes `build.rs` embed
+`bundled_repos/local/testsongs` into the WebAssembly, and
+`Settings::ensure_bundled_repos` already loads it and skips the wizard. So the
+page opens with a library and nothing to set up. The cost is that
+`playwright.config.js` now starts two servers for every run.
+
+**A test asserted the old behaviour and was right to fail.** Escape used to put
+the result list away and leave the query standing, to be corrected rather than
+retyped. That is not a behaviour this field can have any more: a browser empties
+an `input type="search"` on Escape *by itself, without firing an event*, and the
+field now keeps its own text instead of being redrawn from the query — so what
+the user saw was an empty field over a query Cantara still believed in. Escape
+now says so outright and clears both. The divergence had been shipped and
+nobody had noticed; the test found it on its first run.
+
+**Two regression tests were written, then deleted.** They were for the
+swallowed letters — the defect that started all of this — and the honest way to
+check a regression test is to put the defect back. So the old `value:` binding
+went back in and the tests were run against it. **They passed.** They had to:
+the old binding loses a letter only if a redraw can land between a keystroke
+and the event reaching Rust, which in the desktop's `wry` window is an IPC round
+trip across a process boundary and in the web build is not a gap at all — the
+event and its redraw are one turn of one event loop.
+
+So the defect is a desktop defect, and "What can actually be reached" at the top
+of this document already said Playwright cannot go there. What is left is one
+test of the surface as a browser behaves, labelled with exactly what it does
+not cover. A test that cannot fail on the defect it is named after is worse
+than no test: it is a claim of coverage that is not there, and it would have
+been kept without that fifteen-minute check.
+
 ## Still open
 
 * **A damaged element says nothing to the person building the order.** It is
@@ -602,8 +643,9 @@ assembling the file wrongly.
   it should not be described as if it were.
 * **The window check has not been watched go green on a runner.** It is in CI
   under `continue-on-error`; that should come off once it has.
-* **Playwright does not touch the web build's own pages** — selection,
-  settings, the design editor.
+* **Playwright does not touch most of the web build's own pages** — settings
+  and the design editor. The search over the library is now covered; see
+  below.
 * **Nothing systematically looks for the remaining races.** One was found by
   CI failing on macOS; there is no reason to think it was the only one. Running
   the suite repeatedly at a high thread count is cheap and is not done.

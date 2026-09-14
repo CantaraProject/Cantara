@@ -255,13 +255,13 @@ impl ResultPicker {
         self.clear_query();
     }
 
-    /// Empties the field — both the query and what stands in the element.
+    /// Abandons the search: the query goes, and with it the list of hits.
     ///
     /// Setting the query to nothing is not enough: the element keeps its own
     /// text (see `initial_value` in [`SearchInput`]), which is the whole point
     /// of binding it that way, so it has to be told separately on the rare
     /// occasion that something other than the user empties it.
-    fn clear_query(&mut self) {
+    pub(crate) fn clear_query(&mut self) {
         self.query.set(String::new());
         let _ = document::eval(
             "var field = document.getElementById('searchinput');
@@ -279,12 +279,6 @@ impl ResultPicker {
 pub(crate) fn SearchInput(
     input_signal: Signal<String>,
     element_signal: Signal<Option<Rc<MountedData>>>,
-
-    /// Called when the user presses Escape in the field. Both views use it to
-    /// put the result list away — which is the field's business, since it is
-    /// the field that holds the focus while the search is open.
-    #[props(default)]
-    on_escape: EventHandler<()>,
 
     /// Which hits there are, and what taking one means — Enter takes the one
     /// the keyboard is on.
@@ -325,7 +319,19 @@ pub(crate) fn SearchInput(
                 },
                 onkeydown: move |event: Event<KeyboardData>| {
                     match event.key() {
-                        Key::Escape => on_escape.call(()),
+                        // Escape abandons the search, query and all.
+                        //
+                        // It used to only put the list away and leave the
+                        // query standing, to be corrected rather than retyped.
+                        // That is no longer a behaviour this field can have:
+                        // an `input type="search"` is emptied by Escape by the
+                        // browser itself, without an event, and the field now
+                        // keeps its own text rather than being redrawn from
+                        // the query. So what the user saw was an empty field
+                        // over a query Cantara still believed in. Saying it
+                        // outright is the only version of this the two can
+                        // agree on — and it is what the user sees happen.
+                        Key::Escape => picker.clear_query(),
                         // Nothing to walk through and nothing to take: every
                         // other key is the query's.
                         _ if result_count == 0 => {}

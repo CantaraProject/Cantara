@@ -405,7 +405,6 @@ pub fn Detail(element: Vec<String>) -> Element {
                 SearchInput {
                     input_signal: filter_string,
                     element_signal: input_element_signal,
-                    on_escape: move |_| search_visible.set(false),
                     picker,
                     active_result,
                 }
@@ -536,6 +535,10 @@ pub fn ViewModeToggle() -> Element {
 
     rsx! {
         button {
+            // Named, so that the browser tests can reach the other view
+            // without going through a tooltip that is translated — see
+            // `tests/browser/library.js`.
+            id: "view-mode-toggle",
             class: "outline secondary smaller-buttons",
             title: if in_detail { t!("detail.to_selection").to_string() } else { t!("detail.to_detail").to_string() },
             onclick: move |_| {
