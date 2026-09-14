@@ -340,9 +340,14 @@ pub fn Detail(element: Vec<String>) -> Element {
     let mut search_results: Signal<Vec<crate::logic::search::SearchResult>> = use_signal(Vec::new);
     let mut search_visible: Signal<bool> = use_signal(|| false);
     let input_element_signal: Signal<Option<std::rc::Rc<MountedData>>> = use_signal(|| None);
+    // Which hit the keyboard is on, so that Enter opens one without a click.
+    let mut active_result: Signal<usize> = use_signal(|| 0);
 
     use_effect(move || {
         let query = filter_string.read().clone();
+        // A changed query is a different list, so the keyboard starts at its
+        // best hit again.
+        active_result.set(0);
         if query.is_empty() {
             search_results.set(Vec::new());
             search_visible.set(false);
@@ -389,6 +394,20 @@ pub fn Detail(element: Vec<String>) -> Element {
                     input_signal: filter_string,
                     element_signal: input_element_signal,
                     on_escape: move |_| search_visible.set(false),
+                    result_count: search_results.read().len(),
+                    active_result,
+                    on_submit: move |index: usize| {
+                        let Some(result) = search_results.read().get(index).cloned() else {
+                            return;
+                        };
+                        crate::components::selection_components::search_ui::pick(
+                            &result.source_file,
+                            ItemClickAction::OpenDetail,
+                            selected_items,
+                            source_files,
+                            active_detailed_item_id,
+                        );
+                    },
                 }
             }
 
@@ -399,6 +418,7 @@ pub fn Detail(element: Vec<String>) -> Element {
                     search_visible,
                     source_files,
                     active_detailed_item_id,
+                    active_result,
                     click_action: ItemClickAction::OpenDetail,
                 }
             }

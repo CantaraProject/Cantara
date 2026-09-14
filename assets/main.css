@@ -542,6 +542,19 @@ div.inline-div {
     border-bottom: 1px solid var(--pico-border-color);
 }
 
+/* The hit the keyboard is on, and the one Enter would take.
+ *
+ * Marked down the side rather than by a background: the passage below a hit is
+ * already a box of its own, and tinting the whole row would put a box inside a
+ * box. The bar keeps the text where it is, so walking the list does not make it
+ * jump. */
+.search-result-active {
+    border-left: 3px solid var(--pico-primary);
+    padding-left: calc(0.2rem - 3px);
+    margin-left: 0;
+    background-color: var(--pico-card-sectioning-background-color);
+}
+
 .search-result-title {
     font-weight: bold;
     cursor: pointer;

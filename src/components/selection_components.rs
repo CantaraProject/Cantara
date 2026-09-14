@@ -18,11 +18,11 @@ pub(crate) mod source_items;
 
 use self::export_ui::ExportMenu;
 use self::presentation_options::PresentationOptions;
-use self::search_ui::{SearchInput, SearchResults};
+use self::search_ui::{pick, SearchInput, SearchResults};
 use self::selected_list::SelectedItems;
 use self::sidebar::SelectionFilterSideBar;
 use self::source_items::{
-    process_dropped_files, ImageSourceItems, MarkdownSourceItems, PdfSourceItems, SongSourceItems,
+    process_dropped_files, ImageSourceItems, ItemClickAction, MarkdownSourceItems, PdfSourceItems, SongSourceItems,
     VideoSourceItems,
     SourceDetailView,
 };
@@ -79,6 +79,8 @@ pub fn Selection() -> Element {
     let filter_string: Signal<String> = use_signal(|| "".to_string());
     let mut search_results: Signal<Vec<SearchResult>> = use_signal(Vec::new);
     let mut search_visible: Signal<bool> = use_signal(|| false);
+    // Which hit the keyboard is on, so that Enter takes one without a click.
+    let mut active_result: Signal<usize> = use_signal(|| 0);
 
     let source_files: Signal<Vec<SourceFile>> = use_context();
     let mut selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
@@ -108,6 +110,10 @@ pub fn Selection() -> Element {
 
     use_effect(move || {
         let query = filter_string.read().clone();
+        // A changed query is a different list, so the keyboard starts at its
+        // best hit again — which is what lets a search just typed be taken with
+        // Enter alone.
+        active_result.set(0);
         if !query.is_empty() {
             let results = search_source_files(&source_files.read(), &query);
             let has_results = !results.is_empty();
@@ -223,6 +229,20 @@ pub fn Selection() -> Element {
                     input_signal: filter_string,
                     element_signal: input_element_signal,
                     on_escape: move |_| search_visible.set(false),
+                    result_count: search_results.read().len(),
+                    active_result,
+                    on_submit: move |index: usize| {
+                        let Some(result) = search_results.read().get(index).cloned() else {
+                            return;
+                        };
+                        pick(
+                            &result.source_file,
+                            ItemClickAction::AddToSelection,
+                            selected_items,
+                            source_files,
+                            active_detailed_item_id,
+                        );
+                    },
                 }
             }
 
@@ -274,6 +294,7 @@ pub fn Selection() -> Element {
                     search_visible,
                     source_files,
                     active_detailed_item_id,
+                    active_result,
                 }
             }
             main {

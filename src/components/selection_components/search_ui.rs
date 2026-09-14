@@ -113,7 +113,23 @@ pub(crate) fn SearchResults(
 
     /// Where the detail view records what is open.
     active_detailed_item_id: Signal<Option<usize>>,
+
+    /// Which hit the keyboard is on — see [`SearchInput`], which moves it.
+    active_result: Signal<usize>,
 ) -> Element {
+    // Walking the list with the arrow keys past its bottom edge has to bring
+    // the hit into view, or the selection is somewhere the user cannot see.
+    // `nearest` so that a hit already on screen is left where it is.
+    use_effect(move || {
+        let _ = active_result();
+        let _ = document::eval(
+            "requestAnimationFrame(function () {
+                 var hit = document.querySelector('.search-result-active');
+                 if (hit) { hit.scrollIntoView({ block: 'nearest' }); }
+             });",
+        );
+    });
+
     let results = search_results.read().clone();
     if results.is_empty() {
         return rsx! { div {} };
@@ -137,7 +153,8 @@ pub(crate) fn SearchResults(
                     let title_highlights = result.title_highlights.clone();
 
                     rsx! {
-                        div { class: "search-result",
+                        div {
+                            class: if index == active_result() { "search-result search-result-active" } else { "search-result" },
                             if index < 10 {
                                 span { class: "search-result-shortcut",
                                     {
@@ -226,6 +243,11 @@ pub(crate) fn pick(
     }
 }
 
+/// The search field, and the keyboard's way around the hits it produced.
+///
+/// Walking the result list is handled here rather than in [`SearchResults`],
+/// because the field holds the focus for as long as the search is open: the
+/// arrow keys arrive here, and nowhere else.
 #[component]
 pub(crate) fn SearchInput(
     input_signal: Signal<String>,
@@ -236,13 +258,26 @@ pub(crate) fn SearchInput(
     /// the field that holds the focus while the search is open.
     #[props(default)]
     on_escape: EventHandler<()>,
+
+    /// How many hits there are to walk through.
+    result_count: usize,
+
+    /// Which hit the keyboard is on. Shared with [`SearchResults`], which marks
+    /// it, and reset to the first hit by the view whenever the query changes —
+    /// so a search that has just been typed can be taken with Enter alone.
+    mut active_result: Signal<usize>,
+
+    /// Called with the hit Enter settled on. What taking one means differs by
+    /// view — the selection collects it, the detail view opens it — so the
+    /// field only says which one it was.
+    on_submit: EventHandler<usize>,
 ) -> Element {
     rsx! {
         div {
             role: "group",
-            onmounted: move |element| element_signal.set(Some(element.data())),
             input {
                 id: "searchinput",
+                onmounted: move |element| element_signal.set(Some(element.data())),
                 r#type: "search",
                 name: "search",
                 placeholder: t!("search").to_string(),
@@ -264,13 +299,52 @@ pub(crate) fn SearchInput(
                     input_signal.set(event.value());
                 },
                 onkeydown: move |event: Event<KeyboardData>| {
-                    if event.key() == Key::Escape {
-                        on_escape.call(());
+                    match event.key() {
+                        Key::Escape => on_escape.call(()),
+                        // Nothing to walk through and nothing to take: every
+                        // other key is the query's.
+                        _ if result_count == 0 => {}
+                        Key::Enter => {
+                            event.prevent_default();
+                            on_submit.call(active_result().min(result_count - 1));
+                            clear(input_signal);
+                        }
+                        // Tab walks the list instead of leaving the field: the
+                        // list is what there is to move around in while the
+                        // search is open, and the field has to keep the focus
+                        // for the next letter to reach the query. The arrow
+                        // keys would otherwise move the caret.
+                        //
+                        // The ends are joined, so holding one key round-trips
+                        // rather than sticking.
+                        Key::ArrowDown | Key::Tab if !event.modifiers().shift() => {
+                            event.prevent_default();
+                            active_result.set((active_result() + 1) % result_count);
+                        }
+                        Key::ArrowUp | Key::Tab => {
+                            event.prevent_default();
+                            active_result.set((active_result() + result_count - 1) % result_count);
+                        }
+                        _ => {}
                     }
                 },
             }
         }
     }
+}
+
+/// Empties the field — both the query and what stands in the element.
+///
+/// Setting the query to nothing is not enough: the element keeps its own text
+/// (see `initial_value` above), which is the whole point of binding it that
+/// way, so it has to be told separately on the rare occasion that something
+/// other than the user empties it.
+fn clear(mut input_signal: Signal<String>) {
+    input_signal.set(String::new());
+    let _ = document::eval(
+        "var field = document.getElementById('searchinput');
+         if (field) { field.value = ''; }",
+    );
 }
 
 /// Where a search hit sits in the library.
