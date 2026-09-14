@@ -98,25 +98,13 @@ fn ResultContext(excerpt: Excerpt, file_type: SourceFileType) -> Element {
 /// Component to display search results
 #[component]
 pub(crate) fn SearchResults(
-    search_results: Signal<Vec<SearchResult>>,
-    selected_items: Signal<Vec<SelectedItemRepresentation>>,
-    search_visible: Signal<bool>,
-
-    /// The library the results point into, so a hit can be opened by index.
-    source_files: Signal<Vec<SourceFile>>,
-
-    /// What picking a result means. The detail view opens it; the selection
-    /// view collects it. Without this a search in the detail view quietly added
-    /// the song to the presentation instead of showing it.
-    #[props(default)]
-    click_action: ItemClickAction,
-
-    /// Where the detail view records what is open.
-    active_detailed_item_id: Signal<Option<usize>>,
+    /// Which hits there are, and what taking one means.
+    picker: ResultPicker,
 
     /// Which hit the keyboard is on — see [`SearchInput`], which moves it.
     active_result: Signal<usize>,
 ) -> Element {
+    let search_results = picker.results;
     // Walking the list with the arrow keys past its bottom edge has to bring
     // the hit into view, or the selection is somewhere the user cannot see.
     // `nearest` so that a hit already on screen is left where it is.
@@ -165,19 +153,7 @@ pub(crate) fn SearchResults(
                             }
                             div {
                                 class: "search-result-title",
-                                onclick: {
-                                    let source_file = source_file.clone();
-                                    move |_| {
-                                        pick(
-                                            &source_file,
-                                            click_action,
-                                            selected_items,
-                                            source_files,
-                                            active_detailed_item_id,
-                                        );
-                                        search_visible.set(false);
-                                    }
-                                },
+                                onclick: move |_| picker.take(index),
                                 Highlighted {
                                     text: source_file.name.clone(),
                                     positions: title_highlights,
@@ -215,31 +191,82 @@ pub(crate) fn SearchResults(
     }
 }
 
-/// Acts on a chosen result: the selection view collects it, the detail view
-/// opens it.
+/// Taking a hit out of the result list.
 ///
-/// Shared by the click on a result and the keyboard shortcut, so the two can
-/// never come to mean different things.
-pub(crate) fn pick(
-    source_file: &SourceFile,
-    click_action: ItemClickAction,
-    mut selected_items: Signal<Vec<SelectedItemRepresentation>>,
-    source_files: Signal<Vec<SourceFile>>,
-    mut active_detailed_item_id: Signal<Option<usize>>,
-) {
-    match click_action {
-        ItemClickAction::AddToSelection => {
-            selected_items
-                .write()
-                .push(SelectedItemRepresentation::new_with_sourcefile(
-                    source_file.clone(),
-                ));
-        }
-        ItemClickAction::OpenDetail => {
-            if let Some(index) = index_of(&source_files.read(), source_file) {
-                active_detailed_item_id.set(Some(index));
+/// A hit can be taken in three ways — clicked, pressed Enter on, or named by
+/// its `Alt` shortcut — and all three mean exactly the same thing. They used to
+/// spell it out separately, and drifted: the shortcut left the query standing
+/// in the field while Enter cleared it, and the click hid the list without
+/// emptying it, so the next letter typed searched the old query. One way of
+/// saying it, passed to whoever needs to say it.
+///
+/// Which hits there are and what taking one means both belong to the view, not
+/// to the field or the list, which is why this travels as a value.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) struct ResultPicker {
+    /// The hits, so one can be named by its position in the list.
+    pub(crate) results: Signal<Vec<SearchResult>>,
+
+    /// The query, which is emptied once a hit has been taken — the search is
+    /// over, and what was looked for should not be left standing in the way of
+    /// the next search.
+    pub(crate) query: Signal<String>,
+
+    /// What taking a hit means. The detail view opens it; the selection view
+    /// collects it. Without this a search in the detail view quietly added the
+    /// song to the presentation instead of showing it.
+    pub(crate) action: ItemClickAction,
+
+    /// What the selection view collects into.
+    pub(crate) selected_items: Signal<Vec<SelectedItemRepresentation>>,
+
+    /// The library the results point into, so a hit can be opened by index.
+    pub(crate) source_files: Signal<Vec<SourceFile>>,
+
+    /// Where the detail view records what is open.
+    pub(crate) active_detailed_item_id: Signal<Option<usize>>,
+}
+
+impl ResultPicker {
+    /// Takes the hit at `index`, and has done with the search.
+    ///
+    /// Nothing hides the result list here: emptying the query does that, since
+    /// a list of hits for nothing is no list at all.
+    pub(crate) fn take(mut self, index: usize) {
+        let Some(result) = self.results.read().get(index).cloned() else {
+            return;
+        };
+
+        match self.action {
+            ItemClickAction::AddToSelection => {
+                self.selected_items
+                    .write()
+                    .push(SelectedItemRepresentation::new_with_sourcefile(
+                        result.source_file,
+                    ));
+            }
+            ItemClickAction::OpenDetail => {
+                if let Some(index) = index_of(&self.source_files.read(), &result.source_file) {
+                    self.active_detailed_item_id.set(Some(index));
+                }
             }
         }
+
+        self.clear_query();
+    }
+
+    /// Empties the field — both the query and what stands in the element.
+    ///
+    /// Setting the query to nothing is not enough: the element keeps its own
+    /// text (see `initial_value` in [`SearchInput`]), which is the whole point
+    /// of binding it that way, so it has to be told separately on the rare
+    /// occasion that something other than the user empties it.
+    fn clear_query(&mut self) {
+        self.query.set(String::new());
+        let _ = document::eval(
+            "var field = document.getElementById('searchinput');
+             if (field) { field.value = ''; }",
+        );
     }
 }
 
@@ -259,19 +286,17 @@ pub(crate) fn SearchInput(
     #[props(default)]
     on_escape: EventHandler<()>,
 
-    /// How many hits there are to walk through.
-    result_count: usize,
+    /// Which hits there are, and what taking one means — Enter takes the one
+    /// the keyboard is on.
+    picker: ResultPicker,
 
     /// Which hit the keyboard is on. Shared with [`SearchResults`], which marks
     /// it, and reset to the first hit by the view whenever the query changes —
     /// so a search that has just been typed can be taken with Enter alone.
     mut active_result: Signal<usize>,
-
-    /// Called with the hit Enter settled on. What taking one means differs by
-    /// view — the selection collects it, the detail view opens it — so the
-    /// field only says which one it was.
-    on_submit: EventHandler<usize>,
 ) -> Element {
+    let result_count = picker.results.read().len();
+
     rsx! {
         div {
             role: "group",
@@ -306,8 +331,7 @@ pub(crate) fn SearchInput(
                         _ if result_count == 0 => {}
                         Key::Enter => {
                             event.prevent_default();
-                            on_submit.call(active_result().min(result_count - 1));
-                            clear(input_signal);
+                            picker.take(active_result().min(result_count - 1));
                         }
                         // Tab walks the list instead of leaving the field: the
                         // list is what there is to move around in while the
@@ -331,20 +355,6 @@ pub(crate) fn SearchInput(
             }
         }
     }
-}
-
-/// Empties the field — both the query and what stands in the element.
-///
-/// Setting the query to nothing is not enough: the element keeps its own text
-/// (see `initial_value` above), which is the whole point of binding it that
-/// way, so it has to be told separately on the rare occasion that something
-/// other than the user empties it.
-fn clear(mut input_signal: Signal<String>) {
-    input_signal.set(String::new());
-    let _ = document::eval(
-        "var field = document.getElementById('searchinput');
-         if (field) { field.value = ''; }",
-    );
 }
 
 /// Where a search hit sits in the library.

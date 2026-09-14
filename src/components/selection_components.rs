@@ -18,7 +18,7 @@ pub(crate) mod source_items;
 
 use self::export_ui::ExportMenu;
 use self::presentation_options::PresentationOptions;
-use self::search_ui::{pick, SearchInput, SearchResults};
+use self::search_ui::{ResultPicker, SearchInput, SearchResults};
 use self::selected_list::SelectedItems;
 use self::sidebar::SelectionFilterSideBar;
 use self::source_items::{
@@ -83,7 +83,7 @@ pub fn Selection() -> Element {
     let mut active_result: Signal<usize> = use_signal(|| 0);
 
     let source_files: Signal<Vec<SourceFile>> = use_context();
-    let mut selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
+    let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context();
     let active_selected_item_id: Signal<Option<usize>> = use_signal(|| None);
     let active_detailed_item_id: Signal<Option<usize>> = use_signal(|| None);
     // Shared with the detail view and kept across mounts — see
@@ -107,6 +107,17 @@ pub fn Selection() -> Element {
     let mut active_panel: Signal<usize> = use_signal(|| 0);
 
     let mut show_export_menu: Signal<bool> = use_signal(|| false);
+
+    // The one way a hit is taken, whether it was clicked, pressed Enter on or
+    // named by its shortcut.
+    let picker = ResultPicker {
+        results: search_results,
+        query: filter_string,
+        action: ItemClickAction::AddToSelection,
+        selected_items,
+        source_files,
+        active_detailed_item_id,
+    };
 
     use_effect(move || {
         let query = filter_string.read().clone();
@@ -214,13 +225,10 @@ pub fn Selection() -> Element {
                     return;
                 };
                 let index = if digit == 0 { 9 } else { (digit as usize) - 1 };
-                let Some(result) = search_results.read().get(index).cloned() else {
+                if index >= search_results.read().len() {
                     return;
-                };
-                selected_items
-                    .write()
-                    .push(SelectedItemRepresentation::new_with_sourcefile(result.source_file));
-                search_visible.set(false);
+                }
+                picker.take(index);
                 event.prevent_default();
                 event.stop_propagation();
             },
@@ -229,33 +237,14 @@ pub fn Selection() -> Element {
                     input_signal: filter_string,
                     element_signal: input_element_signal,
                     on_escape: move |_| search_visible.set(false),
-                    result_count: search_results.read().len(),
+                    picker,
                     active_result,
-                    on_submit: move |index: usize| {
-                        let Some(result) = search_results.read().get(index).cloned() else {
-                            return;
-                        };
-                        pick(
-                            &result.source_file,
-                            ItemClickAction::AddToSelection,
-                            selected_items,
-                            source_files,
-                            active_detailed_item_id,
-                        );
-                    },
                 }
 
                 // Inside the bar, so that the list can be hung off its bottom
                 // edge rather than off a guess at how tall it is.
                 if search_visible() {
-                    SearchResults {
-                        search_results,
-                        selected_items,
-                        search_visible,
-                        source_files,
-                        active_detailed_item_id,
-                        active_result,
-                    }
+                    SearchResults { picker, active_result }
                 }
             }
 

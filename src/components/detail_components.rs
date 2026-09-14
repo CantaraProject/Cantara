@@ -343,6 +343,18 @@ pub fn Detail(element: Vec<String>) -> Element {
     // Which hit the keyboard is on, so that Enter opens one without a click.
     let mut active_result: Signal<usize> = use_signal(|| 0);
 
+    // The one way a hit is taken, whether it was clicked or pressed Enter on.
+    // Here a hit is opened rather than collected — the search itself is the
+    // selection view's, only what a hit means differs.
+    let picker = crate::components::selection_components::search_ui::ResultPicker {
+        results: search_results,
+        query: filter_string,
+        action: ItemClickAction::OpenDetail,
+        selected_items,
+        source_files,
+        active_detailed_item_id,
+    };
+
     use_effect(move || {
         let query = filter_string.read().clone();
         // A changed query is a different list, so the keyboard starts at its
@@ -394,34 +406,14 @@ pub fn Detail(element: Vec<String>) -> Element {
                     input_signal: filter_string,
                     element_signal: input_element_signal,
                     on_escape: move |_| search_visible.set(false),
-                    result_count: search_results.read().len(),
+                    picker,
                     active_result,
-                    on_submit: move |index: usize| {
-                        let Some(result) = search_results.read().get(index).cloned() else {
-                            return;
-                        };
-                        crate::components::selection_components::search_ui::pick(
-                            &result.source_file,
-                            ItemClickAction::OpenDetail,
-                            selected_items,
-                            source_files,
-                            active_detailed_item_id,
-                        );
-                    },
                 }
 
                 // Inside the bar, so that the list can be hung off its bottom
                 // edge rather than off a guess at how tall it is.
                 if search_visible() {
-                    SearchResults {
-                        search_results,
-                        selected_items,
-                        search_visible,
-                        source_files,
-                        active_detailed_item_id,
-                        active_result,
-                        click_action: ItemClickAction::OpenDetail,
-                    }
+                    SearchResults { picker, active_result }
                 }
             }
 
