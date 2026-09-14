@@ -604,6 +604,33 @@ one would have meant a second harness. There was no need:
 page opens with a library and nothing to set up. The cost is that
 `playwright.config.js` now starts two servers for every run.
 
+**It went green locally and red in CI, twice, for two reasons worth keeping.**
+
+*The library was not in the repository.* `bundled_repos/` is `.gitignore`d —
+in a release build CI clones real song repositories into it — so on a fresh
+checkout it does not exist. The way that failed is the part worth recording:
+`build.rs` takes the *list* of repositories from the environment variable and
+their *files* from the directory, and does not mind when the directory is
+missing. It emitted a repository with no files behind it,
+`ensure_bundled_repos` saw a bundled repository and skipped the welcome wizard,
+and the tests were handed an application that looked entirely healthy — right
+route, search field present — with an empty library and nothing to find. The
+library is now copied from `testfiles/`, which is in the repository, by
+[`bundle-library.mjs`](../../tests/browser/bundle-library.mjs).
+
+*A development server says it is ready before it is.* `dx serve` opens its port
+within two seconds and answers **200** while it builds, with a shell that has
+no WebAssembly behind it. Playwright decides a server is ready by reading a
+status code, so it cannot tell that apart from the finished application, and no
+choice of URL helps — the dev server answers 200 for missing assets too. CI
+declared it ready at two seconds and ran the whole suite against a page that
+was five minutes from existing. Locally the retries had covered the gap, which
+is worse than failing: the suite was green until the build was slow. The tests
+are now given [`serve-web.mjs`](../../tests/browser/serve-web.mjs), forty lines
+of static file server that opens its port after `dx build` has finished, so
+that "the port is open" means "the application is there". Nothing in these
+tests needs hot reloading; every one of them navigates.
+
 **A test asserted the old behaviour and was right to fail.** Escape used to put
 the result list away and leave the query standing, to be corrected rather than
 retyped. That is not a behaviour this field can have any more: a browser empties

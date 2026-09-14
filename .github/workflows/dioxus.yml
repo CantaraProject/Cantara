@@ -100,9 +100,11 @@ jobs:
       # brings with it, so a second operating system would exercise the same
       # code twice.
       #
-      # The server under test is Cantara itself, started by Playwright's
-      # `webServer` — see `playwright.config.js`. It needs the `test-harness`
-      # feature, which `default` deliberately does not include.
+      # The servers under test are Cantara itself, both started by Playwright's
+      # `webServer` — see `playwright.config.js`. One is the desktop program's
+      # network side, which needs the `test-harness` feature that `default`
+      # deliberately does not include; the other is the web build, which is
+      # compiled to WebAssembly by that same step. Nothing is built here.
       - name: Check the harness and its fixtures
         if: matrix.os == 'ubuntu-latest'
         env:

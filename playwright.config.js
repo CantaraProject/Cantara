@@ -84,19 +84,33 @@ export default defineConfig({
     {
       // The web build, with a library compiled into it.
       //
-      // `CANTARA_BUNDLED_REPOS` is what `build.rs` reads to embed
-      // `bundled_repos/local/testsongs`, and what makes
-      // `Settings::ensure_bundled_repos` skip the welcome wizard. Without it
-      // the page these tests open is the wizard, asking for a folder no
-      // browser can give it. See `tests/browser/library.js`.
-      command: 'CANTARA_BUNDLED_REPOS=local/testsongs dx serve --platform web',
-      // The served page, not the bare origin: `Dioxus.toml` sets a base path,
-      // and the origin answers 404 until the build is finished either way.
+      // Three steps, and each one is here because leaving it out failed in CI.
+      //
+      // `bundle-library.mjs` puts a library where the build can find it;
+      // `CANTARA_BUNDLED_REPOS` is what makes `build.rs` embed it and
+      // `Settings::ensure_bundled_repos` skip the welcome wizard. Its own
+      // comment explains why the directory is not simply in the repository.
+      //
+      // Then `dx build`, and a plain static server rather than `dx serve`.
+      // `serve-web.mjs` explains why at length: the short of it is that a dev
+      // server opens its port before it has built anything and answers 200
+      // while it works, which Playwright's readiness check cannot tell apart
+      // from the finished application. In CI it declared the server ready at
+      // two seconds and ran the whole suite against a page that was still five
+      // minutes from existing. Building first, then serving what was built, is
+      // the only arrangement here where "the port is open" means "the
+      // application is there".
+      command:
+        'node tests/browser/bundle-library.mjs' +
+        ' && CANTARA_BUNDLED_REPOS=local/testsongs dx build --platform web' +
+        ' && node tests/browser/serve-web.mjs',
+      // The served page, not the bare origin: `Dioxus.toml` sets a base path.
       url: `${WEB}/Cantara/`,
       reuseExistingServer: !process.env.CI,
-      // A cold build of this one is a WebAssembly build, which is slower again
-      // than the native one above.
-      timeout: 600000,
+      // Long enough for a cold WebAssembly build, which is slower again than
+      // the native one above and now happens before the port opens at all —
+      // so this timeout covers the build rather than only the server start.
+      timeout: 900000,
       stdout: 'pipe',
       stderr: 'pipe',
     },

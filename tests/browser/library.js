@@ -9,7 +9,8 @@
 // `build.rs` embed `bundled_repos/local/testsongs` into the WebAssembly, and
 // `Settings::ensure_bundled_repos` loads it at startup and skips the wizard.
 // So the page the tests open already has a library, with no network, no file
-// picker and nothing for a test to set up. See `logic::bundled_repos`.
+// picker and nothing for a test to set up. See `logic::bundled_repos`, and
+// `bundle-library.mjs` for where those files come from.
 
 import { expect } from '@playwright/test';
 
@@ -45,7 +46,16 @@ export async function openLibrary(page) {
   // mostly used to look songs up. See the `wasm32` redirect in `Selection`.
   await expect(page).toHaveURL(/\/detail/);
   await expect(page.locator('#searchinput')).toBeVisible();
-  await expect(page.locator('.selection_item').first()).toBeVisible();
+
+  // Named, because this is the assertion that failed in CI and the name is
+  // the whole difference between a five-minute diagnosis and a long one. An
+  // application with no library looks entirely healthy from the outside: the
+  // wizard is skipped, the route is right, the search field is there, and
+  // every search finds nothing.
+  await expect(
+    page.locator('.selection_item').first(),
+    'the web build was compiled without a library — see bundle-library.mjs',
+  ).toBeVisible();
 
   return page.locator('#searchinput');
 }
