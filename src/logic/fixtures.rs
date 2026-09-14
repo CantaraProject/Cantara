@@ -12,11 +12,12 @@
 //!
 //! # Why a module and not a `mod tests` helper
 //!
-//! The markup tests in [`crate::components::slide_markup`] and the rendering
-//! tests in [`crate::components::stream_render`] need the same songs, and
-//! [`crate::logic::network_host`] wants them too. A helper inside one test
-//! module can be reached from nowhere else, which is how the same fixture came
-//! to be written twice before this existed.
+//! The markup tests in `components::slide_markup` and the rendering tests in
+//! [`crate::components::stream_render`] need the same songs, and
+//! [`crate::logic::network_host`] wants them too. (The first is a test-only
+//! module, so it is named rather than linked — there is no page to link to.)
+//! A helper inside one test module can be reached from nowhere else, which is
+//! how the same fixture came to be written twice before this existed.
 //!
 //! It is also compiled — outside `cfg(test)` — into the build the browser
 //! tests drive; see [`crate::logic::harness`]. A Playwright test asking for
@@ -376,7 +377,7 @@ pub struct SlideKind {
 /// Every kind of slide a service can contain, one service each.
 ///
 /// As [`every_design`]: a variant added to
-/// [`SlideContent`](cantara_songlib::slides::SlideContent) belongs here, and
+/// [`SlideContent`] belongs here, and
 /// every test that walks this list covers it without being touched.
 pub fn every_slide_kind() -> Vec<SlideKind> {
     let kind = |name, running, drawn: &str| SlideKind {

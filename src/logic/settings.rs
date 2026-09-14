@@ -78,7 +78,7 @@ pub struct Settings {
     ///
     /// Only a local folder can be written to, so a position naming any other
     /// kind of repository is read as "the first local one" — see
-    /// [`Self::import_repository_path`].
+    /// [`Self::import_repository_index`].
     #[serde(default)]
     pub import_repository_index: usize,
 
@@ -1302,7 +1302,7 @@ impl Settings {
     /// The one place that reads a view's design choice, so that the rule for
     /// an index left pointing past the end of the list — read as no choice,
     /// rather than panicking or silently showing the wrong design — is stated
-    /// once. Same rule as [`crate::logic::stream_view::StreamDefaults::of`],
+    /// once. Same rule as [`crate::logic::stream_view::ViewDefaults`],
     /// which this eventually replaces.
     pub fn design_of_view(&self, view: &View) -> Option<PresentationDesign> {
         view.design_index
@@ -1658,7 +1658,8 @@ impl RepositoryType {
         format!("github://{}/{}", owner, repo)
     }
 
-    /// Parses a GitHub repository identifier string (e.g. "owner/repo" or "https://github.com/owner/repo")
+    /// Parses a GitHub repository identifier string (e.g. `owner/repo` or
+    /// `https://github.com/owner/repo`)
     /// into (owner, repo) tuple. Returns None if the format is invalid.
     pub fn parse_github_repo(input: &str) -> Option<(String, String)> {
         let trimmed = input.trim().trim_end_matches('/');
@@ -3253,7 +3254,7 @@ impl CssSize {
     }
 
     /// Sets a float and keeps the unit
-    /// If the enum is [Null], it will turn into a [CssSize::Px].
+    /// If the enum is [`CssSize::Null`], it will turn into a [`CssSize::Px`].
     pub fn set_float(&mut self, value: f32) {
         match self {
             CssSize::Px(x) => *x = value,

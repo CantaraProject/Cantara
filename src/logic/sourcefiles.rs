@@ -416,8 +416,8 @@ impl ImageSourceFile {
 
 /// The MIME type a video file name promises.
 ///
-/// Free-standing as well as on [`VideoSourceFile`], because the thing that
-/// serves the file to a browser has a path and not a source file.
+/// Free-standing rather than a method on [`SourceFile`], because the thing
+/// that serves the file to a browser has a path and not a source file.
 pub fn mime_type_of_video(file_name: &str) -> &'static str {
     let lower = file_name.to_lowercase();
     if lower.ends_with(".webm") {

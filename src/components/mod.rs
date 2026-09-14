@@ -54,34 +54,34 @@ pub mod selection_components;
 
 pub mod detail_components;
 
-/// A list of places to jump to, beside a long view.
+// A list of places to jump to, beside a long view.
 pub mod jump_sidebar;
 
-/// Creating an element, and moving one between repositories.
+// Creating an element, and moving one between repositories.
 pub mod element_creation;
 
 pub mod presentation_components;
 
-/// The screen the people making the service happen look at, as opposed to the
-/// one the congregation does.
+// The screen the people making the service happen look at, as opposed to the
+// one the congregation does.
 pub mod monitor_view;
 
-/// Rendering a presentation to HTML for the network, out of the very same
-/// components the window draws.
-///
-/// Gated with the thing it renders *for*. Only a desktop build serves a
-/// stream — [`crate::logic::network_host`] is what asks for this, and that is
-/// desktop-only — so on a phone and in a browser it would be a renderer with
-/// nothing to render for. It also reaches for
-/// [`crate::logic::video::path_of_video_url`], which is gated the same way and
-/// is what broke the Android build.
+// Rendering a presentation to HTML for the network, out of the very same
+// components the window draws.
+//
+// Gated with the thing it renders *for*. Only a desktop build serves a
+// stream — [`crate::logic::network_host`] is what asks for this, and that is
+// desktop-only — so on a phone and in a browser it would be a renderer with
+// nothing to render for. It also reaches for
+// [`crate::logic::video::path_of_video_url`], which is gated the same way and
+// is what broke the Android build.
 #[cfg(feature = "desktop")]
 pub mod stream_render;
 
-/// What every kind of slide, in every kind of design, comes out as.
-///
-/// Tests only — see `docs/specs/0004-testing-playwright.md`. Gated with
-/// [`stream_render`], which is the renderer they go through.
+// What every kind of slide, in every kind of design, comes out as.
+//
+// Tests only — see `docs/specs/0004-testing-playwright.md`. Gated with
+// [`stream_render`], which is the renderer they go through.
 #[cfg(all(test, feature = "desktop"))]
 mod slide_markup;
 
@@ -96,21 +96,21 @@ pub mod wizard_components;
 pub mod song_slide_settings_components;
 
 pub mod presenter_console_components;
-/// The presenter console as a browser on the network sees it. There is no
-/// server inside a browser, so the web build has no remote console.
+// The presenter console as a browser on the network sees it. There is no
+// server inside a browser, so the web build has no remote console.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod remote_console;
 
 pub mod directory_browser;
 
-/// Asking the user something, in Cantara's own window rather than the web
-/// view's.
+// Asking the user something, in Cantara's own window rather than the web
+// view's.
 pub mod dialogs;
 
-/// Saying, once, that a Cantara 2 installation was taken over.
+// Saying, once, that a Cantara 2 installation was taken over.
 pub mod legacy_import_notice;
 
-/// Serving video files to the window that plays them.
+// Serving video files to the window that plays them.
 pub mod video_host;
 
 pub mod route_transitions;

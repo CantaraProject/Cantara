@@ -2381,7 +2381,8 @@ fn SimplePictureSlideComponent(
 /// height, and what that looks like is a black strip across the top of an
 /// otherwise white screen.
 ///
-/// Shared with [`crate::logic::measure`], which opens a window to check that
+/// Shared with `crate::logic::measure` — which is behind the `test-harness`
+/// feature, so it is named here rather than linked — which opens a window to check that
 /// the projection is drawn correctly. Written out there as well, it came up
 /// 1264×377 in a 1280×720 window and reported that as fine — a measuring rig
 /// reproducing the very failure it is meant to detect.

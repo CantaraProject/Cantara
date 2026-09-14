@@ -3,7 +3,8 @@
 //! One function, called before every launcher. It was written out inside
 //! `launch_app` and nowhere else, which was correct while `launch_app` was the
 //! only thing that opened a window — and stopped being correct the moment
-//! [`crate::logic::measure`] opened one too. That mode came up blank and
+//! `crate::logic::measure` opened one too (behind the `test-harness` feature,
+//! so it is named rather than linked). That mode came up blank and
 //! measured nothing, for a reason that had nothing to do with what it was
 //! measuring.
 

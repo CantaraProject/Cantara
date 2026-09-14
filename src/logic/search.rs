@@ -103,7 +103,8 @@ pub fn pdf_page_count(_path: &std::path::Path) -> Option<u32> {
 /// The text of one page of a PDF, if the index already holds it.
 ///
 /// Desktop only — the web build has no path to look the document up by and
-/// goes through [`extract_pdf_page_text_from_bytes`] instead.
+/// goes through `extract_pdf_page_text_from_bytes` instead — a `wasm32`-only
+/// function, so it is named here rather than linked.
 ///
 /// Never parses the document: this is called while a presentation is running,
 /// where a pause of a second would be on the screen for everyone to see.

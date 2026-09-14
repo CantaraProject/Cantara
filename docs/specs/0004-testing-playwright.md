@@ -540,6 +540,39 @@ again. This one had been in the repository for some while, firing on whichever
 platform happened to interleave badly, and it surfaced here only because this
 work made CI run the suite where somebody was watching.
 
+### The documentation warnings, which were one mistake and not thirty-eight
+
+`cargo doc` reported thirty-eight unresolved links and one bare URL. Most of
+them named items that plainly existed, in the very module whose documentation
+was pointing at them, which is the shape of a systematic cause rather than
+thirty-eight typos.
+
+It was one: **a `mod` declaration carrying an outer `///` comment while the
+module's own file carries inner `//!` documentation.** Rustdoc merges the two
+and resolves the merged block's links at the *declaration* site — so
+`stream_view.rs` saying "see [`map_slides`]" was resolved in `logic/mod.rs`,
+where no such item is in scope. That is why the warnings had no file and line
+against them, and why they looked so arbitrary.
+
+Confirmed before acting: removing the one-line outer comment above
+`pub mod stream_view;` made that module's warnings disappear.
+
+Thirty-seven modules were in that state, and the outer comments were either a
+restatement of the module's own first line or a note about why the module is
+`#[cfg]`-gated. Both are worth keeping where a person reading `mod.rs` will see
+them, and neither is worth having merged into the module's page. They are plain
+`//` comments now: nothing is lost, the merge stops, and the links resolve.
+
+That left ten genuine wrong targets — a renamed field, a renamed type, a method
+that only exists under `cfg(test)`, a module that only exists under the
+`test-harness` feature. Those are fixed one at a time, and the ones pointing at
+conditionally-compiled items are *named* rather than linked, because there is
+no page for a reader to follow.
+
+Worth recording in this document rather than only in a commit message, because
+it is the same lesson as the rest of it: thirty-eight symptoms, one cause, and
+the way to tell was that the failures made no sense individually.
+
 ### The one that improved a test instead of the code
 
 The load test asked for a range on a video id nothing was registered under, so
