@@ -36,6 +36,8 @@ place for that. It costs one line and a link.
 `.md` file rather than hardcoded, so it is translatable, but *not* optional:
 see question 3 about what happens when a language file is missing.
 
+**Answer:** Do as proposed.
+
 ## 2. Which version number the user is shown
 
 `Cargo.toml` says `version = "0.3.0"`. The README says "This repository
@@ -54,6 +56,8 @@ commit hash and a build date are what turn "it does not work" into a reproducibl
 report. They are cheap here (`build.rs` already runs) and impossible to add
 after the fact to a binary already in the wild.
 
+**Answer:** Do as proposed (use the cargo.toml version). A commit hash is not necessary.
+
 ## 3. Which language code, and what happens when there is no file for it
 
 `sys_locale::get_locale()` returns a full tag — `de-DE`, `en-GB`, `pt-BR`. The
@@ -71,6 +75,8 @@ and a page with an empty body is the kind of defect that ships. `build.rs`
 should **fail the build** when the fallback file is absent. A missing
 translation is a normal state; a missing fallback is a broken program.
 
+**Answer:** Use the primary subtag. If `cantara-info-en.md` is missing, the build shall fail.
+
 ## 4. What belongs in the `.md` file and what belongs in the markup
 
 The brief puts the name, the description, the version and the copyright in the
@@ -84,6 +90,8 @@ identity block — it is the prose about the project, not a restatement of what
 is already on screen. The description in the markup stays a translation key
 (`about.description`), not a hardcoded English string, so it is translated the
 same way as every other sentence in the program.
+
+**Answer:** Do as proposed.
 
 ## 5. The copyright year is the *build* year, and that has two consequences
 
@@ -107,6 +115,8 @@ the system clock otherwise; `chrono` is already a dependency of the crate and
 can be added to `[build-dependencies]` rather than doing calendar arithmetic by
 hand. Document the staleness where it happens.
 
+**Answer:** Do as proposed.
+
 ## 6. Where "Back" goes when the user did not come from the settings
 
 The brief says the footer button returns to the settings. That is right when
@@ -122,6 +132,8 @@ it is a statement rather than a promise about history. Using the browser's
 actual history instead is the wrong trade: it would take a user who arrived
 from the settings back out of the program entirely on the web.
 
+**Answer:** It should always go back to where the user came from (the previews page).
+
 ## 7. The settings section has to be added in two places
 
 `SettingsContent` keeps the list of sections for the jump sidebar and the
@@ -133,6 +145,8 @@ nothing can reach". A new "About the program" section means a new
 
 **Proposed:** no change to that design — just do both, and let the section be
 the last entry, which is what the brief asks for.
+
+**Answer:** Do as proposed.
 
 ## 8. Raw HTML in the `.md` files reaches the page
 
@@ -146,6 +160,8 @@ the repository, so anyone who can change them can change the program anyway.
 outright, so that nobody later concludes the same treatment is safe for a file
 a user supplies.
 
+**Answer:** Do as proposed. nothing to guard against.
+
 ## 9. Third-party licences are not in scope, and should be said so
 
 An about page in an open-source program is where people look for the
@@ -157,6 +173,8 @@ than this spec.
 next person does not have to work out whether it was forgotten. The link to the
 source in question 1 is what carries the obligation in the meantime.
 
+**Answer:** Do as proposed.
+
 ## 10. Does the page differ between desktop and web?
 
 Everything on it — version, copyright, prose — is true of both. The stream
@@ -164,6 +182,8 @@ settings are `cfg`-ed out of the web build, so there is precedent for pages
 that differ, and the question should be answered rather than assumed.
 
 **Proposed:** identical in both. One page, no `cfg`.
+
+**Answer:** Do as proposed. Identical content on all targets. PicoCSS ensures a responsive design.
 
 ---
 
