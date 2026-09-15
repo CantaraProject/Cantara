@@ -89,6 +89,9 @@ pub mod presentation_design_settings_components;
 
 pub mod settings_components;
 
+// What the program says about itself. Reached from the bottom of the settings.
+pub mod about_components;
+
 pub mod shared_components;
 
 pub mod wizard_components;

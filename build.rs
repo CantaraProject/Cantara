@@ -33,13 +33,135 @@ const SUPPORTED_EXTENSIONS: &[&str] = &[
 /// their presence is checked before anything else runs.
 const REQUIRED_NPM_PACKAGES: &[&str] = &["pdfjs-dist", "abcjs", "pptxgenjs", "@picocss/pico"];
 
+/// Where the about page's prose lives, and the shape of the file names in it.
+///
+/// One file per language, named by the primary subtag — `de`, not `de-DE` —
+/// which is the convention `locales/` already uses. See
+/// `docs/specs/0005-add-info-page.md`, question 3.
+const ABOUT_DIR: &str = "docs/about";
+const ABOUT_PREFIX: &str = "cantara-info-";
+
+/// The language every build must have a text for.
+///
+/// A missing translation is a normal state and falls back to this one. A
+/// missing *fallback* is a broken program that looks perfectly healthy — an
+/// about page with an empty body — so it stops the build instead of shipping.
+const ABOUT_FALLBACK: &str = "en";
+
 fn main() -> BuildResult {
     println!("cargo:rerun-if-changed=package.json");
     println!("cargo:rerun-if-changed=assets/fonts");
     ensure_npm_packages()?;
     generate_bundled_repos_data()?;
     generate_bundled_fonts_data()?;
+    generate_about_data()?;
     Ok(())
+}
+
+/// Generates `about_data.rs` in `OUT_DIR`: the about page's prose for every
+/// language it has been written in, and the year this binary was built.
+///
+/// Generated rather than a hand-written list, for the same reason the fonts
+/// are: adding a language becomes adding a file, which is the rule `locales/`
+/// already follows. A match arm per language would be a second place to
+/// forget.
+fn generate_about_data() -> BuildResult {
+    let out_dir = std::env::var("OUT_DIR").map_err(|_| "OUT_DIR is not set")?;
+    let dest_path = Path::new(&out_dir).join("about_data.rs");
+
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").map_err(|_| "CARGO_MANIFEST_DIR is not set")?;
+
+    // The language of each file, paired with the absolute path it will be
+    // included from. Absolute, because the generated file is compiled from
+    // `OUT_DIR` and a path relative to this script would not resolve there.
+    let mut texts: Vec<(String, String)> = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(ABOUT_DIR) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
+                continue;
+            }
+            let Some(language) = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .and_then(|stem| stem.strip_prefix(ABOUT_PREFIX))
+            else {
+                continue;
+            };
+
+            let absolute = Path::new(&manifest_dir).join(&path);
+            let Some(absolute) = absolute.to_str() else {
+                continue;
+            };
+            texts.push((language.to_lowercase(), absolute.to_string()));
+        }
+    }
+
+    // Sorted, so that the generated file is the same for the same inputs
+    // whatever order the directory happened to be read in.
+    texts.sort();
+
+    if !texts.iter().any(|(language, _)| language == ABOUT_FALLBACK) {
+        return Err(format!(
+            "{ABOUT_DIR}/{ABOUT_PREFIX}{ABOUT_FALLBACK}.md is missing — \
+             the about page has no text to fall back to"
+        )
+        .into());
+    }
+
+    let mut file = fs::File::create(&dest_path)
+        .map_err(|error| format!("{} could not be created: {error}", dest_path.display()))?;
+
+    writeln!(
+        file,
+        "/// The about page's prose, by language, sorted by the primary subtag."
+    )?;
+    writeln!(file, "pub const ABOUT_TEXTS: &[(&str, &str)] = &[")?;
+    for (language, path) in &texts {
+        writeln!(file, "    ({:?}, include_str!({:?})),", language, path)?;
+    }
+    writeln!(file, "];")?;
+    writeln!(file)?;
+
+    writeln!(
+        file,
+        "/// The year this binary was built — see `logic::about::copyright`."
+    )?;
+    writeln!(file, "pub const BUILD_YEAR: i32 = {};", build_year())?;
+
+    println!("cargo:rerun-if-changed={ABOUT_DIR}");
+    println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
+
+    Ok(())
+}
+
+/// The year to put at the end of the copyright line.
+///
+/// `SOURCE_DATE_EPOCH` where the build sets it, the wall clock otherwise. That
+/// is the conventional way to keep a build reproducible: the same source and
+/// the same epoch give the same binary, where the clock would give a different
+/// one on either side of New Year.
+///
+/// **This does not rebuild by itself.** A build script reruns when a file or a
+/// named environment variable changes, and "the year changed" is neither, so a
+/// development build carried across New Year shows the old year until
+/// something else forces a rebuild. A release build is always cold, so the
+/// released binary is right; it is only worth knowing before someone reports
+/// it as a defect.
+fn build_year() -> i32 {
+    use chrono::Datelike;
+
+    let stamped = std::env::var("SOURCE_DATE_EPOCH")
+        .ok()
+        .and_then(|epoch| epoch.trim().parse::<i64>().ok())
+        .and_then(|epoch| chrono::DateTime::from_timestamp(epoch, 0));
+
+    match stamped {
+        Some(stamped) => stamped.year(),
+        None => chrono::Local::now().year(),
+    }
 }
 
 /// Generates `bundled_fonts_data.rs` in `OUT_DIR` listing the fonts in

@@ -32,6 +32,7 @@
 mod components;
 mod logic;
 
+use crate::components::about_components::AboutPage;
 use crate::components::presentation_components::PresentationPage;
 use crate::components::presentation_design_settings_components::PresentationDesignSettingsPage;
 use crate::components::presenter_console_components::PresenterConsolePage;
@@ -69,6 +70,14 @@ const MAIN_CSS: Asset = asset!("/assets/main.css");
 
 /// The Cantara Logo
 pub const LOGO: Asset = asset!("/assets/cantara-logo_small.png");
+
+/// The Cantara logo as a drawing rather than a picture.
+///
+/// The about page shows it at whatever size the layout gives it, and the small
+/// PNG above goes soft as soon as that is larger than the pixels it has — on
+/// any screen that draws more than one device pixel per CSS pixel, that is
+/// always.
+pub const LOGO_SVG: Asset = asset!("/assets/cantara-logo.svg");
 
 /// The favicon / window icon
 const FAVICON: Asset = asset!("/assets/favicon.png");
@@ -124,6 +133,15 @@ pub enum Route {
     /// or opened in a new tab (when presenter console is enabled, on web).
     #[route("/presentation")]
     PresentationPage {},
+
+    /// What the program is, who wrote it, and under what licence.
+    ///
+    /// An address of its own rather than a panel inside the settings: the web
+    /// build serves Cantara over a network, and the licence it is under is
+    /// about what a network user is owed — so this is a page people can link
+    /// to. See `docs/specs/0005-add-info-page.md`.
+    #[route("/about")]
+    AboutPage {},
 }
 
 fn main() {
@@ -573,6 +591,12 @@ fn App() -> Element {
     #[cfg(target_arch = "wasm32")]
     use_context_provider(|| states::InitialRouteState {
         redirected_to_detail: Signal::new(false),
+    });
+
+    // Whether the about page was opened from inside the program, which is what
+    // decides where its way out leads. See `states::AboutEntryState`.
+    use_context_provider(|| states::AboutEntryState {
+        from_inside: Signal::new(false),
     });
 
     // Read the library here rather than in a view. It used to be loaded by the

@@ -108,6 +108,11 @@ fn SettingsContent() -> Element {
         // The stream section is not in the web build, and neither is its entry.
         #[cfg(not(target_arch = "wasm32"))]
         JumpTarget::section("settings-stream", t!("settings.stream_headline")),
+        // Last, and nothing to configure: the way to the about page. It sits
+        // in this list because the list is what the page is read through — a
+        // section the sidebar does not name is one a reader scrolls past
+        // without knowing it was there.
+        JumpTarget::section("settings-about", t!("about.settings_headline")),
     ];
 
     let ids: Vec<String> = sections.iter().map(|target| target.id.clone()).collect();
@@ -167,7 +172,40 @@ fn SettingsContent() -> Element {
                 if cfg!(not(target_arch = "wasm32")) {
                     section { id: "settings-stream", onclick: move |_| mark("settings-stream"), StreamSettingsSection {} }
                 }
+
+                hr {}
+                section { id: "settings-about", onclick: move |_| mark("settings-about"), AboutSection {} }
             }
+        }
+    }
+}
+
+/// The way to the about page, at the foot of the settings.
+///
+/// Here rather than on a menu because this is where a user goes looking for
+/// what a program is — and because the settings are the one page that is
+/// already about the program rather than about a service.
+#[component]
+fn AboutSection() -> Element {
+    let nav = use_navigator();
+    let mut entry: crate::logic::states::AboutEntryState = use_context();
+
+    rsx! {
+        hgroup {
+            h3 { { t!("about.settings_headline").to_string() } }
+            p { { t!("about.settings_description").to_string() } }
+        }
+        button {
+            id: "settings-about-button",
+            class: "outline",
+            onclick: move |_| {
+                // The about page's way out goes back where the reader came
+                // from, and only this door can say that there *is* a way back
+                // inside Cantara — see `states::AboutEntryState`.
+                entry.from_inside.set(true);
+                nav.push(Route::AboutPage {});
+            },
+            { t!("about.settings_button").to_string() }
         }
     }
 }
