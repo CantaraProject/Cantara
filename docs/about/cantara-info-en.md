@@ -1,20 +1,15 @@
-Cantara is free software, written by volunteers for churches and small groups
-who want words on a screen without a licence fee and without a subscription.
+Cantara is free software and has been written by volunteers who use it for worship in the church.
+May it be used for the glory of God!
 
-This is a complete rewrite in Rust of the original Cantara, which has been in
-use since 2015.
+## Getting help and Further information
+
+The following resources offer help and information on how to use Cantara:
+
+- [Webpage of Cantara](https://cantara.app): Find detailed information about the software, a manual and documentation.
+- [The Cantara 3 Github Repository](https://github.com/CantaraProject/Cantara): View the source code, report issues and ask questions about the software.
+- [The Cantara 2 Github Repository](https://github.com/reckel-jm/cantara): View the source code of the previous version 2.
 
 ## Licence
 
 Cantara is released under the **GNU Affero General Public License, version 3 or
-later**. You may use it, study it, pass it on and change it.
-
-The Affero licence asks one thing beyond the ordinary GPL: if you run a changed
-version of Cantara as a service that other people reach over a network, you have
-to offer those people its source as well. The full text of the licence comes
-with the program, in the file `COPYING`.
-
-## Source code
-
-The source code is at <https://github.com/CantaraProject/cantara>, and that is
-also where bug reports and contributions are welcome.
+later**. It can be freely used under the terms and conditions which are specified in the license.

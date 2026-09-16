@@ -75,8 +75,14 @@ test.describe('what the page says', () => {
 
     const prose = page.locator('.about-text');
     await expect(prose).toContainText('Affero');
+
+    // By where the link *goes*, not by what it is called. The wording is prose
+    // and belongs to whoever writes the texts — it has already been rewritten
+    // once — while the address is the thing the licence obliges us to offer.
+    // Matched case-insensitively (`i`), because the spelling of a GitHub path
+    // is GitHub's business and both forms resolve.
     await expect(
-      prose.getByRole('link', { name: /github\.com\/CantaraProject\/cantara/ }),
+      prose.locator('a[href*="github.com/CantaraProject" i]').first(),
     ).toBeVisible();
   });
 
