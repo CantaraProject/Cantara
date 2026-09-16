@@ -75,6 +75,12 @@ mod tests {
             page_key(&Route::SettingsPage {}),
             page_key(&Route::PresentationDesignSettingsPage { index: 0 })
         );
+        // The about page is reached from the settings and returns to them, so
+        // these two in particular must not share an element.
+        assert_ne!(
+            page_key(&Route::SettingsPage {}),
+            page_key(&Route::AboutPage {})
+        );
     }
 
     /// Opening another element in the detail view is not a page change: the

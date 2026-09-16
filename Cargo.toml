@@ -139,6 +139,15 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 # chapter timer needs a wall clock on every target. `Date.now()` is what the
 # page itself uses; js-sys is already in the tree under web-sys.
 js-sys = "0.3"
+# Asking the browser what language the reader speaks.
+#
+# Without the `js` feature, `sys-locale` compiles an empty provider on wasm:
+# `get_locale()` gives `None`, `App` falls back to `en-US`, and the web build
+# is in English for everybody — every translated string in the program, not
+# only the about page. That is what it did until a browser test set a German
+# locale and got English back. Everything the feature pulls in (js-sys,
+# wasm-bindgen, web-sys) is already in the tree, so it costs nothing.
+sys-locale = { version = "=0.3.2", features = ["js"] }
 
 [features]
 default = ["desktop"]
@@ -181,6 +190,13 @@ codegen-units = 1
 panic = "abort"
 strip = true
 incremental = false
+
+# What `build.rs` needs, which is only a calendar: the about page's copyright
+# runs to the year the binary was built, and working that out from a Unix
+# timestamp by hand is leap-year arithmetic nobody should write twice. Already
+# a dependency of the program itself, so this costs no extra crate.
+[build-dependencies]
+chrono = "0.4"
 
 # Renders a component to a string without a window, so that a test can assert
 # what a slide actually looks like — and, in particular, that it changes when

@@ -1,0 +1,41 @@
+# The about page: what the program is, and who wrote it.
+#
+# The prose itself is not here — it lives in `docs/about/`, one Markdown
+# file per language, and is compiled in by `build.rs`. What is here is
+# the identity block above it, which is the same few sentences in every
+# language and belongs with the rest of the interface.
+#
+# Every file under `locales/` is read and merged, so this one is
+# reached without being registered anywhere. The version has to be a
+# whole number: `2.0` is read as version 1 and the file silently
+# stops working.
+_version: 2
+about:
+  headline:
+    en: About the program
+    de: Über das Programm
+  # The one-line description under the name. A key rather than a fixed
+  # English string, so that it is translated like every other sentence —
+  # and so that the Markdown files below it do not have to repeat it.
+  description:
+    en: Presentation software for churches
+    de: Präsentationssoftware für Gemeinden
+  version:
+    en: "Version %{version}"
+    de: "Version %{version}"
+  # What the settings offer, at the very bottom of the page.
+  settings_headline:
+    en: About the program
+    de: Über das Programm
+  settings_description:
+    en: The version you are running, who wrote it, and under which licence.
+    de: Die laufende Version, wer sie geschrieben hat und unter welcher Lizenz.
+  settings_button:
+    en: Show information about the program
+    de: Informationen über das Programm anzeigen
+  # The way out. Not "Back to settings": the page is an address of its own
+  # and can be arrived at from elsewhere, so the button returns wherever
+  # the reader came from.
+  back:
+    en: Back
+    de: Zurück

@@ -38,6 +38,25 @@ pub struct InitialRouteState {
     pub redirected_to_detail: Signal<bool>,
 }
 
+/// Whether the reader reached the about page from inside Cantara.
+///
+/// The about page's way out goes back where the reader came from, and the
+/// obvious way to ask that — the navigator's `can_go_back` — is the wrong one.
+/// On the web it reports the *browser's* history, which contains whatever the
+/// tab was showing before Cantara: the page is an address people link to, so a
+/// visitor arriving from a chat message would be sent back to the chat
+/// message, out of the program altogether. That is not a hypothetical; it is
+/// what the browser test found.
+///
+/// So the door records that it was used. Set where the about page is opened
+/// from, read where it is left. In a context provided by `App` because the two
+/// are different pages, and the one that reads it is mounted after the one
+/// that wrote it has gone.
+#[derive(Clone, Copy)]
+pub struct AboutEntryState {
+    pub from_inside: Signal<bool>,
+}
+
 /// Which kind of element the library list is showing.
 ///
 /// Held by `App` rather than by the two views that draw the list, for two

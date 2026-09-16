@@ -122,6 +122,9 @@ pub mod conversions;
 pub mod css;
 pub mod search;
 
+// What the program says about itself, on the about page.
+pub mod about;
+
 // Waiting a moment, on the platform's clock rather than the page's.
 pub mod timer;
 

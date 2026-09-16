@@ -101,6 +101,67 @@ body {
     overflow-y: auto;
 }
 
+/* The about page.
+ *
+ * Prose, so it is given a reading width rather than the page's: a paragraph
+ * running the full width of a maximised window is a paragraph nobody finishes.
+ * Centred, because there is nothing beside it to align to. */
+.about-card {
+    max-width: 44rem;
+    margin: 1rem auto;
+}
+
+/* The program identifying itself: the name and its numbers on one side, the
+ * logo on the other.
+ *
+ * The text comes first in the markup and the logo second, so that a reader
+ * hears the name before the decoration and a narrow window stacks them that
+ * way round. `wrap` rather than a media query: what decides is whether the two
+ * fit, and that is a question the box can answer for itself. */
+.about-identity {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.about-identity-text {
+    flex: 1 1 18rem;
+}
+
+/* Bounded by height rather than width, so that the block keeps its shape
+ * whatever proportions the drawing has. `flex: none` because it is the text
+ * that should take the room left over.
+ *
+ * The drawing brings its own pale background, which is the mark as it is
+ * printed and is not ours to recolour. Rounded, so that on the dark theme it
+ * reads as a mark set on the page rather than as a hole cut out of it. */
+.about-logo {
+    flex: none;
+    height: 8rem;
+    max-width: 100%;
+    border-radius: var(--pico-border-radius);
+}
+
+/* The version and the copyright: true, and not what the reader came for. */
+.about-version,
+.about-copyright {
+    margin-bottom: 0.2rem;
+    color: var(--pico-muted-color);
+}
+
+/* The headings inside the prose sit under the program's name, so they must not
+   out-shout it — the same reasoning as the search results' excerpt headings. */
+.about-text {
+    margin-top: 1.5rem;
+}
+
+.about-text :is(h1, h2, h3) {
+    font-size: 1.15em;
+    margin-bottom: 0.4rem;
+}
+
 .content-background {
     background-color: var(--pico-table-row-stripped-background-color);
 }
