@@ -1,4 +1,4 @@
-# Add additional 'Abou the Program' info page
+# Add additional 'About the Program' info page
 
 This spec describes the addition of an additional page on the same level as the selection, settings or detail view, showing information about the program.
 The info view should be accessible via the settings, at the very buttom there should be a new section 'About the program' (headline) and a button 'Show information about the program' which routes to the info page.
