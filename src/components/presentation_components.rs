@@ -617,6 +617,15 @@ pub fn PresentationRendererComponent(
     /// view has to name itself.
     #[props(default)]
     role: PresentationRole,
+    /// The design to draw with, when it is not the chapter's own.
+    ///
+    /// `None` draws every chapter in the design it carries — the audience
+    /// window, a card in the list of designs. A surface that shows the
+    /// presentation in a design of its *own* names it here: the design
+    /// editor's live preview, whose chapter carries no design at all and which
+    /// therefore came out in Cantara's defaults whatever was being edited.
+    #[props(default)]
+    design: Option<PresentationDesign>,
 ) -> Element {
     // Handed down rather than threaded through every slide component between
     // here and the `<video>` element that needs it. What a rendering is *for*
@@ -819,9 +828,11 @@ pub fn PresentationRendererComponent(
     }
 
     let current_design = use_memo(move || {
-        running_presentation
-            .read()
-            .get_current_presentation_design()
+        design.clone().unwrap_or_else(|| {
+            running_presentation
+                .read()
+                .get_current_presentation_design()
+        })
     });
 
     // The current presentation design settings

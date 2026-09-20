@@ -574,6 +574,38 @@ mod tests {
         );
     }
 
+    /// A template design named to the rendering is what the rendering is
+    /// drawn in — not the chapter's own.
+    ///
+    /// A monitor design named this way was honoured; a template design was
+    /// not, and the renderer went on drawing the chapter's design. The design
+    /// editor's live preview names the design being edited and builds its
+    /// chapter without one, so it showed Cantara's defaults — black, no
+    /// background picture — whatever was chosen on the left.
+    #[test]
+    fn a_template_design_named_to_the_rendering_is_drawn_with() {
+        use crate::logic::settings::{PresentationDesign, PresentationDesignSettings};
+
+        let running = fixtures::song_service();
+
+        let mut design = PresentationDesign::default();
+        let PresentationDesignSettings::Template(template) =
+            &mut design.presentation_design_settings
+        else {
+            panic!("the default design is a template");
+        };
+        template
+            .set_background_color_from_hex_str("#123456")
+            .expect("a valid colour");
+
+        let html = render_presentation(&running, Some(design));
+
+        assert!(
+            html.contains("rgb(18, 52, 86)"),
+            "the named design's background colour is not in the rendering"
+        );
+    }
+
     /// A monitor design set on the stream view reaches the network as a
     /// monitor view.
     ///

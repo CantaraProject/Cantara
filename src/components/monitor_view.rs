@@ -89,6 +89,10 @@ pub fn DesignedPresentation(
             crate::components::presentation_components::PresentationRendererComponent {
                 running_presentation,
                 role,
+                // Named here as well: the renderer otherwise draws the
+                // chapter's own design, and the design being *edited* is
+                // never on the chapter — so the editor's preview ignored it.
+                design: Some(design),
             }
         },
     }
