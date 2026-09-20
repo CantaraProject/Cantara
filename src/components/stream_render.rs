@@ -606,6 +606,80 @@ mod tests {
         );
     }
 
+    /// A change to the named design reaches the rendering that is already up.
+    ///
+    /// The first design named was honoured and later ones were not: the
+    /// renderer read the prop from inside a memo, which only reruns when a
+    /// signal changes. The design editor hands the design being edited to a
+    /// preview that stays mounted, so the preview showed the picture and
+    /// transparency the editor opened with and none of the changes made.
+    #[test]
+    fn a_change_to_the_named_design_reaches_the_rendering() {
+        use crate::logic::settings::{PresentationDesign, PresentationDesignSettings};
+
+        fn coloured(hex: &str) -> PresentationDesign {
+            let mut design = PresentationDesign::default();
+            let PresentationDesignSettings::Template(template) =
+                &mut design.presentation_design_settings
+            else {
+                panic!("the default design is a template");
+            };
+            template
+                .set_background_color_from_hex_str(hex)
+                .expect("a valid colour");
+            design
+        }
+
+        // The design being edited, handed back out of the tree so that the
+        // test can change it the way the editor's form does.
+        thread_local! {
+            static EDITED: std::cell::Cell<Option<Signal<PresentationDesign>>> =
+                const { std::cell::Cell::new(None) };
+        }
+
+        #[component]
+        fn Harness(presentation: RunningPresentation) -> Element {
+            use_context_provider(|| {
+                std::rc::Rc::new(dioxus::document::NoOpDocument)
+                    as std::rc::Rc<dyn dioxus::document::Document>
+            });
+            let edited = use_signal(|| coloured("#123456"));
+            EDITED.with(|held| held.set(Some(edited)));
+            let running_presentation = use_signal(|| presentation.clone());
+            rsx! {
+                DesignedPresentation {
+                    running_presentation,
+                    design: edited(),
+                    role: PresentationRole::Follower,
+                    contained: true,
+                }
+            }
+        }
+
+        let mut dom = VirtualDom::new_with_props(
+            Harness,
+            HarnessProps {
+                presentation: fixtures::song_service(),
+            },
+        );
+        dom.rebuild_in_place();
+        let mut edited = EDITED.with(|held| held.get()).expect("the harness handed its design out");
+        assert!(dioxus_ssr::render(&dom).contains("rgb(18, 52, 86)"));
+
+        dom.in_runtime(|| edited.set(coloured("#654321")));
+        dom.render_immediate(&mut dioxus_core::NoOpMutations);
+
+        let html = dioxus_ssr::render(&dom);
+        assert!(
+            html.contains("rgb(101, 67, 33)"),
+            "the changed design's background colour is not in the rendering"
+        );
+        assert!(
+            !html.contains("rgb(18, 52, 86)"),
+            "the first design's background colour is still in the rendering"
+        );
+    }
+
     /// A monitor design set on the stream view reaches the network as a
     /// monitor view.
     ///

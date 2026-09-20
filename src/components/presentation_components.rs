@@ -827,8 +827,18 @@ pub fn PresentationRendererComponent(
         };
     }
 
+    // The named design goes through a signal: a memo only reruns when a
+    // signal it reads changes, and a prop is not one. Reading the prop from
+    // the memo below kept the design of the first render, so the editor's
+    // preview showed the picture and colour that were set when it opened and
+    // nothing that was changed afterwards.
+    let mut named_design: Signal<Option<PresentationDesign>> = use_signal(|| design.clone());
+    if *named_design.peek() != design {
+        named_design.set(design.clone());
+    }
+
     let current_design = use_memo(move || {
-        design.clone().unwrap_or_else(|| {
+        named_design().unwrap_or_else(|| {
             running_presentation
                 .read()
                 .get_current_presentation_design()
