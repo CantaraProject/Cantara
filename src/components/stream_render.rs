@@ -276,6 +276,8 @@ fn StreamRoot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
     use crate::logic::fixtures;
     use crate::logic::settings::{MonitorLayout, SpeakerNextPosition, WidgetKind, WidgetPlacement};
     use crate::logic::settings::MonitorWidget;
@@ -616,8 +618,9 @@ mod tests {
     #[test]
     fn a_change_to_the_named_design_reaches_the_rendering() {
         use crate::logic::settings::{PresentationDesign, PresentationDesignSettings};
+        use crate::logic::sourcefiles::{ImageSourceFile, SourceFile, SourceFileType};
 
-        fn coloured(hex: &str) -> PresentationDesign {
+        fn designed(hex: &str, picture_path: &str) -> PresentationDesign {
             let mut design = PresentationDesign::default();
             let PresentationDesignSettings::Template(template) =
                 &mut design.presentation_design_settings
@@ -627,8 +630,34 @@ mod tests {
             template
                 .set_background_color_from_hex_str(hex)
                 .expect("a valid colour");
+            template.background_image = Some(
+                ImageSourceFile::new(SourceFile {
+                    name: PathBuf::from(picture_path)
+                        .file_stem()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("picture")
+                        .to_string(),
+                    path: PathBuf::from(picture_path),
+                    file_type: SourceFileType::Image,
+                    md5_hash: None,
+                    relative_path: None,
+                })
+                .expect("a picture path builds an image source file"),
+            );
             design
         }
+
+        let first_picture = fixtures::picture_path();
+        let second_picture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join("favicon.png")
+            .to_string_lossy()
+            .into_owned();
+        let first_inline = crate::logic::images::image_data_url(PathBuf::from(&first_picture).as_path())
+            .expect("the first picture is inlined");
+        let second_inline =
+            crate::logic::images::image_data_url(PathBuf::from(&second_picture).as_path())
+                .expect("the second picture is inlined");
 
         // The design being edited, handed back out of the tree so that the
         // test can change it the way the editor's form does.
@@ -638,12 +667,12 @@ mod tests {
         }
 
         #[component]
-        fn Harness(presentation: RunningPresentation) -> Element {
+        fn Harness(presentation: RunningPresentation, first_picture: String) -> Element {
             use_context_provider(|| {
                 std::rc::Rc::new(dioxus::document::NoOpDocument)
                     as std::rc::Rc<dyn dioxus::document::Document>
             });
-            let edited = use_signal(|| coloured("#123456"));
+            let edited = use_signal(|| designed("#123456", &first_picture));
             EDITED.with(|held| held.set(Some(edited)));
             let running_presentation = use_signal(|| presentation.clone());
             rsx! {
@@ -656,17 +685,22 @@ mod tests {
             }
         }
 
+        EDITED.with(|held| held.set(None));
         let mut dom = VirtualDom::new_with_props(
             Harness,
             HarnessProps {
                 presentation: fixtures::song_service(),
+                first_picture: first_picture.clone(),
             },
         );
         dom.rebuild_in_place();
         let mut edited = EDITED.with(|held| held.get()).expect("the harness handed its design out");
-        assert!(dioxus_ssr::render(&dom).contains("rgb(18, 52, 86)"));
+        let before = dioxus_ssr::render(&dom);
+        assert!(before.contains("rgb(18, 52, 86)"));
+        assert!(before.contains(&first_inline));
+        assert!(!before.contains(&second_inline));
 
-        dom.in_runtime(|| edited.set(coloured("#654321")));
+        dom.in_runtime(|| edited.set(designed("#654321", &second_picture)));
         dom.render_immediate(&mut dioxus_core::NoOpMutations);
 
         let html = dioxus_ssr::render(&dom);
@@ -678,6 +712,15 @@ mod tests {
             !html.contains("rgb(18, 52, 86)"),
             "the first design's background colour is still in the rendering"
         );
+        assert!(
+            html.contains(&second_inline),
+            "the changed design's background image is not in the rendering"
+        );
+        assert!(
+            !html.contains(&first_inline),
+            "the first design's background image is still in the rendering"
+        );
+        EDITED.with(|held| held.set(None));
     }
 
     /// A monitor design set on the stream view reaches the network as a
