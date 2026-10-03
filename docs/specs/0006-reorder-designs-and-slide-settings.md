@@ -1,6 +1,6 @@
 # 0006 — Reordering presentation designs and slide settings
 
-Status: **draft, waiting for review.** Nothing below has been built yet. The
+Status: **draft, review finished.** Nothing below has been built yet. The
 questions in the second part each carry a proposal and an empty **Answer:**.
 
 ## The brief
@@ -93,7 +93,7 @@ pub fn move_song_slide_settings(&mut self, from: usize, to_gap: usize) -> Option
 Both renumber every stored position with the existing `index_after_move` rule.
 The UI never touches the vectors directly.
 
-**Answer:**
+**Answer:** Do as proposed.
 
 ## 2. Do the two lists move together?
 
@@ -117,7 +117,7 @@ new behaviour.
 least say that deleting a design after a reorder removes an arbitrary
 division, and somebody will report it.
 
-**Answer:**
+**Answer:** They are seperate, the only important thing is that there is always at least one presentation design and a slide settings available.
 
 ## 3. Unnamed slide settings are named by their position
 
@@ -141,7 +141,7 @@ indistinguishable, which is worse.
 Designs do not have this problem: a design always has a name ("Default" for a
 fresh one).
 
-**Answer:**
+**Answer:** If the slide settings or design settings are unnamed, we leave it positional, meaning that they change their names when moving.
 
 ## 4. What "smooth" looks like while dragging
 
@@ -164,7 +164,7 @@ cost little: the item follows the finger as a semi-transparent "ghost"
 jumping; and the moved item is highlighted briefly where it landed. All
 transitions are switched off under `prefers-reduced-motion`.
 
-**Answer:**
+**Answer:** Do as proposed.
 
 ## 5. How a touch starts a drag on a design tile
 
@@ -189,7 +189,7 @@ long-press (context menu, text selection) and needs a timer with its own edge
 cases. It could be added later on top of the grip without changing anything
 else.
 
-**Answer:**
+**Answer:** do as proposed.
 
 ## 6. Dragging past the edge of the screen
 
@@ -206,7 +206,7 @@ coordinate plus the container's scroll offset), and every pointer position is
 converted the same way, so the measurements stay valid while scrolling. The
 same applies to the slide settings list.
 
-**Answer:**
+**Answer:** Do as proposed.
 
 ## 7. The keyboard
 
@@ -222,7 +222,7 @@ In passing: each tile currently has `tabindex: index`, which is
 one — so every tile after the first is reached by Tab before anything else on
 the page. That becomes `tabindex: 0` for all tiles.
 
-**Answer:**
+**Answer:** Do as proposed.
 
 ## 8. What the slide settings list looks like
 
@@ -238,7 +238,7 @@ grid collapses, the list sits above the card. The list is a `ul` with
 `role="listbox"` and its rows `role="option"` with `aria-selected`, so a screen
 reader announces what the drop-down used to announce.
 
-**Answer:**
+**Answer:** Do as proposed.
 
 ## 9. When the change is saved
 
@@ -249,7 +249,7 @@ copy and works on the settings directly, as the designs section already does —
 which also fixes the delete defect described under "What is already there".
 The mirroring effect in `SettingsContent` goes away with the copy.
 
-**Answer:**
+**Answer:** Do as proposed.
 
 ## 10. What is out of scope
 
@@ -260,7 +260,7 @@ The mirroring effect in `SettingsContent` goes away with the copy.
 * Undo. Dragging back is the undo.
 * Reordering inside the design editor (fonts, widgets, monitor widget rows).
 
-**Answer:**
+**Answer:** You can change the sidebar drag implementation with this PR as well, so that we keep up the DRY principle.
 
 ---
 
