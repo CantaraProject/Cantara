@@ -4,6 +4,7 @@ use super::directory_browser::DirectoryBrowserModal;
 use super::dialogs::{confirm_box, message_box, prompt_box};
 use super::shared_components::{DeleteIcon, EditIcon, PresentationDesignSelector, translate};
 use crate::logic::sourcefiles::SourceFile;
+use crate::logic::reorder::index_after_move;
 use crate::logic::tag_mapping::TagMapping;
 use super::jump_sidebar::{JumpSidebar, JumpTarget, scroll_to_section, use_section_spy};
 use super::song_slide_settings_components::SongSlideSettingsSection;
@@ -74,24 +75,6 @@ pub fn SettingsPage() -> Element {
 /// Middleware component between SettingsPage and its children.
 #[component]
 fn SettingsContent() -> Element {
-    let mut settings = use_settings();
-    let song_slide_settings: Signal<Vec<SongSlideSettings>> =
-        use_signal(|| settings.read().song_slide_settings.clone());
-
-    // `SongSlideSettings` edits a copy. Without mirroring it back, adding or
-    // removing a slide setting was lost the moment the page was left, and
-    // nothing was ever written to disk.
-    //
-    // `peek()` reads the settings without subscribing to them, so writing them
-    // here cannot re-trigger this effect.
-    use_effect(move || {
-        let edited = song_slide_settings.read().clone();
-        if settings.peek().song_slide_settings != edited {
-            settings.write().song_slide_settings = edited;
-            settings.peek().save();
-        }
-    });
-
     // The sections, in the order they appear. Named here rather than read out
     // of the page: this is the list the sidebar shows, and a heading the user
     // reads should be the heading the list names — the same translation key
@@ -157,9 +140,7 @@ fn SettingsContent() -> Element {
                 section { id: "settings-presentation", onclick: move |_| mark("settings-presentation"), PresentationSettings {} }
                 hr {}
                 section { id: "settings-slides", onclick: move |_| mark("settings-slides"),
-                    SongSlideSettingsSection {
-                        song_slide_settings
-                    }
+                    SongSlideSettingsSection {}
                 }
                 hr {}
                 section { id: "settings-tag-mapping", onclick: move |_| mark("settings-tag-mapping"), TagMappingSection {} }
@@ -701,7 +682,22 @@ fn PresentationSettings() -> Element {
             PresentationDesignSelector {
                 presentation_designs,
                 viewer_width: 400,
-                active_item: selected_presentation_design_index
+                active_item: selected_presentation_design_index,
+                on_move: move |(from, to): (usize, usize)| {
+                    // Through the settings, which renumber every stored
+                    // choice of a design along with the move — the default,
+                    // the stream, every view.
+                    let landed = settings.write().move_presentation_design(from, to);
+                    if let Some(landed) = landed {
+                        // The design open beside the list is the one it was,
+                        // wherever that is now.
+                        if let Some(selected) = selected_presentation_design_index() {
+                            selected_presentation_design_index
+                                .set(Some(index_after_move(selected, from, landed)));
+                        }
+                        settings.read().save();
+                    }
+                },
             }
 
             div {
@@ -711,14 +707,12 @@ fn PresentationSettings() -> Element {
                         PresentationDesignCard {
                             presentation_design: selected_presentation,
                             index: selected_presentation_design_index(),
+                            // The last design cannot go: nothing could be
+                            // shown without one.
+                            deletable: presentation_designs.read().len() > 1,
                             onclone: move |_| {
                                 if let Some(design) = selected_presentation_design() {
-                                    {
-                                        let mut settings_write = settings.write();
-                                        settings_write.presentation_designs.push(design);
-                                        // Ensure there are enough slide settings for all presentation designs
-                                        settings_write.ensure_slide_settings_for_designs();
-                                    }
+                                    settings.write().presentation_designs.push(design);
                                     let new_len = presentation_designs.read().len();
                                     tracing::debug!("Cloned design. New length: {}", new_len);
 
@@ -983,6 +977,8 @@ fn ScreenSettings() -> Element {
 fn PresentationDesignCard(
     presentation_design: PresentationDesign,
     index: Option<usize>,
+    /// Whether the design may be deleted — not when it is the only one.
+    deletable: bool,
     onclone: EventHandler<()>,
     ondelete: EventHandler<()>,
 ) -> Element {
@@ -1038,21 +1034,23 @@ fn PresentationDesignCard(
                     onclick: export,
                     { t!("settings.export_design").to_string() }
                 }
-                button {
-                    class: "secondary",
-                    onclick: move |event| {
-                        event.prevent_default();
-                        let question = t!("dialogs.confirm_deletion").to_string();
-                        async move {
-                            if confirm_box(question).await {
-                                tracing::debug!("Deletion confirmed.");
-                                ondelete.call(());
-                            } else {
-                                tracing::debug!("Deletion aborted.");
+                if deletable {
+                    button {
+                        class: "secondary",
+                        onclick: move |event| {
+                            event.prevent_default();
+                            let question = t!("dialogs.confirm_deletion").to_string();
+                            async move {
+                                if confirm_box(question).await {
+                                    tracing::debug!("Deletion confirmed.");
+                                    ondelete.call(());
+                                } else {
+                                    tracing::debug!("Deletion aborted.");
+                                }
                             }
-                        }
-                    },
-                    { t!("general.delete").to_string() }
+                        },
+                        { t!("general.delete").to_string() }
+                    }
                 }
             }
             if let Some(message) = export_error() {

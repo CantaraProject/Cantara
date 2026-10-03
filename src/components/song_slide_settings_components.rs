@@ -1,6 +1,10 @@
 //! This module provides components for adjusting the song slide settings
 
+use crate::components::reorder::{GRIP_STYLE, refuse_native_drag, use_reorder_drag};
 use crate::components::shared_components::{MetadataFieldset, translate};
+use crate::logic::reorder::{Layout, index_after_move};
+use dioxus_free_icons::Icon;
+use dioxus_free_icons::icons::fa_solid_icons::FaGripVertical;
 use crate::logic::settings::{SongSlideSettings, use_settings};
 use crate::logic::slide_summary::{POSITION_SEPARATOR, summary_lines};
 use cantara_songlib::slides::{LanguageConfiguration, ShowMetaInformation, SlideElement, SlideSettings};
@@ -105,13 +109,24 @@ pub fn SongSlideSettingsPage(
     }
 }
 
+/// The `id` of the list of slide divisions, which the drag finds its
+/// scrolling area from.
+const SLIDE_SETTINGS_LIST_ID: &str = "slide-settings-list";
+
 /// The section of the settings page that lists the slide divisions.
+///
+/// A list rather than the drop-down it used to be, so that the divisions can be
+/// put in order by dragging — see [`crate::components::reorder`]. The list
+/// works on the settings directly, as the designs do: it used to edit a copy
+/// that was mirrored back, and deleted from that copy with a plain
+/// `Vec::remove`, which left every stored choice of a later division pointing
+/// at its neighbour.
 #[component]
-pub fn SongSlideSettingsSection(
-    song_slide_settings: Signal<Vec<SongSlideSettings>>,
-) -> Element {
+pub fn SongSlideSettingsSection() -> Element {
+    let mut settings = use_settings();
     let mut selected_slide_settings_index = use_signal(|| Some(0));
 
+    let song_slide_settings = use_memo(move || settings.read().song_slide_settings.clone());
     let selected_slide_settings = use_memo(move || {
         selected_slide_settings_index()
             .and_then(|index| song_slide_settings.read().get(index).cloned())
@@ -123,20 +138,23 @@ pub fn SongSlideSettingsSection(
             p { {t!("settings.song_slide_description").to_string()} }
         }
 
-        div { class: "grid",
+        div { class: "grid slide-settings-layout",
             div {
-                select {
-                    onchange: move |event| {
-                        let index = event.value().parse::<usize>().unwrap_or(0);
-                        selected_slide_settings_index.set(Some(index));
-                    },
-                    for (index , division) in song_slide_settings.read().iter().enumerate() {
-                        option {
-                            value: index.to_string(),
-                            selected: selected_slide_settings_index() == Some(index),
-                            {division.display_name(index)}
+                SlideSettingsList {
+                    song_slide_settings,
+                    selected: selected_slide_settings_index,
+                    on_move: move |(from, to): (usize, usize)| {
+                        // Through the settings, which renumber every stored
+                        // choice of a division along with the move.
+                        let landed = settings.write().move_song_slide_settings(from, to);
+                        if let Some(landed) = landed {
+                            if let Some(selected) = selected_slide_settings_index() {
+                                selected_slide_settings_index
+                                    .set(Some(index_after_move(selected, from, landed)));
+                            }
+                            settings.read().save();
                         }
-                    }
+                    },
                 }
             }
             div {
@@ -144,21 +162,114 @@ pub fn SongSlideSettingsSection(
                     SongSlideSettingsCard {
                         division: selected,
                         index: selected_slide_settings_index(),
+                        // The last division cannot go: no song could be divided
+                        // into slides without one.
+                        deletable: song_slide_settings.read().len() > 1,
                         onclone: move |_| {
                             if let Some(division) = selected_slide_settings() {
-                                song_slide_settings.write().push(division);
-                                let new_len = song_slide_settings.read().len();
-                                tracing::debug!("Cloned slide settings. New length: {}", new_len);
+                                settings.write().song_slide_settings.push(division);
+                                settings.read().save();
+                                tracing::debug!(
+                                    "Cloned slide settings. New length: {}",
+                                    song_slide_settings.read().len()
+                                );
                             }
                         },
                         ondelete: move |_| {
-                            if let Some(index) = selected_slide_settings_index()
-                                && index < song_slide_settings.read().len() {
-                                    song_slide_settings.write().remove(index);
-                                    selected_slide_settings_index
-                                        .set((!song_slide_settings.read().is_empty()).then_some(0));
-                                }
+                            if let Some(index) = selected_slide_settings_index() {
+                                // One operation on the settings, which moves
+                                // every stored choice along with the list.
+                                settings.write().delete_song_slide_settings(index);
+                                settings.read().save();
+                                selected_slide_settings_index.set(Some(0));
+                            }
                         },
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The slide divisions as a list that can be put in order by dragging.
+///
+/// Apart from the section around it so that it can be rendered on its own — the
+/// card beside it needs a router, and the list does not.
+#[component]
+fn SlideSettingsList(
+    song_slide_settings: ReadSignal<Vec<SongSlideSettings>>,
+    selected: Signal<Option<usize>>,
+    /// A division was dragged: the one at the first position, into the gap at
+    /// the second — see [`crate::logic::reorder`].
+    on_move: EventHandler<(usize, usize)>,
+) -> Element {
+    let len = song_slide_settings.read().len();
+    let drag = use_reorder_drag(Layout::Column, SLIDE_SETTINGS_LIST_ID, len, move |gap| on_move.call(gap));
+
+    rsx! {
+        ul {
+            id: SLIDE_SETTINGS_LIST_ID,
+            class: "slide-settings-list {drag.container_class()}",
+            role: "listbox",
+            aria_label: t!("settings.song_slide_headline").to_string(),
+            onpointermove: move |event: Event<PointerData>| drag.moved(&event.data()),
+            onpointerup: move |_| drag.released(),
+            onpointercancel: move |_| drag.cancelled(),
+            onpointerenter: move |event: Event<PointerData>| drag.entered(&event.data()),
+            ondragstart: refuse_native_drag,
+
+            for (index , division) in song_slide_settings.read().iter().enumerate() {
+                li {
+                    key: "{index}",
+                    role: "option",
+                    aria_selected: if selected() == Some(index) { "true" } else { "false" },
+                    class: if selected() == Some(index) {
+                        "selection_item slide-settings-row selection_item-active {drag.item_class(index)}"
+                    } else {
+                        "selection_item slide-settings-row {drag.item_class(index)}"
+                    },
+                    style: drag.item_style(index),
+                    tabindex: 0,
+                    "data-reorder-index": "{index}",
+                    onmounted: move |event: Event<MountedData>| drag.mounted(index, event),
+                    onclick: move |_| {
+                        if !drag.swallows_click() {
+                            selected.set(Some(index));
+                        }
+                    },
+                    onpointerdown: move |event: Event<PointerData>| drag.press(index, &event.data(), false),
+                    onkeydown: move |event: Event<KeyboardData>| {
+                        if drag.keydown(index, &event, false) {
+                            return;
+                        }
+                        // Enter and Space choose the row, as a click
+                        // does — it is an option in a list.
+                        if matches!(event.key(), Key::Enter) || event.key() == Key::Character(" ".to_string()) {
+                            event.prevent_default();
+                            selected.set(Some(index));
+                        }
+                    },
+
+                    // The grip a finger drags the row by, as in the
+                    // running order: only here is a touch claimed, so
+                    // that the page still scrolls under a finger on
+                    // the rest of the row.
+                    span {
+                        class: "slide-settings-grip reorder-grip",
+                        style: GRIP_STYLE,
+                        aria_label: t!("selection.reorder_handle").to_string(),
+                        title: t!("selection.reorder_hint").to_string(),
+                        onpointerdown: move |event: Event<PointerData>| {
+                            event.stop_propagation();
+                            drag.press(index, &event.data(), true);
+                        },
+                        Icon { icon: FaGripVertical }
+                    }
+                    span { class: "slide-settings-row-text",
+                        span { class: "slide-settings-row-name", {division.display_name(index)} }
+                        if !division.description.trim().is_empty() {
+                            small { class: "slide-settings-row-description", {division.description.clone()} }
+                        }
                     }
                 }
             }
@@ -171,6 +282,8 @@ pub fn SongSlideSettingsSection(
 fn SongSlideSettingsCard(
     division: SongSlideSettings,
     index: Option<usize>,
+    /// Whether the division may be deleted — not when it is the only one.
+    deletable: bool,
     onclone: EventHandler<()>,
     ondelete: EventHandler<()>,
 ) -> Element {
@@ -231,21 +344,23 @@ fn SongSlideSettingsCard(
                 button { class: "secondary", onclick: export,
                     {t!("settings.export_slide_settings").to_string()}
                 }
-                button {
-                    class: "secondary",
-                    onclick: move |event| {
-                        event.prevent_default();
-                        let question = t!("dialogs.confirm_deletion").to_string();
-                        async move {
-                            if crate::components::dialogs::confirm_box(question).await {
-                                tracing::debug!("Deletion confirmed.");
-                                ondelete.call(());
-                            } else {
-                                tracing::debug!("Deletion aborted.");
+                if deletable {
+                    button {
+                        class: "secondary",
+                        onclick: move |event| {
+                            event.prevent_default();
+                            let question = t!("dialogs.confirm_deletion").to_string();
+                            async move {
+                                if crate::components::dialogs::confirm_box(question).await {
+                                    tracing::debug!("Deletion confirmed.");
+                                    ondelete.call(());
+                                } else {
+                                    tracing::debug!("Deletion aborted.");
+                                }
                             }
-                        }
-                    },
-                    {t!("general.delete").to_string()}
+                        },
+                        {t!("general.delete").to_string()}
+                    }
                 }
             }
             if let Some(message) = export_error() {
@@ -820,4 +935,103 @@ fn meta_positions() -> [(
             |show, value| show.last_slide = value,
         ),
     ]
+}
+
+#[cfg(test)]
+mod list_markup_tests {
+    use super::*;
+
+    /// Three divisions, one with a description, as the settings page draws
+    /// them with the second one open.
+    fn rendered() -> String {
+        #[component]
+        fn Harness() -> Element {
+            let divisions = use_signal(|| {
+                vec![
+                    SongSlideSettings::default(),
+                    SongSlideSettings {
+                        name: "Four lines".to_string(),
+                        description: "For the small screen".to_string(),
+                        ..SongSlideSettings::default()
+                    },
+                    SongSlideSettings::default(),
+                ]
+            });
+            let selected = use_signal(|| Some(1));
+            rsx! {
+                SlideSettingsList {
+                    song_slide_settings: divisions,
+                    selected,
+                    on_move: move |_| {},
+                }
+            }
+        }
+
+        let mut dom = VirtualDom::new(Harness);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    }
+
+    /// The drop-down is gone, and in its place is a list a screen reader
+    /// announces the way it announced the drop-down: a list of options, one of
+    /// them chosen.
+    #[test]
+    fn test_the_divisions_are_a_list_of_options() {
+        let html = rendered();
+
+        assert!(!html.contains("<select"), "{html}");
+        assert!(html.contains(r#"id="slide-settings-list""#), "{html}");
+        assert!(html.contains(r#"role="listbox""#), "{html}");
+        assert_eq!(html.matches(r#"role="option""#).count(), 3, "{html}");
+        assert_eq!(html.matches(r#"aria-selected="true""#).count(), 1, "{html}");
+    }
+
+    /// The open division is marked, and it is the one that was chosen.
+    #[test]
+    fn test_the_open_division_is_marked() {
+        let html = rendered();
+        let marked = html
+            .split("<li")
+            .find(|row| row.contains(r#"aria-selected="true""#))
+            .unwrap_or_default();
+
+        assert!(marked.contains("selection_item-active"), "{marked}");
+        assert!(marked.contains("Four lines"), "{marked}");
+        assert!(marked.contains("For the small screen"), "{marked}");
+    }
+
+    /// An unnamed division is called by its position.
+    #[test]
+    fn test_an_unnamed_division_is_called_by_its_position() {
+        let html = rendered();
+
+        assert!(html.contains(&SongSlideSettings::default().display_name(0)), "{html}");
+        assert!(html.contains(&SongSlideSettings::default().display_name(2)), "{html}");
+    }
+
+    /// Every row has a grip that a finger can drag it by — the one place on
+    /// the row that claims a touch — and says where it is in the list.
+    #[test]
+    fn test_every_row_has_a_grip_and_its_position() {
+        let html = rendered();
+
+        assert_eq!(html.matches("slide-settings-grip").count(), 3, "{html}");
+        assert_eq!(html.matches("touch-action: none").count(), 3, "{html}");
+        for index in 0..3 {
+            assert!(html.contains(&format!(r#"data-reorder-index="{index}""#)), "{html}");
+        }
+    }
+
+    /// Outside a drag there is nothing to show for one: no marker, nothing
+    /// carried, nothing moved.
+    #[test]
+    fn test_no_drag_is_drawn_when_none_is_under_way() {
+        let html = rendered();
+
+        assert!(!html.contains("reorder-marker"), "{html}");
+        assert!(!html.contains("reorder-dragging"), "{html}");
+        assert!(!html.contains("reorder-landed"), "{html}");
+        assert!(!html.contains("reorder-active"), "{html}");
+        assert!(!html.contains("transform"), "{html}");
+    }
 }

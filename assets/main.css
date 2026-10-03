@@ -393,11 +393,8 @@ div.inline-div {
         scroll-snap-align: start;
     }
 
-    /* Where the row cannot be dragged by pointing at it, it is dragged by this.
-       See `.selected-item-grip` above and `selected_list.rs`. */
-    .selected-item-grip {
-        display: inline-flex;
-    }
+    /* The grips of the lists that can be dragged are shown further down,
+       after the rules that hide them — see "Where the grips are shown". */
 
     /* Swipe indicator dots */
     .swipe-indicator {
@@ -437,9 +434,10 @@ div.inline-div {
    under the other: the point of the list is comparing them, and a design three
    screens down is not being compared with anything. */
 .presentation-design-selector {
+    --reorder-gap: 1.5rem;
     display: flex;
     flex-wrap: wrap;
-    gap: 1.5rem;
+    gap: var(--reorder-gap);
     align-items: flex-start;
 }
 
@@ -2186,8 +2184,8 @@ div.inline-div {
    between a drag and a scroll. See `selected_list.rs`. */
 /* The grip exists for fingers only, and is not shown where there is a pointer:
    on a wide screen the whole row is draggable, and a fourth control in a row
-   that already has three would be clutter. The mobile rule that shows it is
-   further down, with the rest of the narrow layout.
+   that already has three would be clutter. The rule that shows it is further
+   down — see "Where the grips are shown".
 
    Drawn like the arrows and the wastebasket on the other side of the row when
    it does appear: a small muted icon, no box around it. */
@@ -2223,35 +2221,230 @@ div.inline-div {
     cursor: grabbing;
 }
 
-/* The row being carried, left in place and faded: taking it out of the list
-   would reflow everything under it, and the rows were measured where they are. */
-.selected-item-dragging {
-    opacity: 0.5;
+/* ── Putting a list in order by dragging ─────────────────────────────────── */
+/* Shared by the running order, the sidebar, the designs and the slide
+   settings — see `components/reorder.rs`. Nothing here may change the size or
+   the place of anything while a drag is under way: the items are measured
+   once, when it starts, and a reflow would make the measurements lie. So the
+   marker takes no room (it is a pseudo-element, positioned absolutely) and the
+   carried item is moved with a transform. */
+
+.reorder-container {
+    /* How far apart the items are; the marker is drawn in the middle of it. */
+    --reorder-gap: 0.5rem;
 }
 
-/* Where a drop would land. The gap keeps its height whether it is the target
-   or not, so the list does not jump as the pointer moves down it. */
-.selected-drop-gap {
-    height: 0.5rem;
-    margin: 0.125rem 0;
-    border-top: 2px dashed transparent;
-    transition: border-color 120ms ease-out;
+.reorder-item {
+    position: relative;
+    /* A drag must not select the text it passes over. */
+    -webkit-user-select: none;
+    user-select: none;
 }
 
-.selected-drop-gap-active {
-    border-top-color: var(--pico-primary);
+.reorder-active,
+.reorder-active * {
+    cursor: grabbing !important;
 }
 
-/* Marks the row that has just been moved, by drag or by keyboard, so the change
-   can be followed to where it landed. The same amber the row used to be given
-   from an inline style. */
-.selected-item-moved {
-    background-color: rgba(255, 230, 150, 0.8);
+/* The item being carried: it follows the pointer, faded, above the others. */
+.reorder-dragging {
+    opacity: 0.65;
+    z-index: 200;
+    box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.25);
+    transition: none !important;
+}
+
+/* Where a drop would land — a line in the gap, above or below an item in a
+   column, left or right of a tile in a grid. */
+.reorder-marker-above::before,
+.reorder-marker-below::after,
+.reorder-marker-left::before,
+.reorder-marker-right::after {
+    content: "";
+    position: absolute;
+    z-index: 150;
+    pointer-events: none;
+    background-color: var(--pico-primary);
+    border-radius: 2px;
+    animation: reorder-marker-in 120ms ease-out;
+}
+
+.reorder-marker-above::before,
+.reorder-marker-below::after {
+    left: 0;
+    right: 0;
+    height: 3px;
+}
+
+.reorder-marker-above::before {
+    top: calc(var(--reorder-gap) / -2 - 1.5px);
+}
+
+.reorder-marker-below::after {
+    bottom: calc(var(--reorder-gap) / -2 - 1.5px);
+}
+
+.reorder-marker-left::before,
+.reorder-marker-right::after {
+    top: 0;
+    bottom: 0;
+    width: 3px;
+}
+
+.reorder-marker-left::before {
+    left: calc(var(--reorder-gap) / -2 - 1.5px);
+}
+
+.reorder-marker-right::after {
+    right: calc(var(--reorder-gap) / -2 - 1.5px);
+}
+
+@keyframes reorder-marker-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* The item that has just been moved, by drag or by keyboard, so the change can
+   be followed to where it landed. A ring rather than a background, because a
+   design tile has no background to colour — its preview covers it. */
+.reorder-landed {
+    animation: reorder-landed 1.2s ease-out;
+}
+
+@keyframes reorder-landed {
+    from { box-shadow: 0 0 0 4px color-mix(in srgb, var(--pico-primary) 70%, transparent); }
+    to { box-shadow: 0 0 0 4px transparent; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .selected-drop-gap {
-        transition: none;
+    .reorder-marker-above::before,
+    .reorder-marker-below::after,
+    .reorder-marker-left::before,
+    .reorder-marker-right::after {
+        animation: none;
+    }
+
+    /* Still marked, but without the fade. */
+    .reorder-landed {
+        animation: none;
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--pico-primary) 40%, transparent);
+    }
+}
+
+/* The source icons in the selection's sidebar. */
+.selection-sidebar-item {
+    padding: 12px;
+    cursor: grab;
+}
+
+/* The grip on a design tile, in its top-left corner, above the preview. Large
+   enough for a thumb. Shown on hover where there is a mouse, and always where
+   there is not. */
+.presentation-design-grip {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    z-index: 120;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--pico-border-radius);
+    background-color: color-mix(in srgb, var(--pico-background-color) 85%, transparent);
+    color: var(--pico-color);
+    cursor: grab;
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+    line-height: 1;
+}
+
+.presentation-design-grip svg {
+    width: 1.1rem;
+    height: 1.1rem;
+}
+
+.presentation-design-selector-item:hover .presentation-design-grip,
+.presentation-design-selector-item:focus-within .presentation-design-grip,
+.presentation-design-selector-item.reorder-dragging .presentation-design-grip {
+    opacity: 1;
+}
+
+@media (pointer: coarse) {
+    .presentation-design-grip {
+        opacity: 1;
+    }
+}
+
+/* The slide settings, as a list rather than the drop-down they used to be. */
+.slide-settings-list {
+    --reorder-gap: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--reorder-gap);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.slide-settings-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0.6rem 0.75rem;
+    list-style: none;
+    border-radius: var(--pico-border-radius);
+    cursor: pointer;
+    transition: background-color 150ms ease-out;
+}
+
+.slide-settings-row-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.slide-settings-row-name {
+    overflow-wrap: anywhere;
+}
+
+.slide-settings-row-description {
+    color: var(--pico-muted-color);
+    overflow-wrap: anywhere;
+}
+
+/* Like the running order's grip: for fingers, shown where the pointer is one. */
+.slide-settings-grip {
+    display: none;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    margin: -0.4rem 0 -0.4rem -0.4rem;
+    color: var(--pico-muted-color);
+    border-radius: var(--pico-border-radius);
+    cursor: grab;
+}
+
+.slide-settings-grip svg {
+    width: 1.1em;
+    height: 1.1em;
+}
+
+/* Where the grips are shown: on a narrow screen, and on any device whose
+   pointer is a finger — a tablet held sideways is wide, and still has no
+   mouse.
+
+   Here, after the rules that hide them, and not with the rest of the narrow
+   layout further up: a media query adds no weight to a selector, so the later
+   of two equal rules wins. The running order's grip sat in the narrow block
+   above its own `display: none`, and so was never shown at all. */
+@media only screen and (max-width: 767px), (pointer: coarse) {
+    .selected-item-grip,
+    .slide-settings-grip {
+        display: inline-flex;
     }
 }
 

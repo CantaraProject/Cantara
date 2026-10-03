@@ -57,6 +57,9 @@ pub mod detail_components;
 // A list of places to jump to, beside a long view.
 pub mod jump_sidebar;
 
+// Putting a list in order by dragging it, the same way everywhere.
+pub mod reorder;
+
 // Creating an element, and moving one between repositories.
 pub mod element_creation;
 

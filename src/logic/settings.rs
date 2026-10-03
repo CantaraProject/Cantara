@@ -1,6 +1,7 @@
 //! This module contains the logic and structures for managing, loading and saving the program's settings.
 
 use crate::logic::css::{CssFontFamily, CssString};
+use crate::logic::reorder;
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 use crate::logic::tag_mapping::TagMapping;
 // The directory scan and the paths it works on exist on the desktop only; the
@@ -715,6 +716,14 @@ fn shift_default(chosen: &mut usize, removed: usize) {
     }
 }
 
+/// Renumbers a stored choice after the entry at `from` was moved to `landed`.
+/// A choice of nothing stays a choice of nothing.
+fn follow_choice(chosen: &mut Option<usize>, from: usize, landed: usize) {
+    if let Some(index) = *chosen {
+        *chosen = Some(reorder::index_after_move(index, from, landed));
+    }
+}
+
 /// Where the settings live in the browser's local storage. The desktop keeps
 /// them in a file instead, whose location `get_settings_file` decides.
 #[cfg(target_arch = "wasm32")]
@@ -994,22 +1003,29 @@ impl Settings {
         }
     }
 
-    /// Deletes the design at `index`, along with the slide division that
-    /// belongs to it, and moves every stored choice along with them.
+    /// Deletes the design at `index`, and moves every stored choice along with
+    /// it.
     ///
-    /// The choices — the general default, and what the streamed view is set to
-    /// — are kept as positions in these lists, and `Vec::remove` shifts
-    /// everything after the hole down by one. Deleting a design therefore
-    /// silently re-points every choice that sat after it at its neighbour: a
-    /// service set up to project design 3 would quietly start projecting what
-    /// used to be design 4. Nothing catches this later, because the position
-    /// is perfectly valid — it simply means something else now.
+    /// The choices — the general default, what the streamed view is set to,
+    /// what each view is set to — are kept as positions in this list, and
+    /// `Vec::remove` shifts everything after the hole down by one. Deleting a
+    /// design therefore silently re-pointed every choice that sat after it at
+    /// its neighbour: a service set up to project design 3 would quietly start
+    /// projecting what used to be design 4. Nothing catches this later,
+    /// because the position is perfectly valid — it simply means something
+    /// else now.
     ///
     /// Doing the deletion here rather than at the button is the point. The
-    /// bookkeeping belongs with the lists it is about, where it cannot be left
+    /// bookkeeping belongs with the list it is about, where it cannot be left
     /// out of a second caller.
+    ///
+    /// The last design is never deleted: a presentation cannot be shown
+    /// without one. And the slide divisions are left alone — the two lists
+    /// used to be deleted in step, position for position, which stopped
+    /// meaning anything once either could be put in order on its own. See
+    /// `docs/specs/0006-reorder-designs-and-slide-settings.md`, question 2.
     pub fn delete_presentation_design(&mut self, index: usize) {
-        if index >= self.presentation_designs.len() {
+        if index >= self.presentation_designs.len() || self.presentation_designs.len() <= 1 {
             return;
         }
 
@@ -1023,33 +1039,76 @@ impl Settings {
         for view in &mut self.views {
             forget_choice(&mut view.design_index, index);
         }
-
-        // The two lists are kept in step, but only the design list is known to
-        // have had this position — so the slide divisions move only if one was
-        // actually removed.
-        if index < self.song_slide_settings.len() {
-            self.song_slide_settings.remove(index);
-            forget_choice(&mut self.stream.slide_settings_index, index);
-            shift_default(&mut self.default_slide_settings_index, index);
-            for view in &mut self.views {
-                forget_choice(&mut view.slide_settings_index, index);
-            }
-        }
-
-        self.ensure_slide_settings_for_designs();
     }
 
-    /// Ensures that there are at least as many slide settings as presentation designs.
-    /// If there are fewer slide settings, adds default slide settings until there are enough.
-    pub fn ensure_slide_settings_for_designs(&mut self) {
-        let design_count = self.presentation_designs.len();
-        let slide_count = self.song_slide_settings.len();
+    /// Deletes the slide division at `index`, by the same rules as
+    /// [`Self::delete_presentation_design`]: every stored choice moves with
+    /// the list, and the last division is never deleted.
+    ///
+    /// The settings page used to do this itself, with a plain `Vec::remove`
+    /// on a copy of the list — which re-pointed the default and every view at
+    /// the neighbour of the division that was deleted.
+    pub fn delete_song_slide_settings(&mut self, index: usize) {
+        if index >= self.song_slide_settings.len() || self.song_slide_settings.len() <= 1 {
+            return;
+        }
 
-        if slide_count < design_count {
-            // Add default slide settings until there are at least as many as presentation designs
-            for _ in 0..(design_count - slide_count) {
-                self.song_slide_settings.push(SongSlideSettings::default());
-            }
+        self.song_slide_settings.remove(index);
+        forget_choice(&mut self.stream.slide_settings_index, index);
+        shift_default(&mut self.default_slide_settings_index, index);
+        for view in &mut self.views {
+            forget_choice(&mut view.slide_settings_index, index);
+        }
+    }
+
+    /// Moves the design at `from` into the gap `to` — see
+    /// [`crate::logic::reorder`] for how gaps are counted — and says where it
+    /// landed. `None`, and nothing changed, when that is no move.
+    ///
+    /// Every stored choice is a position in this list, so every one is
+    /// renumbered with the move. Without that, dragging the default design to
+    /// the end of the list would make whatever slid into its place the
+    /// default: the same defect deleting used to have, and harder to notice,
+    /// because the list is exactly as long as before.
+    pub fn move_presentation_design(&mut self, from: usize, to: usize) -> Option<usize> {
+        let landed = reorder::move_into_gap(&mut self.presentation_designs, from, to)?;
+
+        follow_choice(&mut self.stream.design_index, from, landed);
+        self.default_design_index =
+            reorder::index_after_move(self.default_design_index, from, landed);
+        for view in &mut self.views {
+            follow_choice(&mut view.design_index, from, landed);
+        }
+        Some(landed)
+    }
+
+    /// The same, for the slide divisions.
+    ///
+    /// An unnamed division is called by its position, and keeps being called
+    /// by its position after the move — so its name changes with it. That is
+    /// what was decided in `0006`, question 3.
+    pub fn move_song_slide_settings(&mut self, from: usize, to: usize) -> Option<usize> {
+        let landed = reorder::move_into_gap(&mut self.song_slide_settings, from, to)?;
+
+        follow_choice(&mut self.stream.slide_settings_index, from, landed);
+        self.default_slide_settings_index =
+            reorder::index_after_move(self.default_slide_settings_index, from, landed);
+        for view in &mut self.views {
+            follow_choice(&mut view.slide_settings_index, from, landed);
+        }
+        Some(landed)
+    }
+
+    /// Ensures that at least one slide division exists, as
+    /// [`Self::ensure_default_presentation_design`] does for designs.
+    ///
+    /// This used to keep at least as many divisions as designs, a leftover
+    /// from when the two lists were treated as pairs. They are not: each is
+    /// its own list, put in order on its own, and all either needs is not to
+    /// be empty.
+    pub fn ensure_default_song_slide_settings(&mut self) {
+        if self.song_slide_settings.is_empty() {
+            self.song_slide_settings.push(SongSlideSettings::default());
         }
     }
 
@@ -1091,7 +1150,7 @@ impl Settings {
     /// from a file of any age.
     fn bring_up_to_date(&mut self) {
         self.ensure_default_presentation_design();
-        self.ensure_slide_settings_for_designs();
+        self.ensure_default_song_slide_settings();
         self.ensure_sidebar_order();
         self.ensure_views();
         self.migrate_github_zip_repos();
@@ -4893,9 +4952,12 @@ mod design_block_tests {
 
         assert_eq!(settings.presentation_designs[1].name, "design 2");
         assert_eq!(settings.stream.design_index, Some(1), "still design 2");
-        assert_eq!(settings.stream.slide_settings_index, Some(1));
         assert_eq!(settings.default_design_index, 1);
-        assert_eq!(settings.default_slide_settings_index, 1);
+        // The slide divisions are a list of their own, and a design going
+        // does not take one with it.
+        assert_eq!(settings.song_slide_settings.len(), 4);
+        assert_eq!(settings.stream.slide_settings_index, Some(2));
+        assert_eq!(settings.default_slide_settings_index, 2);
     }
 
     /// Deleting the very design a choice names leaves no choice — rather than a
@@ -4913,7 +4975,11 @@ mod design_block_tests {
         settings.delete_presentation_design(2);
 
         assert_eq!(settings.stream.design_index, None);
-        assert_eq!(settings.stream.slide_settings_index, None);
+        assert_eq!(
+            settings.stream.slide_settings_index,
+            Some(2),
+            "the division chosen beside it is not the design's to delete"
+        );
         assert_eq!(settings.default_design_index, 0, "falls back to the first");
 
         // The list grows past where the old choice pointed. Nothing may come
@@ -4949,5 +5015,278 @@ mod design_block_tests {
 
         assert_eq!(settings.presentation_designs.len(), 2);
         assert_eq!(settings.stream.design_index, Some(1));
+    }
+
+    /// Four designs with names, four divisions with names, and a choice of
+    /// each spread over every place a choice is kept — so that a move that
+    /// forgets one of them is caught.
+    fn settings_with_choices_everywhere() -> Settings {
+        let mut settings = Settings::default();
+        settings.presentation_designs = (0..4)
+            .map(|number| PresentationDesign {
+                name: format!("design {number}"),
+                ..PresentationDesign::default()
+            })
+            .collect();
+        settings.song_slide_settings = (0..4)
+            .map(|number| SongSlideSettings {
+                name: format!("division {number}"),
+                ..SongSlideSettings::default()
+            })
+            .collect();
+        settings.default_design_index = 1;
+        settings.default_slide_settings_index = 2;
+        settings.stream.design_index = Some(3);
+        settings.stream.slide_settings_index = Some(0);
+        settings.views = (0..5)
+            .map(|number| View {
+                id: uuid::Uuid::new_v4(),
+                name: format!("view {number}"),
+                // One view of each design, and one that follows the reference.
+                design_index: (number < 4).then_some(number),
+                slide_settings_index: (number > 0).then_some(4 - number),
+                output: ViewOutput::Screen { monitor_name: None },
+                enabled: true,
+                focus: ViewFocus::Follow,
+            })
+            .collect();
+        settings
+    }
+
+    /// Every choice, by the *name* of what it chooses. Comparing names rather
+    /// than positions is the point: a move changes the positions, and what
+    /// must not change is what they mean.
+    fn chosen_names(settings: &Settings) -> Vec<Option<String>> {
+        let design = |index: Option<usize>| {
+            index.map(|index| settings.presentation_designs[index].name.clone())
+        };
+        let division = |index: Option<usize>| {
+            index.map(|index| settings.song_slide_settings[index].name.clone())
+        };
+
+        let mut names = vec![
+            design(Some(settings.default_design_index)),
+            division(Some(settings.default_slide_settings_index)),
+            design(settings.stream.design_index),
+            division(settings.stream.slide_settings_index),
+        ];
+        for view in &settings.views {
+            names.push(design(view.design_index));
+            names.push(division(view.slide_settings_index));
+        }
+        names
+    }
+
+    /// Moving a design carries every choice of it along — for every move
+    /// there is in a list of four.
+    ///
+    /// This is the defect deleting used to have, in the form a move would
+    /// have it: the default dragged to the end of the list, and whatever slid
+    /// into its place quietly becoming the default.
+    #[test]
+    fn moving_a_design_keeps_every_choice_pointing_at_the_same_design() {
+        for from in 0..4 {
+            for to in 0..=4 {
+                let mut settings = settings_with_choices_everywhere();
+                let before = chosen_names(&settings);
+
+                let landed = settings.move_presentation_design(from, to);
+
+                assert_eq!(chosen_names(&settings), before, "moving design {from} into gap {to}");
+                if let Some(landed) = landed {
+                    assert_eq!(settings.presentation_designs[landed].name, format!("design {from}"));
+                }
+            }
+        }
+    }
+
+    /// The same for the slide divisions.
+    #[test]
+    fn moving_a_division_keeps_every_choice_pointing_at_the_same_division() {
+        for from in 0..4 {
+            for to in 0..=4 {
+                let mut settings = settings_with_choices_everywhere();
+                let before = chosen_names(&settings);
+
+                let landed = settings.move_song_slide_settings(from, to);
+
+                assert_eq!(chosen_names(&settings), before, "moving division {from} into gap {to}");
+                if let Some(landed) = landed {
+                    assert_eq!(settings.song_slide_settings[landed].name, format!("division {from}"));
+                }
+            }
+        }
+    }
+
+    /// Moving one list leaves the other exactly as it was. They used to be
+    /// treated as pairs; they are not.
+    #[test]
+    fn moving_a_design_leaves_the_divisions_alone() {
+        let mut settings = settings_with_choices_everywhere();
+        let divisions = settings.song_slide_settings.clone();
+
+        assert_eq!(settings.move_presentation_design(0, 4), Some(3));
+
+        assert_eq!(settings.song_slide_settings, divisions);
+    }
+
+    #[test]
+    fn moving_a_division_leaves_the_designs_alone() {
+        let mut settings = settings_with_choices_everywhere();
+        let designs = settings.presentation_designs.clone();
+
+        assert_eq!(settings.move_song_slide_settings(3, 0), Some(0));
+
+        assert_eq!(settings.presentation_designs, designs);
+    }
+
+    /// A move that is no move, or is out of range, changes nothing at all.
+    /// The positions come from a pointer and the list may have changed under
+    /// it, so neither is trusted.
+    #[test]
+    fn an_impossible_move_changes_nothing() {
+        for (from, to) in [(1, 1), (1, 2), (9, 0), (0, 9)] {
+            let mut settings = settings_with_choices_everywhere();
+            let before = settings.clone();
+
+            assert_eq!(settings.move_presentation_design(from, to), None);
+            assert_eq!(settings.move_song_slide_settings(from, to), None);
+
+            assert!(settings == before, "{from} → {to} changed the settings");
+        }
+    }
+
+    /// A choice of nothing — "follow the reference view" — stays a choice of
+    /// nothing, rather than becoming a choice of whatever moved.
+    #[test]
+    fn moving_leaves_no_choice_as_no_choice() {
+        let mut settings = settings_with_choices_everywhere();
+        assert_eq!(settings.views[4].design_index, None);
+        assert_eq!(settings.views[0].slide_settings_index, None);
+
+        settings.move_presentation_design(0, 4);
+        settings.move_song_slide_settings(0, 4);
+
+        assert_eq!(settings.views[4].design_index, None);
+        assert_eq!(settings.views[0].slide_settings_index, None);
+    }
+
+    /// An unnamed division is called by its position, and is still called by
+    /// its position after it has moved — the name goes with the place, not
+    /// with the division. That is what `0006` decided.
+    #[test]
+    fn an_unnamed_division_is_named_by_where_it_now_is() {
+        let mut settings = Settings::default();
+        let four_lines = SlideSettings {
+            max_lines: Some(4),
+            ..SlideSettings::default()
+        };
+        settings.song_slide_settings = vec![
+            SongSlideSettings::default(),
+            SongSlideSettings::from(four_lines.clone()),
+        ];
+        let first_name = settings.song_slide_settings[0].display_name(0);
+
+        settings.move_song_slide_settings(1, 0);
+
+        assert_eq!(settings.song_slide_settings[0].settings, four_lines);
+        assert_eq!(settings.song_slide_settings[0].display_name(0), first_name);
+        assert!(settings.song_slide_settings[0].name.is_empty(), "nothing was named");
+    }
+
+    /// The order is what is stored: it survives being written and read back.
+    #[test]
+    fn a_new_order_survives_being_stored() {
+        let mut settings = settings_with_choices_everywhere();
+        settings.move_presentation_design(0, 4);
+        settings.move_song_slide_settings(3, 1);
+
+        let stored = serde_json::to_string(&settings).unwrap_or_default();
+        let read: Settings = serde_json::from_str(&stored).unwrap_or_default();
+
+        let names = |settings: &Settings| {
+            (
+                settings
+                    .presentation_designs
+                    .iter()
+                    .map(|design| design.name.clone())
+                    .collect::<Vec<_>>(),
+                settings
+                    .song_slide_settings
+                    .iter()
+                    .map(|division| division.name.clone())
+                    .collect::<Vec<_>>(),
+            )
+        };
+        assert_eq!(
+            names(&read),
+            (
+                vec!["design 1", "design 2", "design 3", "design 0"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+                vec!["division 0", "division 3", "division 1", "division 2"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+            )
+        );
+        assert_eq!(chosen_names(&read), chosen_names(&settings));
+    }
+
+    /// Deleting a division moves every choice of a later one along, exactly
+    /// as deleting a design does. The settings page used to delete it with a
+    /// plain `Vec::remove`, which left them pointing at the neighbour.
+    #[test]
+    fn deleting_a_division_keeps_the_later_choices_pointing_at_the_same_thing() {
+        let mut settings = settings_with_choices_everywhere();
+        let before = chosen_names(&settings);
+
+        settings.delete_song_slide_settings(1);
+
+        let after = chosen_names(&settings);
+        for (index, (was, is)) in before.iter().zip(after.iter()).enumerate() {
+            if *was == Some("division 1".to_string()) {
+                // The default has nothing to fall back to but the first; every
+                // other choice of the deleted division becomes no choice.
+                if index == 1 {
+                    assert_eq!(*is, Some("division 0".to_string()));
+                } else {
+                    assert_eq!(*is, None, "choice {index}");
+                }
+            } else {
+                assert_eq!(is, was, "choice {index}");
+            }
+        }
+        assert_eq!(settings.presentation_designs.len(), 4, "the designs are not touched");
+    }
+
+    /// The last design and the last division are never deleted: a
+    /// presentation cannot be shown without either.
+    #[test]
+    fn the_last_design_and_the_last_division_cannot_be_deleted() {
+        let mut settings = Settings::default();
+        settings.presentation_designs = vec![PresentationDesign::default()];
+        settings.song_slide_settings = vec![SongSlideSettings::default()];
+
+        settings.delete_presentation_design(0);
+        settings.delete_song_slide_settings(0);
+
+        assert_eq!(settings.presentation_designs.len(), 1);
+        assert_eq!(settings.song_slide_settings.len(), 1);
+    }
+
+    /// A configuration with no division at all — a hand-edited file — gets
+    /// one, and only one: there is no longer one per design.
+    #[test]
+    fn an_empty_list_of_divisions_gets_exactly_one() {
+        let mut settings = Settings::default();
+        settings.presentation_designs = vec![PresentationDesign::default(); 3];
+        settings.song_slide_settings.clear();
+
+        settings.ensure_default_song_slide_settings();
+        settings.ensure_default_song_slide_settings();
+
+        assert_eq!(settings.song_slide_settings.len(), 1);
     }
 }

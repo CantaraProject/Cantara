@@ -1,7 +1,8 @@
 # 0006 — Reordering presentation designs and slide settings
 
-Status: **draft, review finished.** Nothing below has been built yet. The
-questions in the second part each carry a proposal and an empty **Answer:**.
+Status: **built.** The questions in the second part carry their answers; what
+building it turned up, and where it went differently from the concept, is at
+the end.
 
 ## The brief
 
@@ -346,7 +347,9 @@ Stable hooks for the tests: `data-reorder-index` on every item, the classes
 ## Stage 4 — Playwright
 
 New file `tests/browser/settings-reorder.spec.js`, against the web build at
-`/Cantara/settings`.
+`/Cantara/settings`. (And, since the sidebar joined in — answer 10 —
+`tests/browser/selection-reorder.spec.js` for the running order and the
+sidebar, the two other lists on the same code.)
 
 **Seeding.** The tests need at least three entries with different names in
 each list. The web build keeps its settings in `localStorage` under
@@ -434,3 +437,75 @@ Whether a drag *feels* smooth on a real tablet, and the desktop window
 (WebKitGTK/WebView2/WKWebView), which Playwright cannot reach (spec 0004). Both
 need a person with the device for a few minutes before release: one Android
 phone, one iPad, and the desktop build with a touchscreen if one is at hand.
+
+---
+
+# What building it turned up
+
+Where the result differs from the concept above, and why.
+
+**The running order's drop lines moved the list they were measuring.** The
+dashed gaps between its rows only existed while a drag was under way, and each
+took half a rem. So the rows were measured when the press started, and then
+the drag began and pushed every row down by up to a few rems — the drop landed
+up to a row away from the line under the pointer, more so the further down the
+list. The marker is now a pseudo-element that takes no room, in all four lists,
+and nothing reflows during a drag at all.
+
+**The sidebar swapped rather than moved.** Dragging the first icon onto the
+third exchanged the two, leaving the second where it was — which is not what a
+line under the pointer promises. It now moves, like everything else. It also
+claims a touch on the whole icon rather than on a grip: five icons never need
+scrolling, and a 50-pixel column has no room for a grip.
+
+**The running order's grip was never shown.** Its `display: inline-flex` for
+narrow screens sat in the media block near the top of `main.css`, and the
+`display: none` it was meant to override came two thousand lines later. A media
+query adds no weight to a selector, so the later rule won everywhere: on a
+phone the running order could only be reordered with the arrow buttons — the
+very defect the move to pointer events had been made to end. Found by the
+Playwright test that drags a slide division by its grip, which failed the same
+way. The rules that show the grips now come after the rules that hide them, and
+also apply wherever the pointer is a finger (`pointer: coarse`), which covers a
+tablet held sideways.
+
+**Alt and an arrow never moved a row of the running order.** The selection view
+sends every key that reaches it to the search field, so that typing anywhere
+looks a song up. The Alt of an Alt-and-arrow was one of those keys: it took the
+focus to the search, and the arrow after it found no row to move. A list item
+now keeps the keys it answers to — the arrows, Escape, and a modifier pressed
+on its own — while a letter still goes to the search. Also found by a
+Playwright test (`selection-reorder.spec.js`).
+
+**One drag, four lists.** The concept's `use_reorder_drag` exists as planned
+(`src/components/reorder.rs`), with the arithmetic in `src/logic/reorder.rs`.
+Two details differ from the concept:
+
+* *The ghost is the item itself, moved with a transform*, not a copy. A copy of
+  a design tile is a second full presentation preview; the original, faded and
+  translated, looks the same and costs nothing.
+* *A drop target is a gap and a side.* The gap after the last tile of a line is
+  the same gap as the one before the first tile of the next, and the marker has
+  to be drawn on the side where the pointer is. `DropTarget` carries the item
+  the marker belongs to and on which side.
+
+**A grid one tile wide is a column.** On a phone the design tiles stack, and
+dividing a full-width tile at its horizontal middle would make the end of the
+list reachable only from the right half of the last tile. Where every line
+holds one tile, the grid is read as a column.
+
+**A mouse is captured to the list once it drags.** Without that it stops
+reporting to the list the moment it leaves it — which is exactly what it does
+to reach the edge of the page and scroll.
+
+**The list redraws only the carried tile.** Reading the pointer in the
+selector itself would have rebuilt every design preview on every pointer move;
+each tile is now a component of its own, and only the carried one follows the
+pointer.
+
+**Answer 2 in practice.** Deleting a design no longer deletes a division, and
+`ensure_slide_settings_for_designs` became `ensure_default_song_slide_settings`
+— at least one division, not one per design. The last design and the last
+division cannot be deleted: `Settings` refuses, and the card shows no delete
+button for it.
+
