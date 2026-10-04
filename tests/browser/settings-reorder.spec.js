@@ -473,9 +473,11 @@ test.describe('with a finger, on a phone', () => {
     await rows.nth(0).scrollIntoViewIfNeeded();
 
     const box = await rows.nth(0).boundingBox();
+    const before = await pageScroll(page);
     const start = { x: box.x + box.width * 0.7, y: box.y + box.height / 2 };
-    await touchDrag(page, start, { x: start.x, y: start.y + 120 });
+    await touchDrag(page, start, { x: start.x, y: start.y - 120 });
 
+    await expect.poll(() => pageScroll(page)).toBeGreaterThan(before);
     expect(await divisionOrder(page)).toEqual(['One', 'Two', 'Three']);
   });
 });
