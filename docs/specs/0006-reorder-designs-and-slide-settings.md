@@ -477,6 +477,18 @@ now keeps the keys it answers to — the arrows, Escape, and a modifier pressed
 on its own — while a letter still goes to the search. Also found by a
 Playwright test (`selection-reorder.spec.js`).
 
+**A dropped item stayed where it was let go.** Found by using it, after
+everything above had passed: the item landed in the right place in the list,
+and went on being *drawn* where the pointer had let go of it, beside its new
+place. Dioxus merges a new `style` attribute into the old one — any property
+the new value does not name is put back from the old (`set_attribute.ts` in
+`dioxus-interpreter-js`) — so a style that simply left the transform out once
+the drag was over kept the last one. Every item at rest now says
+`transform: none` outright. The Playwright tests had only compared the order,
+which was right; they now also check after every drop that every item of the
+list is back in its place, and they fail against the build that had this
+defect.
+
 **One drag, four lists.** The concept's `use_reorder_drag` exists as planned
 (`src/components/reorder.rs`), with the arithmetic in `src/logic/reorder.rs`.
 Two details differ from the concept:

@@ -87,6 +87,26 @@ async function divisionOrder(page) {
   return page.locator(`${DIVISIONS} .slide-settings-row-name`).allTextContents();
 }
 
+/// Whether every item of a list is back in its place — nothing still carried,
+/// nothing still moved off to where the pointer let go.
+///
+/// The order alone does not say so. A dropped item used to land in the right
+/// place in the list and stay *drawn* where it had been let go, because its
+/// transform was never taken off again — see `ReorderDrag::item_style`.
+async function expectAtRest(items) {
+  await expect
+    .poll(() =>
+      items.evaluateAll((all) =>
+        all.every(
+          (item) =>
+            getComputedStyle(item).transform === 'none' &&
+            !item.classList.contains('reorder-dragging'),
+        ),
+      ),
+    )
+    .toBe(true);
+}
+
 /// The middle of an element, on screen.
 async function middleOf(locator) {
   const box = await locator.boundingBox();
@@ -159,6 +179,7 @@ test.describe('the designs, with a mouse', () => {
     });
 
     await expect.poll(() => designOrder(page)).toEqual(['B', 'C', 'A']);
+    await expectAtRest(tiles);
   });
 
   test('the new order is still there after a reload', async ({ page }) => {
@@ -254,6 +275,7 @@ test.describe('the designs, with a mouse', () => {
 
     expect(await designOrder(page)).toEqual(['A', 'B', 'C']);
     expect(await storedSettings(page)).toEqual(before);
+    await expectAtRest(tiles);
   });
 });
 
@@ -309,6 +331,7 @@ test.describe('the slide settings, with a mouse', () => {
     });
 
     await expect.poll(() => divisionOrder(page)).toEqual(['Three', 'One', 'Two']);
+    await expectAtRest(rows);
 
     await page.reload();
     await expect.poll(() => divisionOrder(page)).toEqual(['Three', 'One', 'Two']);
@@ -397,6 +420,7 @@ test.describe('with a finger, on a phone', () => {
     await touchDrag(page, grip, { x: grip.x, y: Math.max(firstBox.y + 10, 5) });
 
     await expect.poll(() => designOrder(page)).toEqual(['B', 'A', 'C']);
+    await expectAtRest(tiles);
   });
 
   test('a finger on a tile, away from its grip, scrolls the page instead', async ({ page }) => {
@@ -440,6 +464,7 @@ test.describe('with a finger, on a phone', () => {
     await touchDrag(page, grip, { x: grip.x, y: lastBox.y + lastBox.height - 2 });
 
     await expect.poll(() => divisionOrder(page)).toEqual(['Two', 'Three', 'One']);
+    await expectAtRest(rows);
   });
 
   test('a finger on a slide division, away from its grip, does not move it', async ({ page }) => {

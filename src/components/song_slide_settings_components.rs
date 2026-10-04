@@ -1032,6 +1032,8 @@ mod list_markup_tests {
         assert!(!html.contains("reorder-dragging"), "{html}");
         assert!(!html.contains("reorder-landed"), "{html}");
         assert!(!html.contains("reorder-active"), "{html}");
-        assert!(!html.contains("transform"), "{html}");
+        assert!(!html.contains("translate("), "{html}");
+        // Said outright, not left out — see `ReorderDrag::item_style`.
+        assert_eq!(html.matches("transform: none").count(), 3, "{html}");
     }
 }

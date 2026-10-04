@@ -42,6 +42,26 @@ async function runningOrder(page) {
   return page.locator(`${ROWS} .selected-item-name`).allTextContents();
 }
 
+/// Whether every item of a list is back in its place — nothing still carried,
+/// nothing still moved off to where the pointer let go.
+///
+/// The order alone does not say so. A dropped item used to land in the right
+/// place in the list and stay *drawn* where it had been let go, because its
+/// transform was never taken off again — see `ReorderDrag::item_style`.
+async function expectAtRest(items) {
+  await expect
+    .poll(() =>
+      items.evaluateAll((all) =>
+        all.every(
+          (item) =>
+            getComputedStyle(item).transform === 'none' &&
+            !item.classList.contains('reorder-dragging'),
+        ),
+      ),
+    )
+    .toBe(true);
+}
+
 /// The middle of an element, on screen.
 async function middleOf(locator) {
   const box = await locator.boundingBox();
@@ -88,6 +108,7 @@ test.describe('the running order', () => {
     await expect
       .poll(() => runningOrder(page))
       .toEqual([LIBRARY.threeHitTitles[0], LIBRARY.oneHitTitle, LIBRARY.threeHitTitles[2]]);
+    await expectAtRest(rows);
   });
 
   test('the row open in the options follows the move', async ({ page }) => {
@@ -180,6 +201,7 @@ test.describe('the source icons in the sidebar', () => {
     // `logic::settings::default_sidebar_order`.
     const moved = ['Pictures', 'Videos', 'Songs', 'Pdfs', 'Markdown'];
     await expect.poll(() => storedOrder(page)).toEqual(moved);
+    await expectAtRest(icons);
 
     await page.reload();
     await expect.poll(() => storedOrder(page)).toEqual(moved);

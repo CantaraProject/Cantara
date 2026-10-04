@@ -450,12 +450,20 @@ impl ReorderDrag {
     /// The inline style item `index` carries: the carried one follows the
     /// pointer. A transform, so that nothing around it reflows and the
     /// measurements taken at the start stay true.
+    ///
+    /// Every other item says `transform: none` outright rather than nothing.
+    /// Dioxus *merges* a new `style` into the old one: a property the new
+    /// value does not name is put back from the old (`set_attribute.ts` in
+    /// `dioxus-interpreter-js`). A dropped item whose style simply left the
+    /// transform out kept the last one it was given — and stayed hanging where
+    /// the pointer had let go of it, beside its new place in the list.
     pub fn item_style(&self, index: usize) -> String {
+        const AT_REST: &str = "transform: none;";
         if (self.dragging)() != Some(index) {
-            return String::new();
+            return AT_REST.to_string();
         }
         let Some(pending) = (self.pending)() else {
-            return String::new();
+            return AT_REST.to_string();
         };
         let (x, y) = (self.pointer)();
         let dx = x - pending.start.0;
