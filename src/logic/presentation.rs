@@ -756,26 +756,45 @@ pub fn create_single_item_presentation(
     RunningPresentation::new(vec![chapter])
 }
 
-/// Creates an example presentation with the song Amazing Grace and a given presentation design
-pub fn create_amazing_grace_presentation(
-    presentation_design: &PresentationDesign,
-    slide_settings: &SlideSettings,
-) -> RunningPresentation {
-    let slides = slides_from_classic_song(
+/// The slides of the example song, built with the given slide settings.
+///
+/// The same pipeline a real presentation uses, so an example shows the actual
+/// slide types — title slide, content with spoiler, empty last slide — rather
+/// than an approximation. Every preview of a design is built from these: the
+/// cards in the list of designs and the design editor's live preview, which
+/// used to carry a sample song of its own.
+pub fn amazing_grace_slides(slide_settings: &SlideSettings) -> Vec<Slide> {
+    slides_from_classic_song(
         AMAZING_GRACE_SONG,
         slide_settings,
         "Amazing Grace".to_string(),
-    );
-    let source_file = SourceFile {
+    )
+}
+
+/// The element the example slides pretend to come from.
+///
+/// A chapter needs one, and a monitor design's preview needs a chapter because
+/// its layouts show the slides *around* the current one. Nothing reads the
+/// path — the slides are already built — but the name is shown by the slide
+/// list, so it is the song's.
+pub fn amazing_grace_source_file() -> SourceFile {
+    SourceFile {
         name: "Amazing Grace (Example)".to_string(),
         path: PathBuf::new(),
         file_type: SourceFileType::Song,
         md5_hash: None,
         relative_path: None,
-    };
+    }
+}
+
+/// Creates an example presentation with the song Amazing Grace and a given presentation design
+pub fn create_amazing_grace_presentation(
+    presentation_design: &PresentationDesign,
+    slide_settings: &SlideSettings,
+) -> RunningPresentation {
     let slide_chapter = SlideChapter::new(
-        slides,
-        source_file,
+        amazing_grace_slides(slide_settings),
+        amazing_grace_source_file(),
         Some(presentation_design.clone()),
         Some(slide_settings.clone()),
     );

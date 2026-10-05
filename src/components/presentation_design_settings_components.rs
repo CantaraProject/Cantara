@@ -6,13 +6,13 @@ use crate::components::shared_components::{
     MetadataFieldset, NumberedValidatedLengthInput, RangeInput, SettingsSkeleton,
     use_after_first_paint,
 };
-use cantara_songlib::slides::{Slide, SlideSettings};
 use crate::logic::settings::{
     CssSize, DesignKind, HorizontalAlign, MonitorDesign, MonitorLayout, MonitorWidget,
     PresentationDesign, PresentationDesignSettings, PresentationDesignTemplate,
     SpeakerNextPosition, TopBottomLeftRight, VerticalAlign, WidgetKind, WidgetPlacement,
     use_settings,
 };
+use crate::logic::presentation::{amazing_grace_slides, amazing_grace_source_file};
 use crate::logic::sourcefiles::{ImageSourceFile, SourceFile};
 use dioxus::core_macro::{component, rsx};
 use dioxus::dioxus_core::Element;
@@ -1290,60 +1290,6 @@ fn VerticalAlignmentSelector(
     )
 }
 
-/// The song the design preview is built from.
-///
-/// Deliberately tiny and in the classic `.song` format, which every build can
-/// parse without touching the file system: two verses give the preview a
-/// spoiler line and something to page through, and the tags feed whatever meta
-/// syntax the user configured.
-const PREVIEW_SONG: &str = "\
-#title: Amazing Grace
-#author: John Newton
-
-Amazing grace, how sweet the sound
-that saved a wretch like me.
-I once was lost, but now am found,
-was blind, but now I see.
-
-'Twas grace that taught my heart to fear,
-and grace my fears relieved.
-How precious did that grace appear
-the hour I first believed.
-";
-
-/// The slides the preview pages through.
-///
-/// Built by the same pipeline a real presentation uses, with the user's own
-/// slide settings, so the preview shows the actual slide types — title slide,
-/// content with spoiler, empty last slide — rather than an approximation.
-fn preview_slides(slide_settings: &SlideSettings) -> Vec<Slide> {
-    crate::logic::presentation::slides_from_song_content(
-        PREVIEW_SONG,
-        "Amazing Grace.song",
-        slide_settings,
-        "Amazing Grace",
-        // A classic `.song` carries no tags, so there is nothing to map.
-        &[],
-    )
-    .unwrap_or_default()
-}
-
-/// The element the preview slides pretend to come from.
-///
-/// A chapter needs one, and a monitor design's preview needs a chapter because
-/// its layouts show the slides *around* the current one. Nothing reads the
-/// path — the slides are already built — but the name is shown by the slide
-/// list, so it is the song's.
-fn preview_source_file() -> crate::logic::sourcefiles::SourceFile {
-    crate::logic::sourcefiles::SourceFile {
-        name: "Amazing Grace".to_string(),
-        path: PathBuf::from("Amazing Grace.song"),
-        file_type: crate::logic::sourcefiles::SourceFileType::Song,
-        md5_hash: None,
-        relative_path: None,
-    }
-}
-
 /// A live preview of the design being edited.
 ///
 /// It reads the design straight from the settings rather than from a snapshot,
@@ -1371,9 +1317,10 @@ fn PresentationDesignPreview(
 
     let slides = use_memo(move || {
         // The division the preview uses is the service's own choice, so
-        // the preview shows the slides the presentation would build.
+        // the preview shows the slides the presentation would build — from
+        // the same example song the cards in the list of designs show.
         let slide_settings = settings.read().default_song_slide_settings();
-        preview_slides(&slide_settings)
+        amazing_grace_slides(&slide_settings)
     });
 
     let mut position = use_signal(|| 0_usize);
@@ -1396,9 +1343,12 @@ fn PresentationDesignPreview(
         use_signal(|| crate::logic::states::RunningPresentation::new(Vec::new()));
 
     use_effect(move || {
+        // The chapter carries no design: the one being edited is named to
+        // [`DesignedPresentation`] below, so the preview follows every
+        // change to it without this being rebuilt.
         let chapter = crate::logic::states::SlideChapter::new(
             slides.read().clone(),
-            preview_source_file(),
+            amazing_grace_source_file(),
             None,
             None,
         );
@@ -1481,12 +1431,12 @@ fn PresentationDesignPreview(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cantara_songlib::slides::SlideContent;
+    use cantara_songlib::slides::{SlideContent, SlideSettings};
 
     /// The preview is useless if the sample song yields nothing to look at.
     #[test]
     fn test_the_preview_song_produces_slides() {
-        let slides = preview_slides(&SlideSettings::default());
+        let slides = amazing_grace_slides(&SlideSettings::default());
 
         assert!(
             slides.len() > 1,
@@ -1502,7 +1452,7 @@ mod tests {
             title_slide: true,
             ..SlideSettings::default()
         };
-        let slides = preview_slides(&settings);
+        let slides = amazing_grace_slides(&settings);
 
         assert!(
             slides
@@ -1523,11 +1473,11 @@ mod tests {
     /// reach it — otherwise it would show something the presentation will not.
     #[test]
     fn test_the_preview_follows_the_slide_settings() {
-        let with_title = preview_slides(&SlideSettings {
+        let with_title = amazing_grace_slides(&SlideSettings {
             title_slide: true,
             ..SlideSettings::default()
         });
-        let without_title = preview_slides(&SlideSettings {
+        let without_title = amazing_grace_slides(&SlideSettings {
             title_slide: false,
             ..SlideSettings::default()
         });
@@ -1550,8 +1500,8 @@ mod tests {
 
         for design in [PresentationDesign::default()] {
             for slides in [
-                preview_slides(&SlideSettings::default()),
-                preview_slides(&SlideSettings {
+                amazing_grace_slides(&SlideSettings::default()),
+                amazing_grace_slides(&SlideSettings {
                     title_slide: false,
                     empty_last_slide: false,
                     ..SlideSettings::default()
@@ -1633,7 +1583,7 @@ mod tests {
             ..SlideSettings::default()
         };
 
-        let slides = preview_slides(&settings);
+        let slides = amazing_grace_slides(&settings);
         // Whatever comes out, asking for it must not panic and must be usable.
         assert!(slides.len() < 100);
     }
