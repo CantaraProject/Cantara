@@ -128,6 +128,9 @@ pub mod about;
 // Waiting a moment, on the platform's clock rather than the page's.
 pub mod timer;
 
+// Where a dragged item lands, and what moving it does to a list.
+pub mod reorder;
+
 // Unpacking a ZIP somebody else made, without letting it decide how much of
 // this machine it gets.
 pub mod archive;

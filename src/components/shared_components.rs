@@ -3,7 +3,9 @@
 use crate::components::presentation_components::{
     PresentationRendererComponent, PresentationRole,
 };
+use crate::components::reorder::{GRIP_STYLE, ReorderDrag, refuse_native_drag, use_reorder_drag};
 use crate::logic::presentation::{create_amazing_grace_presentation, create_single_item_presentation};
+use crate::logic::reorder::Layout;
 use crate::logic::settings::{CssSize, PresentationDesign, use_settings};
 use crate::logic::states::{RunningPresentation, SelectedItemRepresentation};
 use cantara_songlib::slides::SlideSettings;
@@ -12,7 +14,7 @@ use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::fa_regular_icons::FaTrashCan;
 use dioxus_free_icons::icons::fa_solid_icons::{
-    FaFileCode, FaFilePdf, FaFilm, FaImage, FaMusic, FaPenToSquare,
+    FaFileCode, FaFilePdf, FaFilm, FaGripVertical, FaImage, FaMusic, FaPenToSquare,
 };
 use rust_i18n::t;
 
@@ -113,36 +115,131 @@ pub fn PresentationDesignSelector(
     song_slide_settings: Option<SlideSettings>,
     viewer_width: usize,
     active_item: Signal<Option<usize>>,
+    /// A design was dragged: the one at the first position, into the gap at
+    /// the second — see [`crate::logic::reorder`]. The caller changes the
+    /// list; the selector only says what was asked for.
+    on_move: EventHandler<(usize, usize)>,
 ) -> Element {
     let song_slide_settings = use_signal(|| song_slide_settings.unwrap_or_default());
+    let len = presentation_designs.read().len();
+    let drag = use_reorder_drag(Layout::Grid, DESIGN_LIST_ID, len, move |gap| on_move.call(gap));
 
     rsx! {
         div {
-            class: "presentation-design-selector",
+            id: DESIGN_LIST_ID,
+            class: "presentation-design-selector {drag.container_class()}",
+            onpointermove: move |event: Event<PointerData>| drag.moved(&event.data()),
+            onpointerup: move |_| drag.released(),
+            onpointercancel: move |_| drag.cancelled(),
+            onpointerenter: move |event: Event<PointerData>| drag.entered(&event.data()),
+            ondragstart: refuse_native_drag,
+
             for (index, design) in presentation_designs.read().iter().enumerate() {
-                span {
-                    class: format!("presentation-design-selector-item {}", if active_item() == Some(index) { "active" } else { "" }),
-                    tabindex: index,
+                DesignTile {
                     key: "{index}",
-                    // `content-visibility` used to sit here and was taken out
-                    // again: this element has no size of its own, so a skipped
-                    // tile collapsed and the page height changed as it scrolled
-                    // into view. It now sits one level in, on the frame that
-                    // states its size in pixels — see [`PresentationViewer`],
-                    // where the same idea works because the box cannot
-                    // collapse. Do not put it back here.
-                    SelectablePresentationViewer {
-                        presentation: create_amazing_grace_presentation(design, &song_slide_settings()),
-                        width: viewer_width,
-                        title: design.name.clone(),
-                        index,
-                        current_selection: active_item
-                    }
+                    design: design.clone(),
+                    index,
+                    song_slide_settings: song_slide_settings(),
+                    viewer_width,
+                    active_item,
+                    drag,
                 }
             }
         }
     }
 }
+
+/// One design in the list: its preview, and the grip to carry it by.
+///
+/// A component of its own so that a drag redraws only what it changes. The
+/// carried tile follows the pointer, and if the list itself read where the
+/// pointer is, every move would build every preview again.
+#[component]
+fn DesignTile(
+    design: PresentationDesign,
+    index: usize,
+    song_slide_settings: SlideSettings,
+    viewer_width: usize,
+    active_item: Signal<Option<usize>>,
+    drag: ReorderDrag,
+) -> Element {
+    // The preview is built from the design, and only built again when the
+    // design changes — not each time the tile is drawn somewhere else.
+    let build = |design: &PresentationDesign, settings: &SlideSettings| {
+        (design.clone(), settings.clone(), create_amazing_grace_presentation(design, settings))
+    };
+    let mut preview = use_signal(|| build(&design, &song_slide_settings));
+    let stale = {
+        let current = preview.peek();
+        current.0 != design || current.1 != song_slide_settings
+    };
+    if stale {
+        preview.set(build(&design, &song_slide_settings));
+    }
+    let presentation = preview.peek().2.clone();
+
+    rsx! {
+        span {
+            class: if active_item() == Some(index) {
+                "presentation-design-selector-item active {drag.item_class(index)}"
+            } else {
+                "presentation-design-selector-item {drag.item_class(index)}"
+            },
+            style: drag.item_style(index),
+            // Every tile in the order of the page. It used to be the
+            // tile's position, which made every tile after the first a
+            // *positive* tab index — reached before anything else on
+            // the page.
+            tabindex: 0,
+            "data-reorder-index": "{index}",
+            onmounted: move |event: Event<MountedData>| drag.mounted(index, event),
+            // A mouse or a pen picks the tile up anywhere on it; a
+            // finger only by the grip, so that the page still scrolls
+            // under a finger on the tile.
+            onpointerdown: move |event: Event<PointerData>| drag.press(index, &event.data(), false),
+            onkeydown: move |event: Event<KeyboardData>| {
+                drag.keydown(index, &event, false);
+            },
+            // The grip a finger drags the tile by. Shown always where
+            // the pointer is a finger, and on hover elsewhere — see
+            // `.presentation-design-grip` in `assets/main.css`.
+            span {
+                class: "presentation-design-grip reorder-grip",
+                style: GRIP_STYLE,
+                aria_label: t!("selection.reorder_handle").to_string(),
+                title: t!("selection.reorder_hint").to_string(),
+                onpointerdown: move |event: Event<PointerData>| {
+                    // The tile's own handler would otherwise start the
+                    // same drag a second time.
+                    event.stop_propagation();
+                    drag.press(index, &event.data(), true);
+                },
+                // Pressing the grip is not choosing the design.
+                onclick: move |event: Event<MouseData>| event.stop_propagation(),
+                Icon { icon: FaGripVertical }
+            }
+            // `content-visibility` used to sit here and was taken out
+            // again: this element has no size of its own, so a skipped
+            // tile collapsed and the page height changed as it scrolled
+            // into view. It now sits one level in, on the frame that
+            // states its size in pixels — see [`PresentationViewer`],
+            // where the same idea works because the box cannot
+            // collapse. Do not put it back here.
+            SelectablePresentationViewer {
+                presentation,
+                width: viewer_width,
+                title: design.name.clone(),
+                index,
+                current_selection: active_item,
+                drag,
+            }
+        }
+    }
+}
+
+/// The `id` of the list of designs, which the drag finds its scrolling area
+/// from.
+const DESIGN_LIST_ID: &str = "presentation-design-list";
 
 /// A wrapper component around PresentationViewer that allows selecting it.
 #[component]
@@ -152,6 +249,7 @@ fn SelectablePresentationViewer(
     title: String,
     index: usize,
     current_selection: Signal<Option<usize>>,
+    drag: ReorderDrag,
 ) -> Element {
     rsx! {
         PresentationViewer {
@@ -164,6 +262,11 @@ fn SelectablePresentationViewer(
             // looked at without opening the editor.
             navigable: true,
             onclick: move |_| {
+                // The release at the end of a drag is a click as far as the
+                // browser is concerned. It is not choosing a design.
+                if drag.swallows_click() {
+                    return;
+                }
                 tracing::debug!("Selected Presentation: {}", index);
                 current_selection.set(Some(index));
             }
@@ -400,6 +503,8 @@ pub fn PresentationViewer(
                         r#type: "button",
                         class: "preview-navigation-button",
                         aria_label: t!("settings.design_preview.previous").to_string(),
+                        // Turning the page is not picking the tile up.
+                        onpointerdown: move |event: Event<PointerData>| event.stop_propagation(),
                         onclick: move |event: Event<MouseData>| {
                             // The preview as a whole selects the design; a
                             // click on the arrow only turns the page.
@@ -412,6 +517,7 @@ pub fn PresentationViewer(
                         r#type: "button",
                         class: "preview-navigation-button",
                         aria_label: t!("settings.design_preview.next").to_string(),
+                        onpointerdown: move |event: Event<PointerData>| event.stop_propagation(),
                         onclick: move |event: Event<MouseData>| {
                             event.stop_propagation();
                             presentation_signal.write().next_slide();
@@ -769,5 +875,86 @@ mod length_field_tests {
         );
         // …and the unit follows with it.
         assert!(html.contains("<option selected=true>px"), "got {html}");
+    }
+}
+
+#[cfg(test)]
+mod design_selector_tests {
+    use super::*;
+
+    /// Three designs, the second one chosen, as the settings page draws them.
+    fn rendered() -> String {
+        #[component]
+        fn Harness() -> Element {
+            let designs = use_signal(|| {
+                (0..3)
+                    .map(|number| PresentationDesign {
+                        name: format!("design {number}"),
+                        ..PresentationDesign::default()
+                    })
+                    .collect::<Vec<_>>()
+            });
+            let active = use_signal(|| Some(1));
+            rsx! {
+                PresentationDesignSelector {
+                    presentation_designs: designs,
+                    viewer_width: 400,
+                    active_item: active,
+                    on_move: move |_| {},
+                }
+            }
+        }
+
+        let mut dom = VirtualDom::new(Harness);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    }
+
+    /// The tiles one after another, each with its position, and each a single
+    /// stop in the order of the page. Every tile after the first used to carry
+    /// its position as a *positive* tab index, which put it before everything
+    /// else on the page.
+    #[test]
+    fn test_every_tile_is_one_stop_in_the_order_of_the_page() {
+        let html = rendered();
+
+        assert!(html.contains(r#"id="presentation-design-list""#), "{html}");
+        for index in 0..3 {
+            assert!(html.contains(&format!(r#"data-reorder-index="{index}""#)), "{html}");
+        }
+        assert!(!html.contains(r#"tabindex="1""#), "{html}");
+        assert!(!html.contains(r#"tabindex="2""#), "{html}");
+    }
+
+    /// Every tile has a grip that a finger can drag it by, and it is the one
+    /// part of the tile that claims a touch — the rest of the page must
+    /// scroll under a finger on a tile.
+    #[test]
+    fn test_every_tile_has_a_grip() {
+        let html = rendered();
+
+        assert_eq!(html.matches("presentation-design-grip").count(), 3, "{html}");
+        assert_eq!(html.matches("touch-action: none").count(), 3, "{html}");
+    }
+
+    /// The chosen design is marked, and only that one.
+    #[test]
+    fn test_the_chosen_tile_is_marked() {
+        let html = rendered();
+
+        assert_eq!(html.matches("presentation-design-selector-item active").count(), 1, "{html}");
+    }
+
+    /// Outside a drag there is nothing to show for one.
+    #[test]
+    fn test_no_drag_is_drawn_when_none_is_under_way() {
+        let html = rendered();
+
+        assert!(!html.contains("reorder-marker"), "{html}");
+        assert!(!html.contains("reorder-dragging"), "{html}");
+        assert!(!html.contains("reorder-active"), "{html}");
+        assert!(!html.contains("translate("), "{html}");
+        // Said outright, not left out — see `ReorderDrag::item_style`.
+        assert_eq!(html.matches("transform: none").count(), 3, "{html}");
     }
 }

@@ -477,7 +477,6 @@ pub fn import_design(
 
     if !settings.presentation_designs.contains(&design) {
         settings.presentation_designs.push(design);
-        settings.ensure_slide_settings_for_designs();
         outcome.added = true;
     }
 
@@ -539,7 +538,6 @@ pub fn import_design(
     let mut outcome = DesignImportOutcome::default();
     if !settings.presentation_designs.contains(&package.design) {
         settings.presentation_designs.push(package.design.clone());
-        settings.ensure_slide_settings_for_designs();
         outcome.added = true;
     }
     Ok(outcome)

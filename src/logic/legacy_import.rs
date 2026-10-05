@@ -720,7 +720,7 @@ pub fn apply(
     // says otherwise; Cantara 3's own default sits behind it at position two.
     settings.default_design_index = 0;
     settings.default_slide_settings_index = 0;
-    settings.ensure_slide_settings_for_designs();
+    settings.ensure_default_song_slide_settings();
 
     // There is nothing left for the welcome wizard to ask.
     settings.wizard_completed = true;

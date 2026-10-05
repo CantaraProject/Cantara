@@ -1139,7 +1139,7 @@ pub fn import_designs(
                 .push(slide_settings.clone().into());
         }
     }
-    settings.ensure_slide_settings_for_designs();
+    settings.ensure_default_song_slide_settings();
 }
 
 #[cfg(test)]
@@ -1918,8 +1918,8 @@ mod tests {
             "the design the user already had was added a second time"
         );
         assert!(
-            settings.song_slide_settings.len() >= settings.presentation_designs.len(),
-            "every design needs a slide division beside it"
+            !settings.song_slide_settings.is_empty(),
+            "a presentation cannot be divided into slides without a division"
         );
     }
 
