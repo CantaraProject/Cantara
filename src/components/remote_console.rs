@@ -82,27 +82,29 @@ pub fn RemoteConsoleRoot() -> Element {
 
     // this console → program.
     use_effect(move || {
-        let here = presentations.read().clone();
-        let Some(here) = here.first().cloned() else {
-            // Emptied because the program said so, or because the operator
-            // ended the presentation — in which case the `Quit` has already
-            // been sent by the console itself.
-            return;
-        };
+        presentations.with(|here_list| {
+            let Some(here) = here_list.first().cloned() else {
+                // Emptied because the program said so, or because the operator
+                // ended the presentation — in which case the `Quit` has already
+                // been sent by the console itself.
+                return;
+            };
 
-        // Only what this console actually changed. Without this the update
-        // that arrived from the program would be sent straight back, and the
-        // two ends would keep answering each other.
-        if last_from_program
-            .peek()
-            .as_ref()
-            .is_some_and(|from_program| from_program.eq_ignoring_scroll(&here))
-        {
-            return;
-        }
+            // Only what this console actually changed. Without this the update
+            // that arrived from the program would be sent straight back, and the
+            // two ends would keep answering each other.
+            if last_from_program
+                .peek()
+                .as_ref()
+                .is_some_and(|from_program| from_program.eq_ignoring_scroll(&here))
+            {
+                return;
+            }
 
-        remote_console::send(ConsoleCommand::Update(Box::new(here)));
+            remote_console::send(ConsoleCommand::Update(Box::new(here)));
+        });
     });
+
 
     rsx! {
         PresenterConsolePage {}
