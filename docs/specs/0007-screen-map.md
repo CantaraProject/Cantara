@@ -1,9 +1,12 @@
 # 0007 — A map of the screens, and dropping windows onto it
 
-Status: **concept.** Nothing is built. The open questions in
-[Questions](#questions-that-need-answering) have to be answered before the
-implementation can start; several of them change the shape of the settings
-file, so they are not details to be decided while coding.
+Status: **decided, not built.** The ten questions this document opened have
+been answered and are recorded as [Decisions](#decisions) — each one carries
+what was asked, what was chosen, and what it costs. Three of them change the
+shape of the settings file and one changes shared code the running order
+depends on, so they are worth reading before the first line is written. The
+loose ends the answers themselves created are at the
+[end](#what-the-answers-left-open).
 
 ## The brief
 
@@ -77,7 +80,7 @@ so that it can be tested in Rust.
 That machinery is built for **one-dimensional lists** — it answers "which gap
 between two rows is the pointer nearest". The map needs "which rectangle is the
 pointer inside", which is a different question. See
-[Question 6](#6-does-the-drag-reuse-the-reorder-machinery).
+[D6](#d6-the-pointer-handling-is-shared).
 
 ## Two things that are broken today, and are in scope
 
@@ -102,8 +105,8 @@ until two screens report the same name or none — which is precisely the case
 has. The selection page's view editor does it correctly (`screen_value`); the
 settings page does not.
 
-See [Question 1](#1-what-happens-to-settingspresentation_screen) and
-[Question 2](#2-is-the-presenter-console-still-placed-by-name).
+Both are fixed here: see [D1](#d1-the-screen-drop-down-is-made-to-mean-something-again)
+and [D2](#d2-the-presenter-console-moves-to-screen_key-and-onto-the-map).
 
 ## The map
 
@@ -121,30 +124,37 @@ reported `size` already is.
 the resolution, a mark for the primary, and — the point of the whole exercise —
 the windows currently assigned to it.
 
+**Where it lives.** In the screen settings, once ([D9](#d9-one-map-in-the-screen-settings)).
+It carries every chip there is; the view editor on the selection page keeps its
+drop-down and points at it.
+
 **What is on it.** One chip per thing that wants a screen:
 
 * every enabled view whose output is a screen (`ViewOutput::Screen`),
 * the presenter console, when it is shown in a window of its own,
-* possibly the main window — see
-  [Question 3](#3-is-the-main-window-on-the-map).
+* the main window, as a fixed chip that cannot be dragged
+  ([D3](#d3-the-main-window-is-shown-but-not-draggable)).
 
 A chip sitting on a rectangle means "this window opens on this screen". A chip
-in a holding area beside the map means "automatic" — the view names no screen
-and `place_screen_views` decides. Automatic is a real and common answer, not an
-unset one, so it needs a place on screen; see
-[Question 4](#4-where-does-automatic-live-on-the-map).
+that names no screen is drawn **on the screen it would actually land on**,
+dashed, because `place_screen_views` gives it a definite answer and that answer
+is what the operator came to find out ([D4](#d4-automatic-is-drawn-where-it-lands-and-there-is-a-holding-area-too)).
+A holding area beside the map, labelled "Automatisch", is what such a chip is
+dragged back *to*.
 
 **Dragging.** Picking a chip up and dropping it on a rectangle sets that
 thing's screen to that monitor's `screen_key`. Dropping it on the holding area
 sets it back to `None`. A drop outside anything is no change. The drop-downs
 stay and show the same state — a map is hard to use with a keyboard, and the
 drop-downs are how this stays usable without a pointer
-([Question 7](#7-what-does-this-look-like-without-a-pointer)).
+([D7](#d7-the-drop-downs-are-the-keyboard-path)).
 
-**Live preview.** Dropping takes effect in the settings immediately and is
-saved, as every other setting on these pages is. It does **not** move a window
-that is already open; whether a running service follows a change is
-[Question 5](#5-what-does-a-drop-do-to-a-running-service).
+**When a drop takes effect.** Immediately in the settings, and saved, as every
+other setting on these pages is — but it does not disturb a service that is
+already running. While a presentation runs, a chip that has been moved is drawn
+as pending, with one explicit control to **apply it now**; that is the only
+thing that moves a live window
+([D5](#d5-next-start-by-default-with-an-explicit-apply-now)).
 
 ## Where the code would go
 
@@ -155,12 +165,17 @@ that is already open; whether a running service follows a change is
   including the awkward arrangements: a vertical stack, a portrait screen, a
   negative origin (a screen to the left of the primary reports a negative `x`),
   and the single-screen case.
+* `src/logic/drag.rs` — the pointer handling lifted out of
+  `components/reorder.rs` so that the map and the four existing lists share one
+  ([D6](#d6-the-pointer-handling-is-shared)): the movement threshold, the
+  capture, `touch-action`, measure-once, the auto-scroll at the edge. What a
+  drag *means* stays with each caller — a gap for a list, a rectangle for the
+  map.
 * `src/components/screen_map.rs` — the component: the rectangles, the chips,
-  the pointer handling, the drop.
+  the drop.
 * `assets/screen_map.css` — its styles, beside the other per-feature sheets.
-* Used from `settings_components.rs` (screen settings) and from
-  `presentation_options.rs` (the view editor), which is also where the two
-  callers' differing chip sets are decided.
+* Used from `settings_components.rs` only. `presentation_options.rs` keeps its
+  per-view drop-down and gains a link to the screen settings.
 
 ## Testing
 
@@ -173,146 +188,226 @@ that is already open; whether a running service follows a change is
 * **Playwright**, beside `settings-reorder.spec.js`, for the drag itself: that
   a chip dragged onto a rectangle stays there, that the drop-down beside it
   agrees afterwards, and that a chip dragged to the holding area goes back to
-  automatic. The existing reorder specs show how a pointer drag is driven.
-  Whether monitors can be faked in the test harness at all is
-  [Question 8](#8-can-the-browser-tests-see-more-than-one-screen).
+  automatic. The existing reorder specs show how a pointer drag is driven. The
+  browser build sees no monitors at all, so the suite is fed a fabricated set
+  through a harness hook ([D8](#d8-a-harness-hook-feeds-the-tests-fabricated-screens)).
+* **The existing reorder suites are the regression test for
+  [D6](#d6-the-pointer-handling-is-shared).** `selection-reorder.spec.js` and
+  `settings-reorder.spec.js` cover the four lists whose drag is being moved out
+  from under them; they must pass unchanged, on touch as well as mouse, before
+  the shared module is considered done.
 
-## Questions that need answering
+## Decisions
 
-These are for the user. Each one changes what gets built.
+Ten questions were opened when this spec was written. All ten are answered
+below: what was asked, what was chosen, and — where the choice costs something
+— what it costs. Where the answer differs from what the spec first recommended,
+that is said plainly.
 
-### 1. What happens to `Settings::presentation_screen`?
+### D1. The screen drop-down is made to mean something again
 
-It is dead as a setting (see above). Three ways out:
+**Asked:** `Settings::presentation_screen` is dead as a setting — the only
+reader is `ensure_views`, which runs once, on a pre-0003 settings file. Remove
+the drop-down, make it live again, or leave it?
 
-a. **Remove the drop-down**, keep the field as the migration seed it actually
-   is, and let the map and the view editor be the only places a presentation's
-   screen is chosen. Honest, and one less thing that lies to the user.
-b. **Make it mean something again**: the screen of the reference view, written
-   through to that view. Then the settings page and the selection page are two
-   views of one state, which is the least surprising thing, but it ties a
-   global setting to whichever view happens to be the reference.
-c. Leave it. Not recommended — a control that does nothing is worse than no
-   control.
+**Decided:** make it live again. The spec recommended removing it; the
+drop-down stays instead, and is wired to the screen of the **reference view** —
+the projection — and written through to that view's
+`ViewOutput::Screen { monitor_name }`.
 
-**Recommendation: (a)**, with the map in its place.
+This is the better answer for the person using it. "Auf welchem Bildschirm
+läuft die Präsentation?" is a settings question, and sending them to the
+selection page's view editor to answer it is sending them somewhere they would
+not think to look. The settings page and the selection page then show one piece
+of state from two directions, which is what a user already assumes they do.
 
-### 2. Is the presenter console still placed by name?
+**What it costs.** `presentation_screen` stops being a stored field and becomes
+a *projection* of the reference view — read from it, written to it. Keeping it
+as a second copy would mean two fields drifting apart, with nothing to say
+which one the window will actually use. So:
 
-`presenter_screen` *is* live — it is read when the console window opens. But it
-stores a bare name, which breaks for nameless or duplicate screens. Should it
-be migrated to a `screen_key` (a one-line migration that keeps existing values
-working through the name fallback), and should the console become a chip on the
-map like everything else?
+* The field stays in the struct for `ensure_views` to migrate from, and is
+  marked as what it is: a migration seed, not state.
+* The drop-down reads `settings.reference_view()` and writes that view's
+  output. When there is no reference view — no enabled screen view at all — the
+  drop-down has nothing to point at and is disabled with a line saying so,
+  rather than silently writing somewhere.
+* It writes a `screen_key`, not a name. See [D2](#d2-the-presenter-console-moves-to-screen_key-and-onto-the-map).
 
-**Recommendation: yes to both.**
+### D2. The presenter console moves to `screen_key`, and onto the map
 
-### 3. Is the main window on the map?
+**Asked:** `presenter_screen` is live but stores a bare name, which breaks for
+nameless or duplicate screens. Migrate it to a `screen_key`, and give the
+console a chip?
 
-The main window — the one with the library and the running order — is the
-operator's. It is not placed by Cantara today at all; the window manager puts
-it where it likes, and `window_state.rs` deliberately does **not** remember its
-position, with a stated reason: a window restored onto a screen that has since
-been unplugged is invisible with nothing to say why.
+**Decided:** both.
 
-Showing it on the map as a fixed, non-draggable chip ("you are here") would
-make the picture complete and help an operator orient themselves. Letting it be
-*dragged* means remembering a window position, which contradicts that decision.
+The migration is one pass at load: a stored value with no `#` in it is a name
+from before this change, and is matched against the enumerated monitors by name
+and rewritten as that monitor's key. A name that matches nothing is left alone
+— `resolve_monitor`'s name fallback still handles it, and a screen that is
+merely unplugged today must not lose its assignment permanently.
 
-**Recommendation: show it, do not let it be dragged** — unless you want the
-position remembered after all, in which case that is its own decision with its
-own failure mode.
+The same applies to any `monitor_name` already stored in a view by the settings
+page's old drop-down, which had the same defect.
 
-### 4. Where does "automatic" live on the map?
+### D3. The main window is shown, but not draggable
 
-A view with `monitor_name: None` is not unassigned — `place_screen_views` gives
-it a definite screen, preferring one that is not the primary and that no other
-view has claimed. So a chip could be drawn either:
+**Asked:** does the operator's own window belong on the map, given that
+`window_state.rs` deliberately does not remember a window's position?
 
-a. in a holding area beside the map labelled "Automatisch", honest about the
-   fact that nothing has been chosen; or
-b. **on the screen it would actually land on**, drawn differently (dashed,
-   faded) to say "it is here, but because nothing was chosen, and it may move".
+**Decided:** shown, not draggable — as recommended. It is drawn as a fixed
+chip, visibly different from the others, on whichever screen it is currently
+on. It is "you are here", and it is what makes the map readable: without it an
+operator cannot tell which rectangle they are looking at the map *on*.
 
-(b) tells the operator more — it answers "where will this go?", which is the
-question they came with. But it needs a holding area anyway, as the place to
-drag a chip *back* to.
+Nothing about window positions is remembered, and the reason in
+`window_state.rs` stands untouched.
 
-**Recommendation: (b), plus a holding area to drop onto.**
+### D4. "Automatic" is drawn where it lands, and there is a holding area too
 
-### 5. What does a drop do to a running service?
+**Asked:** does an unassigned chip sit in a holding area, or on the screen
+`place_screen_views` would actually give it?
 
-Views cannot be enabled during a running service today (0003 lists this as not
-done). Can a window be *moved* during one — drop a chip and the window jumps to
-the other screen — or does a change take effect at the next start?
+**Decided:** on the screen it would land on, drawn dashed — and a holding area
+as well, as the place to drag a chip back to.
 
-Moving a live window is the useful version and also the dangerous one: the
-projection goes black for a moment in front of the congregation.
+This is the answer that makes the map worth building. The question an operator
+has is "where will this go?", and a chip in a holding area labelled
+"Automatisch" does not answer it. A dashed chip on the beamer says: here, and
+not because you chose it.
 
-**Recommendation: take effect at the next start**, with the map showing where
-things will go rather than where they are, and the chips marked as pending
-while a service runs. Moving live windows is its own spec.
+**What it costs.** The map must call `place_screen_views` to draw itself, not
+merely to agree with it afterwards — which is the right dependency, and the
+thing the cross-test in [Testing](#testing) guards.
 
-### 6. Does the drag reuse the reorder machinery?
+### D5. Next start by default, with an explicit "apply now"
 
-`reorder.rs` answers a one-dimensional question (which gap). The map asks a
-two-dimensional one (which rectangle). The pointer handling — threshold,
-capture, touch-action, measure-once — is identical and worth sharing; the
-arithmetic is not.
+**Asked:** does a drop move a window that is already open?
 
-Options: factor the pointer handling out of `components/reorder.rs` into
-something both use, or write a second, smaller drag for the map and accept the
-duplication. The first is cleaner and risks disturbing four working lists
-(running order, sidebar, designs, slide settings) shortly after 0006 settled
-them; see [0001](0001-duplicated-code.md) on how the project treats
-duplication.
+**Decided:** not by itself. A drop takes effect at the next start, as
+recommended — **and** a running presentation can be made to follow, through one
+explicit control.
 
-**Recommendation: write the map's drag separately first**, and factor out
-afterwards once the shared part is known rather than guessed. Say if you would
-rather have it shared from the start.
+So, while a service is running, a chip that has been moved is drawn as pending,
+and a button beside the map — "Jetzt übernehmen" — moves the live windows onto
+the screens the map now shows. Nothing moves until it is pressed.
 
-### 7. What does this look like without a pointer?
+This keeps the dangerous thing deliberate. Moving the projection window is a
+moment of black in front of the congregation; that is acceptable when somebody
+has just decided they want it, and not acceptable as a side effect of tidying
+up the settings mid-service.
 
-Keeping the drop-downs is the plain answer, and this spec assumes it. Is that
-enough, or should the chips also be keyboard-operable (focus a chip, arrow keys
-to move it between screens)? The latter is real work for a case the drop-downs
-already cover.
+**What it costs.** Moving a live window is new machinery: the windows opened by
+`start_presentation` are not tracked in a way that lets them be repositioned
+afterwards, and a `tao` window has to be found again, moved, and re-fullscreened
+on the new monitor. This is the largest single piece of work the ten answers
+added, and it is the one most likely to want a stage of its own.
 
-**Recommendation: drop-downs, and the map is the convenience.**
+**Not in scope even so:** enabling or disabling a view during a running service.
+That is still what 0003 left undone, and "apply now" repositions the windows
+that exist rather than opening new ones.
 
-### 8. Can the browser tests see more than one screen?
+### D6. The pointer handling is shared
 
-The Playwright suite runs the web build in a browser, where
-`enumerate_monitors` returns nothing — it is behind `feature = "desktop"`.
-Testing the map end-to-end needs a way to feed it a fabricated set of monitors.
-Is a test-only injection point acceptable (a harness hook, as
-[`src/logic/harness.rs`](../../src/logic/harness.rs) already is for other
-things), or should the browser tests be left to cover only what the web build
-can show, with the geometry covered in Rust alone?
+**Asked:** reuse the reorder drag, or write a second one for the map?
 
-**Recommendation: a harness hook**, so that the drag itself is tested on a
-realistic two-screen arrangement and not only its arithmetic.
+**Decided:** share it. The spec recommended writing the map's drag separately
+and factoring out afterwards; sharing from the start was chosen instead.
 
-### 9. Does the map appear in both places, or one?
+The pointer handling is lifted out of `components/reorder.rs` into a module
+both use — threshold, capture, `touch-action`, measure-once, edge auto-scroll —
+and each caller keeps its own answer to "what is under the pointer": a gap for
+a list, a rectangle for the map.
 
-The screen settings and the selection page's view options both deal with
-screens. Two maps is two places to keep in step; one map means one of those
-pages sends the user to the other.
+**What it costs, and how it is paid.** Four working lists sit on that code —
+the running order, the sidebar, the designs, the slide settings — and 0006
+settled them recently. The protection is that all four are covered by Playwright
+(`selection-reorder.spec.js`, `settings-reorder.spec.js`), so the extraction is
+done **first**, as its own commit, with those suites passing unchanged before
+the map is written at all. If the shared shape turns out to fight the list case,
+the extraction is reverted on its own without touching the map.
 
-**Recommendation: both**, as the same component with a different set of chips —
-the settings map carries the console and the main window, the view editor's
-carries the views. Say if you would rather have it in one place only.
+### D7. The drop-downs are the keyboard path
 
-### 10. What happens when a screen is unplugged while the map is open?
+**Asked:** is keeping the drop-downs enough without a pointer, or do the chips
+need to be keyboard-operable?
 
-The list is refreshed today by a button ("Aktualisieren"). Should the map poll,
-or watch for the platform's display-change event, or keep the button? A chip
-sitting on a screen that is no longer there has to go somewhere — back to the
-holding area, or stay as a ghost that recovers when the screen comes back?
+**Decided:** the drop-downs are enough. The map is the convenience; every
+assignment it can make is also available from a `select`, which is reachable,
+labelled and operable by keyboard and screen reader alike. The map itself is
+marked as presentational so that it is not an obstacle to tab through.
 
-**Recommendation: keep the button, and draw a vanished screen as a ghost
-rectangle** so that an unplugged beamer does not silently lose its assignment —
-which is what `resolve_monitor`'s fallback already tries to protect against.
+### D8. A harness hook feeds the tests fabricated screens
+
+**Asked:** can the Playwright suite see more than one screen?
+
+**Decided:** it cannot — `enumerate_monitors` is behind `feature = "desktop"`
+and the browser build has none — so a test-only injection point is added, in
+the manner of [`src/logic/harness.rs`](../../src/logic/harness.rs), which the
+project already uses for exactly this kind of thing.
+
+The hook supplies a fabricated `Vec<MonitorInfo>`, and the browser suite drives
+the drag against a realistic arrangement: a primary laptop, a beamer to its
+right, a stage monitor above. The geometry stays covered by Rust unit tests;
+the hook is what lets the *drag* be tested end to end rather than only its
+arithmetic.
+
+### D9. One map, in the screen settings
+
+**Asked:** does the map appear in both the screen settings and the selection
+page's view options, or in one place?
+
+**Decided:** one place. The spec recommended both; one was chosen.
+
+**Which place follows from the other answers, and is the screen settings.**
+Three of the chips — the presenter console ([D2](#d2-the-presenter-console-moves-to-screen_key-and-onto-the-map)),
+the main window ([D3](#d3-the-main-window-is-shown-but-not-draggable)) and the
+projection's own drop-down ([D1](#d1-the-screen-drop-down-is-made-to-mean-something-again))
+— belong to the settings page and have no place in a per-view editor. A map in
+the view editor would be the same picture with things missing from it.
+
+So the screen settings carry the one map, with every chip on it, and the view
+editor in `presentation_options.rs` keeps its per-view drop-down and gains a
+link to the settings. A view's screen is settable from both; only the settings
+page draws the picture.
+
+### D10. An unplugged screen's windows are shown on the screen they fall back to
+
+**Asked:** what happens to a chip whose screen has been unplugged — holding
+area, or ghost rectangle?
+
+**Decided:** neither. The vanished screen is not drawn, and its chips appear on
+the screen they would actually land on, dashed — exactly as an "automatic" chip
+does ([D4](#d4-automatic-is-drawn-where-it-lands-and-there-is-a-holding-area-too)).
+The spec had recommended a ghost rectangle; this is simpler and says the same
+true thing.
+
+The assignment itself is **not** cleared. `resolve_monitor` already keeps a
+stored key through a screen's absence and finds it again by name when it comes
+back, and the map must not undo that by rewriting the setting to whatever the
+fallback picked. What is drawn is where the window will go; what is stored is
+what the user asked for. A short line under the map says so when the two differ.
+
+The screen list is refreshed by the existing "Aktualisieren" button; polling
+and display-change events stay out of scope.
+
+## What the answers left open
+
+Three things the decisions themselves created, to be settled when the work is
+planned rather than now:
+
+1. **"Jetzt übernehmen" is a stage of its own.** [D5](#d5-next-start-by-default-with-an-explicit-apply-now)
+   needs the open presentation windows to be findable and movable after the
+   fact, which nothing today requires. The map is useful without it; it should
+   not be what holds the map up.
+2. **The order of the work is fixed by [D6](#d6-the-pointer-handling-is-shared).**
+   The shared-drag extraction lands first, on its own, green. Then the map.
+3. **What "the reference view" means when there is none** is handled by
+   disabling the drop-down ([D1](#d1-the-screen-drop-down-is-made-to-mean-something-again)),
+   which is correct but worth looking at on screen before settling: a disabled
+   control with an explanation may read worse than an enabled one that creates
+   a view.
 
 ## What this is not
 
@@ -320,5 +415,11 @@ which is what `resolve_monitor`'s fallback already tries to protect against.
   system reports; it does not change it. Moving a screen is the desktop's job.
 * Not a window manager. Chips say which screen a window opens on, not where
   within it or at what size — that stays fullscreen-or-maximised as it is now.
-* Not a change to `place_screen_views`. The map is a way of setting the inputs
-  that function already takes.
+* Not a change to `place_screen_views`. The map sets the inputs that function
+  already takes, and calls it to draw itself
+  ([D4](#d4-automatic-is-drawn-where-it-lands-and-there-is-a-holding-area-too));
+  the rule about which window lands where is not touched.
+* Not a way to start or stop a view mid-service. "Jetzt übernehmen"
+  ([D5](#d5-next-start-by-default-with-an-explicit-apply-now)) moves the
+  windows that are open; enabling a view during a running service is still what
+  [0003](0003-add-monitor-view.md) left undone.
