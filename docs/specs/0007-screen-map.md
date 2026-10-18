@@ -165,12 +165,17 @@ thing that moves a live window
   including the awkward arrangements: a vertical stack, a portrait screen, a
   negative origin (a screen to the left of the primary reports a negative `x`),
   and the single-screen case.
-* `src/logic/drag.rs` — the pointer handling lifted out of
+* `src/components/drag.rs` — the pointer handling lifted out of
   `components/reorder.rs` so that the map and the four existing lists share one
   ([D6](#d6-the-pointer-handling-is-shared)): the movement threshold, the
   capture, `touch-action`, measure-once, the auto-scroll at the edge. What a
   drag *means* stays with each caller — a gap for a list, a rectangle for the
   map.
+
+  Beside the components rather than in `logic/`, which this spec first said.
+  `logic/` is where things that can be tested without a page live, and this
+  module is nothing but page: signals, mounted elements and `document::eval`.
+  The arithmetic it leans on is already in `logic/reorder.rs` and stays there.
 * `src/components/screen_map.rs` — the component: the rectangles, the chips,
   the drop.
 * `assets/screen_map.css` — its styles, beside the other per-feature sheets.
@@ -327,6 +332,22 @@ settled them recently. The protection is that all four are covered by Playwright
 done **first**, as its own commit, with those suites passing unchanged before
 the map is written at all. If the shared shape turns out to fight the list case,
 the extraction is reverted on its own without touching the map.
+
+**Built.** [`src/components/drag.rs`](../../src/components/drag.rs) is that
+module. `PointerDrag<T>` owns the press, the threshold, the capture, the
+measuring, the edge scrolling and the release; the caller supplies two things —
+`aim`, asked on every move what the pointer is over, and `on_drop`, given what
+was carried and what it was let go on. `T` is whatever the caller's `aim`
+returns and is never looked into. `ReorderDrag` is now a wrapper over it that
+answers `drop_target` to the first and moves an item to the second, and its
+public API did not change, so the four lists were not touched at all.
+
+The one thing the extraction had to be careful about: a drop zone is not
+necessarily the thing being dragged. In a list they are the same items, which
+is why the old code could use one index for both; on the map the chips are
+dragged and the *monitors* are the zones. So `PointerDrag` counts zones and
+carries the pressed thing's number as an opaque `usize`, and it is the caller's
+business whether the two coincide.
 
 ### D7. The drop-downs are the keyboard path
 

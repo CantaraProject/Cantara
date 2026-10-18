@@ -57,6 +57,10 @@ pub mod detail_components;
 // A list of places to jump to, beside a long view.
 pub mod jump_sidebar;
 
+// Carrying something with a mouse, a pen or a finger: the pointer mechanics
+// every drag in Cantara shares.
+pub mod drag;
+
 // Putting a list in order by dragging it, the same way everywhere.
 pub mod reorder;
 
