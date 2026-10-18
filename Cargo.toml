@@ -188,7 +188,7 @@ debug = false
 lto = true
 codegen-units = 1
 panic = "abort"
-strip = true
+strip = "debuginfo"
 incremental = false
 
 # What `build.rs` needs, which is only a calendar: the about page's copyright

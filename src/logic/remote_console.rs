@@ -190,6 +190,80 @@ pub fn apply(command: ConsoleCommand, presentations: &mut Vec<RunningPresentatio
     }
 }
 
+/// What a remote console and the program last agreed the presentation to be.
+///
+/// A remote console has to send everything the operator does and send back
+/// nothing the program said, or the two ends spend the service answering each
+/// other. Both of those are decided here, and both directions write: this is
+/// not "the last thing the program said" but "the last state the two ends are
+/// known to share".
+///
+/// Remembering only what the program said is what went wrong before. The
+/// program answers a console's change by publishing it, which is no news to
+/// the console that made it and so changes nothing on its screen — and a note
+/// written only when something changed was therefore left holding the
+/// presentation as it stood *before*. The first thing the program ever
+/// publishes is the opening slide, which for a song is its title slide, so
+/// what stood there was usually that. A jump back onto the title slide from
+/// the first verse then looked precisely like a state the program had sent,
+/// was dropped as an echo, and the room stayed on the verse. Reloading the
+/// page cured it because a new connection agrees afresh, which is exactly how
+/// it was reported.
+///
+/// Both methods below write, and either write on its own would have been
+/// enough to cure that jump — which is why the test for it only fails when
+/// neither does. They are both kept because they answer different moments: an
+/// echo confirms an agreement that the program has acted on, and a send
+/// records one it has not been told of yet. Only the second of those closes
+/// the round trip, during which the shared signal is written again by
+/// every scroll report.
+#[derive(Default)]
+pub struct Agreement {
+    state: Option<RunningPresentation>,
+}
+
+impl Agreement {
+    /// Takes in what the program has published, and says whether this console
+    /// has to be moved to it.
+    ///
+    /// `here` is what the console has now; the answer is no when the program
+    /// is only echoing that back. The agreement is noted either way, which is
+    /// the whole point of the type.
+    pub fn program_published(
+        &mut self,
+        theirs: Option<&RunningPresentation>,
+        here: Option<&RunningPresentation>,
+    ) -> bool {
+        self.state = theirs.cloned();
+
+        match (theirs, here) {
+            (Some(theirs), Some(here)) => !theirs.eq_ignoring_scroll(here),
+            // Nothing running at either end: between services.
+            (None, None) => false,
+            // A presentation has begun, or has ended.
+            _ => true,
+        }
+    }
+
+    /// Takes in where the console now stands, and says whether that is news to
+    /// the program.
+    ///
+    /// Noted as it is sent rather than when the program answers: the answer
+    /// arrives as a publication like any other, and until it does this console
+    /// must not offer the same state a second time.
+    pub fn console_moved(&mut self, here: &RunningPresentation) -> bool {
+        if self
+            .state
+            .as_ref()
+            .is_some_and(|agreed| agreed.eq_ignoring_scroll(here))
+        {
+            return false;
+        }
+        self.state = Some(here.clone());
+        true
+    }
+}
+
 /// Counts one connected console for as long as it is held.
 ///
 /// A guard rather than a pair of calls, because the count has to come back
@@ -324,6 +398,78 @@ mod tests {
             !drain(&mut presentations),
             "an empty channel changes nothing"
         );
+    }
+
+    /// What the program publishes must not come straight back to it.
+    #[test]
+    fn what_the_program_published_is_not_sent_back() {
+        let running = presentation_of(3);
+        let mut agreement = Agreement::default();
+
+        assert!(
+            agreement.program_published(Some(&running), None),
+            "a presentation that has begun reaches the console"
+        );
+        assert!(!agreement.console_moved(&running));
+    }
+
+    /// The regression this type exists for.
+    ///
+    /// The state the program published last is not forever a state the console
+    /// may no longer ask for — and the opening slide of a song is its title
+    /// slide, which is why the jump that went nowhere was the jump onto it.
+    #[test]
+    fn going_back_to_the_opening_slide_still_reaches_the_program() {
+        let title = presentation_of(3);
+        let mut first_verse = title.clone();
+        first_verse.next_slide();
+
+        let mut agreement = Agreement::default();
+
+        // The presentation begins: the program publishes the opening slide.
+        assert!(agreement.program_published(Some(&title), None));
+
+        // The operator moves on, and the program is told.
+        assert!(agreement.console_moved(&first_verse));
+
+        // The program answers with what it was just told. Nothing changes on
+        // the console, and that is not the same as nothing having happened.
+        assert!(!agreement.program_published(Some(&first_verse), Some(&first_verse)));
+
+        assert!(
+            agreement.console_moved(&title),
+            "a jump back onto the title slide has to reach the projection"
+        );
+    }
+
+    /// Scrolling a markdown slide is a report, not a command — the same rule
+    /// [`apply`] follows, applied to what is worth sending at all.
+    #[test]
+    fn scrolling_is_nothing_to_tell_the_program() {
+        let running = presentation_of(3);
+        let mut scrolled = running.clone();
+        scrolled.markdown_scroll_position = 240.0;
+
+        let mut agreement = Agreement::default();
+        assert!(agreement.program_published(Some(&running), None));
+        assert!(!agreement.console_moved(&scrolled));
+    }
+
+    #[test]
+    fn between_services_there_is_nothing_to_agree_on() {
+        let mut agreement = Agreement::default();
+        assert!(!agreement.program_published(None, None));
+    }
+
+    /// The end of a presentation is a change like any other: the page has to
+    /// hear about it, or it keeps the ended service on screen with its arrows.
+    #[test]
+    fn the_end_of_a_presentation_reaches_the_console() {
+        let running = presentation_of(2);
+        let mut agreement = Agreement::default();
+
+        assert!(agreement.program_published(Some(&running), None));
+        assert!(agreement.program_published(None, Some(&running)));
     }
 
     #[test]
