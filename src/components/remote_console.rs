@@ -14,7 +14,7 @@
 use dioxus::prelude::*;
 
 use crate::logic::console_host::ConsoleHost;
-use crate::logic::remote_console::{self, ConsoleCommand};
+use crate::logic::remote_console::{self, Agreement, ConsoleCommand};
 use crate::logic::settings::Settings;
 use crate::logic::states::{RunningPresentation, RuntimeInformation};
 
@@ -49,9 +49,12 @@ pub fn RemoteConsoleRoot() -> Element {
         language: rust_i18n::locale().to_string(),
     });
 
-    // What the console last had from the program. A change that came *from*
-    // here must not be sent back as though it were news.
-    let mut last_from_program: Signal<Option<RunningPresentation>> = use_signal(|| None);
+    // What the program and this console last agreed the presentation to be.
+    // Both loops below write it, and nothing else reads it: it is the one
+    // thing keeping a change that travels in both directions from being
+    // answered by the other end. See [`Agreement`] for what goes wrong when it
+    // only remembers one of them.
+    let mut agreement: Signal<Agreement> = use_signal(Agreement::default);
 
     // program → this console.
     use_future(move || async move {
@@ -61,14 +64,14 @@ pub fn RemoteConsoleRoot() -> Element {
             // for the *next* change and not for this one again.
             let current = states.borrow_and_update().clone();
 
-            let changed = match (current.as_ref(), presentations.peek().first()) {
-                (Some(from_program), Some(here)) => !from_program.eq_ignoring_scroll(here),
-                (None, None) => false,
-                _ => true,
-            };
+            // Cloned out before the agreement is written, so that no read of
+            // one signal is open while the other is being written.
+            let here = presentations.peek().first().cloned();
 
-            if changed {
-                last_from_program.set(current.clone());
+            if agreement
+                .write()
+                .program_published(current.as_ref(), here.as_ref())
+            {
                 presentations.set(current.into_iter().collect());
             }
 
@@ -82,27 +85,22 @@ pub fn RemoteConsoleRoot() -> Element {
 
     // this console → program.
     use_effect(move || {
-        presentations.with(|here_list| {
-            let Some(here) = here_list.first().cloned() else {
-                // Emptied because the program said so, or because the operator
-                // ended the presentation — in which case the `Quit` has already
-                // been sent by the console itself.
-                return;
-            };
+        let here = presentations.read().first().cloned();
+        let Some(here) = here else {
+            // Emptied because the program said so, or because the operator
+            // ended the presentation — in which case the `Quit` has already
+            // been sent by the console itself.
+            return;
+        };
 
-            // Only what this console actually changed. Without this the update
-            // that arrived from the program would be sent straight back, and the
-            // two ends would keep answering each other.
-            if last_from_program
-                .peek()
-                .as_ref()
-                .is_some_and(|from_program| from_program.eq_ignoring_scroll(&here))
-            {
-                return;
-            }
+        // Only what the program has not already been told. Without this the
+        // update that arrived from the program would be sent straight back,
+        // and the two ends would keep answering each other.
+        if !agreement.write().console_moved(&here) {
+            return;
+        }
 
-            remote_console::send(ConsoleCommand::Update(Box::new(here)));
-        });
+        remote_console::send(ConsoleCommand::Update(Box::new(here)));
     });
 
 
