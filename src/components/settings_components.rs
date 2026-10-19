@@ -785,6 +785,21 @@ fn upgrade_stored_screen_keys(settings: &mut Signal<Settings>, monitors: &[Monit
     }
 }
 
+/// The view the projection's drop-down stands for, and the screen it names.
+///
+/// The reference view is the projection: it is the sequence of slides
+/// everything else is described against, and the one view a service cannot do
+/// without. `None` when it has no screen to set — every view is served to the
+/// network, or there are none at all.
+#[cfg(feature = "desktop")]
+fn reference_screen_view(settings: &Settings) -> Option<(usize, Option<String>)> {
+    let index = settings.reference_view_position()?;
+    match &settings.views.get(index)?.output {
+        ViewOutput::Screen { monitor_name } => Some((index, monitor_name.clone())),
+        ViewOutput::Network { .. } => None,
+    }
+}
+
 /// What a screen is called in a drop-down.
 ///
 /// A monitor's reported name is often empty, and on some platforms always is,
@@ -956,32 +971,44 @@ fn ScreenSettings() -> Element {
                 class: "grid",
                 div {
                     label { { t!("settings.presentation_screen").to_string() } }
-                    select {
-                        onchange: move |evt| {
-                            let val = evt.value();
-                            settings.write().presentation_screen = if val == "auto" {
-                                None
-                            } else {
-                                Some(val)
-                            };
-                        },
-                        option {
-                            value: "auto",
-                            selected: settings.read().presentation_screen.is_none(),
-                            { t!("settings.automatic").to_string() }
-                        }
-                        for monitor in monitors.read().iter() {
+
+                    // The projection's screen, written through to the
+                    // reference view rather than to a field of its own (D1).
+                    // `presentation_screen` is read by nothing but the
+                    // migration in `ensure_views`, so a drop-down writing it
+                    // was a control that did nothing on every installation
+                    // that has been started since views arrived.
+                    if let Some((index, chosen)) = reference_screen_view(&settings.read()) {
+                        select {
+                            onchange: move |event| {
+                                let value = event.value();
+                                let key = (value != "auto").then_some(value);
+                                assign_screen(&mut settings, ChipKind::View(index), key);
+                            },
                             option {
-                                value: monitor.name.clone(),
-                                selected: settings.read().presentation_screen.as_ref() == Some(&monitor.name),
-                                {
-                                    if monitor.name.is_empty() {
-                                        format!("Monitor {}", monitor.id + 1)
-                                    } else {
-                                        monitor.name.clone()
-                                    }
+                                value: "auto",
+                                selected: chosen.is_none(),
+                                { t!("settings.automatic").to_string() }
+                            }
+                            for monitor in monitors.read().iter() {
+                                option {
+                                    value: screen_key(monitor),
+                                    selected: chosen.as_deref() == Some(screen_key(monitor).as_str()),
+                                    { screen_choice_label(monitor) }
                                 }
                             }
+                        }
+                    } else {
+                        // Nothing to point at: every view is served to the
+                        // network, or there are no views at all. Disabled and
+                        // said outright, rather than quietly writing somewhere
+                        // nothing reads.
+                        select { disabled: true,
+                            option { { t!("settings.automatic").to_string() } }
+                        }
+                        p {
+                            class: "screen-map-note",
+                            { t!("settings.no_screen_view").to_string() }
                         }
                     }
                 }
@@ -1145,5 +1172,130 @@ fn PresentationDesignCard(
                 p { class: "export-save-error", role: "alert", {message} }
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "desktop"))]
+mod tests {
+    use super::*;
+    use crate::logic::settings::{View, ViewFocus};
+
+    fn view(name: &str, output: ViewOutput) -> View {
+        View {
+            id: uuid::Uuid::new_v4(),
+            name: name.to_string(),
+            design_index: None,
+            slide_settings_index: None,
+            output,
+            enabled: true,
+            focus: ViewFocus::Follow,
+        }
+    }
+
+    fn screen_view(name: &str, monitor_name: Option<&str>) -> View {
+        view(
+            name,
+            ViewOutput::Screen {
+                monitor_name: monitor_name.map(str::to_string),
+            },
+        )
+    }
+
+    /// The decision D1 rests on: the projection's drop-down stands for the
+    /// reference view, so what it shows is that view's screen — not a field
+    /// of its own that nothing reads.
+    #[test]
+    fn the_projections_drop_down_reads_the_reference_views_screen() {
+        let settings = Settings {
+            views: vec![
+                screen_view("Projection", Some("Beamer#1")),
+                screen_view("Stage", Some("Bühne#2")),
+            ],
+            reference_view_index: 0,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            reference_screen_view(&settings),
+            Some((0, Some("Beamer#1".to_string())))
+        );
+    }
+
+    /// It follows the reference wherever it is, rather than assuming the
+    /// projection is the first view in the list.
+    #[test]
+    fn it_follows_the_reference_view_rather_than_the_first_one() {
+        let settings = Settings {
+            views: vec![
+                screen_view("Stage", Some("Bühne#2")),
+                screen_view("Projection", Some("Beamer#1")),
+            ],
+            reference_view_index: 1,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            reference_screen_view(&settings),
+            Some((1, Some("Beamer#1".to_string())))
+        );
+    }
+
+    /// A reference view that names no screen is "automatic", which is a real
+    /// answer and not an absent one: the drop-down is still live and shows it.
+    #[test]
+    fn a_reference_view_with_no_screen_chosen_is_still_offered() {
+        let settings = Settings {
+            views: vec![screen_view("Projection", None)],
+            reference_view_index: 0,
+            ..Default::default()
+        };
+
+        assert_eq!(reference_screen_view(&settings), Some((0, None)));
+    }
+
+    /// A reference view served to the network has no screen to set, and the
+    /// drop-down says so instead of writing somewhere nothing reads.
+    #[test]
+    fn a_network_reference_view_offers_no_screen() {
+        let settings = Settings {
+            views: vec![view(
+                "Stream",
+                ViewOutput::Network {
+                    path: "/".to_string(),
+                },
+            )],
+            reference_view_index: 0,
+            ..Default::default()
+        };
+
+        assert_eq!(reference_screen_view(&settings), None);
+    }
+
+    /// No views at all — nothing to point the drop-down at.
+    #[test]
+    fn no_views_offer_no_screen() {
+        let settings = Settings {
+            views: Vec::new(),
+            ..Default::default()
+        };
+
+        assert_eq!(reference_screen_view(&settings), None);
+    }
+
+    /// A stored reference position that is out of date still names a view,
+    /// the same one the rest of the program would use. A service is not the
+    /// place to find out that an index has gone stale.
+    #[test]
+    fn a_stale_reference_position_still_names_a_view() {
+        let settings = Settings {
+            views: vec![screen_view("Projection", Some("Beamer#1"))],
+            reference_view_index: 17,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            reference_screen_view(&settings),
+            Some((0, Some("Beamer#1".to_string())))
+        );
     }
 }

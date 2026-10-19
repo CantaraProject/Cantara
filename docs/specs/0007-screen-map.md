@@ -1,6 +1,6 @@
 # 0007 — A map of the screens, and dropping windows onto it
 
-Status: **the map is built; three decisions are not.** The ten questions this document opened have
+Status: **the map is built; two decisions are not.** The ten questions this document opened have
 been answered and are recorded as [Decisions](#decisions) — each one carries
 what was asked, what was chosen, and what it costs. Three of them change the
 shape of the settings file and one changes shared code the running order
@@ -8,13 +8,12 @@ depends on, so they are worth reading before the first line is written. The
 loose ends the answers themselves created are at the
 [end](#what-the-answers-left-open).
 
-What is built: the map itself, with the chips and the dragging — D2, D3, D4,
-D6, D7, D9 and D10. What is not: **D1** (the projection's drop-down still
-writes the dead `presentation_screen` field and is still a control that does
-nothing), **D5** ("Jetzt übernehmen" — a change takes effect at the next start
-and there is no way to move a running service's windows), and **D8** (no
-harness hook, so no browser test touches the map; the geometry and the chip
-placement are covered by Rust tests alone).
+What is built: the map itself with the chips and the dragging, and the
+projection's drop-down — D1, D2, D3, D4, D6, D7, D9 and D10. What is not:
+**D5** ("Jetzt übernehmen" — a change takes effect at the next start and there
+is no way to move a running service's windows) and **D8** (no harness hook, so
+no browser test touches the map; the geometry and the chip placement are
+covered by Rust tests alone).
 
 ## The brief
 
@@ -246,6 +245,25 @@ which one the window will actually use. So:
   drop-down has nothing to point at and is disabled with a line saying so,
   rather than silently writing somewhere.
 * It writes a `screen_key`, not a name. See [D2](#d2-the-presenter-console-moves-to-screen_key-and-onto-the-map).
+
+**Built.** The drop-down reads and writes the reference view's
+`ViewOutput::Screen`, through the same `assign_screen` the map's drop uses, so
+the picture and the drop-down are one piece of state and cannot come to mean
+different things. `presentation_screen` stays in the struct and is documented
+as what it is: a seed `ensure_views` reads once, on a settings file written
+before views existed, and nothing else reads at all.
+
+`Settings::reference_view_position` was added for it — the same answer
+`reference_view` gives, as a position rather than a borrow, so that an editor
+can write to that view. A test pins the two together, because a drop-down
+writing a different view than the rest of the program reads would be a bug
+nobody would see until a service.
+
+Where there is no reference view with a screen — it is served to the network,
+or there are no views at all — the drop-down is disabled and says why. That is
+the reading [the open questions](#what-the-answers-left-open) flagged as worth
+looking at on screen before settling; it is built the cautious way and can
+still be changed to offer creating a view instead.
 
 ### D2. The presenter console moves to `screen_key`, and onto the map
 

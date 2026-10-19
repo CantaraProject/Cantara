@@ -314,6 +314,10 @@ settings:
   presenter_screen:
     en: Presenter Console Screen
     de: Moderatorenkonsolen-Bildschirm
+  no_screen_view:
+    en: "There is no view that goes to a screen, so there is no presentation screen to choose. Add one under the presentation options."
+    de: "Es gibt keine Ansicht, die auf einen Bildschirm geht, also ist auch kein Präsentationsbildschirm zu wählen. Fügen Sie eine in den Präsentationsoptionen hinzu."
+
   automatic:
     en: Automatic
     de: Automatisch
