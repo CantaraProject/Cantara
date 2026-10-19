@@ -1,0 +1,182 @@
+/* The map of the screens, and the chips dropped onto them.
+ *
+ * See `src/components/screen_map.rs` and
+ * `docs/specs/0007-screen-map.md`. Colours are Pico's own variables
+ * throughout, so the map follows the light and dark themes without knowing
+ * which one it is in.
+ */
+
+.screen-map {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-block: 0.5rem 0.25rem;
+    /* A drag that leaves the map still belongs to it — the pointer is
+     * captured — but the browser would happily select the labels it passes
+     * over on the way. */
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* The box the screens are laid out in. Its aspect ratio is set inline, from
+ * the same constants the placement arithmetic uses, so that the percentages
+ * below describe the arrangement the platform reports. */
+.screen-map-stage {
+    position: relative;
+    width: 100%;
+    background: var(--pico-background-color);
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    /* Room for the screens to breathe inside the frame. */
+    padding: 0.25rem;
+}
+
+.screen-map-screen {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    overflow: hidden;
+    padding: 0.35rem 0.45rem;
+    box-sizing: border-box;
+    border: 2px solid var(--pico-muted-border-color);
+    border-radius: calc(var(--pico-border-radius) * 0.75);
+    background: var(--pico-card-background-color);
+    transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+/* The screen the pointer is over while something is being carried. */
+.screen-map-screen.screen-map-over,
+.screen-map-holding.screen-map-over {
+    border-color: var(--pico-primary);
+    background: var(--pico-primary-background);
+}
+
+.screen-map-screen-name {
+    font-weight: 600;
+    font-size: 0.8rem;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.screen-map-screen-size,
+.screen-map-primary {
+    font-size: 0.7rem;
+    line-height: 1.1;
+    color: var(--pico-muted-color);
+}
+
+.screen-map-primary {
+    font-style: italic;
+}
+
+/* Where a screen's windows are stacked. Wraps, because a screen may carry
+ * several and the rectangle is only as wide as the screen really is. */
+.screen-map-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 0.2rem;
+    margin-top: 0.15rem;
+    min-height: 1.2rem;
+}
+
+.screen-map-chip {
+    padding: 0.1rem 0.4rem;
+    font-size: 0.72rem;
+    line-height: 1.3;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-radius: 999px;
+    border: 1px solid var(--pico-primary);
+    background: var(--pico-primary);
+    color: var(--pico-primary-inverse);
+    cursor: grab;
+}
+
+/* A chip that is where it is because something worked it out, not because
+ * anybody chose it: an "automatic" view, or one whose screen is unplugged.
+ * Dashed and hollow, so that the difference is visible at a glance without
+ * having to read anything. */
+.screen-map-chip-inferred {
+    border-style: dashed;
+    background: transparent;
+    color: var(--pico-primary);
+}
+
+/* The main window. Shown to orient by, and not draggable. */
+.screen-map-chip-fixed {
+    cursor: default;
+    border-style: solid;
+    border-color: var(--pico-muted-border-color);
+    background: transparent;
+    color: var(--pico-muted-color);
+}
+
+/* The chip being carried. Lifted off the map and out of the way of the
+ * pointer's own hit testing, so that the screen underneath is what the drop
+ * resolves against. */
+.screen-map-chip-carried {
+    cursor: grabbing;
+    pointer-events: none;
+    position: relative;
+    z-index: 10;
+    box-shadow: var(--pico-box-shadow);
+    opacity: 0.9;
+}
+
+/* While a drag is under way, no chip answers the pointer: what is under it
+ * should be the screen it would be dropped on. */
+.screen-map-active .screen-map-chip {
+    pointer-events: none;
+}
+
+/* Where a chip goes back to when it should be worked out rather than chosen. */
+.screen-map-holding {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    padding: 0.4rem 0.6rem;
+    border: 1px dashed var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    background: var(--pico-background-color);
+    transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.screen-map-holding-label {
+    font-size: 0.78rem;
+    color: var(--pico-muted-color);
+}
+
+.screen-map-holding .screen-map-chips {
+    margin-top: 0;
+    min-height: 0;
+}
+
+/* Said when what is drawn and what is stored have come apart — a screen that
+ * is not plugged in at the moment. */
+.screen-map-note {
+    margin-block: 0.25rem 0.75rem;
+    font-size: 0.8rem;
+    font-style: italic;
+    color: var(--pico-muted-color);
+}
+
+/* On a phone the map is still worth showing — it is a picture, and it keeps
+ * its proportions — but the labels inside a small rectangle are not. The
+ * drop-downs underneath remain the way to set anything there. */
+@media (max-width: 480px) {
+    .screen-map-screen-size,
+    .screen-map-primary {
+        display: none;
+    }
+
+    .screen-map-chip {
+        font-size: 0.65rem;
+    }
+}

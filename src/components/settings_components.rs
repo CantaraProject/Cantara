@@ -9,7 +9,9 @@ use crate::logic::tag_mapping::TagMapping;
 use super::jump_sidebar::{JumpSidebar, JumpTarget, scroll_to_section, use_section_spy};
 use super::song_slide_settings_components::SongSlideSettingsSection;
 #[cfg(feature = "desktop")]
-use crate::logic::screens::{MonitorInfo, enumerate_monitors};
+use crate::logic::screens::{MonitorInfo, enumerate_monitors, screen_key, upgrade_screen_key};
+#[cfg(feature = "desktop")]
+use super::screen_map::{ChipKind, ScreenMap, settings_chips};
 use crate::{Route, logic::settings::*};
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
@@ -743,6 +745,91 @@ fn PresentationSettings() -> Element {
     }
 }
 
+/// Rewrites every screen a settings file names as a [`screen_key`].
+///
+/// The settings page used to store a bare `monitor.name`; see
+/// [`crate::logic::screens::upgrade_screen_key`] for why that is not enough.
+/// Nothing is written unless something actually changed, so a visit to the
+/// settings does not touch the file for no reason.
+#[cfg(feature = "desktop")]
+fn upgrade_stored_screen_keys(settings: &mut Signal<Settings>, monitors: &[MonitorInfo]) {
+    if monitors.is_empty() {
+        return;
+    }
+
+    let mut changed = false;
+    {
+        let mut writing = settings.write();
+
+        let upgraded = upgrade_screen_key(&writing.presenter_screen, monitors);
+        if upgraded != writing.presenter_screen {
+            writing.presenter_screen = upgraded;
+            changed = true;
+        }
+
+        for view in writing.views.iter_mut() {
+            if let ViewOutput::Screen { monitor_name } = &view.output {
+                let upgraded = upgrade_screen_key(monitor_name, monitors);
+                if upgraded != *monitor_name {
+                    view.output = ViewOutput::Screen {
+                        monitor_name: upgraded,
+                    };
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    if changed {
+        settings.read().save();
+    }
+}
+
+/// What a screen is called in a drop-down.
+///
+/// A monitor's reported name is often empty, and on some platforms always is,
+/// so a list of blank entries is a real possibility. The size stands in: two
+/// screens on a machine are nearly always different sizes, and "1920 × 1080"
+/// is something the user can match against what is in front of them.
+#[cfg(feature = "desktop")]
+fn screen_choice_label(monitor: &MonitorInfo) -> String {
+    let size = format!("{} × {}", monitor.size.0, monitor.size.1);
+    match monitor.name.trim().is_empty() {
+        true => format!("{} ({size})", monitor.id + 1),
+        false => format!("{} ({size})", monitor.name),
+    }
+}
+
+/// Puts a window on a screen, or back to "automatic".
+///
+/// What a drop on the map does, and what the drop-downs beside it do — one
+/// function, so that the two ways of saying the same thing cannot come to mean
+/// different things.
+///
+/// `key` is a [`crate::logic::screens::screen_key`], never a bare name: a name
+/// is frequently empty and frequently shared between two identical monitors,
+/// and a view pointed at one would match the first screen or every screen
+/// (D2).
+#[cfg(feature = "desktop")]
+fn assign_screen(settings: &mut Signal<Settings>, kind: ChipKind, key: Option<String>) {
+    {
+        let mut writing = settings.write();
+        match kind {
+            ChipKind::View(index) => {
+                if let Some(view) = writing.views.get_mut(index) {
+                    view.output = ViewOutput::Screen { monitor_name: key };
+                }
+            }
+            ChipKind::PresenterConsole => writing.presenter_screen = key,
+            // Where the main window sits is the window manager's business.
+            // It is drawn so that the operator can tell which rectangle they
+            // are looking at the map on, and nothing more (D3).
+            ChipKind::MainWindow => {}
+        }
+    }
+    settings.read().save();
+}
+
 /// Component for configuring screen/monitor settings for multi-screen presentation.
 /// Only available on desktop platforms.
 #[cfg(feature = "desktop")]
@@ -751,10 +838,15 @@ fn ScreenSettings() -> Element {
     let mut settings = use_settings();
     let mut monitors: Signal<Vec<MonitorInfo>> = use_signal(Vec::new);
 
-    // Enumerate monitors on mount
+    // Enumerate monitors on mount, and upgrade anything the old settings
+    // page stored as a bare name while the screens are in hand (D2). It runs
+    // on every visit and does nothing the second time: a value that is already
+    // a key is left alone.
     use_effect(move || {
         let desktop = dioxus::desktop::window();
-        monitors.set(enumerate_monitors(&desktop));
+        let found = enumerate_monitors(&desktop);
+        upgrade_stored_screen_keys(&mut settings, &found);
+        monitors.set(found);
     });
 
     let refresh_monitors = move |_| {
@@ -839,24 +931,21 @@ fn ScreenSettings() -> Element {
                     { t!("settings.no_monitors_detected").to_string() }
                 }
             } else {
-                for monitor in monitors.read().iter() {
-                    div {
-                        style: "margin-bottom: 5px; padding: 5px; border-bottom: 1px solid var(--pico-muted-border-color);",
-                        strong { { monitor.name.clone() } }
-                        if monitor.name.is_empty() {
-                            strong { { format!("Monitor {}", monitor.id + 1) } }
-                        }
-                        span {
-                            style: "margin-left: 10px; color: var(--pico-muted-color);",
-                            { format!("{}x{}", monitor.size.0, monitor.size.1) }
-                        }
-                        if monitor.is_primary {
-                            span {
-                                style: "margin-left: 10px; font-style: italic;",
-                                { format!("({})", t!("settings.primary_monitor")) }
-                            }
-                        }
-                    }
+                // The screens as they are actually arranged, with the windows
+                // that go on them — see `docs/specs/0007-screen-map.md`. The
+                // drop-downs below say the same thing and are the way to set
+                // it without a pointer (D7); this is the picture that answers
+                // "which rectangle is the beamer?".
+                p {
+                    class: "screen-map-intro",
+                    { t!("settings.screen_map.description").to_string() }
+                }
+                ScreenMap {
+                    monitors: monitors.read().clone(),
+                    chips: settings_chips(&settings.read()),
+                    on_assign: move |(kind, key): (ChipKind, Option<String>)| {
+                        assign_screen(&mut settings, kind, key);
+                    },
                 }
             }
         }
@@ -898,14 +987,15 @@ fn ScreenSettings() -> Element {
                 }
                 div {
                     label { { t!("settings.presenter_screen").to_string() } }
+                    // The same state the console's chip on the map shows, set
+                    // the same way — through `assign_screen`, so the picture
+                    // and the drop-down cannot come to mean different things.
+                    // This is the keyboard path (D7).
                     select {
                         onchange: move |evt| {
-                            let val = evt.value();
-                            settings.write().presenter_screen = if val == "auto" {
-                                None
-                            } else {
-                                Some(val)
-                            };
+                            let value = evt.value();
+                            let key = (value != "auto").then_some(value);
+                            assign_screen(&mut settings, ChipKind::PresenterConsole, key);
                         },
                         option {
                             value: "auto",
@@ -914,15 +1004,13 @@ fn ScreenSettings() -> Element {
                         }
                         for monitor in monitors.read().iter() {
                             option {
-                                value: monitor.name.clone(),
-                                selected: settings.read().presenter_screen.as_ref() == Some(&monitor.name),
-                                {
-                                    if monitor.name.is_empty() {
-                                        format!("Monitor {}", monitor.id + 1)
-                                    } else {
-                                        monitor.name.clone()
-                                    }
-                                }
+                                // The whole key, not the bare name: a name is
+                                // often empty and often shared between two
+                                // identical monitors (D2).
+                                value: screen_key(monitor),
+                                selected: settings.read().presenter_screen.as_deref()
+                                    == Some(screen_key(monitor).as_str()),
+                                { screen_choice_label(monitor) }
                             }
                         }
                     }

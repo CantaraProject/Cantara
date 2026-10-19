@@ -207,6 +207,11 @@ pub mod web_storage;
 #[cfg(feature = "desktop")]
 pub mod screens;
 
+// Where each screen is drawn on the map of them, and what the pointer is over.
+// Gated with [`screens`], whose `MonitorInfo` it lays out.
+#[cfg(feature = "desktop")]
+pub mod screen_map;
+
 // What has to be true of the environment before a window is opened.
 #[cfg(feature = "desktop")]
 pub mod window_platform;

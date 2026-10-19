@@ -64,6 +64,11 @@ pub mod drag;
 // Putting a list in order by dragging it, the same way everywhere.
 pub mod reorder;
 
+// The screens drawn as they are arranged, with the windows that go on them.
+// Only a desktop build has screens to draw — see [`crate::logic::screens`].
+#[cfg(feature = "desktop")]
+pub mod screen_map;
+
 // Creating an element, and moving one between repositories.
 pub mod element_creation;
 

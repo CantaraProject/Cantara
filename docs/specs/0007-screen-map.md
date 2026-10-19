@@ -1,12 +1,20 @@
 # 0007 — A map of the screens, and dropping windows onto it
 
-Status: **decided, not built.** The ten questions this document opened have
+Status: **the map is built; three decisions are not.** The ten questions this document opened have
 been answered and are recorded as [Decisions](#decisions) — each one carries
 what was asked, what was chosen, and what it costs. Three of them change the
 shape of the settings file and one changes shared code the running order
 depends on, so they are worth reading before the first line is written. The
 loose ends the answers themselves created are at the
 [end](#what-the-answers-left-open).
+
+What is built: the map itself, with the chips and the dragging — D2, D3, D4,
+D6, D7, D9 and D10. What is not: **D1** (the projection's drop-down still
+writes the dead `presentation_screen` field and is still a control that does
+nothing), **D5** ("Jetzt übernehmen" — a change takes effect at the next start
+and there is no way to move a running service's windows), and **D8** (no
+harness hook, so no browser test touches the map; the geometry and the chip
+placement are covered by Rust tests alone).
 
 ## The brief
 
@@ -412,6 +420,37 @@ what the user asked for. A short line under the map says so when the two differ.
 
 The screen list is refreshed by the existing "Aktualisieren" button; polling
 and display-change events stay out of scope.
+
+## What was built
+
+[`src/logic/screen_map.rs`](../../src/logic/screen_map.rs) holds the
+arithmetic: the bounding box of a set of monitors, the transform into the box
+the map is drawn in, and which screen a point is inside. One scale for both
+directions so a screen keeps its shape, the arrangement centred in whichever
+direction it does not fill, and a floor on how small a screen may be drawn —
+without it, a 1024×768 auxiliary beside a 5K display is a sliver a few pixels
+wide, which is in proportion and useless. Sixteen tests cover the vertical
+stack, the portrait screen, the negative origin, one screen, no screens, a box
+with no room, a screen reporting no size, and the seam between two screens.
+
+[`src/components/screen_map.rs`](../../src/components/screen_map.rs) draws it
+and carries the decisions. Its own tests are about where a chip is *drawn*
+rather than about pixels: a chosen screen is solid, an inferred one is dashed,
+two automatic views never land on the same screen, and a chip whose screen is
+unplugged moves to its fallback while the stored key stays put.
+
+One thing worth recording, because it was nearly got wrong. The drop's hit test
+runs over the rectangles **the page laid out**, not the ones `place_all`
+computed — a border, a padding or a rounding in the CSS would otherwise put the
+seam between two screens somewhere other than where the operator is aiming. The
+measured rectangles are fed through the same `screen_at` the arithmetic is
+tested on, so there is one hit test rather than two that could disagree.
+
+Two things were fixed along the way that D2 called for: the console's
+drop-down now writes a `screen_key` rather than a bare name, and
+`upgrade_screen_key` migrates what earlier versions stored. A name matching no
+connected screen is **kept, not cleared** — the beamer is probably in the
+cupboard, and clearing it would move the projection to the laptop for good.
 
 ## What the answers left open
 

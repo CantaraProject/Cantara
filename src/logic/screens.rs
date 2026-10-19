@@ -79,6 +79,32 @@ fn monitor_by_key<'a>(monitors: &'a [MonitorInfo], key: &str) -> Option<&'a Moni
     monitors.iter().find(|monitor| monitor.name == name)
 }
 
+/// Turns a stored screen name from before [`screen_key`] into a key.
+///
+/// The settings page used to write `monitor.name` where everything else
+/// expects a key. It worked through the name fallback in [`monitor_by_key`],
+/// right up until two screens report the same name or none — which is exactly
+/// what `screen_key` exists for, and exactly what a hall with two identical
+/// monitors has. See decision D2 of `docs/specs/0007-screen-map.md`.
+///
+/// A value with a `#` in it is already a key and is left alone. A bare name
+/// that matches a screen that is here becomes that screen's key. A bare name
+/// that matches nothing is left alone rather than cleared: the screen is
+/// probably just unplugged, and the fallback still finds it when it comes
+/// back. Clearing it would quietly move the projection to the laptop and keep
+/// it there.
+pub fn upgrade_screen_key(stored: &Option<String>, monitors: &[MonitorInfo]) -> Option<String> {
+    let name = stored.as_ref()?;
+    if name.contains('#') || name.is_empty() {
+        return stored.clone();
+    }
+    monitors
+        .iter()
+        .find(|monitor| monitor.name == *name)
+        .map(screen_key)
+        .or_else(|| stored.clone())
+}
+
 /// Resolves which monitor to use for presentation based on settings.
 /// If `configured_name` is Some, tries to find a monitor with that name.
 /// Otherwise, prefers a non-primary monitor (for presentation) or primary monitor (for presenter console).
@@ -507,5 +533,67 @@ mod tests {
 
         assert_eq!(placed.len(), 1);
         assert_eq!(placed[0].monitor, None);
+    }
+
+    /// A bare name written by the old settings page becomes the key
+    /// everything else expects.
+    #[test]
+    fn a_stored_name_is_upgraded_to_a_key() {
+        let monitors = vec![monitor(0, "Laptop", true), monitor(1, "Beamer", false)];
+
+        let upgraded = upgrade_screen_key(&Some("Beamer".to_string()), &monitors);
+
+        assert_eq!(upgraded, Some(screen_key(&monitors[1])));
+    }
+
+    /// A value that is already a key is left exactly as it is, so that the
+    /// migration can run on every load without doing anything the second
+    /// time.
+    #[test]
+    fn a_key_survives_the_upgrade_unchanged() {
+        let monitors = vec![monitor(0, "Laptop", true), monitor(1, "Beamer", false)];
+        let key = screen_key(&monitors[1]);
+
+        assert_eq!(upgrade_screen_key(&Some(key.clone()), &monitors), Some(key));
+    }
+
+    /// A name matching no screen that is plugged in right now is kept, not
+    /// cleared. The beamer is probably in the cupboard, and clearing it would
+    /// move the projection to the laptop for good.
+    #[test]
+    fn a_name_whose_screen_is_absent_is_kept() {
+        let monitors = vec![monitor(0, "Laptop", true)];
+
+        let upgraded = upgrade_screen_key(&Some("Beamer".to_string()), &monitors);
+
+        assert_eq!(upgraded, Some("Beamer".to_string()));
+    }
+
+    /// "Automatic" stays automatic.
+    #[test]
+    fn nothing_stored_upgrades_to_nothing() {
+        let monitors = vec![monitor(0, "Laptop", true)];
+
+        assert_eq!(upgrade_screen_key(&None, &monitors), None);
+    }
+
+    /// A name that was upgraded resolves to the screen it names, which is the
+    /// whole point of doing it.
+    #[test]
+    fn an_upgraded_key_resolves_to_the_right_screen_among_namesakes() {
+        let monitors = vec![
+            monitor(0, "Laptop", true),
+            monitor(1, "BenQ", false),
+            monitor(2, "BenQ", false),
+        ];
+
+        let upgraded = upgrade_screen_key(&Some("BenQ".to_string()), &monitors);
+        let resolved = resolve_monitor(&monitors, &upgraded, false);
+
+        assert_eq!(
+            resolved.map(|monitor| monitor.id),
+            Some(1),
+            "the upgrade did not pin the choice to one of the two namesakes"
+        );
     }
 }
