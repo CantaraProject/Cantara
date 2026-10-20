@@ -164,7 +164,7 @@ fn InlineEditable(
                             }
                         },
                         onkeydown: move |event: Event<KeyboardData>| {
-                            if event.key() == Key::Escape {
+                            if event.key() == Key::Named(NamedKey::Escape) {
                                 editing.set(false);
                             }
                         },
@@ -192,8 +192,8 @@ fn InlineEditable(
                             let value = value.clone();
                             move |event: Event<KeyboardData>| {
                                 match event.key() {
-                                    Key::Escape => editing.set(false),
-                                    Key::Enter => {
+                                    Key::Named(NamedKey::Escape) => editing.set(false),
+                                    Key::Named(NamedKey::Enter) => {
                                         editing.set(false);
                                         let text = draft();
                                         if text != value {

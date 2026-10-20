@@ -468,7 +468,7 @@ pub fn PresentationPage() -> Element {
                 // Close context menu on any key press
                 show_context_menu.set(false);
                 match event.key() {
-                    Key::F5 | Key::F11 => {
+                    Key::Named(NamedKey::F5) | Key::Named(NamedKey::F11) => {
                         #[cfg(feature = "desktop")]
                         {
                             let desktop = dioxus::desktop::window();
@@ -491,7 +491,7 @@ pub fn PresentationPage() -> Element {
                             });
                         }
                     }
-                    Key::Escape => {
+                    Key::Named(NamedKey::Escape) => {
                         quit_presentation();
                     }
                     Key::Character(ref c) if c == "b" || c == "B" || c == "." => {
@@ -950,9 +950,9 @@ pub fn PresentationRendererComponent(
             onkeydown: move |event: Event<KeyboardData>| {
                 let key = event.key();
                 match key {
-                    Key::ArrowRight | Key::ArrowDown | Key::PageDown | Key::Enter => go_to_next_slide(),
+                    Key::Named(NamedKey::ArrowRight) | Key::Named(NamedKey::ArrowDown) | Key::Named(NamedKey::PageDown) | Key::Named(NamedKey::Enter) => go_to_next_slide(),
                     Key::Character(ref c) if c == " " => go_to_next_slide(),
-                    Key::ArrowLeft | Key::ArrowUp | Key::PageUp => go_to_previous_slide(),
+                    Key::Named(NamedKey::ArrowLeft) | Key::Named(NamedKey::ArrowUp) | Key::Named(NamedKey::PageUp) => go_to_previous_slide(),
                     _ => {}
                 }
             },
@@ -1412,6 +1412,17 @@ pub(crate) fn abcjs_vocal_font(font: &FontRepresentation, size: &CssSize) -> Str
     format!("{} {}", family.replace(['"', '\''], ""), points.round())
 }
 
+/// A number that is the same for the same tree and different for each scope
+/// within it. `ScopeId` keeps its `usize` private since Dioxus 0.8, but is
+/// `Hash`, and `DefaultHasher::new()` has fixed keys, so hashing it is as
+/// stable as the number itself was.
+fn scope_handle() -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    dioxus::core::current_scope_id().hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Renders one ABC notation snippet with [abcjs](https://abcjs.net).
 ///
 /// Each notation row handed over by the song library is a complete ABC tune —
@@ -1461,7 +1472,7 @@ pub(crate) fn AbcNotationRenderer(
     // container within it — stable *and* unique, which is exactly the pair of
     // properties a handle here needs and which neither a random id nor a hash
     // of the notation has on its own.
-    let container_id = use_hook(|| format!("abc-{}", dioxus::core::current_scope_id().0));
+    let container_id = use_hook(|| format!("abc-{}", scope_handle()));
 
     let notation_style = {
         let mut css = CssHandler::new();
@@ -2475,7 +2486,7 @@ pub(crate) fn PdfPageCanvas(
     // changed" check into "this changes every second". A scope id is stable
     // for the same tree and unique within it, so two pages of the same
     // document side by side on a stage monitor still get a canvas each.
-    let canvas_id = use_hook(|| format!("pdf-canvas-{}", dioxus::core::current_scope_id().0));
+    let canvas_id = use_hook(|| format!("pdf-canvas-{}", scope_handle()));
 
     // Drawn when the canvas appears *and* again whenever the page changes.
     // `onmounted` fires only when the element is created, and this element is

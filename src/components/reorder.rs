@@ -169,15 +169,15 @@ impl ReorderDrag {
     /// whatever the list does with them. On a grip, which is there for nothing
     /// else, the arrows alone are enough. Escape drops nothing.
     fn key(self, index: usize, event: &KeyboardData, on_grip: bool) -> bool {
-        if event.key() == Key::Escape && self.drag.escape() {
+        if event.key() == Key::Named(NamedKey::Escape) && self.drag.escape() {
             return true;
         }
         if !on_grip && !event.modifiers().alt() {
             return false;
         }
         let offset = match event.key() {
-            Key::ArrowUp | Key::ArrowLeft => -1,
-            Key::ArrowDown | Key::ArrowRight => 1,
+            Key::Named(NamedKey::ArrowUp) | Key::Named(NamedKey::ArrowLeft) => -1,
+            Key::Named(NamedKey::ArrowDown) | Key::Named(NamedKey::ArrowRight) => 1,
             _ => return false,
         };
         self.step(index, offset);
@@ -202,7 +202,7 @@ impl ReorderDrag {
         if handled
             || matches!(
                 event.key(),
-                Key::Alt | Key::Control | Key::Shift | Key::Meta | Key::AltGraph
+                Key::Named(NamedKey::Alt) | Key::Named(NamedKey::Control) | Key::Named(NamedKey::Shift) | Key::Named(NamedKey::Meta) | Key::Named(NamedKey::AltGraph)
             )
         {
             event.stop_propagation();

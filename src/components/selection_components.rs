@@ -438,7 +438,7 @@ pub fn Selection() -> Element {
                         // ten pixels across, and a real `<button>` would come
                         // with Pico's button drawn all over it.
                         onkeydown: move |event: Event<KeyboardData>| {
-                            let activated = matches!(event.key(), Key::Enter)
+                            let activated = matches!(event.key(), Key::Named(NamedKey::Enter))
                                 || matches!(event.key(), Key::Character(ref c) if c == " ");
                             async move {
                                 if activated {
@@ -484,7 +484,6 @@ pub fn Selection() -> Element {
                                     &default_song_slide_settings_memo(),
                                     &view_defaults_memo(),
                                     &settings.read(),
-                                    settings,
                                 );
                             } else {
                                 presentation::update_presentation(
@@ -545,13 +544,9 @@ pub fn Selection() -> Element {
 fn open_view_window(
     placement: &crate::logic::screens::PlacedView,
     always_fullscreen: bool,
-    running_presentations: &Signal<Vec<RunningPresentation>>,
-    settings: Signal<Settings>,
 ) {
-    use super::presentation_components::PresentationPage;
     use crate::logic::live_windows::WindowTarget;
     use crate::logic::screens::screen_key;
-    use dioxus::desktop::Config;
 
     let mut builder = tao::window::WindowBuilder::new()
         .with_resizable(true)
@@ -576,34 +571,18 @@ fn open_view_window(
             .with_maximized(true);
     }
 
-    let dom = VirtualDom::new(PresentationPage)
-        .with_root_context(*running_presentations)
-        .with_root_context(settings)
-        .with_root_context(ShownView(placement.index));
-
-    let opening = dioxus::desktop::window().new_window(
-        dom,
-        Config::new()
-            .with_menu(None)
-            .with_disable_drag_drop_handler(true)
-            .with_window(builder),
-    );
-
-    // Remembered so that it can be moved later, which is what "apply now"
-    // does — see [`crate::logic::live_windows`] and D5 of spec 0007. The
-    // window is told its screen here rather than asked for it afterwards: this
-    // is the one place that knows which screen it was *put* on, as against
-    // which one it happens to be over now.
-    //
-    // `spawn_forever` rather than `spawn`: the window takes a moment to
-    // resolve, and the component this was called from may well be gone by
-    // then — starting a service navigates away from the selection page.
-    let target = WindowTarget::View(placement.index);
+    // Remembered by the window itself as it opens, so that it can be moved
+    // later — see [`crate::logic::live_windows`] and D5 of spec 0007. It is
+    // told its screen here rather than asked for it afterwards: this is the
+    // one place that knows which screen it was *put* on, as against which one
+    // it happens to be over now.
     let on = placement.monitor.as_ref().map(screen_key);
-    dioxus::core::spawn_forever(async move {
-        let window = opening.resolve().await;
-        crate::logic::live_windows::remember(target, &window, on);
-    });
+    consume_context::<super::window_host::OpenWindows>().open(super::window_host::WindowRequest::new(
+        WindowTarget::View(placement.index),
+        super::window_host::WindowPage::View(placement.index),
+        builder,
+        on,
+    ));
 }
 
 /// Which of [`crate::logic::settings::Settings::views`] a window is drawing.
@@ -625,18 +604,11 @@ fn start_presentation(
     default_slide_settings: &SlideSettings,
     view_defaults: &[crate::logic::stream_view::ViewDefaults],
     settings_read: &Settings,
-    // `settings` is the live signal handed to the windows this opens. A window
-    // is a `VirtualDom` of its own and inherits no context, so everything one
-    // needs must be given to it as a root context — `settings_read` is only a
-    // snapshot for the decisions made here.
-    settings: Signal<Settings>,
 ) {
-    use super::presenter_console_components::PresenterConsolePage;
     use crate::logic::live_windows::WindowTarget;
     use crate::logic::screens::{
         enumerate_monitors, place_screen_views, resolve_monitor, screen_key,
     };
-    use dioxus::desktop::Config;
 
     if presentation::add_presentation(
         selected_items,
@@ -677,7 +649,7 @@ fn start_presentation(
         let always_fullscreen = settings_read.always_start_fullscreen;
 
         for placement in &placements {
-            open_view_window(placement, always_fullscreen, running_presentations, settings);
+            open_view_window(placement, always_fullscreen);
         }
 
         if show_presenter_console {
@@ -708,34 +680,15 @@ fn start_presentation(
                         .with_maximized(true);
                 }
 
-                let console_dom = VirtualDom::new(PresenterConsolePage)
-                    .with_root_context(*running_presentations)
-                    // The console reads the settings too — its overview asks
-                    // for the thumbnail size. Without this it panics the
-                    // moment that view is opened in a window of its own.
-                    .with_root_context(settings)
-                    // Which console this is. Without it the console would take
-                    // itself for the routed one and navigate a router that is
-                    // not there. See [`crate::logic::console_host`].
-                    .with_root_context(crate::logic::console_host::ConsoleHost::SeparateWindow);
-
-                let opening = dioxus::desktop::window().new_window(
-                    console_dom,
-                    Config::new()
-                        .with_menu(None)
-                        .with_disable_drag_drop_handler(true)
-                        .with_window(console_window_builder),
-                );
-
                 let on = presenter_monitor.as_ref().map(screen_key);
-                dioxus::core::spawn_forever(async move {
-                    let window = opening.resolve().await;
-                    crate::logic::live_windows::remember(
+                consume_context::<super::window_host::OpenWindows>().open(
+                    super::window_host::WindowRequest::new(
                         WindowTarget::PresenterConsole,
-                        &window,
+                        super::window_host::WindowPage::Console,
+                        console_window_builder,
                         on,
-                    );
-                });
+                    ),
+                );
             }
         }
     }
@@ -749,9 +702,6 @@ fn start_presentation(
     default_slide_settings: &SlideSettings,
     view_defaults: &[crate::logic::stream_view::ViewDefaults],
     settings_read: &Settings,
-    // Unused: the web build has one `VirtualDom` and one page, so the settings
-    // context is the one this is already in.
-    _settings: Signal<Settings>,
 ) {
     // Build the presentation data without writing to any signal yet.
     // On web, window.open() must be called BEFORE signal writes because

@@ -129,6 +129,10 @@ pub mod legacy_import_notice;
 // Serving video files to the window that plays them.
 pub mod video_host;
 
+// The windows of a running service, drawn from the main window's tree.
+#[cfg(feature = "desktop")]
+pub mod window_host;
+
 pub mod route_transitions;
 
 mod font_settings;

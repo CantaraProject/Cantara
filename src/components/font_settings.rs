@@ -723,7 +723,7 @@ fn FontFamilySelector(
                     },
                     onkeydown: move |event: Event<KeyboardData>| {
                         match event.key() {
-                            Key::ArrowDown => {
+                            Key::Named(NamedKey::ArrowDown) => {
                                 event.prevent_default();
                                 if !open() {
                                     open.set(true);
@@ -731,11 +731,11 @@ fn FontFamilySelector(
                                     highlighted.set((highlighted() + 1).min(shown_count - 1));
                                 }
                             }
-                            Key::ArrowUp => {
+                            Key::Named(NamedKey::ArrowUp) => {
                                 event.prevent_default();
                                 highlighted.set(highlighted().saturating_sub(1));
                             }
-                            Key::Enter => {
+                            Key::Named(NamedKey::Enter) => {
                                 event.prevent_default();
                                 if open()
                                     && let Some(family) = shown.get(highlighted())
@@ -743,7 +743,7 @@ fn FontFamilySelector(
                                     choose(Some(family.name.clone()));
                                 }
                             }
-                            Key::Escape => {
+                            Key::Named(NamedKey::Escape) => {
                                 open.set(false);
                                 query.set(String::new());
                             }

@@ -179,7 +179,7 @@ pub fn DialogHost() -> Element {
             // Escape is a dismissal wherever a dialog is open, and `<dialog>`
             // only closes itself when the browser opened it modally.
             onkeydown: move |event: Event<KeyboardData>| {
-                if event.key() == Key::Escape {
+                if event.key() == Key::Named(NamedKey::Escape) {
                     event.prevent_default();
                     answer(DialogAnswer::Dismissed);
                 }
@@ -199,7 +199,7 @@ pub fn DialogHost() -> Element {
                         onkeydown: {
                             let initial = initial.clone();
                             move |event: Event<KeyboardData>| {
-                                if event.key() == Key::Enter {
+                                if event.key() == Key::Named(NamedKey::Enter) {
                                     event.prevent_default();
                                     let typed = if entered.read().is_empty() {
                                         initial.clone()
