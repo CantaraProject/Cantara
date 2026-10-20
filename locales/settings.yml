@@ -307,6 +307,12 @@ settings:
     screen_missing:
       en: "A window is set to a screen that is not connected right now. It is shown where it would open instead; the setting is kept, so plugging the screen back in restores it."
       de: "Ein Fenster ist auf einen Bildschirm eingestellt, der gerade nicht angeschlossen ist. Es wird dort gezeigt, wo es stattdessen öffnen würde. Die Einstellung bleibt erhalten — wird der Bildschirm wieder angeschlossen, gilt sie erneut."
+    apply_now:
+      en: Apply now
+      de: Jetzt übernehmen
+    apply_now_description:
+      en: "A presentation is running. The change takes effect the next time it starts — or move the open windows now, which blanks them for a moment."
+      de: "Eine Präsentation läuft. Die Änderung gilt beim nächsten Start — oder verschieben Sie die offenen Fenster jetzt, was sie für einen Moment schwarz werden lässt."
 
   presentation_screen:
     en: Presentation Screen

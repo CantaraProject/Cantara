@@ -48,10 +48,12 @@
 //!   page scrolls under the drag, the distance scrolled is added to the
 //!   pointer instead of measuring again.
 
-use crate::logic::reorder::{ItemExtent, auto_scroll_step, is_a_drag};
+use crate::logic::reorder::{
+    AUTO_SCROLL_FRAME, ItemExtent, auto_scroll_frames, auto_scroll_step, is_a_drag,
+};
+use crate::logic::timer::Timestamp;
 use dioxus::prelude::*;
 use std::rc::Rc;
-use std::time::Duration;
 
 /// A press that has not become a drag yet, or the drag it became.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -335,8 +337,20 @@ impl<T: Copy + PartialEq + 'static> PointerDrag<T> {
     }
 
     /// Scrolls the page for as long as a drag is held near its edge.
+    ///
+    /// Paced by the clock rather than by the loop. Each turn asks the page to
+    /// scroll and waits for the answer, and that round trip is a fraction of a
+    /// frame on one web view and several frames on another — so a loop that
+    /// applied one frame's step per turn scrolled at whatever speed the
+    /// platform happened to allow. [`auto_scroll_frames`] turns the time the
+    /// last whole turn took into how much of a step this one is worth, and the
+    /// wait at the end is only what is left of the frame rather than a frame
+    /// on top of it.
     async fn scroll_while_at_the_edge(mut self) {
+        let mut cycle = AUTO_SCROLL_FRAME;
         loop {
+            let started = Timestamp::now();
+
             let Some((top, bottom)) = *self.area.peek() else {
                 break;
             };
@@ -348,7 +362,7 @@ impl<T: Copy + PartialEq + 'static> PointerDrag<T> {
                 break;
             }
 
-            let applied = scroll_by(self.container_id, step).await;
+            let applied = scroll_by(self.container_id, step * auto_scroll_frames(cycle)).await;
             if applied == 0.0 {
                 // At the end of the page already: nothing to wait for.
                 break;
@@ -357,7 +371,11 @@ impl<T: Copy + PartialEq + 'static> PointerDrag<T> {
             self.scrolled.set(scrolled);
             self.aim();
 
-            crate::logic::timer::sleep(Duration::from_millis(16)).await;
+            let spent = started.elapsed_at(Timestamp::now());
+            if spent < AUTO_SCROLL_FRAME {
+                crate::logic::timer::sleep(AUTO_SCROLL_FRAME - spent).await;
+            }
+            cycle = started.elapsed_at(Timestamp::now()).max(AUTO_SCROLL_FRAME);
         }
         self.scrolling.set(false);
     }

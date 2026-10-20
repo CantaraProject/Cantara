@@ -1,5 +1,13 @@
 //! This module provides monitor/screen enumeration for multi-screen presentation support.
+//!
+//! Finding out what screens there are needs a window system, so
+//! [`enumerate_monitors`] is a desktop build's alone. Everything else here —
+//! what a screen is called for storage, which screen a view resolves to — is
+//! arithmetic over a list of [`MonitorInfo`] and is compiled wherever the
+//! `screens` feature is, which includes the browser build the Playwright
+//! tests drive. That build gets its list from [`harness_monitors`].
 
+#[cfg(feature = "desktop")]
 use dioxus::desktop::DesktopContext;
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +27,7 @@ pub struct MonitorInfo {
 }
 
 /// Enumerates all available monitors using the desktop context.
+#[cfg(feature = "desktop")]
 pub fn enumerate_monitors(desktop: &DesktopContext) -> Vec<MonitorInfo> {
     let primary = desktop.primary_monitor();
     let monitors: Vec<_> = desktop.available_monitors().collect();
@@ -45,6 +54,57 @@ pub fn enumerate_monitors(desktop: &DesktopContext) -> Vec<MonitorInfo> {
         })
         .collect()
 }
+
+/// The screens a browser test is given, because a browser has none.
+///
+/// The map is a picture drawn by a page and set by a pointer, and neither of
+/// those can be checked without a browser — but a browser build enumerates no
+/// screens, so there has never been anything for a browser test to point at.
+/// This is the way in, and it is behind `test-harness` for the same reason
+/// [`crate::logic::harness`] is: a released build should not contain it.
+///
+/// Three screens by default, because two is not enough to tell the arithmetic
+/// apart from a coincidence: a primary laptop, a beamer to its right in a
+/// different resolution, and a stage monitor above the laptop. That covers a
+/// screen that is not the operator's, a negative origin, and two screens that
+/// must be drawn at different sizes.
+///
+/// A test that needs a different arrangement writes one to local storage under
+/// [`HARNESS_MONITORS_KEY`], the same way the reorder tests seed the settings.
+/// That is the real way in and out of a browser build; there is no control
+/// port here and nothing a test could get right that the program gets wrong.
+#[cfg(all(feature = "screens", not(feature = "desktop")))]
+pub fn harness_monitors() -> Vec<MonitorInfo> {
+    crate::logic::web_storage::read(HARNESS_MONITORS_KEY).unwrap_or_else(|| {
+        vec![
+            MonitorInfo {
+                id: 0,
+                name: "Laptop".to_string(),
+                position: (0, 0),
+                size: (1920, 1080),
+                is_primary: true,
+            },
+            MonitorInfo {
+                id: 1,
+                name: "Beamer".to_string(),
+                position: (1920, 0),
+                size: (1280, 800),
+                is_primary: false,
+            },
+            MonitorInfo {
+                id: 2,
+                name: "Bühne".to_string(),
+                position: (0, -1080),
+                size: (1920, 1080),
+                is_primary: false,
+            },
+        ]
+    })
+}
+
+/// Where a browser test puts the screens it wants the map drawn from.
+#[cfg(all(feature = "screens", not(feature = "desktop")))]
+pub const HARNESS_MONITORS_KEY: &str = "cantara-harness-monitors";
 
 /// A name for a screen that is actually its own.
 ///

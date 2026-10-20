@@ -549,6 +549,8 @@ fn open_view_window(
     settings: Signal<Settings>,
 ) {
     use super::presentation_components::PresentationPage;
+    use crate::logic::live_windows::WindowTarget;
+    use crate::logic::screens::screen_key;
     use dioxus::desktop::Config;
 
     let mut builder = tao::window::WindowBuilder::new()
@@ -579,13 +581,29 @@ fn open_view_window(
         .with_root_context(settings)
         .with_root_context(ShownView(placement.index));
 
-    dioxus::desktop::window().new_window(
+    let opening = dioxus::desktop::window().new_window(
         dom,
         Config::new()
             .with_menu(None)
             .with_disable_drag_drop_handler(true)
             .with_window(builder),
     );
+
+    // Remembered so that it can be moved later, which is what "apply now"
+    // does — see [`crate::logic::live_windows`] and D5 of spec 0007. The
+    // window is told its screen here rather than asked for it afterwards: this
+    // is the one place that knows which screen it was *put* on, as against
+    // which one it happens to be over now.
+    //
+    // `spawn_forever` rather than `spawn`: the window takes a moment to
+    // resolve, and the component this was called from may well be gone by
+    // then — starting a service navigates away from the selection page.
+    let target = WindowTarget::View(placement.index);
+    let on = placement.monitor.as_ref().map(screen_key);
+    dioxus::core::spawn_forever(async move {
+        let window = opening.resolve().await;
+        crate::logic::live_windows::remember(target, &window, on);
+    });
 }
 
 /// Which of [`crate::logic::settings::Settings::views`] a window is drawing.
@@ -614,7 +632,10 @@ fn start_presentation(
     settings: Signal<Settings>,
 ) {
     use super::presenter_console_components::PresenterConsolePage;
-    use crate::logic::screens::{enumerate_monitors, place_screen_views, resolve_monitor};
+    use crate::logic::live_windows::WindowTarget;
+    use crate::logic::screens::{
+        enumerate_monitors, place_screen_views, resolve_monitor, screen_key,
+    };
     use dioxus::desktop::Config;
 
     if presentation::add_presentation(
@@ -698,13 +719,23 @@ fn start_presentation(
                     // not there. See [`crate::logic::console_host`].
                     .with_root_context(crate::logic::console_host::ConsoleHost::SeparateWindow);
 
-                dioxus::desktop::window().new_window(
+                let opening = dioxus::desktop::window().new_window(
                     console_dom,
                     Config::new()
                         .with_menu(None)
                         .with_disable_drag_drop_handler(true)
                         .with_window(console_window_builder),
                 );
+
+                let on = presenter_monitor.as_ref().map(screen_key);
+                dioxus::core::spawn_forever(async move {
+                    let window = opening.resolve().await;
+                    crate::logic::live_windows::remember(
+                        WindowTarget::PresenterConsole,
+                        &window,
+                        on,
+                    );
+                });
             }
         }
     }

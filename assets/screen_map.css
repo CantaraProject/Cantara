@@ -180,3 +180,35 @@
         font-size: 0.65rem;
     }
 }
+
+/* A chip whose window is open on another screen right now. The map is showing
+ * what will be true at the next start, or when "apply now" is pressed; until
+ * then it is a plan, and this is it saying so (D5). */
+.screen-map-chip-pending {
+    outline: 2px dotted var(--pico-primary);
+    outline-offset: 2px;
+}
+
+/* The one control that moves a window that is already open (D5). Beside the
+ * map rather than on it: it acts on everything the map now shows, not on one
+ * chip, and pressing it is a decision rather than a drag. */
+.screen-map-apply {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.screen-map-apply p {
+    flex: 1 1 18rem;
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--pico-muted-color);
+}
+
+.screen-map-apply button {
+    margin: 0;
+    width: auto;
+    white-space: nowrap;
+}

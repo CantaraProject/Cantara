@@ -1,6 +1,6 @@
 # 0007 — A map of the screens, and dropping windows onto it
 
-Status: **the map is built; two decisions are not.** The ten questions this document opened have
+Status: **built.** The ten questions this document opened have
 been answered and are recorded as [Decisions](#decisions) — each one carries
 what was asked, what was chosen, and what it costs. Three of them change the
 shape of the settings file and one changes shared code the running order
@@ -8,12 +8,11 @@ depends on, so they are worth reading before the first line is written. The
 loose ends the answers themselves created are at the
 [end](#what-the-answers-left-open).
 
-What is built: the map itself with the chips and the dragging, and the
-projection's drop-down — D1, D2, D3, D4, D6, D7, D9 and D10. What is not:
-**D5** ("Jetzt übernehmen" — a change takes effect at the next start and there
-is no way to move a running service's windows) and **D8** (no harness hook, so
-no browser test touches the map; the geometry and the chip placement are
-covered by Rust tests alone).
+All ten are built. The last two to arrive were **D5** ("Jetzt übernehmen",
+which moves the windows of a running service onto the screens the map now
+shows) and **D8** (the harness hook, and the browser suite that drives the
+drag against a fabricated set of screens). Each decision below carries a
+**Built** note saying where it lives.
 
 ## The brief
 
@@ -339,6 +338,27 @@ added, and it is the one most likely to want a stage of its own.
 That is still what 0003 left undone, and "apply now" repositions the windows
 that exist rather than opening new ones.
 
+**Built.** [`src/logic/live_windows.rs`](../../src/logic/live_windows.rs) is
+the registry the machinery needed. Every window `start_presentation` opens is
+remembered there as it resolves, together with the screen it was actually put
+on — which is what makes "this chip has been moved since the service started"
+a question with an answer, and what `pending` compares against
+`wanted_screens`. A moved chip is drawn with a dotted outline, and the control
+appears beside the map only while something is out of date.
+
+Two details are worth keeping. The windows are held **weakly**: a presentation
+window closes itself when the service ends, so a strong handle would keep a
+dead webview alive and hand out a window that is not on screen any more, while
+a `Weak` that no longer upgrades *is* the fact that the window is gone — the
+registry needs no teardown path and cannot disagree with reality. And moving a
+fullscreen window means dropping fullscreen, moving, and asking for it again
+naming the new screen's own handle: a window that is already fullscreen
+ignores a move, because the compositor owns its geometry.
+
+The arithmetic — what each window should be on, and which ones are therefore
+out of date — is plain functions over plain data and is tested. Only the part
+that touches a `tao` window is not, and only a desktop build has one.
+
 ### D6. The pointer handling is shared
 
 **Asked:** reuse the reorder drag, or write a second one for the map?
@@ -399,6 +419,25 @@ the drag against a realistic arrangement: a primary laptop, a beamer to its
 right, a stage monitor above. The geometry stays covered by Rust unit tests;
 the hook is what lets the *drag* be tested end to end rather than only its
 arithmetic.
+
+**Built**, and it needed one thing the question did not anticipate: the map was
+gated on `feature = "desktop"` outright, so there was nothing in the browser
+build for a hook to feed. The gate is now its own feature, `screens`, which
+`desktop` turns on because a desktop has screens and `test-harness` turns on
+because the tests need the code even though a browser has none.
+[`harness_monitors`](../../src/logic/screens.rs) is the fabricated set, and a
+test that wants a different arrangement writes one to local storage under
+`cantara-harness-monitors` — the same way in the reorder tests use for the
+settings, and the real one for a web build.
+
+The suite is
+[`tests/browser/screen-map.spec.js`](../../tests/browser/screen-map.spec.js).
+It covers what no Rust test can see: that the proportions survive the trip
+through CSS and the negative origin of a screen above the laptop comes out
+above it, that a mouse and a finger both reach the drop, that the holding area
+takes a chip back to "automatic", that the main window refuses to be dragged,
+that the drop-down and the map agree, that a choice survives a reload, and that
+an unplugged screen loses nothing that was stored.
 
 ### D9. One map, in the screen settings
 
@@ -472,20 +511,29 @@ cupboard, and clearing it would move the projection to the laptop for good.
 
 ## What the answers left open
 
-Three things the decisions themselves created, to be settled when the work is
-planned rather than now:
+Three things the decisions themselves created. The first two are settled; the
+third is still open, and is a judgement to make on screen rather than on paper.
 
-1. **"Jetzt übernehmen" is a stage of its own.** [D5](#d5-next-start-by-default-with-an-explicit-apply-now)
-   needs the open presentation windows to be findable and movable after the
-   fact, which nothing today requires. The map is useful without it; it should
-   not be what holds the map up.
-2. **The order of the work is fixed by [D6](#d6-the-pointer-handling-is-shared).**
-   The shared-drag extraction lands first, on its own, green. Then the map.
+1. **"Jetzt übernehmen" was a stage of its own**, and it was the last one.
+   [D5](#d5-next-start-by-default-with-an-explicit-apply-now) needed the open
+   presentation windows to be findable and movable after the fact, which
+   nothing before it required; that is now
+   [`live_windows`](../../src/logic/live_windows.rs). The map was useful
+   without it, which is why it did not hold the map up.
+2. **The order of the work was fixed by [D6](#d6-the-pointer-handling-is-shared).**
+   The shared-drag extraction landed first, on its own, green. Then the map.
 3. **What "the reference view" means when there is none** is handled by
    disabling the drop-down ([D1](#d1-the-screen-drop-down-is-made-to-mean-something-again)),
    which is correct but worth looking at on screen before settling: a disabled
    control with an explanation may read worse than an enabled one that creates
-   a view.
+   a view. **Still open.**
+
+One thing not on the original list, found while the map was in use: the box the
+arrangement is fitted into started at 600 × 320 and is now 600 × 200. The box
+is not the arrangement — the arrangement is scaled into it and centred in
+whichever direction it does not fill — so its shape costs nothing but the room
+it takes on a settings page that is already long, and screens sit beside one
+another far more often than above one another.
 
 ## What this is not
 

@@ -65,8 +65,9 @@ pub mod drag;
 pub mod reorder;
 
 // The screens drawn as they are arranged, with the windows that go on them.
-// Only a desktop build has screens to draw — see [`crate::logic::screens`].
-#[cfg(feature = "desktop")]
+// A desktop build has screens to draw; a browser build has them only when the
+// browser tests fabricate a set — see [`crate::logic::screens`].
+#[cfg(feature = "screens")]
 pub mod screen_map;
 
 // Creating an element, and moving one between repositories.

@@ -8,10 +8,12 @@ use crate::logic::reorder::index_after_move;
 use crate::logic::tag_mapping::TagMapping;
 use super::jump_sidebar::{JumpSidebar, JumpTarget, scroll_to_section, use_section_spy};
 use super::song_slide_settings_components::SongSlideSettingsSection;
-#[cfg(feature = "desktop")]
-use crate::logic::screens::{MonitorInfo, enumerate_monitors, screen_key, upgrade_screen_key};
-#[cfg(feature = "desktop")]
-use super::screen_map::{ChipKind, ScreenMap, settings_chips};
+#[cfg(feature = "screens")]
+use crate::logic::live_windows::{self, WindowScreen};
+#[cfg(feature = "screens")]
+use crate::logic::screens::{MonitorInfo, screen_key, upgrade_screen_key};
+#[cfg(feature = "screens")]
+use super::screen_map::{ChipKind, ScreenMap, map_chips};
 use crate::{Route, logic::settings::*};
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
@@ -749,40 +751,49 @@ fn PresentationSettings() -> Element {
 ///
 /// The settings page used to store a bare `monitor.name`; see
 /// [`crate::logic::screens::upgrade_screen_key`] for why that is not enough.
-/// Nothing is written unless something actually changed, so a visit to the
-/// settings does not touch the file for no reason.
-#[cfg(feature = "desktop")]
+/// Nothing is written unless something actually changed, and that is decided
+/// before the signal is taken for writing at all.
+///
+/// The distinction matters more than it looks. Taking a `Signal` for writing
+/// marks it dirty whether or not the value ends up different, and the settings
+/// are read by most of the program: an unconditional `write()` here redrew
+/// every one of those components on every visit to the screen settings, for a
+/// migration that has nothing to do the second time. So the question is asked
+/// through [`needs_screen_key_upgrade`] first, and the write only happens when
+/// the answer is yes — which, for a settings file written by this version, is
+/// never.
+#[cfg(feature = "screens")]
 fn upgrade_stored_screen_keys(settings: &mut Signal<Settings>, monitors: &[MonitorInfo]) {
-    if monitors.is_empty() {
+    if monitors.is_empty() || !needs_screen_key_upgrade(&settings.read(), monitors) {
         return;
     }
 
-    let mut changed = false;
     {
         let mut writing = settings.write();
-
-        let upgraded = upgrade_screen_key(&writing.presenter_screen, monitors);
-        if upgraded != writing.presenter_screen {
-            writing.presenter_screen = upgraded;
-            changed = true;
-        }
+        writing.presenter_screen = upgrade_screen_key(&writing.presenter_screen, monitors);
 
         for view in writing.views.iter_mut() {
             if let ViewOutput::Screen { monitor_name } = &view.output {
-                let upgraded = upgrade_screen_key(monitor_name, monitors);
-                if upgraded != *monitor_name {
-                    view.output = ViewOutput::Screen {
-                        monitor_name: upgraded,
-                    };
-                    changed = true;
-                }
+                view.output = ViewOutput::Screen {
+                    monitor_name: upgrade_screen_key(monitor_name, monitors),
+                };
             }
         }
     }
 
-    if changed {
-        settings.read().save();
-    }
+    settings.read().save();
+}
+
+/// Whether any screen the settings name is still stored as a bare name.
+#[cfg(feature = "screens")]
+fn needs_screen_key_upgrade(settings: &Settings, monitors: &[MonitorInfo]) -> bool {
+    let stale = |stored: &Option<String>| upgrade_screen_key(stored, monitors) != *stored;
+
+    stale(&settings.presenter_screen)
+        || settings.views.iter().any(|view| match &view.output {
+            ViewOutput::Screen { monitor_name } => stale(monitor_name),
+            ViewOutput::Network { .. } => false,
+        })
 }
 
 /// The view the projection's drop-down stands for, and the screen it names.
@@ -791,7 +802,7 @@ fn upgrade_stored_screen_keys(settings: &mut Signal<Settings>, monitors: &[Monit
 /// everything else is described against, and the one view a service cannot do
 /// without. `None` when it has no screen to set — every view is served to the
 /// network, or there are none at all.
-#[cfg(feature = "desktop")]
+#[cfg(feature = "screens")]
 fn reference_screen_view(settings: &Settings) -> Option<(usize, Option<String>)> {
     let index = settings.reference_view_position()?;
     match &settings.views.get(index)?.output {
@@ -806,7 +817,7 @@ fn reference_screen_view(settings: &Settings) -> Option<(usize, Option<String>)>
 /// so a list of blank entries is a real possibility. The size stands in: two
 /// screens on a machine are nearly always different sizes, and "1920 × 1080"
 /// is something the user can match against what is in front of them.
-#[cfg(feature = "desktop")]
+#[cfg(feature = "screens")]
 fn screen_choice_label(monitor: &MonitorInfo) -> String {
     let size = format!("{} × {}", monitor.size.0, monitor.size.1);
     match monitor.name.trim().is_empty() {
@@ -825,7 +836,7 @@ fn screen_choice_label(monitor: &MonitorInfo) -> String {
 /// is frequently empty and frequently shared between two identical monitors,
 /// and a view pointed at one would match the first screen or every screen
 /// (D2).
-#[cfg(feature = "desktop")]
+#[cfg(feature = "screens")]
 fn assign_screen(settings: &mut Signal<Settings>, kind: ChipKind, key: Option<String>) {
     {
         let mut writing = settings.write();
@@ -845,29 +856,57 @@ fn assign_screen(settings: &mut Signal<Settings>, kind: ChipKind, key: Option<St
     settings.read().save();
 }
 
-/// Component for configuring screen/monitor settings for multi-screen presentation.
-/// Only available on desktop platforms.
-#[cfg(feature = "desktop")]
+/// What screens there are at this moment.
+///
+/// A desktop build asks the window system. A browser build has no window
+/// system to ask and no screens to report; where the `screens` feature is on
+/// without `desktop` it is a build made for the Playwright tests, and the
+/// screens are the ones they fabricated — see
+/// [`crate::logic::screens::harness_monitors`] and D8 of the spec.
+#[cfg(feature = "screens")]
+fn monitors_now() -> Vec<MonitorInfo> {
+    #[cfg(feature = "desktop")]
+    return crate::logic::screens::enumerate_monitors(&dioxus::desktop::window());
+    #[cfg(not(feature = "desktop"))]
+    return crate::logic::screens::harness_monitors();
+}
+
+/// Component for configuring screen/monitor settings for multi-screen
+/// presentation. Only compiled where there are screens to configure — see the
+/// `screens` feature.
+#[cfg(feature = "screens")]
 #[component]
 fn ScreenSettings() -> Element {
     let mut settings = use_settings();
     let mut monitors: Signal<Vec<MonitorInfo>> = use_signal(Vec::new);
+    // Which windows a running service has open, and on which screen. Read
+    // when the page is opened rather than watched: windows are opened and
+    // closed somewhere else entirely, and the one thing that changes them
+    // from here — "apply now" — sets this itself.
+    let mut live: Signal<Vec<WindowScreen>> = use_signal(Vec::new);
 
     // Enumerate monitors on mount, and upgrade anything the old settings
     // page stored as a bare name while the screens are in hand (D2). It runs
     // on every visit and does nothing the second time: a value that is already
     // a key is left alone.
     use_effect(move || {
-        let desktop = dioxus::desktop::window();
-        let found = enumerate_monitors(&desktop);
+        let found = monitors_now();
         upgrade_stored_screen_keys(&mut settings, &found);
         monitors.set(found);
+        live.set(live_windows::open_windows());
     });
 
     let refresh_monitors = move |_| {
-        let desktop = dioxus::desktop::window();
-        monitors.set(enumerate_monitors(&desktop));
+        monitors.set(monitors_now());
+        live.set(live_windows::open_windows());
     };
+
+    // Where every window of a running service should be, and which of them is
+    // somewhere else. Empty whenever nothing is running, which is what keeps
+    // "apply now" out of the way until there is something for it to do (D5).
+    let wanted = live_windows::wanted_screens(&settings.read(), &monitors.read());
+    let pending = live_windows::pending(&live.read(), &wanted);
+    let apply_wanted = wanted.clone();
 
     rsx! {
         hgroup {
@@ -957,10 +996,31 @@ fn ScreenSettings() -> Element {
                 }
                 ScreenMap {
                     monitors: monitors.read().clone(),
-                    chips: settings_chips(&settings.read()),
+                    chips: map_chips(&settings.read(), &monitors.read(), &pending),
                     on_assign: move |(kind, key): (ChipKind, Option<String>)| {
                         assign_screen(&mut settings, kind, key);
                     },
+                }
+
+                // The one way to move a window that is already open (D5).
+                // Nothing moves until this is pressed: repositioning the
+                // projection is a moment of black in front of the
+                // congregation, which is acceptable when somebody has just
+                // asked for it and not as a side effect of tidying the
+                // settings mid-service.
+                if !pending.is_empty() {
+                    div {
+                        class: "screen-map-apply",
+                        p { { t!("settings.screen_map.apply_now_description").to_string() } }
+                        button {
+                            class: "secondary",
+                            onclick: move |_| {
+                                live_windows::move_to(&monitors.read(), &apply_wanted);
+                                live.set(live_windows::open_windows());
+                            },
+                            { t!("settings.screen_map.apply_now").to_string() }
+                        }
+                    }
                 }
             }
         }
@@ -1047,9 +1107,9 @@ fn ScreenSettings() -> Element {
     }
 }
 
-/// Non-desktop platforms show only the presenter console toggle.
-/// Monitor selection is not available on the web.
-#[cfg(not(feature = "desktop"))]
+/// Platforms with no screens to choose between show only the presenter console
+/// toggle. Monitor selection is not available on the web.
+#[cfg(not(feature = "screens"))]
 #[component]
 fn ScreenSettings() -> Element {
     let mut settings = use_settings();
@@ -1175,7 +1235,7 @@ fn PresentationDesignCard(
     }
 }
 
-#[cfg(all(test, feature = "desktop"))]
+#[cfg(all(test, feature = "screens"))]
 mod tests {
     use super::*;
     use crate::logic::settings::{View, ViewFocus};

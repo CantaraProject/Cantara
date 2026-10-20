@@ -156,12 +156,21 @@ default = ["desktop"]
 # opens a port and takes instructions on it, and a released Cantara should not
 # have that in it at all — not behind a flag, not behind a check. See
 # `docs/specs/0004-testing-playwright.md`.
-test-harness = []
+test-harness = ["screens"]
+# The screens a presentation can be put on, the map of them, and the screen
+# section of the settings. A desktop build has screens; a browser build has
+# none, which is why the map used to be `desktop` outright. The browser tests
+# need it anyway — a map is drawn by a page and driven by a pointer, and
+# neither can be checked without a browser — so `test-harness` turns it on
+# with a fabricated set of screens behind it. See
+# `logic::screens::harness_monitors` and `docs/specs/0007-screen-map.md` (D8).
+screens = []
 web = ["dioxus/web", "dioxus-motion/web"]
 desktop = [
     "dioxus/desktop",
     "dep:image",
     "dioxus-motion/desktop",
+    "screens",
 ]
 # dioxus-motion has no dedicated mobile backend; its `desktop` feature is the
 # native (non-WASM) timing backend and is what mobile builds need as well.

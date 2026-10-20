@@ -36,9 +36,10 @@
 //! arrangement instead of silently leaving it on the laptop.
 
 use crate::components::drag::{Aim, use_pointer_drag};
+use crate::logic::live_windows::WindowTarget;
 use crate::logic::screen_map::{Placed, place_all, screen_at};
 use crate::logic::screens::{MonitorInfo, resolve_monitor, screen_key};
-use crate::logic::settings::{Settings, View, ViewOutput, use_settings};
+use crate::logic::settings::{Settings, View, ViewOutput};
 use dioxus::prelude::*;
 use rust_i18n::t;
 
@@ -59,8 +60,15 @@ const MAP_ID: &str = "screen-map";
 /// a round trip before anything could be drawn, and the arrangement would jump
 /// once it arrived. A fixed box scaled by CSS keeps the proportions — which
 /// are the point — without that.
+///
+/// Wide and shallow on purpose. The box is not the arrangement: the
+/// arrangement is fitted into it and centred in whichever direction it does
+/// not fill, so the box's own shape costs nothing but the room it takes on a
+/// settings page that is already long. Screens sit beside one another far more
+/// often than above one another, so a taller box spent most of its height on
+/// empty margin and pushed what comes after the map off the window.
 const MAP_WIDTH: f64 = 600.0;
-const MAP_HEIGHT: f64 = 320.0;
+const MAP_HEIGHT: f64 = 200.0;
 
 /// A window that wants a screen.
 #[derive(Clone, PartialEq, Debug)]
@@ -92,11 +100,27 @@ impl ChipKind {
     fn is_draggable(&self) -> bool {
         !matches!(self, ChipKind::MainWindow)
     }
+
+    /// The window of a running service this chip stands for, if it stands for
+    /// one. The main window is never one of them (D3).
+    fn target(&self) -> Option<WindowTarget> {
+        match self {
+            ChipKind::View(index) => Some(WindowTarget::View(*index)),
+            ChipKind::PresenterConsole => Some(WindowTarget::PresenterConsole),
+            ChipKind::MainWindow => None,
+        }
+    }
 }
 
 /// Where a chip is drawn, and why.
+///
+/// Worked out by the caller rather than by the map — see [`map_chips`] — so
+/// that the map itself subscribes to nothing. A component that read the
+/// settings would be redrawn by every keystroke anywhere on the settings page;
+/// one whose whole input is these props is redrawn only when a chip has
+/// actually moved.
 #[derive(Clone, PartialEq, Debug)]
-struct DrawnChip {
+pub struct DrawnChip {
     chip: Chip,
     /// The screen it is drawn on, as a position in the monitor list.
     ///
@@ -106,6 +130,36 @@ struct DrawnChip {
     /// Whether it is drawn dashed: it is where it is because something worked
     /// it out, not because anybody chose it.
     inferred: bool,
+    /// Whether the window this stands for is open on a *different* screen
+    /// right now.
+    ///
+    /// A drop does not move a window that is already open; it takes effect at
+    /// the next start, or when "apply now" is pressed (D5). Until one of those
+    /// happens the map is showing something that is not yet true, and saying
+    /// so is the whole reason this flag exists.
+    pending: bool,
+}
+
+/// Everything the map draws, worked out from the settings in one call.
+///
+/// This is the whole of the map's input, and the reason [`ScreenMap`] takes
+/// props rather than reading the settings itself.
+/// `pending` is [`crate::logic::live_windows::pending`]'s answer: the windows
+/// a running service has open somewhere other than where the map now says.
+pub fn map_chips(
+    settings: &Settings,
+    monitors: &[MonitorInfo],
+    pending: &[WindowTarget],
+) -> Vec<DrawnChip> {
+    let mut drawn = draw_chips(&settings_chips(settings), monitors, settings);
+    for chip in drawn.iter_mut() {
+        chip.pending = chip
+            .chip
+            .kind
+            .target()
+            .is_some_and(|target| pending.contains(&target));
+    }
+    drawn
 }
 
 /// Every chip, and the screen it is drawn on.
@@ -133,6 +187,7 @@ fn draw_chips(chips: &[Chip], monitors: &[MonitorInfo], settings: &Settings) -> 
                     chip: chip.clone(),
                     on: Some(on),
                     inferred: false,
+                    pending: false,
                 };
             }
 
@@ -160,6 +215,7 @@ fn draw_chips(chips: &[Chip], monitors: &[MonitorInfo], settings: &Settings) -> 
                 chip: chip.clone(),
                 on: lands_on,
                 inferred: true,
+                pending: false,
             }
         })
         .collect()
@@ -171,9 +227,9 @@ fn draw_chips(chips: &[Chip], monitors: &[MonitorInfo], settings: &Settings) -> 
 /// asked for. When a screen is unplugged the two differ, and the map says so
 /// in a line rather than letting the picture quietly contradict the drop-down
 /// beside it (D10).
-fn any_screen_missing(chips: &[Chip], monitors: &[MonitorInfo]) -> bool {
-    chips.iter().any(|chip| {
-        chip.chosen.as_ref().is_some_and(|key| {
+fn any_screen_missing(chips: &[DrawnChip], monitors: &[MonitorInfo]) -> bool {
+    chips.iter().any(|drawn| {
+        drawn.chip.chosen.as_ref().is_some_and(|key| {
             !monitors
                 .iter()
                 .any(|monitor| screen_key(monitor) == *key)
@@ -241,19 +297,22 @@ fn screen_name(monitor: &MonitorInfo) -> String {
 
 /// The map, with the given chips on it.
 ///
+/// `chips` is [`map_chips`]' answer: where every window is drawn, and whether
+/// anybody chose that. The map works nothing out from the settings itself, so
+/// that it is redrawn when a chip moves and not when any other setting on the
+/// page is touched.
+///
 /// `on_assign` is called with the chip and the screen it was dropped on — as a
 /// [`screen_key`], or `None` for the holding area, which is "automatic".
 #[component]
 pub fn ScreenMap(
     monitors: Vec<MonitorInfo>,
-    chips: Vec<Chip>,
+    chips: Vec<DrawnChip>,
     on_assign: Callback<(ChipKind, Option<String>)>,
 ) -> Element {
-    let settings = use_settings();
-
     let placed: Vec<Placed> = place_all(&monitors, MAP_WIDTH, MAP_HEIGHT);
-    let drawn = draw_chips(&chips, &monitors, &settings.read());
     let missing = any_screen_missing(&chips, &monitors);
+    let drawn = chips;
 
     // The drop zones are the screens, plus the holding area last. Note that
     // they are *not* the things being dragged — the chips are — which is the
@@ -263,7 +322,7 @@ pub fn ScreenMap(
     let holding_area = placed.len();
 
     let monitors_for_drop = monitors.clone();
-    let chips_for_drop = chips.clone();
+    let chips_for_drop = drawn.clone();
 
     let drag = use_pointer_drag(
         MAP_ID,
@@ -305,7 +364,7 @@ pub fn ScreenMap(
             if zone != holding_area && key.is_none() {
                 return;
             }
-            on_assign.call((chip.kind, key));
+            on_assign.call((chip.chip.kind, key));
         },
     );
 
@@ -434,6 +493,9 @@ fn ChipView(
     }
     if carried {
         class.push_str(" screen-map-chip-carried");
+    }
+    if chip.pending {
+        class.push_str(" screen-map-chip-pending");
     }
 
     // The carried chip follows the pointer with a transform, so that nothing
@@ -601,7 +663,7 @@ mod tests {
             "the stored screen was overwritten by the fallback"
         );
         assert!(
-            any_screen_missing(&chips, &monitors),
+            any_screen_missing(&drawn, &monitors),
             "nothing told the user that the chosen screen is not there"
         );
     }
@@ -617,7 +679,10 @@ mod tests {
             true,
         )]);
 
-        assert!(!any_screen_missing(&settings_chips(&settings), &monitors));
+        assert!(!any_screen_missing(
+            &draw_chips(&settings_chips(&settings), &monitors, &settings),
+            &monitors
+        ));
     }
 
     /// A view served to the network has no screen, and a view that is switched
@@ -727,6 +792,43 @@ mod tests {
         let chips = settings_chips(&settings);
 
         assert!(!chips[0].label.trim().is_empty());
+    }
+
+    /// D5: while a service is running, a chip whose window is still open on
+    /// another screen is marked, because the map is showing a plan rather than
+    /// what is on the wall.
+    #[test]
+    fn a_window_that_has_not_moved_yet_is_drawn_as_pending() {
+        let monitors = vec![monitor(0, "Laptop", true), monitor(1, "Beamer", false)];
+        let settings = settings_with(vec![screen_view(
+            "Projection",
+            Some(&screen_key(&monitors[0])),
+            true,
+        )]);
+
+        let drawn = map_chips(&settings, &monitors, &[WindowTarget::View(0)]);
+
+        assert!(drawn[0].pending, "a window that is elsewhere was drawn as settled");
+        assert!(
+            drawn
+                .iter()
+                .filter(|chip| chip.chip.kind != ChipKind::View(0))
+                .all(|chip| !chip.pending),
+            "a chip nothing is waiting on was marked"
+        );
+    }
+
+    /// With nothing running there is nothing to be out of date, and no chip is
+    /// marked — which is the ordinary case, and the one the mark must not
+    /// clutter.
+    #[test]
+    fn nothing_is_pending_with_no_service_running() {
+        let monitors = vec![monitor(0, "Laptop", true), monitor(1, "Beamer", false)];
+        let settings = settings_with(vec![screen_view("Projection", None, true)]);
+
+        let drawn = map_chips(&settings, &monitors, &[]);
+
+        assert!(drawn.iter().all(|chip| !chip.pending));
     }
 
     /// A screen with no name is called by its number, not left blank.
