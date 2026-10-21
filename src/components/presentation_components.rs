@@ -173,6 +173,15 @@ pub fn PresentationPage() -> Element {
     // (the main window's App component) has already been dropped before this
     // use_drop callback fires — which can happen on Windows when a drag-drop
     // event triggers an unexpected teardown sequence.
+    //
+    // Not on the desktop. There a window is a component in the one shared
+    // `VirtualDom` (see [`crate::components::window_host`]), and it is dropped
+    // not only when the window is closed but also when a new service replaces
+    // it — by which time `add_presentation` has already put the *new*
+    // presentation into this signal, and clearing it here took that one down
+    // with the old window. The desktop clears it in the window's `onclose`
+    // instead, which only a real close reaches.
+    #[cfg(not(feature = "desktop"))]
     use_drop(move || {
         if let Ok(mut guard) = running_presentations.try_write() {
             guard.clear();
@@ -391,9 +400,12 @@ pub fn PresentationPage() -> Element {
     });
     let shown_monitor_design: Memo<Option<crate::logic::settings::MonitorDesign>> = use_memo(
         move || {
-            let index =
+            let shown =
                 try_consume_context::<crate::components::selection_components::ShownView>()?;
-            settings_for_view?.read().monitor_design_of_view(index.0)
+            let settings = settings_for_view?;
+            let settings = settings.read();
+            let index = settings.views.iter().position(|view| view.id == shown.0)?;
+            settings.monitor_design_of_view(index)
         },
     );
 

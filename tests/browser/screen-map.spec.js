@@ -210,6 +210,40 @@ test.describe('the map', () => {
     expect((await chipSitsOn(page, 'Wall')).inferred).toBe(false);
   });
 
+  /// The chip has to stay in sight on its way. It is still its screen's child
+  /// while it is carried, moved only by a transform, and a screen clips what
+  /// overflows it — so it used to disappear at the edge of the screen it came
+  /// from, which is exactly when the user is looking for it. Found by Copilot
+  /// on PR 106.
+  test('a carried window stays visible on its way to another screen', async ({ page }) => {
+    const from = await middleOf(chipFor(page, 'Wall'));
+    const to = await middleOf(screenNamed(page, LAPTOP.name));
+
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + 3, from.y + 3, { steps: 2 });
+    await page.mouse.move(to.x, to.y, { steps: 12 });
+
+    const carried = await page.locator(MAP).evaluate((map) => {
+      const chip = map.querySelector('.screen-map-chip-carried');
+      if (!chip) {
+        return null;
+      }
+      const screen = chip.closest('.screen-map-screen');
+      const c = chip.getBoundingClientRect();
+      const s = screen.getBoundingClientRect();
+      return {
+        outsideItsScreen: c.right < s.left || c.left > s.right || c.bottom < s.top || c.top > s.bottom,
+        overflow: getComputedStyle(screen).overflow,
+      };
+    });
+    await page.mouse.up();
+
+    expect(carried).not.toBe(null);
+    expect(carried.outsideItsScreen).toBe(true);
+    expect(carried.overflow).toBe('visible');
+  });
+
   /// And back again. The holding area is what a chip is dragged *to* in order
   /// to stop having been chosen (D4) — it is not where unplaced chips live.
   test('a window dragged to the holding area is automatic again', async ({ page }) => {

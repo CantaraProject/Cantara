@@ -14,12 +14,19 @@
 //! `window().close()` as before; the desktop hands the request to the
 //! component, [`WindowHost`] drops the request in `onclose`, and the native
 //! window goes with the component.
+//!
+//! A closed presentation window also ends the service, which is what lets the
+//! console notice and close too. That happens in `onclose` and not when the
+//! component is dropped, because a component is dropped as well when a new
+//! service *replaces* its window — and the presentations it would clear then
+//! are already the new service's.
 
 use crate::components::presentation_components::PresentationPage;
 use crate::components::presenter_console_components::PresenterConsolePage;
 use crate::components::selection_components::ShownView;
 use crate::logic::console_host::ConsoleHost;
 use crate::logic::live_windows::WindowTarget;
+use crate::logic::states::RunningPresentation;
 use dioxus::desktop::tao::window::WindowBuilder;
 use dioxus::desktop::{Window, WindowConfig};
 use dioxus::prelude::*;
@@ -27,8 +34,8 @@ use dioxus::prelude::*;
 /// What a requested window shows.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum WindowPage {
-    /// One of the settings' views, by its position — see [`ShownView`].
-    View(usize),
+    /// One of the settings' views, by its id — see [`ShownView`].
+    View(uuid::Uuid),
     /// The presenter console, in a window of its own.
     Console,
 }
@@ -85,6 +92,7 @@ impl OpenWindows {
 #[component]
 pub fn WindowHost() -> Element {
     let mut windows = use_context::<OpenWindows>().0;
+    let running_presentations = use_context::<Signal<Vec<RunningPresentation>>>();
 
     rsx! {
         for request in windows.read().iter().cloned() {
@@ -96,11 +104,23 @@ pub fn WindowHost() -> Element {
                     .with_window(request.builder.clone()),
                 onclose: {
                     let id = request.id;
-                    move |_| windows.write().retain(|open| open.id != id)
+                    let ends_the_service = matches!(request.page, WindowPage::View(_));
+                    let mut running_presentations = running_presentations;
+                    move |_| {
+                        windows.write().retain(|open| open.id != id);
+                        if ends_the_service {
+                            // `try_write` for the reason the page's own
+                            // teardown on the web gives: this may run while the
+                            // main window is going away.
+                            if let Ok(mut presentations) = running_presentations.try_write() {
+                                presentations.clear();
+                            }
+                        }
+                    }
                 },
                 match request.page {
-                    WindowPage::View(index) => rsx! {
-                        ViewWindow { index, target: request.target, on: request.on.clone() }
+                    WindowPage::View(view) => rsx! {
+                        ViewWindow { view, target: request.target, on: request.on.clone() }
                     },
                     WindowPage::Console => rsx! {
                         ConsoleWindow { target: request.target, on: request.on.clone() }
@@ -122,16 +142,24 @@ pub fn WindowHost() -> Element {
 /// its stylesheet: no background, the wrong font, the web view's default
 /// margin. The window's own document is asked directly instead, which has no
 /// such memory.
-fn head_for_this_window() {
+///
+/// `with_pico` is for the console only. It is drawn with Pico everywhere else
+/// it appears — in the main window, which [`App`](crate::App) styles, and over
+/// the network, where the page brings its own copy — and was the one host
+/// without it. The presentation is not given Pico: it styles `body`, and what
+/// the audience sees should not change because a stylesheet for buttons was
+/// loaded behind it.
+fn head_for_this_window(with_pico: bool) {
     let document = use_hook(dioxus::document::document);
     // After the render, as the document's own `create_link` does: the web view
     // is not there to be told anything until then.
     use_effect(move || {
-        for href in [
+        let pico = with_pico.then_some(crate::PICO_CSS);
+        for href in pico.into_iter().chain([
             crate::MAIN_CSS,
             crate::components::presentation_components::PRESENTATION_CSS,
             crate::components::presenter_console_components::PRESENTER_CONSOLE_CSS,
-        ] {
+        ]) {
             document.create_head_element(
                 "link",
                 &[("rel", "stylesheet".to_string()), ("href", href.to_string())],
@@ -155,10 +183,10 @@ fn remember_this_window(target: WindowTarget, on: Option<String>) {
 }
 
 #[component]
-fn ViewWindow(index: usize, target: WindowTarget, on: Option<String>) -> Element {
+fn ViewWindow(view: uuid::Uuid, target: WindowTarget, on: Option<String>) -> Element {
     // Which of the settings' views this window is drawing.
-    use_context_provider(|| ShownView(index));
-    head_for_this_window();
+    use_context_provider(|| ShownView(view));
+    head_for_this_window(false);
     remember_this_window(target, on);
     rsx! { PresentationPage {} }
 }
@@ -169,7 +197,7 @@ fn ConsoleWindow(target: WindowTarget, on: Option<String>) -> Element {
     // routed one and navigate a router that is not there. See
     // [`crate::logic::console_host`].
     use_context_provider(|| ConsoleHost::SeparateWindow);
-    head_for_this_window();
+    head_for_this_window(true);
     remember_this_window(target, on);
     rsx! { PresenterConsolePage {} }
 }

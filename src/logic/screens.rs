@@ -75,7 +75,15 @@ pub fn enumerate_monitors(desktop: &DesktopContext) -> Vec<MonitorInfo> {
 /// port here and nothing a test could get right that the program gets wrong.
 #[cfg(all(feature = "screens", not(feature = "desktop")))]
 pub fn harness_monitors() -> Vec<MonitorInfo> {
-    crate::logic::web_storage::read(HARNESS_MONITORS_KEY).unwrap_or_else(|| {
+    // Local storage is a browser's. A native build without `desktop` — a phone
+    // build with the harness switched on — has neither it nor screens, and is
+    // given the default arrangement rather than failing to compile.
+    #[cfg(target_arch = "wasm32")]
+    let seeded: Option<Vec<MonitorInfo>> = crate::logic::web_storage::read(HARNESS_MONITORS_KEY);
+    #[cfg(not(target_arch = "wasm32"))]
+    let seeded: Option<Vec<MonitorInfo>> = None;
+
+    seeded.unwrap_or_else(|| {
         vec![
             MonitorInfo {
                 id: 0,

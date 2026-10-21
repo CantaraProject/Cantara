@@ -41,9 +41,14 @@ use crate::logic::settings::Settings;
 /// business, which is decision D3 and the reason its chip cannot be dragged.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WindowTarget {
-    /// One of [`Settings::views`], by its position — the same number
-    /// [`crate::components::screen_map::ChipKind::View`] carries.
-    View(usize),
+    /// One of [`Settings::views`], by its [`id`](crate::logic::settings::View::id).
+    ///
+    /// Not by its position: deleting a view during a service shifts every
+    /// position after it, and a window remembered as "the third view" would
+    /// then be matched against what used to be the fourth — moved to its
+    /// screen by "apply now", while the view that is really in it went
+    /// unmatched. A deleted view's id matches nothing, which is the truth.
+    View(uuid::Uuid),
     /// The presenter console, when it has a window of its own.
     PresenterConsole,
 }
@@ -61,11 +66,12 @@ pub type WindowScreen = (WindowTarget, Option<String>);
 pub fn wanted_screens(settings: &Settings, monitors: &[MonitorInfo]) -> Vec<WindowScreen> {
     let mut wanted: Vec<WindowScreen> = place_screen_views(&settings.views, monitors)
         .iter()
-        .map(|placement| {
-            (
-                WindowTarget::View(placement.index),
+        .filter_map(|placement| {
+            let view = settings.views.get(placement.index)?;
+            Some((
+                WindowTarget::View(view.id),
                 placement.monitor.as_ref().map(screen_key),
-            )
+            ))
         })
         .collect();
 
@@ -254,6 +260,11 @@ mod tests {
         }
     }
 
+    /// A window target for a view, with a made-up but stable id.
+    fn view(n: u128) -> WindowTarget {
+        WindowTarget::View(uuid::Uuid::from_u128(n))
+    }
+
     fn screen_view(name: &str, monitor_name: Option<&str>) -> View {
         View {
             id: uuid::Uuid::new_v4(),
@@ -282,7 +293,10 @@ mod tests {
 
         assert_eq!(
             wanted,
-            vec![(WindowTarget::View(0), Some(screen_key(&monitors[0])))]
+            vec![(
+                WindowTarget::View(settings.views[0].id),
+                Some(screen_key(&monitors[0]))
+            )]
         );
     }
 
@@ -316,7 +330,7 @@ mod tests {
     /// "apply now" away until there is something for it to do.
     #[test]
     fn nothing_is_pending_while_every_window_is_where_it_should_be() {
-        let open = vec![(WindowTarget::View(0), Some("Beamer#1".to_string()))];
+        let open = vec![(view(0), Some("Beamer#1".to_string()))];
 
         assert!(pending(&open, &open).is_empty());
     }
@@ -325,17 +339,17 @@ mod tests {
     /// while the service was running.
     #[test]
     fn a_window_whose_screen_has_changed_is_pending() {
-        let open = vec![(WindowTarget::View(0), Some("Laptop#0".to_string()))];
-        let wanted = vec![(WindowTarget::View(0), Some("Beamer#1".to_string()))];
+        let open = vec![(view(0), Some("Laptop#0".to_string()))];
+        let wanted = vec![(view(0), Some("Beamer#1".to_string()))];
 
-        assert_eq!(pending(&open, &wanted), vec![WindowTarget::View(0)]);
+        assert_eq!(pending(&open, &wanted), vec![view(0)]);
     }
 
     /// A window nobody has an opinion about any more is left where it is.
     /// Switching a view off during a service is not what this control does.
     #[test]
     fn a_window_with_no_placement_left_is_not_pending() {
-        let open = vec![(WindowTarget::View(3), Some("Laptop#0".to_string()))];
+        let open = vec![(view(3), Some("Laptop#0".to_string()))];
 
         assert!(pending(&open, &[]).is_empty());
     }
@@ -344,8 +358,40 @@ mod tests {
     /// machine with no service running.
     #[test]
     fn nothing_is_pending_with_no_windows_open() {
-        let wanted = vec![(WindowTarget::View(0), Some("Beamer#1".to_string()))];
+        let wanted = vec![(view(0), Some("Beamer#1".to_string()))];
 
         assert!(pending(&[], &wanted).is_empty());
+    }
+
+    /// The case Copilot found on PR 106: deleting a view during a service
+    /// shifts the positions of every view after it. The window that is still
+    /// open has to stay matched to its own view, and the deleted one's window
+    /// to nothing — not to its neighbour.
+    #[test]
+    fn deleting_a_view_does_not_hand_its_window_to_the_next_one() {
+        let monitors = vec![
+            monitor(0, "Laptop", true),
+            monitor(1, "Beamer", false),
+            monitor(2, "Stage", false),
+        ];
+        let mut settings = Settings {
+            views: vec![
+                screen_view("Reference", Some(&screen_key(&monitors[0]))),
+                screen_view("Wall", Some(&screen_key(&monitors[1]))),
+                screen_view("Stage", Some(&screen_key(&monitors[2]))),
+            ],
+            ..Default::default()
+        };
+        // Every window where it should be, as the service started.
+        let open = wanted_screens(&settings, &monitors);
+        assert!(pending(&open, &open).is_empty());
+
+        assert!(settings.delete_view(1));
+
+        let wanted = wanted_screens(&settings, &monitors);
+        assert!(
+            pending(&open, &wanted).is_empty(),
+            "the stage window is where it should be, and the wall's has no view left"
+        );
     }
 }

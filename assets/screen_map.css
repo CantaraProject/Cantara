@@ -129,6 +129,15 @@
     opacity: 0.9;
 }
 
+/* The screen a chip is carried out of has to let it go. A screen clips what
+ * overflows it, and the carried chip is still that screen's child, only moved
+ * by a transform — so without this it vanished at the screen's edge, which is
+ * the moment it is on its way somewhere else. Only that one screen, and only
+ * during the drag: every other chip stays clipped to its screen as before. */
+.screen-map-active .screen-map-screen:has(.screen-map-chip-carried) {
+    overflow: visible;
+}
+
 /* While a drag is under way, no chip answers the pointer: what is under it
  * should be the screen it would be dropped on. */
 .screen-map-active .screen-map-chip {

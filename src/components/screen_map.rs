@@ -103,9 +103,16 @@ impl ChipKind {
 
     /// The window of a running service this chip stands for, if it stands for
     /// one. The main window is never one of them (D3).
-    fn target(&self) -> Option<WindowTarget> {
+    ///
+    /// A chip names its view by position, which is what the editor beside it
+    /// works in; a window is known by the view's id, which survives a view
+    /// above it being deleted. See [`WindowTarget::View`].
+    fn target(&self, settings: &Settings) -> Option<WindowTarget> {
         match self {
-            ChipKind::View(index) => Some(WindowTarget::View(*index)),
+            ChipKind::View(index) => settings
+                .views
+                .get(*index)
+                .map(|view| WindowTarget::View(view.id)),
             ChipKind::PresenterConsole => Some(WindowTarget::PresenterConsole),
             ChipKind::MainWindow => None,
         }
@@ -156,7 +163,7 @@ pub fn map_chips(
         chip.pending = chip
             .chip
             .kind
-            .target()
+            .target(settings)
             .is_some_and(|target| pending.contains(&target));
     }
     drawn
@@ -806,7 +813,11 @@ mod tests {
             true,
         )]);
 
-        let drawn = map_chips(&settings, &monitors, &[WindowTarget::View(0)]);
+        let drawn = map_chips(
+            &settings,
+            &monitors,
+            &[WindowTarget::View(settings.views[0].id)],
+        );
 
         assert!(drawn[0].pending, "a window that is elsewhere was drawn as settled");
         assert!(

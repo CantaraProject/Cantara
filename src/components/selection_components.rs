@@ -543,6 +543,9 @@ pub fn Selection() -> Element {
 #[cfg(feature = "desktop")]
 fn open_view_window(
     placement: &crate::logic::screens::PlacedView,
+    // The view at `placement.index`, by the id it keeps when the list around
+    // it changes. See [`ShownView`].
+    view_id: uuid::Uuid,
     always_fullscreen: bool,
 ) {
     use crate::logic::live_windows::WindowTarget;
@@ -578,8 +581,8 @@ fn open_view_window(
     // it happens to be over now.
     let on = placement.monitor.as_ref().map(screen_key);
     consume_context::<super::window_host::OpenWindows>().open(super::window_host::WindowRequest::new(
-        WindowTarget::View(placement.index),
-        super::window_host::WindowPage::View(placement.index),
+        WindowTarget::View(view_id),
+        super::window_host::WindowPage::View(view_id),
         builder,
         on,
     ));
@@ -587,12 +590,17 @@ fn open_view_window(
 
 /// Which of [`crate::logic::settings::Settings::views`] a window is drawing.
 ///
-/// A position rather than the view itself, so that a window reads the view out
-/// of the settings as they now stand: a design edited during a service reaches
-/// the window that is showing it, which is the whole reason views hold indices
-/// into the design list rather than copies of a design.
+/// The view's [`id`](crate::logic::settings::View::id) rather than the view
+/// itself, so that a window reads the view out of the settings as they now
+/// stand: a design edited during a service reaches the window that is showing
+/// it, which is the whole reason views hold indices into the design list rather
+/// than copies of a design.
+///
+/// And the id rather than the position, because a position does not survive a
+/// view above it being deleted during the service: the window would go on
+/// drawing whatever view had moved up into its place.
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct ShownView(pub usize);
+pub struct ShownView(pub uuid::Uuid);
 
 /// Helper function to start a presentation from the selection page.
 /// Supports multiscreen placement and optional presenter console.
@@ -649,7 +657,9 @@ fn start_presentation(
         let always_fullscreen = settings_read.always_start_fullscreen;
 
         for placement in &placements {
-            open_view_window(placement, always_fullscreen);
+            if let Some(view) = settings_read.views.get(placement.index) {
+                open_view_window(placement, view.id, always_fullscreen);
+            }
         }
 
         if show_presenter_console {
