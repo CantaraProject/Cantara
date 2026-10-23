@@ -2232,7 +2232,10 @@ fn get_settings_file() -> Option<PathBuf> {
 fn archive_wrapper_directory<R: std::io::Read + std::io::Seek>(
     archive: &ZipArchive<R>,
 ) -> Option<String> {
-    let mut names = archive.file_names().filter(|name| !name.is_empty());
+    let mut names = archive
+        .file_names()
+        .filter_map(|name| name.ok())
+        .filter(|name| !name.is_empty());
     let first = names.next()?;
     let wrapper = format!("{}/", first.split('/').next()?);
 
