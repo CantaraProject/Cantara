@@ -40,10 +40,12 @@ For Windows, download and run the installer from the [rustup website](https://ru
 
 ### Installing Dioxus CLI
 
-Once Rust is installed, you can install the Dioxus CLI:
+Once Rust is installed, you can install the Dioxus CLI. Cantara currently
+builds on a pre-release of Dioxus (0.8.0-alpha.3), which `cargo install` does
+not pick on its own, so the version has to be named:
 
 ```bash
-cargo install dioxus-cli --locked
+cargo install dioxus-cli --version 0.8.0-alpha.3 --locked
 ```
 
 The CLI and the `dioxus` crates have to be the same version. A CLI older than
@@ -55,7 +57,7 @@ the Dioxus CLI` — a panic in whichever component first uses an asset. Check wi
 they drift apart:
 
 ```bash
-cargo install dioxus-cli --version 0.7.10 --locked
+cargo install dioxus-cli --version 0.8.0-alpha.3 --locked
 ```
 
 ### Building Cantara

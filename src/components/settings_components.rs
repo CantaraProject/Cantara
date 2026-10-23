@@ -8,8 +8,12 @@ use crate::logic::reorder::index_after_move;
 use crate::logic::tag_mapping::TagMapping;
 use super::jump_sidebar::{JumpSidebar, JumpTarget, scroll_to_section, use_section_spy};
 use super::song_slide_settings_components::SongSlideSettingsSection;
-#[cfg(feature = "desktop")]
-use crate::logic::screens::{MonitorInfo, enumerate_monitors};
+#[cfg(feature = "screens")]
+use crate::logic::live_windows::{self, WindowScreen};
+#[cfg(feature = "screens")]
+use crate::logic::screens::{MonitorInfo, screen_key, upgrade_screen_key};
+#[cfg(feature = "screens")]
+use super::screen_map::{ChipKind, ScreenMap, map_chips};
 use crate::{Route, logic::settings::*};
 use dioxus::logger::tracing;
 use dioxus::prelude::*;
@@ -743,24 +747,166 @@ fn PresentationSettings() -> Element {
     }
 }
 
-/// Component for configuring screen/monitor settings for multi-screen presentation.
-/// Only available on desktop platforms.
-#[cfg(feature = "desktop")]
+/// Rewrites every screen a settings file names as a [`screen_key`].
+///
+/// The settings page used to store a bare `monitor.name`; see
+/// [`crate::logic::screens::upgrade_screen_key`] for why that is not enough.
+/// Nothing is written unless something actually changed, and that is decided
+/// before the signal is taken for writing at all.
+///
+/// The distinction matters more than it looks. Taking a `Signal` for writing
+/// marks it dirty whether or not the value ends up different, and the settings
+/// are read by most of the program: an unconditional `write()` here redrew
+/// every one of those components on every visit to the screen settings, for a
+/// migration that has nothing to do the second time. So the question is asked
+/// through [`needs_screen_key_upgrade`] first, and the write only happens when
+/// the answer is yes — which, for a settings file written by this version, is
+/// never.
+#[cfg(feature = "screens")]
+fn upgrade_stored_screen_keys(settings: &mut Signal<Settings>, monitors: &[MonitorInfo]) {
+    if monitors.is_empty() || !needs_screen_key_upgrade(&settings.read(), monitors) {
+        return;
+    }
+
+    {
+        let mut writing = settings.write();
+        writing.presenter_screen = upgrade_screen_key(&writing.presenter_screen, monitors);
+
+        for view in writing.views.iter_mut() {
+            if let ViewOutput::Screen { monitor_name } = &view.output {
+                view.output = ViewOutput::Screen {
+                    monitor_name: upgrade_screen_key(monitor_name, monitors),
+                };
+            }
+        }
+    }
+
+    settings.read().save();
+}
+
+/// Whether any screen the settings name is still stored as a bare name.
+#[cfg(feature = "screens")]
+fn needs_screen_key_upgrade(settings: &Settings, monitors: &[MonitorInfo]) -> bool {
+    let stale = |stored: &Option<String>| upgrade_screen_key(stored, monitors) != *stored;
+
+    stale(&settings.presenter_screen)
+        || settings.views.iter().any(|view| match &view.output {
+            ViewOutput::Screen { monitor_name } => stale(monitor_name),
+            ViewOutput::Network { .. } => false,
+        })
+}
+
+/// The view the projection's drop-down stands for, and the screen it names.
+///
+/// The reference view is the projection: it is the sequence of slides
+/// everything else is described against, and the one view a service cannot do
+/// without. `None` when it has no screen to set — every view is served to the
+/// network, or there are none at all.
+#[cfg(feature = "screens")]
+fn reference_screen_view(settings: &Settings) -> Option<(usize, Option<String>)> {
+    let index = settings.reference_view_position()?;
+    match &settings.views.get(index)?.output {
+        ViewOutput::Screen { monitor_name } => Some((index, monitor_name.clone())),
+        ViewOutput::Network { .. } => None,
+    }
+}
+
+/// What a screen is called in a drop-down.
+///
+/// A monitor's reported name is often empty, and on some platforms always is,
+/// so a list of blank entries is a real possibility. The size stands in: two
+/// screens on a machine are nearly always different sizes, and "1920 × 1080"
+/// is something the user can match against what is in front of them.
+#[cfg(feature = "screens")]
+fn screen_choice_label(monitor: &MonitorInfo) -> String {
+    let size = format!("{} × {}", monitor.size.0, monitor.size.1);
+    match monitor.name.trim().is_empty() {
+        true => format!("{} ({size})", monitor.id + 1),
+        false => format!("{} ({size})", monitor.name),
+    }
+}
+
+/// Puts a window on a screen, or back to "automatic".
+///
+/// What a drop on the map does, and what the drop-downs beside it do — one
+/// function, so that the two ways of saying the same thing cannot come to mean
+/// different things.
+///
+/// `key` is a [`crate::logic::screens::screen_key`], never a bare name: a name
+/// is frequently empty and frequently shared between two identical monitors,
+/// and a view pointed at one would match the first screen or every screen
+/// (D2).
+#[cfg(feature = "screens")]
+fn assign_screen(settings: &mut Signal<Settings>, kind: ChipKind, key: Option<String>) {
+    {
+        let mut writing = settings.write();
+        match kind {
+            ChipKind::View(index) => {
+                if let Some(view) = writing.views.get_mut(index) {
+                    view.output = ViewOutput::Screen { monitor_name: key };
+                }
+            }
+            ChipKind::PresenterConsole => writing.presenter_screen = key,
+            // Where the main window sits is the window manager's business.
+            // It is drawn so that the operator can tell which rectangle they
+            // are looking at the map on, and nothing more (D3).
+            ChipKind::MainWindow => {}
+        }
+    }
+    settings.read().save();
+}
+
+/// What screens there are at this moment.
+///
+/// A desktop build asks the window system. A browser build has no window
+/// system to ask and no screens to report; where the `screens` feature is on
+/// without `desktop` it is a build made for the Playwright tests, and the
+/// screens are the ones they fabricated — see
+/// [`crate::logic::screens::harness_monitors`] and D8 of the spec.
+#[cfg(feature = "screens")]
+fn monitors_now() -> Vec<MonitorInfo> {
+    #[cfg(feature = "desktop")]
+    return crate::logic::screens::enumerate_monitors(&dioxus::desktop::window());
+    #[cfg(not(feature = "desktop"))]
+    return crate::logic::screens::harness_monitors();
+}
+
+/// Component for configuring screen/monitor settings for multi-screen
+/// presentation. Only compiled where there are screens to configure — see the
+/// `screens` feature.
+#[cfg(feature = "screens")]
 #[component]
 fn ScreenSettings() -> Element {
     let mut settings = use_settings();
     let mut monitors: Signal<Vec<MonitorInfo>> = use_signal(Vec::new);
+    // Which windows a running service has open, and on which screen. Read
+    // when the page is opened rather than watched: windows are opened and
+    // closed somewhere else entirely, and the one thing that changes them
+    // from here — "apply now" — sets this itself.
+    let mut live: Signal<Vec<WindowScreen>> = use_signal(Vec::new);
 
-    // Enumerate monitors on mount
+    // Enumerate monitors on mount, and upgrade anything the old settings
+    // page stored as a bare name while the screens are in hand (D2). It runs
+    // on every visit and does nothing the second time: a value that is already
+    // a key is left alone.
     use_effect(move || {
-        let desktop = dioxus::desktop::window();
-        monitors.set(enumerate_monitors(&desktop));
+        let found = monitors_now();
+        upgrade_stored_screen_keys(&mut settings, &found);
+        monitors.set(found);
+        live.set(live_windows::open_windows());
     });
 
     let refresh_monitors = move |_| {
-        let desktop = dioxus::desktop::window();
-        monitors.set(enumerate_monitors(&desktop));
+        monitors.set(monitors_now());
+        live.set(live_windows::open_windows());
     };
+
+    // Where every window of a running service should be, and which of them is
+    // somewhere else. Empty whenever nothing is running, which is what keeps
+    // "apply now" out of the way until there is something for it to do (D5).
+    let wanted = live_windows::wanted_screens(&settings.read(), &monitors.read());
+    let pending = live_windows::pending(&live.read(), &wanted);
+    let apply_wanted = wanted.clone();
 
     rsx! {
         hgroup {
@@ -839,22 +985,40 @@ fn ScreenSettings() -> Element {
                     { t!("settings.no_monitors_detected").to_string() }
                 }
             } else {
-                for monitor in monitors.read().iter() {
+                // The screens as they are actually arranged, with the windows
+                // that go on them — see `docs/specs/0007-screen-map.md`. The
+                // drop-downs below say the same thing and are the way to set
+                // it without a pointer (D7); this is the picture that answers
+                // "which rectangle is the beamer?".
+                p {
+                    class: "screen-map-intro",
+                    { t!("settings.screen_map.description").to_string() }
+                }
+                ScreenMap {
+                    monitors: monitors.read().clone(),
+                    chips: map_chips(&settings.read(), &monitors.read(), &pending),
+                    on_assign: move |(kind, key): (ChipKind, Option<String>)| {
+                        assign_screen(&mut settings, kind, key);
+                    },
+                }
+
+                // The one way to move a window that is already open (D5).
+                // Nothing moves until this is pressed: repositioning the
+                // projection is a moment of black in front of the
+                // congregation, which is acceptable when somebody has just
+                // asked for it and not as a side effect of tidying the
+                // settings mid-service.
+                if !pending.is_empty() {
                     div {
-                        style: "margin-bottom: 5px; padding: 5px; border-bottom: 1px solid var(--pico-muted-border-color);",
-                        strong { { monitor.name.clone() } }
-                        if monitor.name.is_empty() {
-                            strong { { format!("Monitor {}", monitor.id + 1) } }
-                        }
-                        span {
-                            style: "margin-left: 10px; color: var(--pico-muted-color);",
-                            { format!("{}x{}", monitor.size.0, monitor.size.1) }
-                        }
-                        if monitor.is_primary {
-                            span {
-                                style: "margin-left: 10px; font-style: italic;",
-                                { format!("({})", t!("settings.primary_monitor")) }
-                            }
+                        class: "screen-map-apply",
+                        p { { t!("settings.screen_map.apply_now_description").to_string() } }
+                        button {
+                            class: "secondary",
+                            onclick: move |_| {
+                                live_windows::move_to(&monitors.read(), &apply_wanted);
+                                live.set(live_windows::open_windows());
+                            },
+                            { t!("settings.screen_map.apply_now").to_string() }
                         }
                     }
                 }
@@ -867,45 +1031,58 @@ fn ScreenSettings() -> Element {
                 class: "grid",
                 div {
                     label { { t!("settings.presentation_screen").to_string() } }
-                    select {
-                        onchange: move |evt| {
-                            let val = evt.value();
-                            settings.write().presentation_screen = if val == "auto" {
-                                None
-                            } else {
-                                Some(val)
-                            };
-                        },
-                        option {
-                            value: "auto",
-                            selected: settings.read().presentation_screen.is_none(),
-                            { t!("settings.automatic").to_string() }
-                        }
-                        for monitor in monitors.read().iter() {
+
+                    // The projection's screen, written through to the
+                    // reference view rather than to a field of its own (D1).
+                    // `presentation_screen` is read by nothing but the
+                    // migration in `ensure_views`, so a drop-down writing it
+                    // was a control that did nothing on every installation
+                    // that has been started since views arrived.
+                    if let Some((index, chosen)) = reference_screen_view(&settings.read()) {
+                        select {
+                            onchange: move |event| {
+                                let value = event.value();
+                                let key = (value != "auto").then_some(value);
+                                assign_screen(&mut settings, ChipKind::View(index), key);
+                            },
                             option {
-                                value: monitor.name.clone(),
-                                selected: settings.read().presentation_screen.as_ref() == Some(&monitor.name),
-                                {
-                                    if monitor.name.is_empty() {
-                                        format!("Monitor {}", monitor.id + 1)
-                                    } else {
-                                        monitor.name.clone()
-                                    }
+                                value: "auto",
+                                selected: chosen.is_none(),
+                                { t!("settings.automatic").to_string() }
+                            }
+                            for monitor in monitors.read().iter() {
+                                option {
+                                    value: screen_key(monitor),
+                                    selected: chosen.as_deref() == Some(screen_key(monitor).as_str()),
+                                    { screen_choice_label(monitor) }
                                 }
                             }
+                        }
+                    } else {
+                        // Nothing to point at: every view is served to the
+                        // network, or there are no views at all. Disabled and
+                        // said outright, rather than quietly writing somewhere
+                        // nothing reads.
+                        select { disabled: true,
+                            option { { t!("settings.automatic").to_string() } }
+                        }
+                        p {
+                            class: "screen-map-note",
+                            { t!("settings.no_screen_view").to_string() }
                         }
                     }
                 }
                 div {
                     label { { t!("settings.presenter_screen").to_string() } }
+                    // The same state the console's chip on the map shows, set
+                    // the same way — through `assign_screen`, so the picture
+                    // and the drop-down cannot come to mean different things.
+                    // This is the keyboard path (D7).
                     select {
                         onchange: move |evt| {
-                            let val = evt.value();
-                            settings.write().presenter_screen = if val == "auto" {
-                                None
-                            } else {
-                                Some(val)
-                            };
+                            let value = evt.value();
+                            let key = (value != "auto").then_some(value);
+                            assign_screen(&mut settings, ChipKind::PresenterConsole, key);
                         },
                         option {
                             value: "auto",
@@ -914,15 +1091,13 @@ fn ScreenSettings() -> Element {
                         }
                         for monitor in monitors.read().iter() {
                             option {
-                                value: monitor.name.clone(),
-                                selected: settings.read().presenter_screen.as_ref() == Some(&monitor.name),
-                                {
-                                    if monitor.name.is_empty() {
-                                        format!("Monitor {}", monitor.id + 1)
-                                    } else {
-                                        monitor.name.clone()
-                                    }
-                                }
+                                // The whole key, not the bare name: a name is
+                                // often empty and often shared between two
+                                // identical monitors (D2).
+                                value: screen_key(monitor),
+                                selected: settings.read().presenter_screen.as_deref()
+                                    == Some(screen_key(monitor).as_str()),
+                                { screen_choice_label(monitor) }
                             }
                         }
                     }
@@ -932,9 +1107,9 @@ fn ScreenSettings() -> Element {
     }
 }
 
-/// Non-desktop platforms show only the presenter console toggle.
-/// Monitor selection is not available on the web.
-#[cfg(not(feature = "desktop"))]
+/// Platforms with no screens to choose between show only the presenter console
+/// toggle. Monitor selection is not available on the web.
+#[cfg(not(feature = "screens"))]
 #[component]
 fn ScreenSettings() -> Element {
     let mut settings = use_settings();
@@ -1057,5 +1232,130 @@ fn PresentationDesignCard(
                 p { class: "export-save-error", role: "alert", {message} }
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "screens"))]
+mod tests {
+    use super::*;
+    use crate::logic::settings::{View, ViewFocus};
+
+    fn view(name: &str, output: ViewOutput) -> View {
+        View {
+            id: uuid::Uuid::new_v4(),
+            name: name.to_string(),
+            design_index: None,
+            slide_settings_index: None,
+            output,
+            enabled: true,
+            focus: ViewFocus::Follow,
+        }
+    }
+
+    fn screen_view(name: &str, monitor_name: Option<&str>) -> View {
+        view(
+            name,
+            ViewOutput::Screen {
+                monitor_name: monitor_name.map(str::to_string),
+            },
+        )
+    }
+
+    /// The decision D1 rests on: the projection's drop-down stands for the
+    /// reference view, so what it shows is that view's screen — not a field
+    /// of its own that nothing reads.
+    #[test]
+    fn the_projections_drop_down_reads_the_reference_views_screen() {
+        let settings = Settings {
+            views: vec![
+                screen_view("Projection", Some("Beamer#1")),
+                screen_view("Stage", Some("Bühne#2")),
+            ],
+            reference_view_index: 0,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            reference_screen_view(&settings),
+            Some((0, Some("Beamer#1".to_string())))
+        );
+    }
+
+    /// It follows the reference wherever it is, rather than assuming the
+    /// projection is the first view in the list.
+    #[test]
+    fn it_follows_the_reference_view_rather_than_the_first_one() {
+        let settings = Settings {
+            views: vec![
+                screen_view("Stage", Some("Bühne#2")),
+                screen_view("Projection", Some("Beamer#1")),
+            ],
+            reference_view_index: 1,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            reference_screen_view(&settings),
+            Some((1, Some("Beamer#1".to_string())))
+        );
+    }
+
+    /// A reference view that names no screen is "automatic", which is a real
+    /// answer and not an absent one: the drop-down is still live and shows it.
+    #[test]
+    fn a_reference_view_with_no_screen_chosen_is_still_offered() {
+        let settings = Settings {
+            views: vec![screen_view("Projection", None)],
+            reference_view_index: 0,
+            ..Default::default()
+        };
+
+        assert_eq!(reference_screen_view(&settings), Some((0, None)));
+    }
+
+    /// A reference view served to the network has no screen to set, and the
+    /// drop-down says so instead of writing somewhere nothing reads.
+    #[test]
+    fn a_network_reference_view_offers_no_screen() {
+        let settings = Settings {
+            views: vec![view(
+                "Stream",
+                ViewOutput::Network {
+                    path: "/".to_string(),
+                },
+            )],
+            reference_view_index: 0,
+            ..Default::default()
+        };
+
+        assert_eq!(reference_screen_view(&settings), None);
+    }
+
+    /// No views at all — nothing to point the drop-down at.
+    #[test]
+    fn no_views_offer_no_screen() {
+        let settings = Settings {
+            views: Vec::new(),
+            ..Default::default()
+        };
+
+        assert_eq!(reference_screen_view(&settings), None);
+    }
+
+    /// A stored reference position that is out of date still names a view,
+    /// the same one the rest of the program would use. A service is not the
+    /// place to find out that an index has gone stale.
+    #[test]
+    fn a_stale_reference_position_still_names_a_view() {
+        let settings = Settings {
+            views: vec![screen_view("Projection", Some("Beamer#1"))],
+            reference_view_index: 17,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            reference_screen_view(&settings),
+            Some((0, Some("Beamer#1".to_string())))
+        );
     }
 }

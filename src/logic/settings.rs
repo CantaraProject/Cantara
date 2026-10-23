@@ -87,7 +87,17 @@ pub struct Settings {
     #[serde(default = "default_always_start_fullscreen")]
     pub always_start_fullscreen: bool,
 
-    /// The name of the monitor to use for presentations. None means automatic (prefer non-primary).
+    /// What the projection's screen *was*, before views existed.
+    ///
+    /// Not a setting any more, however much it looks like one: the only thing
+    /// that reads it is [`ensure_views`](Self::ensure_views), which runs once,
+    /// on a settings file written before views arrived, and seeds the
+    /// projection's view from it. Everything since then asks the view.
+    ///
+    /// Kept so that an old file still migrates. The screen settings write the
+    /// reference view instead — see decision D1 of
+    /// `docs/specs/0007-screen-map.md`, which is also where the story of this
+    /// field being a control that did nothing is told.
     #[serde(default)]
     pub presentation_screen: Option<String>,
 
@@ -1353,6 +1363,23 @@ impl Settings {
         self.views
             .get(self.reference_view_index)
             .or_else(|| self.views.first())
+    }
+
+    /// Where [`reference_view`](Self::reference_view) is in the list.
+    ///
+    /// The same answer, as a position rather than a borrow, for an editor that
+    /// has to *write* to that view — the projection's screen is set that way,
+    /// through the view rather than through a field of its own. Carries the
+    /// same fallback, so the two cannot disagree about which view is meant.
+    #[cfg_attr(
+        not(any(test, feature = "desktop")),
+        allow(dead_code, reason = "only a desktop build chooses a screen")
+    )]
+    pub fn reference_view_position(&self) -> Option<usize> {
+        if self.views.get(self.reference_view_index).is_some() {
+            return Some(self.reference_view_index);
+        }
+        (!self.views.is_empty()).then_some(0)
     }
 
     /// The design a view is shown in, or `None` for "the same as the
@@ -3995,6 +4022,40 @@ mod tests {
             settings.reference_view().map(|view| view.name.clone()),
             Some(settings.views[0].name.clone())
         );
+    }
+
+    /// The position and the view are the same answer. An editor writing to
+    /// the position must not reach a different view than the one the rest of
+    /// the program reads.
+    #[test]
+    fn the_reference_position_names_the_reference_view() {
+        let mut settings = Settings::default();
+        settings.ensure_views();
+
+        for stored in [0, 1, 17] {
+            settings.reference_view_index = stored;
+            let by_position = settings
+                .reference_view_position()
+                .and_then(|index| settings.views.get(index));
+
+            assert_eq!(
+                by_position,
+                settings.reference_view(),
+                "the position and the view disagreed with {stored} stored"
+            );
+        }
+    }
+
+    /// With no views at all there is no reference to write to, and the
+    /// caller is told so rather than handed a zero that names nothing.
+    #[test]
+    fn there_is_no_reference_position_without_views() {
+        let settings = Settings {
+            views: Vec::new(),
+            ..Default::default()
+        };
+
+        assert_eq!(settings.reference_view_position(), None);
     }
 
     /// And with no views at all there is no reference, rather than a panic.

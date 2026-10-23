@@ -244,7 +244,7 @@ fn SlideSettingsList(
                         }
                         // Enter and Space choose the row, as a click
                         // does — it is an option in a list.
-                        if matches!(event.key(), Key::Enter) || event.key() == Key::Character(" ".to_string()) {
+                        if matches!(event.key(), Key::Named(NamedKey::Enter)) || event.key() == Key::Character(" ".to_string()) {
                             event.prevent_default();
                             selected.set(Some(index));
                         }

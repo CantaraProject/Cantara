@@ -47,7 +47,7 @@ pub fn LegacyImportNotice() -> Element {
             // Escape closes it, as it closes every other dialog in the
             // program. There is nothing to lose by closing it.
             onkeydown: move |event: Event<KeyboardData>| {
-                if event.key() == Key::Escape {
+                if event.key() == Key::Named(NamedKey::Escape) {
                     event.prevent_default();
                     open.set(false);
                 }

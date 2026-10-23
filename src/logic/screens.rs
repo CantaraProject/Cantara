@@ -1,5 +1,13 @@
 //! This module provides monitor/screen enumeration for multi-screen presentation support.
+//!
+//! Finding out what screens there are needs a window system, so
+//! [`enumerate_monitors`] is a desktop build's alone. Everything else here —
+//! what a screen is called for storage, which screen a view resolves to — is
+//! arithmetic over a list of [`MonitorInfo`] and is compiled wherever the
+//! `screens` feature is, which includes the browser build the Playwright
+//! tests drive. That build gets its list from [`harness_monitors`].
 
+#[cfg(feature = "desktop")]
 use dioxus::desktop::DesktopContext;
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +27,7 @@ pub struct MonitorInfo {
 }
 
 /// Enumerates all available monitors using the desktop context.
+#[cfg(feature = "desktop")]
 pub fn enumerate_monitors(desktop: &DesktopContext) -> Vec<MonitorInfo> {
     let primary = desktop.primary_monitor();
     let monitors: Vec<_> = desktop.available_monitors().collect();
@@ -45,6 +54,65 @@ pub fn enumerate_monitors(desktop: &DesktopContext) -> Vec<MonitorInfo> {
         })
         .collect()
 }
+
+/// The screens a browser test is given, because a browser has none.
+///
+/// The map is a picture drawn by a page and set by a pointer, and neither of
+/// those can be checked without a browser — but a browser build enumerates no
+/// screens, so there has never been anything for a browser test to point at.
+/// This is the way in, and it is behind `test-harness` for the same reason
+/// [`crate::logic::harness`] is: a released build should not contain it.
+///
+/// Three screens by default, because two is not enough to tell the arithmetic
+/// apart from a coincidence: a primary laptop, a beamer to its right in a
+/// different resolution, and a stage monitor above the laptop. That covers a
+/// screen that is not the operator's, a negative origin, and two screens that
+/// must be drawn at different sizes.
+///
+/// A test that needs a different arrangement writes one to local storage under
+/// [`HARNESS_MONITORS_KEY`], the same way the reorder tests seed the settings.
+/// That is the real way in and out of a browser build; there is no control
+/// port here and nothing a test could get right that the program gets wrong.
+#[cfg(all(feature = "screens", not(feature = "desktop")))]
+pub fn harness_monitors() -> Vec<MonitorInfo> {
+    // Local storage is a browser's. A native build without `desktop` — a phone
+    // build with the harness switched on — has neither it nor screens, and is
+    // given the default arrangement rather than failing to compile.
+    #[cfg(target_arch = "wasm32")]
+    let seeded: Option<Vec<MonitorInfo>> = crate::logic::web_storage::read(HARNESS_MONITORS_KEY);
+    #[cfg(not(target_arch = "wasm32"))]
+    let seeded: Option<Vec<MonitorInfo>> = None;
+
+    seeded.unwrap_or_else(|| {
+        vec![
+            MonitorInfo {
+                id: 0,
+                name: "Laptop".to_string(),
+                position: (0, 0),
+                size: (1920, 1080),
+                is_primary: true,
+            },
+            MonitorInfo {
+                id: 1,
+                name: "Beamer".to_string(),
+                position: (1920, 0),
+                size: (1280, 800),
+                is_primary: false,
+            },
+            MonitorInfo {
+                id: 2,
+                name: "Bühne".to_string(),
+                position: (0, -1080),
+                size: (1920, 1080),
+                is_primary: false,
+            },
+        ]
+    })
+}
+
+/// Where a browser test puts the screens it wants the map drawn from.
+#[cfg(all(feature = "screens", not(feature = "desktop")))]
+pub const HARNESS_MONITORS_KEY: &str = "cantara-harness-monitors";
 
 /// A name for a screen that is actually its own.
 ///
@@ -77,6 +145,32 @@ fn monitor_by_key<'a>(monitors: &'a [MonitorInfo], key: &str) -> Option<&'a Moni
         return None;
     }
     monitors.iter().find(|monitor| monitor.name == name)
+}
+
+/// Turns a stored screen name from before [`screen_key`] into a key.
+///
+/// The settings page used to write `monitor.name` where everything else
+/// expects a key. It worked through the name fallback in [`monitor_by_key`],
+/// right up until two screens report the same name or none — which is exactly
+/// what `screen_key` exists for, and exactly what a hall with two identical
+/// monitors has. See decision D2 of `docs/specs/0007-screen-map.md`.
+///
+/// A value with a `#` in it is already a key and is left alone. A bare name
+/// that matches a screen that is here becomes that screen's key. A bare name
+/// that matches nothing is left alone rather than cleared: the screen is
+/// probably just unplugged, and the fallback still finds it when it comes
+/// back. Clearing it would quietly move the projection to the laptop and keep
+/// it there.
+pub fn upgrade_screen_key(stored: &Option<String>, monitors: &[MonitorInfo]) -> Option<String> {
+    let name = stored.as_ref()?;
+    if name.contains('#') || name.is_empty() {
+        return stored.clone();
+    }
+    monitors
+        .iter()
+        .find(|monitor| monitor.name == *name)
+        .map(screen_key)
+        .or_else(|| stored.clone())
 }
 
 /// Resolves which monitor to use for presentation based on settings.
@@ -507,5 +601,67 @@ mod tests {
 
         assert_eq!(placed.len(), 1);
         assert_eq!(placed[0].monitor, None);
+    }
+
+    /// A bare name written by the old settings page becomes the key
+    /// everything else expects.
+    #[test]
+    fn a_stored_name_is_upgraded_to_a_key() {
+        let monitors = vec![monitor(0, "Laptop", true), monitor(1, "Beamer", false)];
+
+        let upgraded = upgrade_screen_key(&Some("Beamer".to_string()), &monitors);
+
+        assert_eq!(upgraded, Some(screen_key(&monitors[1])));
+    }
+
+    /// A value that is already a key is left exactly as it is, so that the
+    /// migration can run on every load without doing anything the second
+    /// time.
+    #[test]
+    fn a_key_survives_the_upgrade_unchanged() {
+        let monitors = vec![monitor(0, "Laptop", true), monitor(1, "Beamer", false)];
+        let key = screen_key(&monitors[1]);
+
+        assert_eq!(upgrade_screen_key(&Some(key.clone()), &monitors), Some(key));
+    }
+
+    /// A name matching no screen that is plugged in right now is kept, not
+    /// cleared. The beamer is probably in the cupboard, and clearing it would
+    /// move the projection to the laptop for good.
+    #[test]
+    fn a_name_whose_screen_is_absent_is_kept() {
+        let monitors = vec![monitor(0, "Laptop", true)];
+
+        let upgraded = upgrade_screen_key(&Some("Beamer".to_string()), &monitors);
+
+        assert_eq!(upgraded, Some("Beamer".to_string()));
+    }
+
+    /// "Automatic" stays automatic.
+    #[test]
+    fn nothing_stored_upgrades_to_nothing() {
+        let monitors = vec![monitor(0, "Laptop", true)];
+
+        assert_eq!(upgrade_screen_key(&None, &monitors), None);
+    }
+
+    /// A name that was upgraded resolves to the screen it names, which is the
+    /// whole point of doing it.
+    #[test]
+    fn an_upgraded_key_resolves_to_the_right_screen_among_namesakes() {
+        let monitors = vec![
+            monitor(0, "Laptop", true),
+            monitor(1, "BenQ", false),
+            monitor(2, "BenQ", false),
+        ];
+
+        let upgraded = upgrade_screen_key(&Some("BenQ".to_string()), &monitors);
+        let resolved = resolve_monitor(&monitors, &upgraded, false);
+
+        assert_eq!(
+            resolved.map(|monitor| monitor.id),
+            Some(1),
+            "the upgrade did not pin the choice to one of the two namesakes"
+        );
     }
 }

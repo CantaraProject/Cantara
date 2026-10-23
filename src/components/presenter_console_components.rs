@@ -417,10 +417,10 @@ fn PresenterConsoleRunning() -> Element {
             onkeydown: move |event: Event<KeyboardData>| {
                 let key = event.key();
                 match key {
-                    Key::ArrowRight | Key::ArrowDown | Key::PageDown | Key::Enter => go_to_next_slide(),
+                    Key::Named(NamedKey::ArrowRight) | Key::Named(NamedKey::ArrowDown) | Key::Named(NamedKey::PageDown) | Key::Named(NamedKey::Enter) => go_to_next_slide(),
                     Key::Character(ref c) if c == " " => go_to_next_slide(),
-                    Key::ArrowLeft | Key::ArrowUp | Key::PageUp => go_to_previous_slide(),
-                    Key::Escape => {
+                    Key::Named(NamedKey::ArrowLeft) | Key::Named(NamedKey::ArrowUp) | Key::Named(NamedKey::PageUp) => go_to_previous_slide(),
+                    Key::Named(NamedKey::Escape) => {
                         quit_presentation();
                     }
                     Key::Character(ref c) if c == "b" || c == "B" || c == "." => {

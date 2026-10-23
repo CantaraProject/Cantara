@@ -84,6 +84,14 @@ export default defineConfig({
     {
       // The web build, with a library compiled into it.
       //
+      // `--features test-harness` is here for one thing: the screen map
+      // (`docs/specs/0007-screen-map.md`). A browser enumerates no monitors,
+      // so the map is not in a released web build at all; the feature turns
+      // the `screens` code on and supplies a fabricated set of screens for it
+      // to draw, which is the only way a test can reach a picture that is
+      // drawn by a page and set by a pointer. See
+      // `logic::screens::harness_monitors`.
+      //
       // Three steps, and each one is here because leaving it out failed in CI.
       //
       // `bundle-library.mjs` puts a library where the build can find it;
@@ -102,7 +110,8 @@ export default defineConfig({
       // application is there".
       command:
         'node tests/browser/bundle-library.mjs' +
-        ' && CANTARA_BUNDLED_REPOS=local/testsongs dx build --platform web' +
+        ' && CANTARA_BUNDLED_REPOS=local/testsongs' +
+        ' dx build --platform web --features test-harness' +
         ' && node tests/browser/serve-web.mjs',
       // The served page, not the bare origin: `Dioxus.toml` sets a base path.
       url: `${WEB}/Cantara/`,

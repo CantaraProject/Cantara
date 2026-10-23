@@ -251,6 +251,16 @@ fn main() {
     launch_app();
 }
 
+#[cfg(feature = "desktop")]
+use components::window_host::WindowHost;
+
+/// The browser build has one page and no windows of its own to host.
+#[cfg(not(feature = "desktop"))]
+#[component]
+fn WindowHost() -> Element {
+    VNode::empty()
+}
+
 #[component]
 fn App() -> Element {
     let locale = get_locale().unwrap_or_else(|| String::from("en-US"));
@@ -358,6 +368,12 @@ fn App() -> Element {
 
     // The running presentations given as a global signal
     let _: Signal<Vec<RunningPresentation>> = use_context_provider(|| Signal::new(vec![]));
+
+    // The windows a running service has open. They are rendered by
+    // `WindowHost` below, from this tree, so they inherit everything provided
+    // here. See [`components::window_host`].
+    #[cfg(feature = "desktop")]
+    use_context_provider(|| components::window_host::OpenWindows(Signal::new(vec![])));
 
     // Keeps every browser watching over the network in step with the
     // presentation.
@@ -701,6 +717,8 @@ fn App() -> Element {
         document::Meta { name: "content-language", content: locale }
 
         Router::<Route> {}
+
+        WindowHost {}
 
         // Whatever question is being asked, drawn over the page. Mounted at the
         // root and never unmounted, so that a dialog opened from a view that is

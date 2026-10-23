@@ -204,8 +204,17 @@ pub mod network_host;
 #[cfg(target_arch = "wasm32")]
 pub mod web_storage;
 
-#[cfg(feature = "desktop")]
+#[cfg(feature = "screens")]
 pub mod screens;
+
+// Where each screen is drawn on the map of them, and what the pointer is over.
+// Gated with [`screens`], whose `MonitorInfo` it lays out.
+#[cfg(feature = "screens")]
+pub mod screen_map;
+
+// The windows a running service has open, and moving them to another screen.
+#[cfg(feature = "screens")]
+pub mod live_windows;
 
 // What has to be true of the environment before a window is opened.
 #[cfg(feature = "desktop")]

@@ -290,12 +290,40 @@ settings:
   primary_monitor:
     en: Primary
     de: Primär
+  # The map of the screens — see docs/specs/0007-screen-map.md.
+  screen_map:
+    description:
+      en: "Your screens, as they are arranged. Drag a window onto the screen it should open on; drag it to \"Automatic\" to let Cantara choose."
+      de: "Ihre Bildschirme, so wie sie angeordnet sind. Ziehen Sie ein Fenster auf den Bildschirm, auf dem es sich öffnen soll, oder auf \"Automatisch\", damit Cantara wählt."
+    main_window:
+      en: Cantara
+      de: Cantara
+    unnamed_view:
+      en: Unnamed view
+      de: Unbenannte Ansicht
+    screen_number:
+      en: "Screen %{number}"
+      de: "Bildschirm %{number}"
+    screen_missing:
+      en: "A window is set to a screen that is not connected right now. It is shown where it would open instead; the setting is kept, so plugging the screen back in restores it."
+      de: "Ein Fenster ist auf einen Bildschirm eingestellt, der gerade nicht angeschlossen ist. Es wird dort gezeigt, wo es stattdessen öffnen würde. Die Einstellung bleibt erhalten — wird der Bildschirm wieder angeschlossen, gilt sie erneut."
+    apply_now:
+      en: Apply now
+      de: Jetzt übernehmen
+    apply_now_description:
+      en: "A presentation is running. The change takes effect the next time it starts — or move the open windows now, which blanks them for a moment."
+      de: "Eine Präsentation läuft. Die Änderung gilt beim nächsten Start — oder verschieben Sie die offenen Fenster jetzt, was sie für einen Moment schwarz werden lässt."
+
   presentation_screen:
     en: Presentation Screen
     de: Präsentationsbildschirm
   presenter_screen:
     en: Presenter Console Screen
     de: Moderatorenkonsolen-Bildschirm
+  no_screen_view:
+    en: "There is no view that goes to a screen, so there is no presentation screen to choose. Add one under the presentation options."
+    de: "Es gibt keine Ansicht, die auf einen Bildschirm geht, also ist auch kein Präsentationsbildschirm zu wählen. Fügen Sie eine in den Präsentationsoptionen hinzu."
+
   automatic:
     en: Automatic
     de: Automatisch

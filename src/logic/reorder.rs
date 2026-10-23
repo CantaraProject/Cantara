@@ -24,6 +24,8 @@
 //! adds the distance scrolled to the pointer rather than measuring again. See
 //! [`crate::components::reorder`].
 
+use std::time::Duration;
+
 /// How far a press has to travel before it counts as a drag, in pixels.
 ///
 /// Without it, pressing an item to open it flashed the drop marker for as long
@@ -44,6 +46,30 @@ pub const AUTO_SCROLL_BAND: f64 = 48.0;
 /// The most the scrolling area moves per step, in pixels — reached with the
 /// pointer at the very edge, or past it.
 pub const AUTO_SCROLL_MAX_STEP: f64 = 18.0;
+
+/// What [`auto_scroll_step`] measures a step against: one frame at sixty a
+/// second.
+pub const AUTO_SCROLL_FRAME: Duration = Duration::from_millis(16);
+
+/// How many frames' worth of scrolling one turn of the auto-scroll loop should
+/// do, given how long the last whole turn took.
+///
+/// [`auto_scroll_step`] answers in pixels per *frame*, and the loop used to
+/// apply one step per turn — which quietly made the speed of the scroll a
+/// property of how fast the loop goes round. Each turn asks the page to scroll
+/// and waits for the answer, and on a GTK web view that round trip costs
+/// several frames rather than a fraction of one: the same drag that flew on
+/// one machine crawled on another, for no reason the operator could see.
+///
+/// Scaling the step by the time actually spent makes the speed pixels per
+/// second everywhere, which is what it was always meant to be. Never less than
+/// a frame — the arithmetic is written in frames, and half a step would be an
+/// odd thing to ask the page for — and never more than four, so that a stall
+/// (a window that was not drawn for a moment, a machine that swapped) resumes
+/// the scroll rather than throwing the page across it.
+pub fn auto_scroll_frames(cycle: Duration) -> f64 {
+    (cycle.as_secs_f64() / AUTO_SCROLL_FRAME.as_secs_f64()).clamp(1.0, 4.0)
+}
 
 /// Where an item is on the screen, as it was when the drag started.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -632,6 +658,34 @@ mod tests {
         assert_eq!(auto_scroll_step(500.0, 0.0, 1000.0), 0.0);
         assert_eq!(auto_scroll_step(AUTO_SCROLL_BAND, 0.0, 1000.0), 0.0);
         assert_eq!(auto_scroll_step(1000.0 - AUTO_SCROLL_BAND, 0.0, 1000.0), 0.0);
+    }
+
+    /// A loop that goes round at the speed it was written for does exactly
+    /// one step, which is what it always did.
+    #[test]
+    fn a_turn_that_took_a_frame_is_worth_one_frame() {
+        assert_eq!(auto_scroll_frames(AUTO_SCROLL_FRAME), 1.0);
+    }
+
+    /// A slow round trip scrolls further per turn, so that the page moves at
+    /// the same speed on a machine where asking it to costs three frames.
+    #[test]
+    fn a_slow_turn_scrolls_further_to_keep_the_same_speed() {
+        assert_eq!(auto_scroll_frames(Duration::from_millis(48)), 3.0);
+    }
+
+    /// Never less than one frame: the step is written in frames, and a turn
+    /// that somehow took no time at all should still move the page.
+    #[test]
+    fn a_turn_that_took_no_time_still_scrolls_a_frame() {
+        assert_eq!(auto_scroll_frames(Duration::ZERO), 1.0);
+    }
+
+    /// And never more than four. A window that was not drawn for a second
+    /// resumes the scroll; it does not throw the page across it.
+    #[test]
+    fn a_stall_resumes_the_scroll_rather_than_throwing_the_page() {
+        assert_eq!(auto_scroll_frames(Duration::from_secs(1)), 4.0);
     }
 
     /// Near the top it scrolls up, near the bottom down, and faster the

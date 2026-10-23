@@ -57,8 +57,18 @@ pub mod detail_components;
 // A list of places to jump to, beside a long view.
 pub mod jump_sidebar;
 
+// Carrying something with a mouse, a pen or a finger: the pointer mechanics
+// every drag in Cantara shares.
+pub mod drag;
+
 // Putting a list in order by dragging it, the same way everywhere.
 pub mod reorder;
+
+// The screens drawn as they are arranged, with the windows that go on them.
+// A desktop build has screens to draw; a browser build has them only when the
+// browser tests fabricate a set — see [`crate::logic::screens`].
+#[cfg(feature = "screens")]
+pub mod screen_map;
 
 // Creating an element, and moving one between repositories.
 pub mod element_creation;
@@ -118,6 +128,10 @@ pub mod legacy_import_notice;
 
 // Serving video files to the window that plays them.
 pub mod video_host;
+
+// The windows of a running service, drawn from the main window's tree.
+#[cfg(feature = "desktop")]
+pub mod window_host;
 
 pub mod route_transitions;
 

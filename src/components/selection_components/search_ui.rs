@@ -331,11 +331,11 @@ pub(crate) fn SearchInput(
                         // over a query Cantara still believed in. Saying it
                         // outright is the only version of this the two can
                         // agree on — and it is what the user sees happen.
-                        Key::Escape => picker.clear_query(),
+                        Key::Named(NamedKey::Escape) => picker.clear_query(),
                         // Nothing to walk through and nothing to take: every
                         // other key is the query's.
                         _ if result_count == 0 => {}
-                        Key::Enter => {
+                        Key::Named(NamedKey::Enter) => {
                             event.prevent_default();
                             picker.take(active_result().min(result_count - 1));
                         }
@@ -347,11 +347,11 @@ pub(crate) fn SearchInput(
                         //
                         // The ends are joined, so holding one key round-trips
                         // rather than sticking.
-                        Key::ArrowDown | Key::Tab if !event.modifiers().shift() => {
+                        Key::Named(NamedKey::ArrowDown) | Key::Named(NamedKey::Tab) if !event.modifiers().shift() => {
                             event.prevent_default();
                             active_result.set((active_result() + 1) % result_count);
                         }
-                        Key::ArrowUp | Key::Tab => {
+                        Key::Named(NamedKey::ArrowUp) | Key::Named(NamedKey::Tab) => {
                             event.prevent_default();
                             active_result.set((active_result() + result_count - 1) % result_count);
                         }

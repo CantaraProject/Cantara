@@ -11,7 +11,7 @@ repository = "https://github.com/CantaraProject/Cantara"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = { version = "0.7.9", features = ["router"] }
+dioxus = { version = "=0.8.0-alpha.3", features = ["router"] }
 dirs = "6.0.0"
 
 # Animated route transitions. The platform backend (`web` vs. `desktop`) is
@@ -45,7 +45,7 @@ chrono = "0.4"
 # is shown comes out of the same components as what the projector shows. It was
 # a dev-dependency, used only to assert on rendered markup in tests; the stream
 # now renders through it at runtime. See `crate::components::stream_render`.
-dioxus-ssr = "0.7"
+dioxus-ssr = "=0.8.0-alpha.3"
 # Decodes the pictures of a library so they can be scaled down to list
 # thumbnails; `png` is also what the window icon is loaded from.
 image = { version = "0.25", optional = true, default-features = false, features = ["png", "jpeg"] }
@@ -97,7 +97,7 @@ local-ip-address = "0.6"
 fontdb = { version = "0.24", default-features = false, features = ["fs"] }
 reqwest = { version = "0.13.2", features = ["blocking", "default-tls"] }
 tempfile = "3.23"
-dioxus-liveview = { version = "0.7", features = ["axum"] }
+dioxus-liveview = { version = "=0.8.0-alpha.3", features = ["axum"] }
 
 # Mobile (Android, iOS) dependencies: PDF, encoding, and TLS libraries
 #
@@ -156,12 +156,21 @@ default = ["desktop"]
 # opens a port and takes instructions on it, and a released Cantara should not
 # have that in it at all — not behind a flag, not behind a check. See
 # `docs/specs/0004-testing-playwright.md`.
-test-harness = []
+test-harness = ["screens"]
+# The screens a presentation can be put on, the map of them, and the screen
+# section of the settings. A desktop build has screens; a browser build has
+# none, which is why the map used to be `desktop` outright. The browser tests
+# need it anyway — a map is drawn by a page and driven by a pointer, and
+# neither can be checked without a browser — so `test-harness` turns it on
+# with a fabricated set of screens behind it. See
+# `logic::screens::harness_monitors` and `docs/specs/0007-screen-map.md` (D8).
+screens = []
 web = ["dioxus/web", "dioxus-motion/web"]
 desktop = [
     "dioxus/desktop",
     "dep:image",
     "dioxus-motion/desktop",
+    "screens",
 ]
 # dioxus-motion has no dedicated mobile backend; its `desktop` feature is the
 # native (non-WASM) timing backend and is what mobile builds need as well.
@@ -206,3 +215,9 @@ chrono = "0.4"
 # `dioxus-ssr` moved up to a real dependency when the network stream started
 # rendering through it — see the note beside it there.
 [dev-dependencies]
+
+# Dioxus 0.8 alpha: the 0.7-only crates below are local copies with the dioxus
+# requirement raised, so the whole tree resolves to one Dioxus.
+[patch.crates-io]
+dioxus-motion = { path = "vendor/dioxus-motion" }
+dioxus-free-icons = { path = "vendor/dioxus-free-icons" }
