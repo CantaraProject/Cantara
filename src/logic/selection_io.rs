@@ -1339,7 +1339,7 @@ mod tests {
                 archive
                     .by_index(index)
                     .ok()
-                    .map(|file| file.name().to_string())
+                    .map(|file| file.name().map(|n| n.into_owned()).unwrap_or_default())
             })
             .collect()
     }

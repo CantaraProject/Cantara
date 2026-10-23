@@ -25,6 +25,8 @@ dioxus-free-icons = { version = "0.10.0", features = [
 ] }
 
 rust-i18n = "4"
+# 4.2.x gates what rust-i18n-macro 4.0.0 needs behind a feature (and its toml clashes with dioxus)
+rust-i18n-support = "=4.0.0"
 serde = "1.0"
 serde_json = "1.0.145"
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -53,8 +55,8 @@ log = "0.4.28"
 # reqwest without default TLS on all targets; TLS and blocking added for non-WASM below
 # On WASM, the browser's native fetch API handles HTTP/TLS natively
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
-zip = "8.1"
-regex = "1.12"
+zip = "9"
+regex = "1"
 md5 = "0.8"
 fuzzy-matcher = "0.3"
 # Hands a dialog's answer back to the code that opened it. Already in the tree —

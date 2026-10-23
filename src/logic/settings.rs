@@ -671,6 +671,12 @@ fn migrate_settings_json(json: &str) -> String {
     fn upgrade(value: &mut serde_json::Value) {
         match value {
             serde_json::Value::Object(map) => {
+                // `SlideSettings::show_chords` came with a newer song library
+                // and has no serde default there, so a file written before it
+                // would not parse at all. Chords were shown before, so `true`.
+                if map.contains_key("show_spoiler") && !map.contains_key("show_chords") {
+                    map.insert("show_chords".to_string(), serde_json::Value::Bool(true));
+                }
                 if let Some(meta) = map.get("show_meta_information")
                     && let Some(name) = meta.as_str() {
                         let (title_slide, first_slide, last_slide) = match name {

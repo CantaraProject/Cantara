@@ -222,7 +222,7 @@ where
         // The raw name is only used to say which entry was refused.
         let Some(path): Option<PathBuf> = entry.enclosed_name() else {
             return Err(Refused::EscapesTheFolder {
-                name: entry.name().to_string(),
+                name: entry.name().map(|n| n.into_owned()).unwrap_or_default(),
             });
         };
 
@@ -582,7 +582,7 @@ mod tests {
         let mut zip = archive_with_a_raw_name("/etc/passwd", b"x");
 
         assert_eq!(
-            zip.by_index(0).expect("one entry").name(),
+            zip.by_index(0).expect("one entry").name().expect("a valid name"),
             "/etc/passwd",
             "the fixture normalised the name, so nothing hostile is being tested"
         );

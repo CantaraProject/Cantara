@@ -615,7 +615,7 @@ mod tests {
         let mut archive =
             zip::ZipArchive::new(std::io::Cursor::new(bytes.clone())).expect("an archive");
         let names: Vec<String> = (0..archive.len())
-            .filter_map(|index| archive.by_index(index).ok().map(|f| f.name().to_string()))
+            .filter_map(|index| archive.by_index(index).ok().map(|f| f.name().map(|n| n.into_owned()).unwrap_or_default()))
             .collect();
         assert!(names.contains(&DESIGN_MANIFEST.to_string()), "{names:?}");
 

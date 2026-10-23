@@ -1251,6 +1251,7 @@ mod tests {
 
         let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
         let settings = SlideSettings {
+            show_chords: true,
             title_slide: false,
             empty_last_slide: false,
             show_spoiler: true,
@@ -1344,6 +1345,7 @@ mod tests {
 
         let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
         let settings = SlideSettings {
+            show_chords: true,
             title_slide: true,
             empty_last_slide: false,
             show_spoiler: false,
@@ -1384,6 +1386,7 @@ mod tests {
 
         let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
         let settings = SlideSettings {
+            show_chords: true,
             title_slide: false,
             empty_last_slide: false,
             show_spoiler: false,
@@ -1412,6 +1415,7 @@ mod tests {
 
         let content = std::fs::read_to_string("testfiles/Amazing Grace.song.yml").unwrap();
         let base = SlideSettings {
+            show_chords: true,
             title_slide: false,
             empty_last_slide: false,
             show_spoiler: false,
