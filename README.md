@@ -23,6 +23,10 @@ You can find a [web browser demo version](https://cantaraproject.github.io/Canta
 
 ## Installation
 
+Ready-made packages for Windows, Linux (.deb, AppImage, Flatpak), macOS and Android are attached to every [release](https://github.com/CantaraProject/Cantara/releases). How they are made is described in [`packaging/README.md`](packaging/README.md).
+
+To build Cantara yourself:
+
 ### Prerequisites
 
 - Rust (latest stable version)

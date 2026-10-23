@@ -1,0 +1,533 @@
+name: Release packages
+
+# Builds every package Cantara is distributed as and attaches them, with their
+# checksums, to the GitHub release that started it:
+#
+#   Cantara-<version>-windows-x64-setup.exe                Windows installer; fetches WebView2 if it is missing
+#   Cantara-<version>-windows-x64-setup-with-webview2.exe  Windows installer with the WebView2 runtime inside
+#   cantara_<version>_amd64.deb                            Debian, Ubuntu and derivatives
+#   Cantara-<version>-x86_64.AppImage                      any other Linux
+#   Cantara-<version>-x86_64.flatpak                       Flatpak bundle (runtime comes from Flathub)
+#   Cantara-<version>-macos-arm64.dmg                      Macs with Apple silicon
+#   Cantara-<version>-macos-x86_64.dmg                     Macs with an Intel processor
+#   Cantara-<version>-android.apk                          Android 7 and newer (arm64 and x86_64)
+#   SHA256SUMS.txt                                         SHA-256 of all of the above
+#
+# The version comes from the release's tag (`v3.0.0`, `v3.1.0-beta.1`) and is
+# stamped into Cargo.toml before anything is built, so that every package calls
+# itself what the release is called. See packaging/scripts/set-version.sh.
+#
+# A package is attached only after it has been started once: the .deb and the
+# AppImage under a virtual display (the AppImage in a bare Debian, to show that
+# it brings what it needs), the macOS app on the runner, the APK on an Android
+# emulator. A package that builds but does not start is a failed job, not an
+# asset.
+#
+# To build the packages for a release again — after fixing this workflow, say —
+# run it by hand with the release's tag. Existing assets are replaced.
+#
+# Secrets it uses when they are set (all optional):
+#
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+#   ANDROID_KEY_PASSWORD     the key the APK is signed with. Without it every
+#                            build gets a throwaway key, and an installed
+#                            Cantara cannot be updated in place.
+#   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD
+#                            a "Developer ID Application" certificate (.p12,
+#                            base64) for signing the macOS app. Without it the
+#                            app is signed ad hoc, and Gatekeeper asks before
+#                            the first start (right-click → Open).
+#   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
+#                            notarization of the signed app.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag of the release to build the packages for (e.g. v3.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  # The dx that builds this project; kept in step with the `dioxus` version in
+  # Cargo.toml, and with the same variable in dioxus.yml.
+  DIOXUS_CLI_VERSION: "0.8.0-alpha.3"
+  CARGO_TERM_COLOR: always
+  # Keeps dx from stopping to ask about telemetry and updates.
+  CI: "true"
+
+jobs:
+  version:
+    name: Read the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_core: ${{ steps.version.outputs.version_core }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - id: version
+        run: packaging/scripts/set-version.sh "$TAG" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Windows installers
+    needs: version
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the npm packages the build embeds
+        run: npm ci --omit=dev --no-audit --no-fund
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-windows
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install dioxus-cli
+        run: cargo binstall -y --locked "dioxus-cli@${DIOXUS_CLI_VERSION}"
+      # NSIS writes the version into the installer's VERSIONINFO, which takes
+      # numbers only; a pre-release is stamped as its numeric core.
+      - name: Stamp the version
+        run: packaging/scripts/set-version.sh "$TAG" --core
+      - name: Build the installer that fetches WebView2
+        run: dx bundle --release --platform windows --package-types nsis --locked --out-dir dist/bootstrapper
+      # The same installer with the complete WebView2 runtime inside, for
+      # machines without it and without an internet connection to fetch it.
+      - name: Build the installer with WebView2 inside
+        run: |
+          perl -pi -e 's/^webview_install_mode = .*$/webview_install_mode = { OfflineInstaller = { silent = true } }/' Dioxus.toml
+          grep -q 'OfflineInstaller' Dioxus.toml
+          dx bundle --release --platform windows --package-types nsis --locked --out-dir dist/offline
+      - name: Name the installers
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          one() { ls "$1"/*-setup.exe | head -n 1; }
+          cp "$(one dist/bootstrapper)" "out/Cantara-${VERSION}-windows-x64-setup.exe"
+          cp "$(one dist/offline)" "out/Cantara-${VERSION}-windows-x64-setup-with-webview2.exe"
+          ls -la out
+          # The two must differ by about the size of the WebView2 runtime;
+          # equal sizes would mean the setting did not reach the second build.
+          small=$(stat -c %s "out/Cantara-${VERSION}-windows-x64-setup.exe")
+          large=$(stat -c %s "out/Cantara-${VERSION}-windows-x64-setup-with-webview2.exe")
+          if [ "$large" -le $(( small + 50000000 )) ]; then
+            echo "::error::The installer with WebView2 ($large bytes) is not larger than the one without ($small bytes)."
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-windows
+          path: out/*
+          if-no-files-found: error
+
+  linux:
+    name: Debian package and AppImage
+    needs: version
+    # The oldest Ubuntu GitHub still offers, for the oldest glibc: both
+    # packages run on any distribution at least as new as the one they were
+    # built on, and none older.
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Install the build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl file \
+            libssl-dev librsvg2-dev libayatana-appindicator3-dev dpkg-dev xvfb imagemagick
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the npm packages the build embeds
+        run: npm ci --omit=dev --no-audit --no-fund
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-linux
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install dioxus-cli
+        run: cargo binstall -y --locked "dioxus-cli@${DIOXUS_CLI_VERSION}"
+      - name: Stamp the version
+        run: packaging/scripts/set-version.sh "$TAG"
+      - name: Build
+        run: dx build --release --platform linux --locked
+      # dx writes no `Depends` of its own. dpkg-shlibdeps reads it off the
+      # binary: every library it links against, at the version it was built
+      # with, which is exactly what the package needs and nothing more.
+      - name: Work out the package's dependencies
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d)"
+          mkdir -p "$scratch/debian"
+          touch "$scratch/debian/control"
+          binary="$PWD/target/dx/cantara/release/linux/app/cantara"
+          depends="$(cd "$scratch" && dpkg-shlibdeps -O "$binary" 2>/dev/null | sed -n 's/^shlibs:Depends=//p')"
+          if [ -z "$depends" ]; then
+            echo "::error::dpkg-shlibdeps found no dependencies for $binary"
+            exit 1
+          fi
+          echo "Depends: $depends"
+          toml="$(python3 -c 'import json,sys; print(json.dumps([d.strip() for d in sys.argv[1].split(",")]))' "$depends")"
+          TOML="depends = $toml" perl -0pi -e 's/^\[bundle\.deb\]\r?\n/[bundle.deb]\n$ENV{TOML}\n/m' Dioxus.toml
+          grep -A1 '^\[bundle.deb\]' Dioxus.toml
+      - name: Build the Debian package
+        run: dx bundle --release --platform linux --package-types deb --locked --out-dir dist/deb
+      - name: Build the AppImage
+        run: packaging/scripts/build-appimage.sh target/dx/cantara/release/linux/app "out/Cantara-${VERSION}-x86_64.AppImage"
+      - name: Name the Debian package
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp "$(ls dist/deb/*.deb | head -n 1)" "out/cantara_${VERSION}_amd64.deb"
+          dpkg-deb --info "out/cantara_${VERSION}_amd64.deb"
+          dpkg-deb --contents "out/cantara_${VERSION}_amd64.deb"
+      - name: Start the Debian package
+        run: |
+          sudo apt-get install -y "./out/cantara_${VERSION}_amd64.deb"
+          packaging/scripts/smoke-test-linux.sh smoke/deb cantara
+      # A Debian without any of the libraries Cantara was built against: what
+      # the AppImage needs beyond what every desktop has, it has to bring.
+      - name: Start the AppImage on a bare Debian
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work debian:12 bash -c '
+            set -e
+            apt-get update -qq
+            apt-get install -y -qq xvfb procps dbus imagemagick libegl1 libgl1 > /dev/null
+            APPIMAGE_EXTRACT_AND_RUN=1 packaging/scripts/smoke-test-linux.sh smoke/appimage ./out/Cantara-'"${VERSION}"'-x86_64.AppImage
+          '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-linux
+          path: smoke/
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-linux
+          path: out/*
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak
+    needs: version
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder xvfb dbus-x11
+          # Ubuntu 24.04 keeps unprivileged programs from making user
+          # namespaces, which is what bubblewrap builds in.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install dioxus-cli
+        run: cargo binstall -y --locked "dioxus-cli@${DIOXUS_CLI_VERSION}"
+      - name: Stamp the version
+        run: packaging/scripts/set-version.sh "$TAG"
+      - name: Put the build's downloads next to the sources
+        run: packaging/scripts/prepare-flatpak-sources.sh
+      - uses: actions/cache@v4
+        with:
+          path: .flatpak-builder
+          key: flatpak-builder-${{ hashFiles('packaging/flatpak/app.cantara.Cantara.yml') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: flatpak-builder-${{ hashFiles('packaging/flatpak/app.cantara.Cantara.yml') }}-
+      - name: Build
+        run: |
+          flatpak-builder --user --install-deps-from=flathub --force-clean --disable-rofiles-fuse \
+            --repo=.flatpak/repo .flatpak/build packaging/flatpak/app.cantara.Cantara.yml
+      # With `--runtime-repo`, installing the bundle fetches the GNOME runtime
+      # from Flathub by itself.
+      - name: Bundle
+        run: |
+          mkdir -p out
+          flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            .flatpak/repo "out/Cantara-${VERSION}-x86_64.flatpak" app.cantara.Cantara
+          ls -la out
+      # System-wide, because the smoke test starts Cantara with a fresh HOME,
+      # where a `--user` installation is not to be found.
+      - name: Start it
+        run: |
+          sudo flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install --system -y --noninteractive "out/Cantara-${VERSION}-x86_64.flatpak"
+          packaging/scripts/smoke-test-linux.sh smoke/flatpak flatpak run app.cantara.Cantara
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-flatpak
+          path: smoke/
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-flatpak
+          path: out/*
+          if-no-files-found: error
+
+  macos:
+    name: macOS (${{ matrix.arch }})
+    needs: version
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            target: aarch64-apple-darwin
+          # Built on the same Apple silicon runner; Intel runners are on their
+          # way out.
+          - arch: x86_64
+            target: x86_64-apple-darwin
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the npm packages the build embeds
+        run: npm ci --omit=dev --no-audit --no-fund
+      - name: Add the Rust target
+        run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-macos-${{ matrix.arch }}
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install dioxus-cli
+        run: cargo binstall -y --locked "dioxus-cli@${DIOXUS_CLI_VERSION}"
+      - name: Stamp the version
+        run: packaging/scripts/set-version.sh "$TAG"
+      # dx signs (and notarizes) the app itself when these are in the
+      # environment — and tries to when they are there but empty, which is
+      # what an unset secret becomes. So they are only exported when set.
+      - name: Build the app
+        env:
+          SECRET_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          SECRET_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SECRET_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SECRET_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            value_var="SECRET_$name"
+            if [ -n "${!value_var}" ]; then
+              export "$name=${!value_var}"
+            fi
+          done
+          dx bundle --release --platform macos --target ${{ matrix.target }} --package-types macos --locked --out-dir dist
+      - name: Sign ad hoc if there is no certificate
+        env:
+          HAS_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' }}
+        run: |
+          set -euo pipefail
+          app="$(ls -d dist/*.app | head -n 1)"
+          if [ "$HAS_CERTIFICATE" != "true" ]; then
+            # Apple silicon runs no unsigned code at all, and a bundle whose
+            # parts carry a signature of their own but not one over the whole
+            # is reported as "damaged" rather than as unsigned.
+            codesign --force --deep --sign - "$app"
+          fi
+          codesign --verify --deep --strict --verbose=2 "$app"
+      # "With everything needed to run it": nothing outside the app and the
+      # system. A library from Homebrew linked in on the runner would be
+      # missing on every other Mac.
+      - name: Check that the app is self-contained
+        run: |
+          set -euo pipefail
+          app="$(ls -d dist/*.app | head -n 1)"
+          binary="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+          otool -L "$binary"
+          if otool -L "$binary" | tail -n +2 | grep -v -E '^\s+(/usr/lib/|/System/Library/|@rpath/|@executable_path/)'; then
+            echo "::error::The binary links against libraries that are not part of macOS."
+            exit 1
+          fi
+          lipo -info "$binary"
+          lipo -info "$binary" | grep -q "${{ matrix.arch }}"
+          test -d "$app/Contents/Resources/assets"
+      - name: Start it
+        if: matrix.arch == 'arm64'
+        run: |
+          set -euo pipefail
+          app="$(ls -d dist/*.app | head -n 1)"
+          binary="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+          "$binary" > smoke.log 2>&1 &
+          pid=$!
+          sleep 25
+          if ! kill -0 "$pid" 2> /dev/null; then
+            echo "::error::Cantara exited within 25 seconds of being started."
+            cat smoke.log
+            exit 1
+          fi
+          echo "Cantara is running."
+          kill "$pid"
+      - name: Make the disk image
+        run: |
+          set -euo pipefail
+          app="$(ls -d dist/*.app | head -n 1)"
+          staging="$(mktemp -d)"
+          cp -R "$app" "$staging/"
+          ln -s /Applications "$staging/Applications"
+          mkdir -p out
+          hdiutil create -volname "Cantara ${VERSION}" -srcfolder "$staging" -ov -format UDZO \
+            "out/Cantara-${VERSION}-macos-${{ matrix.arch }}.dmg"
+          hdiutil verify "out/Cantara-${VERSION}-macos-${{ matrix.arch }}.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-macos-${{ matrix.arch }}
+          path: out/*
+          if-no-files-found: error
+
+  android:
+    name: Android APK
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      ANDROID_NDK_VERSION: "27.0.12077973"
+      ANDROID_API_LEVEL: "34"
+      ANDROID_BUILD_TOOLS_VERSION: "34.0.0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Install Android NDK and SDK components
+        run: |
+          echo "y" | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;${ANDROID_NDK_VERSION}" \
+            "platforms;android-${ANDROID_API_LEVEL}" \
+            "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the npm packages the build embeds
+        run: npm ci --omit=dev --no-audit --no-fund
+      - name: Add the Rust targets
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-android
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install dioxus-cli
+        run: cargo binstall -y --locked "dioxus-cli@${DIOXUS_CLI_VERSION}"
+      - name: Stamp the version
+        run: packaging/scripts/set-version.sh "$TAG"
+      - name: Build the APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: packaging/scripts/build-android-apk.sh "out/Cantara-${VERSION}-android.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-android
+          path: out/*
+          if-no-files-found: error
+
+  # The APK on an emulator, before it goes anywhere near a phone. x86_64,
+  # because that is what runs at full speed on the runner; it is the same
+  # build as the arm64 library next to it in the APK.
+  android-test:
+    name: Start the APK on an emulator
+    needs: android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-android
+          path: apk
+      - name: Let the emulator use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: packaging/scripts/smoke-test-android.sh "$(ls apk/*.apk | head -n 1)" smoke/android
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-android
+          path: smoke/
+          if-no-files-found: ignore
+
+  publish:
+    name: Attach to the release
+    needs: [version, windows, linux, flatpak, macos, android, android-test]
+    # Whatever was built is attached even when another platform failed, so
+    # that one broken runner does not hold back the rest; the job still fails
+    # afterwards, to make the gap visible. An APK that did not start on the
+    # emulator is never attached.
+    if: ${{ !cancelled() && needs.version.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: artifacts
+          merge-multiple: true
+      - name: Leave out an APK that failed on the emulator
+        if: needs.android-test.result != 'success'
+        run: rm -f artifacts/*.apk
+      - name: Checksums
+        working-directory: artifacts
+        run: |
+          set -euo pipefail
+          ls -la
+          sha256sum -- * | tee ../SHA256SUMS.txt
+          mv ../SHA256SUMS.txt .
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" artifacts/* --clobber --repo "$GITHUB_REPOSITORY"
+      - name: Report the platforms that are missing
+        if: contains(needs.*.result, 'failure')
+        run: |
+          echo "::error::Not every package could be built and tested; the ones that were are attached. Re-run the failed jobs to add the rest."
+          exit 1
