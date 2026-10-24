@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Jan Martin Reckel -->
+<component type="desktop-application">
+    <id>app.cantara.Cantara</id>
+    <metadata_license>FSFAP</metadata_license>
+    <project_license>GPL-3.0-only</project_license>
+    <name>Cantara</name>
+    <summary>Song Presentation in Churches</summary>
+    <description>
+        <p>Cantara is a song presentation software for churches, small groups and anybody who needs to put lyrics on a screen. It creates beautiful presentation slides from song lyrics in a few seconds and can present sheet music, PDF files, pictures, videos and Markdown files as well.</p>
+        <ul>
+            <li>Song lyrics and scores with configurable formatting</li>
+            <li>PDF files, pictures, videos and Markdown as further content types</li>
+            <li>Customizable presentation styles</li>
+            <li>Multi-screen support with a map of the connected screens</li>
+            <li>Network streaming of the running presentation and a remote presenter console</li>
+            <li>Song collections from several local and remote repositories</li>
+        </ul>
+    </description>
+
+    <launchable type="desktop-id">app.cantara.Cantara.desktop</launchable>
+    <content_rating type="oars-1.1" />
+
+    <url type="homepage">https://www.cantara.app/</url>
+    <url type="bugtracker">https://github.com/CantaraProject/Cantara/issues</url>
+    <url type="vcs-browser">https://github.com/CantaraProject/Cantara</url>
+    <url type="contribute">https://www.cantara.app/contribute/</url>
+
+    <developer id="app.cantara">
+        <name>Jan Martin Reckel</name>
+    </developer>
+
+
+    <requires>
+        <display_length compare="ge">768</display_length>
+    </requires>
+    <supports>
+        <control>pointing</control>
+        <control>keyboard</control>
+    </supports>
+
+    <keywords>
+        <keyword>song</keyword>
+        <keyword>lyrics</keyword>
+        <keyword>church</keyword>
+        <keyword>presentation</keyword>
+    </keywords>
+
+    <releases>
+        <!-- The release workflow adds the released version here. -->
+    </releases>
+</component>

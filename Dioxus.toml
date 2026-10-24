@@ -22,7 +22,55 @@ script = []
 # serve: [dev-server] only
 script = []
 
+# What the installers are made from (`dx bundle`). The release workflow in
+# `.github/workflows/release.yml` builds every package from these settings;
+# what it changes on top of them is said there.
 [bundle]
 identifier = "app.cantara.Cantara"
 publisher = "Jan Martin Reckel"
-icon = ["assets/favicon.png"]
+# Scaled copies of `assets/favicon.png`. Each one ends up in the hicolor theme
+# of the Linux packages under its own size, which is why the 800×800 original
+# is not listed: no icon theme has that size. The macOS icon is built from the
+# same files; Windows takes `assets/icon.ico` (see `[bundle.windows]`).
+icon = [
+    "packaging/linux/icons/64.png",
+    "packaging/linux/icons/128.png",
+    "packaging/linux/icons/256.png",
+    "packaging/linux/icons/512.png",
+]
+copyright = "Copyright © Jan Martin Reckel. Licensed under the GPL-3.0."
+category = "Productivity"
+short_description = "Software for Song Presentation in Churches"
+long_description = """
+Cantara presents song lyrics, sheet music, PDF files, pictures, videos and
+Markdown files on one or more screens, streams the running presentation to
+other devices on the network and can be controlled from a remote console."""
+
+[bundle.deb]
+# Our own desktop entry instead of the generated one, which knows neither the
+# translations nor the categories. `{{exec}}` and `{{icon}}` are filled in by dx.
+desktop_template = "packaging/linux/cantara.desktop.hbs"
+section = "graphics"
+# `Depends` is not listed here: the release workflow works it out from the
+# libraries the binary actually links against (dpkg-shlibdeps) and adds it.
+# WebKitGTK plays audio and video through GStreamer; without these plugins a
+# video slide stays black.
+recommends = ["gstreamer1.0-plugins-good", "gstreamer1.0-libav"]
+
+[bundle.macos]
+minimum_system_version = "11.0"
+
+[bundle.windows]
+icon_path = "assets/icon.ico"
+# Windows 10 and 11 ship the WebView2 runtime Cantara draws its window with,
+# so the default installer only carries Microsoft's small bootstrapper, which
+# installs the runtime on the rare machine that lacks it. The release workflow
+# additionally builds an installer that embeds the complete runtime
+# (`OfflineInstaller`), for machines without an internet connection.
+webview_install_mode = { DownloadBootstrapper = { silent = true } }
+
+[bundle.windows.nsis]
+installer_icon = "assets/icon.ico"
+# No administrator rights needed: Cantara is often installed on a church
+# laptop by whoever happens to run the projector.
+install_mode = "CurrentUser"

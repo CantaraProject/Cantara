@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Cantara
+GenericName=Song Presenter
+GenericName[de]=Liedpräsentation
+Comment=Present songs, sheet music, PDFs and pictures
+Comment[de]=Liedtexte, Noten, PDFs und Bilder präsentieren
+Exec=cantara
+Icon=app.cantara.Cantara
+Terminal=false
+Categories=Office;Presentation;
+Keywords=song;lyrics;church;worship;presentation;projector;
+Keywords[de]=Lied;Liedtext;Gemeinde;Gottesdienst;Präsentation;Beamer;

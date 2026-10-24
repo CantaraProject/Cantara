@@ -1,0 +1,77 @@
+# Flatpak manifest for Cantara 3.
+#
+# Laid out like the one Cantara 2 is published with on Flathub
+# (https://github.com/flathub/app.cantara.Cantara): the same app id, the same
+# display permissions, the desktop entry, metadata and icons installed under
+# the app id. What differs is what the program is made of — Rust and WebKitGTK
+# instead of Free Pascal and Qt — hence the GNOME runtime, which is the one
+# that carries WebKitGTK 4.1, and the Rust SDK extension.
+#
+# The build runs offline, as every Flatpak build does. Everything it would
+# otherwise download is put next to the sources first by
+# `packaging/scripts/prepare-flatpak-sources.sh`: the crates (`cargo vendor`),
+# the npm packages whose files the program embeds, and the Dioxus CLI that
+# turns the build into an app with its assets. The release workflow runs that
+# script; to build locally:
+#
+#   packaging/scripts/prepare-flatpak-sources.sh
+#   flatpak-builder --user --install-deps-from=flathub --force-clean \
+#       --repo=.flatpak/repo .flatpak/build packaging/flatpak/app.cantara.Cantara.yml
+app-id: app.cantara.Cantara
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: cantara
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  # Remote song repositories are downloaded, and a running presentation is
+  # offered to phones and the presenter console on the local network.
+  - --share=network
+  # The sound of video slides.
+  - --socket=pulseaudio
+  # Song folders and files are opened through the file chooser portal (rfd is
+  # built with `xdg-portal`), so no file system access is granted here.
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/cantara/.flatpak/cargo-home
+    CARGO_NET_OFFLINE: 'true'
+    # Dioxus' CLI stops to ask about telemetry and updates when it thinks a
+    # person is watching.
+    CI: 'true'
+
+modules:
+  - name: cantara
+    buildsystem: simple
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - target
+          - .flatpak/build
+          - .flatpak/repo
+          - .flatpak-builder
+          - playwright-report
+          - test-results
+    build-commands:
+      - mkdir -p "$CARGO_HOME"
+      - cp .flatpak/cargo-config.toml "$CARGO_HOME/config.toml"
+      - .flatpak/dx build --release --platform linux --offline --locked
+      # The layout Dioxus looks for its assets in: `<prefix>/bin/<exe>` next
+      # to `<prefix>/lib/<product name>/assets`.
+      - install -Dm755 target/dx/cantara/release/linux/app/cantara -t "$FLATPAK_DEST/bin"
+      - mkdir -p "$FLATPAK_DEST/lib/Cantara"
+      - cp -r target/dx/cantara/release/linux/app/assets "$FLATPAK_DEST/lib/Cantara/"
+      - install -Dm644 packaging/linux/app.cantara.Cantara.desktop -t "$FLATPAK_DEST/share/applications"
+      - install -Dm644 packaging/linux/app.cantara.Cantara.metainfo.xml -t "$FLATPAK_DEST/share/metainfo"
+      - |
+        for size in 64 128 256 512; do
+          install -Dm644 "packaging/linux/icons/$size.png" \
+            "$FLATPAK_DEST/share/icons/hicolor/${size}x${size}/apps/app.cantara.Cantara.png"
+        done
