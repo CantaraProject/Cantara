@@ -311,10 +311,7 @@ pub async fn put_media(
     let received = incoming.finish()?;
     let sha256 = received.sha256.clone();
     let size = received.size as i64;
-    let blobs = state.blobs.clone();
-    tokio::task::spawn_blocking(move || blobs.store(received))
-        .await
-        .map_err(AppError::internal)??;
+    state.blobs.store(received).await?;
     let file_name = query
         .path
         .rsplit(['/', '\\'])

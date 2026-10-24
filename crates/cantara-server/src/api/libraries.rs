@@ -1,6 +1,5 @@
 //! Libraries, their index, their items, and the content of every version.
 
-use axum::body::Body;
 use axum::extract::{Multipart, Path, Query, Request, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, ETAG};
 use axum::http::{HeaderValue, StatusCode};
@@ -12,8 +11,6 @@ use cantara_api::{
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use tower::ServiceExt;
-use tower_http::services::ServeFile;
 use uuid::Uuid;
 
 use crate::api::grants::{require, resource_role};
@@ -465,11 +462,7 @@ pub async fn content(
 
 pub async fn serve_blob(state: &AppState, sha256: &str, file_name: &str, request: Request) -> AppResult<Response> {
     let mime = mime_guess::from_path(file_name).first_or_octet_stream();
-    let mut response = ServeFile::new_with_mime(state.blobs.path_of(sha256), &mime)
-        .oneshot(request)
-        .await
-        .map_err(AppError::internal)?
-        .map(Body::new);
+    let mut response = state.blobs.serve(sha256, mime.as_ref(), request).await?;
     let headers = response.headers_mut();
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("private, max-age=31536000, immutable"));
     if let Ok(etag) = HeaderValue::from_str(&format!("\"{sha256}\"")) {

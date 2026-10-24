@@ -183,10 +183,7 @@ pub async fn store(state: &AppState, request: StoreRequest) -> AppResult<StoredI
     let sha256 = content.sha256.clone();
     let md5 = content.md5.clone();
     let size = content.size as i64;
-    let blobs = state.blobs.clone();
-    tokio::task::spawn_blocking(move || blobs.store(content))
-        .await
-        .map_err(AppError::internal)??;
+    state.blobs.store(content).await?;
 
     let mut tx = state.db.begin().await?;
     sqlx::query("INSERT INTO blobs (sha256, size) VALUES ($1, $2) ON CONFLICT (sha256) DO UPDATE SET created_at = now()")

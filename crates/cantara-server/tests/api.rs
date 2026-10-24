@@ -47,6 +47,7 @@ async fn server() -> Option<TestServer> {
     let blobs = tempfile::tempdir().expect("a temporary directory");
     let mail = tempfile::tempdir().expect("a temporary directory");
     let mut config = Config::for_tests(url.as_str(), blobs.path().to_path_buf());
+    config.storage = storage_under_test(&name);
     config.mail = cantara_server::config::MailConfig::Directory {
         path: mail.path().to_path_buf(),
         from: "Cantara <cantara@example.org>".to_string(),
@@ -59,6 +60,30 @@ async fn server() -> Option<TestServer> {
         mail,
         database_url: url.to_string(),
     })
+}
+
+/// Where these tests keep file content: a directory unless
+/// `CANTARA_TEST_STORAGE` says `memory` (an object store in memory) or `s3`
+/// (a bucket, named by `CANTARA_TEST_S3_BUCKET` and reached at
+/// `CANTARA_TEST_S3_ENDPOINT` with `CANTARA_TEST_S3_ACCESS_KEY_ID` and
+/// `CANTARA_TEST_S3_SECRET_ACCESS_KEY` — a MinIO, in CI). Each test keeps its
+/// content under a prefix of its own.
+fn storage_under_test(prefix: &str) -> cantara_server::config::StorageConfig {
+    use cantara_server::config::StorageConfig;
+    let var = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+    match var("CANTARA_TEST_STORAGE").as_deref() {
+        Some("memory") => StorageConfig::Memory,
+        Some("s3") => StorageConfig::S3 {
+            bucket: var("CANTARA_TEST_S3_BUCKET").expect("CANTARA_TEST_S3_BUCKET"),
+            region: Some(var("CANTARA_TEST_S3_REGION").unwrap_or_else(|| "us-east-1".to_string())),
+            endpoint: var("CANTARA_TEST_S3_ENDPOINT"),
+            access_key_id: var("CANTARA_TEST_S3_ACCESS_KEY_ID"),
+            secret_access_key: var("CANTARA_TEST_S3_SECRET_ACCESS_KEY"),
+            prefix: prefix.to_string(),
+            path_style: true,
+        },
+        _ => StorageConfig::Directory,
+    }
 }
 
 /// Who a request is sent as.
@@ -898,13 +923,78 @@ async fn what_a_presentation_showed_goes_when_it_ends() {
         use sha2::Digest;
         hex::encode(sha2::Sha256::digest(&video))
     };
-    assert!(server.state.blobs.path_of(&video_sha).exists());
+    assert!(server.state.blobs.exists(&video_sha).await);
     let removed = cantara_server::gc::collect(&server.state, std::time::Duration::ZERO, std::time::Duration::ZERO)
         .await
         .unwrap();
     assert_eq!(removed, 1);
-    assert!(!server.state.blobs.path_of(&video_sha).exists());
-    assert!(server.state.blobs.path_of(&song_sha).exists(), "what a library uses stays");
+    assert!(!server.state.blobs.exists(&video_sha).await);
+    assert!(server.state.blobs.exists(&song_sha).await, "what a library uses stays");
+}
+
+#[tokio::test]
+async fn old_presentations_are_removed() {
+    let Some(server) = server().await else { return };
+    let (admin, tenant) = admin_and_tenant(&server).await;
+    let singer = server.register("singer@example.org", "Sänger").await;
+    let me: Me = server.ok("GET", "/me", &singer, None).await;
+    let open = |name: &'static str| {
+        let admin = admin.clone();
+        let server = &server;
+        async move {
+            let session: SessionInfo = server
+                .ok("POST", &format!("/tenants/{tenant}/sessions"), &admin, Some(json!({ "name": name })))
+                .await;
+            session.uuid
+        }
+    };
+    let ended_long_ago = open("Ostern").await;
+    let ended_recently = open("Pfingsten").await;
+    let forgotten = open("Vergessen").await;
+    let running = open("Läuft").await;
+    let _: GrantInfo = server
+        .ok(
+            "POST",
+            &format!("/tenants/{tenant}/grants/session/{ended_long_ago}"),
+            &admin,
+            Some(json!({ "grantee": { "type": "user", "uuid": me.user.uuid }, "role": "read" })),
+        )
+        .await;
+    for session in [ended_long_ago, ended_recently] {
+        assert_eq!(server.status("DELETE", &format!("/tenants/{tenant}/sessions/{session}"), &admin, None).await, StatusCode::NO_CONTENT);
+    }
+
+    // Time passes: one presentation ended more than a week ago, another was
+    // left running when the laptop was closed a month ago.
+    let db = sqlx::PgPool::connect(&server.database_url).await.unwrap();
+    sqlx::query("UPDATE sessions SET ended_at = now() - interval '8 days' WHERE uuid = $1")
+        .bind(ended_long_ago)
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE sessions SET last_active = now() - interval '31 days' WHERE uuid = $1")
+        .bind(forgotten)
+        .execute(&db)
+        .await
+        .unwrap();
+
+    let removed = cantara_server::gc::remove_sessions(&server.state).await.unwrap();
+    assert_eq!(removed, cantara_server::gc::SessionsRemoved { ended: 1, deleted: 1 });
+
+    let remaining: Vec<(Uuid, bool)> = sqlx::query_as("SELECT uuid, ended_at IS NOT NULL FROM sessions ORDER BY created_at")
+        .fetch_all(&db)
+        .await
+        .unwrap();
+    assert_eq!(remaining, vec![(ended_recently, true), (forgotten, true), (running, false)]);
+    let grants: i64 = sqlx::query_scalar("SELECT count(*) FROM grants WHERE resource_kind = 'session'")
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(grants, 0, "what was shared of a deleted presentation goes with it");
+
+    // The one ended for being idle is not deleted before its week is up.
+    let again = cantara_server::gc::remove_sessions(&server.state).await.unwrap();
+    assert_eq!(again, cantara_server::gc::SessionsRemoved::default());
 }
 
 #[test]

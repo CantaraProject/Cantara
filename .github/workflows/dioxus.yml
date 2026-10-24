@@ -189,7 +189,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_USER: cantara
           POSTGRES_PASSWORD: cantara
@@ -208,6 +208,30 @@ jobs:
         env:
           CANTARA_TEST_DATABASE_URL: postgres://cantara:cantara@127.0.0.1:5432/postgres
         run: cargo test -p cantara-server -p cantara-api
+      # The same tests again with the content in an S3 bucket — a MinIO, which
+      # speaks the protocol AWS, Hetzner and the rest do. A service container
+      # cannot be given MinIO's command line, so it is started here; the
+      # bucket is made with the AWS CLI the runner has.
+      - name: Start an S3 storage (MinIO)
+        run: |-
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=cantara -e MINIO_ROOT_PASSWORD=cantara-secret \
+            minio/minio server /data
+          for attempt in $(seq 1 30); do
+            curl -sf http://127.0.0.1:9000/minio/health/live && break
+            sleep 1
+          done
+          AWS_ACCESS_KEY_ID=cantara AWS_SECRET_ACCESS_KEY=cantara-secret AWS_DEFAULT_REGION=us-east-1 \
+            aws --endpoint-url http://127.0.0.1:9000 s3 mb s3://cantara-test
+      - name: Test the server against S3 storage
+        env:
+          CANTARA_TEST_DATABASE_URL: postgres://cantara:cantara@127.0.0.1:5432/postgres
+          CANTARA_TEST_STORAGE: s3
+          CANTARA_TEST_S3_BUCKET: cantara-test
+          CANTARA_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          CANTARA_TEST_S3_ACCESS_KEY_ID: cantara
+          CANTARA_TEST_S3_SECRET_ACCESS_KEY: cantara-secret
+        run: cargo test -p cantara-server --test api
       - name: Check the server's lints
         run: cargo clippy -p cantara-server -p cantara-api --all-targets -- -D warnings
       - name: The API types build for the browser
@@ -226,7 +250,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_USER: cantara
           POSTGRES_PASSWORD: cantara

@@ -20,6 +20,32 @@ pub struct OidcProvider {
     pub client_secret: Option<String>,
 }
 
+/// Where file content is kept.
+#[derive(Clone, Debug, Default)]
+pub enum StorageConfig {
+    /// In `blob_dir`.
+    #[default]
+    Directory,
+    /// In an S3-compatible bucket. `blob_dir` is where uploads are received
+    /// before they go there.
+    S3 {
+        bucket: String,
+        region: Option<String>,
+        /// For anything that is not AWS itself — MinIO, Hetzner, Wasabi.
+        endpoint: Option<String>,
+        access_key_id: Option<String>,
+        secret_access_key: Option<String>,
+        /// Prepended to every key, so that a bucket can be shared.
+        prefix: String,
+        /// `bucket.host/key` (virtual hosted, AWS's way) or `host/bucket/key`
+        /// (what MinIO usually wants).
+        path_style: bool,
+    },
+    /// In memory, for the tests: gone when the server is.
+    #[doc(hidden)]
+    Memory,
+}
+
 /// How invitations are sent.
 #[derive(Clone, Debug, Default)]
 pub enum MailConfig {
@@ -71,6 +97,12 @@ pub struct Config {
     pub sharing_enabled: bool,
     pub oidc_providers: Vec<OidcProvider>,
     pub mail: MailConfig,
+    pub storage: StorageConfig,
+    /// How long an ended presentation is kept, in days.
+    pub keep_ended_sessions_days: i64,
+    /// After how many days without a change a presentation nobody ended is
+    /// ended and removed.
+    pub idle_session_days: i64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -176,8 +208,24 @@ impl Config {
             (None, None) => MailConfig::Off,
         };
 
+        let storage = match var("CANTARA_S3_BUCKET") {
+            Some(bucket) => StorageConfig::S3 {
+                bucket,
+                region: var("CANTARA_S3_REGION"),
+                endpoint: var("CANTARA_S3_ENDPOINT"),
+                access_key_id: var("CANTARA_S3_ACCESS_KEY_ID"),
+                secret_access_key: var("CANTARA_S3_SECRET_ACCESS_KEY"),
+                prefix: var("CANTARA_S3_PREFIX").unwrap_or_default(),
+                path_style: flag("CANTARA_S3_PATH_STYLE", false)?,
+            },
+            None => StorageConfig::Directory,
+        };
+
         Ok(Config {
             mail,
+            storage,
+            keep_ended_sessions_days: number("CANTARA_KEEP_ENDED_SESSIONS_DAYS", 7)?,
+            idle_session_days: number("CANTARA_IDLE_SESSION_DAYS", 30)?,
             name: var("CANTARA_SERVER_NAME").unwrap_or_else(|| "Cantara".to_string()),
             listen,
             public_url,
@@ -227,6 +275,9 @@ impl Config {
             sharing_enabled: true,
             oidc_providers: Vec::new(),
             mail: MailConfig::Off,
+            storage: StorageConfig::Directory,
+            keep_ended_sessions_days: 7,
+            idle_session_days: 30,
         }
     }
 }

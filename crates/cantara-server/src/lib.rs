@@ -87,6 +87,51 @@ async fn ready(State(state): State<AppState>) -> StatusCode {
     }
 }
 
+/// Where file content is kept, as configured.
+fn open_storage(config: &Config) -> Result<BlobStore, String> {
+    use std::sync::Arc;
+
+    let receiving = |error: std::io::Error| format!("cannot use {}: {error}", config.blob_dir.display());
+    match &config.storage {
+        config::StorageConfig::Directory => BlobStore::open(&config.blob_dir).map_err(receiving),
+        config::StorageConfig::Memory => {
+            BlobStore::object(Arc::new(object_store::memory::InMemory::new()), "", &config.blob_dir.join("tmp")).map_err(receiving)
+        }
+        config::StorageConfig::S3 {
+            bucket,
+            region,
+            endpoint,
+            access_key_id,
+            secret_access_key,
+            prefix,
+            path_style,
+        } => {
+            // What the environment says the AWS way (`AWS_*`) is the base;
+            // Cantara's own variables win.
+            let mut builder = object_store::aws::AmazonS3Builder::from_env().with_bucket_name(bucket);
+            if let Some(region) = region {
+                builder = builder.with_region(region);
+            }
+            if let Some(endpoint) = endpoint {
+                builder = builder
+                    .with_endpoint(endpoint)
+                    .with_allow_http(endpoint.starts_with("http://"));
+            }
+            if let Some(key) = access_key_id {
+                builder = builder.with_access_key_id(key);
+            }
+            if let Some(secret) = secret_access_key {
+                builder = builder.with_secret_access_key(secret);
+            }
+            let store = builder
+                .with_virtual_hosted_style_request(!path_style)
+                .build()
+                .map_err(|error| format!("the S3 storage cannot be used: {error}"))?;
+            BlobStore::object(Arc::new(store), prefix, &config.blob_dir.join("tmp")).map_err(receiving)
+        }
+    }
+}
+
 /// Connects, migrates, prepares a fresh server, and returns the state to serve
 /// from.
 pub async fn prepare(config: Config) -> Result<AppState, String> {
@@ -100,8 +145,8 @@ pub async fn prepare(config: Config) -> Result<AppState, String> {
         .await
         .map_err(|error| format!("cannot migrate the database: {error}"))?;
     mail::Mailer::new(&config.mail)?;
-    let blobs = BlobStore::open(&config.blob_dir)
-        .map_err(|error| format!("cannot use {}: {error}", config.blob_dir.display()))?;
+    let blobs = open_storage(&config)?;
+    tracing::info!("keeping file content in {}", blobs.describe());
     bootstrap::run(&db, &config)
         .await
         .map_err(|error| format!("cannot prepare the server: {error}"))?;

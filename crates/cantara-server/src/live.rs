@@ -141,7 +141,7 @@ impl Live {
 }
 
 async fn persist(db: &PgPool, uuid: Uuid, revision: i64, state: &Value) -> AppResult<()> {
-    sqlx::query("UPDATE sessions SET state = $2, revision = $3 WHERE uuid = $1")
+    sqlx::query("UPDATE sessions SET state = $2, revision = $3, last_active = now() WHERE uuid = $1")
         .bind(uuid)
         .bind(state)
         .bind(revision)

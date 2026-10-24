@@ -55,21 +55,82 @@ pub async fn collect(state: &AppState, minimum_age: Duration, settle: Duration) 
         if back {
             continue;
         }
-        match tokio::fs::remove_file(state.blobs.path_of(&sha256)).await {
-            Ok(()) => removed += 1,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        match state.blobs.remove(&sha256).await {
+            Ok(true) => removed += 1,
+            Ok(false) => {}
             Err(error) => tracing::warn!("{sha256} could not be removed: {error}"),
         }
     }
     Ok(removed)
 }
 
-/// Collects once an hour, for as long as the server runs.
+/// What [`remove_sessions`] did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct SessionsRemoved {
+    /// Presentations nobody ended, ended for being idle.
+    pub ended: usize,
+    /// Ended presentations deleted from the database.
+    pub deleted: usize,
+}
+
+/// Ends presentations that have not changed for
+/// [`Config::idle_session_days`](crate::config::Config) — whoever presented
+/// them closed the laptop rather than the presentation — and deletes the
+/// ones ended longer ago than
+/// [`Config::keep_ended_sessions_days`](crate::config::Config), with what was
+/// shared of them. Their pictures and videos are then content nothing refers
+/// to, which [`collect`] takes.
+pub async fn remove_sessions(state: &AppState) -> AppResult<SessionsRemoved> {
+    let idle: Vec<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT uuid FROM sessions
+          WHERE ended_at IS NULL AND last_active < now() - make_interval(days => $1)",
+    )
+    .bind(state.config.idle_session_days as i32)
+    .fetch_all(&state.db)
+    .await?;
+    for session in &idle {
+        // Ended the way its owner would end it: whoever is still connected
+        // is told.
+        state.live.end(&state.db, *session).await?;
+    }
+
+    let mut tx = state.db.begin().await?;
+    let deleted: Vec<uuid::Uuid> = sqlx::query_scalar(
+        "DELETE FROM sessions
+          WHERE ended_at IS NOT NULL AND ended_at <= now() - make_interval(days => $1)
+         RETURNING uuid",
+    )
+    .bind(state.config.keep_ended_sessions_days as i32)
+    .fetch_all(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM grants WHERE resource_kind = 'session' AND resource_uuid = ANY($1)")
+        .bind(&deleted)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    Ok(SessionsRemoved {
+        ended: idle.len(),
+        deleted: deleted.len(),
+    })
+}
+
+/// Tidies up once an hour, for as long as the server runs: old
+/// presentations first, then the content nothing refers to any more.
 pub fn run_periodically(state: AppState) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
         loop {
             interval.tick().await;
+            match remove_sessions(&state).await {
+                Ok(SessionsRemoved { ended: 0, deleted: 0 }) => {}
+                Ok(removed) => tracing::info!(
+                    "ended {} idle presentations, deleted {} ended ones",
+                    removed.ended,
+                    removed.deleted
+                ),
+                Err(error) => tracing::warn!("removing old presentations failed: {error}"),
+            }
             match collect(&state, MINIMUM_AGE, SETTLE).await {
                 Ok(0) => {}
                 Ok(removed) => tracing::info!("removed {removed} files nothing refers to"),

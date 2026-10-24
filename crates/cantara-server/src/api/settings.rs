@@ -236,10 +236,7 @@ pub async fn put_package(
     let received = incoming.finish()?;
     let sha256 = received.sha256.clone();
     let size = received.size as i64;
-    let blobs = state.blobs.clone();
-    tokio::task::spawn_blocking(move || blobs.store(received))
-        .await
-        .map_err(AppError::internal)??;
+    state.blobs.store(received).await?;
 
     let mut tx = state.db.begin().await?;
     sqlx::query("INSERT INTO blobs (sha256, size) VALUES ($1, $2) ON CONFLICT (sha256) DO UPDATE SET created_at = now()")

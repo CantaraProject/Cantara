@@ -451,7 +451,7 @@ be reviewed as a server on their own.
 * `Dockerfile` (multi-stage: `rust` builder for the server, `dx build --web
   --features server-client` for the web UI, `debian:bookworm-slim` runtime,
   non-root user, `/data` volume for blobs), `deploy/.env.example`,
-  `deploy/docker-compose.yml` (server, `postgres:17`, a volume each, optionally
+  `deploy/docker-compose.yml` (server, `postgres:18`, a volume each, optionally
   Keycloak behind a profile for trying OIDC locally).
 * README section "Running a Cantara server".
 
@@ -727,15 +727,46 @@ is skipped. Covered:
 - an ID token with somebody else's nonce, and a state the server never handed
   out, are refused.
 
+## And finally
+
+**S3-compatible storage** (Q5). Content can be kept in a bucket instead of
+the directory: AWS, MinIO, Hetzner, Wasabi, or anything else that speaks the
+protocol (`CANTARA_S3_BUCKET`, `_REGION`, `_ENDPOINT`, `_ACCESS_KEY_ID`,
+`_SECRET_ACCESS_KEY`, `_PREFIX`, `_PATH_STYLE`, through the `object_store`
+crate; the usual `AWS_*` variables are read as well). Uploads arrive as
+before: streamed into a temporary file on the server while they are hashed.
+They then go to the bucket in one request, or in parts as the file is read
+when they are larger than 8 MB. Range requests are answered by the server,
+which asks the bucket for exactly the bytes wanted, so videos still seek.
+`If-None-Match` is answered with 304. The bucket is never exposed to
+browsers, so it needs no CORS and no public access. The integration tests run
+against the directory, against an object store in memory
+(`CANTARA_TEST_STORAGE=memory`), and in CI against a MinIO
+(`CANTARA_TEST_STORAGE=s3`).
+
+**Removing old presentations.** The hourly tidying first ends presentations
+that have not changed for `CANTARA_IDLE_SESSION_DAYS` (30 by default). Whoever
+presented them closed the laptop rather than the presentation, and anybody
+still connected is told. It then deletes presentations ended longer ago than
+`CANTARA_KEEP_ENDED_SESSIONS_DAYS` (7 by default), together with what was
+shared of them. Their pictures and videos are then content nothing refers to,
+which the collecting afterwards removes.
+
+**PostgreSQL 18** in the compose file and in CI. Its image keeps the data below
+`/var/lib/postgresql/18/` and expects the volume one level up, at
+`/var/lib/postgresql`; the compose file mounts it there. An existing
+installation that ran on 17 needs a `pg_upgrade` (or a dump and restore)
+before it starts on 18. The image does not migrate data between major
+versions.
+
 ## What is left
 
-- **S3-compatible storage.** Only the directory exists, which is what Q5's
-  answer asked for first.
-- **Ended sessions stay as rows** (without media). Nothing deletes them.
 - **The web build fetches a library's content again on every load.** Its VFS
   lives in memory. Videos are streamed, and the other answers are marked
   `immutable`, so the browser's own cache usually serves them.
 - **The queue of changes is tested in the browser only.**
+- **S3 against a real bucket is tested in CI only** (MinIO). On the machine
+  this was written on there was no Docker to run one.
 
 ## Testing
 

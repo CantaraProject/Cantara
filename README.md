@@ -97,8 +97,10 @@ The server is then reachable at `http://localhost:8080`. The administrator
 from `deploy/.env` can log in there. The API is described at
 `/api/v1/docs` (OpenAPI document: `/api/v1/openapi.json`, also committed as
 [`crates/cantara-server/openapi.json`](crates/cantara-server/openapi.json)).
-Files are kept in the `/data` volume and everything else is kept in PostgreSQL.
-A backup is a `pg_dump` together with a copy of that volume. The server is
+Files are kept in the `/data` volume, or in S3-compatible storage
+(`CANTARA_S3_*` in `deploy/.env.example`). Everything else is kept in
+PostgreSQL 18. A backup is a `pg_dump` together with a copy of the volume or
+the bucket. The server is
 licensed under the AGPL-3.0-or-later.
 
 To run it without Docker against a PostgreSQL of your own:

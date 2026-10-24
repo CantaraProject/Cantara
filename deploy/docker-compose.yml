@@ -18,7 +18,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-cantara}
     volumes:
-      - db:/var/lib/postgresql/data
+      # PostgreSQL 18 keeps its data below /var/lib/postgresql/18/; the volume
+      # is mounted one level up, as its image expects.
+      - db:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cantara} -d ${POSTGRES_DB:-cantara}"]
       interval: 5s

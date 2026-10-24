@@ -65,6 +65,10 @@ lettre = { version = "0.11", default-features = false, features = [
     "ring",
     "webpki-roots",
 ] }
+# File content in S3-compatible storage (AWS, MinIO, Hetzner, …), and in
+# memory for the tests.
+object_store = { version = "0.14", default-features = false, features = ["aws", "tokio"] }
+bytes = "1"
 zip = "9"
 tempfile = "3"
 mime_guess = "2"
