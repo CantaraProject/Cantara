@@ -730,6 +730,11 @@ fn App() -> Element {
         // Cantara 2 installation on this machine. See
         // [`logic::legacy_import`].
         crate::components::legacy_import_notice::LegacyImportNotice {}
+
+        // On Android, a library in shared storage that Cantara may not read:
+        // asks for access and scans again once it is there. Renders nothing
+        // anywhere else. See [`components::storage_access`].
+        crate::components::storage_access::StorageAccessNotice {}
     }
 }
 

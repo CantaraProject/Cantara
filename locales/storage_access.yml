@@ -1,0 +1,23 @@
+# Asking Android for access to the phone's shared storage, without which
+# the songs in a folder there cannot be read. See
+# `src/components/storage_access.rs`.
+#
+# Every file under `locales/` is read and merged, so this one is reached
+# without being registered anywhere.
+_version: 2
+storage_access:
+  title:
+    en: Access to your files
+    de: Zugriff auf Ihre Dateien
+  explanation:
+    en: Android lets Cantara see your folders, but not the songs, PDFs and other files in them. To read your library, Cantara needs access to all files.
+    de: Android zeigt Cantara Ihre Ordner, aber nicht die Lieder, PDFs und anderen Dateien darin. Um Ihre Bibliothek zu lesen, braucht Cantara Zugriff auf alle Dateien.
+  how:
+    en: The button opens the Android settings. Switch on “Allow access to manage all files” there, then come back to Cantara.
+    de: Die Schaltfläche öffnet die Android-Einstellungen. Schalten Sie dort „Zugriff zum Verwalten aller Dateien erlauben“ ein und kehren Sie dann zu Cantara zurück.
+  grant:
+    en: Allow access
+    de: Zugriff erlauben
+  later:
+    en: Later
+    de: Später
