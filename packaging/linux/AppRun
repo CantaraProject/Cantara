@@ -1,0 +1,32 @@
+#!/bin/bash
+# What the AppImage runs. Written out rather than taken from AppImageKit or
+# linuxdeploy, because Cantara needs two things neither does on its own:
+#
+# * The environment the linuxdeploy plugins leave in `apprun-hooks/`: where
+#   GTK finds its pixbuf loaders and schemas, and where GStreamer finds the
+#   plugins and the plugin scanner that video playback needs. AppImageKit's
+#   AppRun never reads these hooks.
+# * The working directory `$APPDIR/usr`. The bundled libwebkit2gtk has its
+#   compiled-in `/usr` rewritten to `././` (see build-appimage.sh), so it finds
+#   its helper processes only from there.
+set -e
+
+APPDIR="${APPDIR:-$(dirname "$(readlink -f "$0")")}"
+export APPDIR
+
+for hook in "$APPDIR"/apprun-hooks/*.sh; do
+    if [ -f "$hook" ]; then
+        # shellcheck disable=SC1090
+        . "$hook"
+    fi
+done
+
+export XDG_DATA_DIRS="$APPDIR/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+# Cantara itself finds the bundled libraries through its RUNPATH, but WebKit's
+# helper processes, which sit deeper in usr/lib, do not: without this they
+# load no libwebkit2gtk at all, or the host's, which is not the one they were
+# built with.
+export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+cd "$APPDIR/usr"
+exec "$APPDIR/usr/bin/cantara" "$@"
