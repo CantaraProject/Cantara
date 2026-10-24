@@ -10,5 +10,10 @@ The following things are needed:
 - Item selections can be saved and managed as well as shared with other people and groups (e.g. for church service preparations)
 - A running presentation can instantly be shared via links, users and groups.
 - OpenID-support
+- Clear API for communicating with the server (OpenAPI compatible endpoints)
 
+The locally run Cantara instances should be able to continue to run as they do now, with some additions:
+- Login to one or multiple online instances should be possible in the settings. The repositories etc. should then be available in the client
+- The client should be able to cache the online repositories via its uuids for offline usage. As the primary key uuid would change with every version update, that ensures the right caching.
 
+Add a new Dockerfile and an example .env as well as an example docker-compose.yml for the server sided deployment and hosting.
