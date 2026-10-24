@@ -1,0 +1,21 @@
+[package]
+name = "cantara-api"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "The requests and answers a Cantara server and its clients exchange"
+repository = "https://github.com/CantaraProject/Cantara"
+
+# Plain data, nothing else: this crate is compiled into the desktop program,
+# the browser build and the server alike, so it may depend on nothing that does
+# not build for `wasm32`. The OpenAPI derives are only wanted by the server,
+# which turns them on with the `openapi` feature.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = ["serde", "std"] }
+utoipa = { version = "6", optional = true, features = ["uuid", "chrono"] }
+
+[features]
+openapi = ["dep:utoipa"]
