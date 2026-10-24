@@ -87,6 +87,9 @@ if ! grep -q 'requestLegacyExternalStorage' "$manifest"; then
 fi
 grep -q 'android:requestLegacyExternalStorage="true"' "$manifest"
 grep -q 'android.permission.MANAGE_EXTERNAL_STORAGE' "$manifest"
+# The theme that lets the page follow the system's dark mode
+# (`[android.application]` in Dioxus.toml); without it the page is always light.
+grep -q 'Theme.AppCompat.DayNight' "$manifest"
 
 # --- The icon -----------------------------------------------------------------
 #
