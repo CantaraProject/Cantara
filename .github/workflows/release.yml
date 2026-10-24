@@ -186,9 +186,21 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-linux
-      - uses: cargo-bins/cargo-binstall@main
-      - name: Install dioxus-cli
-        run: cargo binstall -y --locked "dioxus-cli@${DIOXUS_CLI_VERSION}"
+      # Not `cargo binstall` here: the only Linux build of dx that Dioxus
+      # publishes is linked against a newer glibc than this runner has
+      # ("GLIBC_2.39 not found"). Built from source instead, once per dx
+      # version; the cache keeps the binary for the next release.
+      - name: Restore dioxus-cli
+        id: dx-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/dx
+          key: dx-${{ env.DIOXUS_CLI_VERSION }}-ubuntu-22.04
+      - name: Build dioxus-cli
+        if: steps.dx-cache.outputs.cache-hit != 'true'
+        run: cargo install --locked --force dioxus-cli --version "${DIOXUS_CLI_VERSION}"
+      - name: Check that dioxus-cli runs here
+        run: dx --version
       - name: Stamp the version
         run: packaging/scripts/set-version.sh "$TAG"
       - name: Build
