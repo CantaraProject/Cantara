@@ -17,11 +17,13 @@ name: Release packages
 # stamped into Cargo.toml before anything is built, so that every package calls
 # itself what the release is called. See packaging/scripts/set-version.sh.
 #
-# A package is attached only after it has been started once: the .deb and the
-# AppImage under a virtual display (the AppImage in a bare Debian, to show that
-# it brings what it needs), the macOS app on the runner, the APK on an Android
-# emulator. A package that builds but does not start is a failed job, not an
-# asset.
+# A package is attached only after it has been started once: both Windows
+# installers are installed silently and Cantara started from each, the .deb,
+# the AppImage (in a bare Debian, to show that it brings what it needs) and
+# the Flatpak run under a virtual display, both macOS apps on the runner (the
+# Intel one under Rosetta), the APK on an Android emulator. Each check also
+# requires the web view to have come up. A package that builds but does not
+# start is a failed job, not an asset.
 #
 # To build the packages for a release again — after fixing this workflow, say —
 # run it by hand with the release's tag. Existing assets are replaced.
@@ -133,6 +135,21 @@ jobs:
             echo "::error::The installer with WebView2 ($large bytes) is not larger than the one without ($small bytes)."
             exit 1
           fi
+      # Both installers, one after the other: install, start, check that the
+      # WebView2 window came up, uninstall.
+      - name: Install and start Cantara with each installer
+        shell: pwsh
+        run: |
+          ./packaging/scripts/smoke-test-windows.ps1 "out/Cantara-$env:VERSION-windows-x64-setup.exe" smoke/bootstrapper
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./packaging/scripts/smoke-test-windows.ps1 "out/Cantara-$env:VERSION-windows-x64-setup-with-webview2.exe" smoke/offline
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-windows
+          path: smoke/
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: packages-windows
@@ -157,6 +174,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl file \
             libssl-dev librsvg2-dev libayatana-appindicator3-dev dpkg-dev xvfb imagemagick
+          # What the AppImage bundles for video slides (see build-appimage.sh):
+          # every GStreamer plugin installed here goes into it.
+          sudo apt-get install -y patchelf gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -195,11 +216,11 @@ jobs:
         run: dx bundle --release --platform linux --package-types deb --locked --out-dir dist/deb
       - name: Build the AppImage
         run: packaging/scripts/build-appimage.sh target/dx/cantara/release/linux/app "out/Cantara-${VERSION}-x86_64.AppImage"
+      # Also turns a pre-release's version into Debian's spelling of one.
       - name: Name the Debian package
         run: |
           set -euo pipefail
-          mkdir -p out
-          cp "$(ls dist/deb/*.deb | head -n 1)" "out/cantara_${VERSION}_amd64.deb"
+          packaging/scripts/finish-deb.sh "$(ls dist/deb/*.deb | head -n 1)" "out/cantara_${VERSION}_amd64.deb" "$VERSION"
           dpkg-deb --info "out/cantara_${VERSION}_amd64.deb"
           dpkg-deb --contents "out/cantara_${VERSION}_amd64.deb"
       - name: Start the Debian package
@@ -375,13 +396,24 @@ jobs:
           lipo -info "$binary"
           lipo -info "$binary" | grep -q "${{ matrix.arch }}"
           test -d "$app/Contents/Resources/assets"
+      # The Intel build runs under Rosetta, which the Apple silicon runners do
+      # not have until it is installed.
+      - name: Install Rosetta
+        if: matrix.arch == 'x86_64'
+        run: |
+          if ! arch -x86_64 /usr/bin/true 2> /dev/null; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          arch -x86_64 /usr/bin/true
       - name: Start it
-        if: matrix.arch == 'arm64'
         run: |
           set -euo pipefail
           app="$(ls -d dist/*.app | head -n 1)"
           binary="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
-          "$binary" > smoke.log 2>&1 &
+          # WKWebView draws in XPC services that launchd starts, not in
+          # children of the app; only the ones that appear count.
+          before="$(pgrep -f com.apple.WebKit.WebContent || true)"
+          arch "-${{ matrix.arch }}" "$binary" > smoke.log 2>&1 &
           pid=$!
           sleep 25
           if ! kill -0 "$pid" 2> /dev/null; then
@@ -389,8 +421,14 @@ jobs:
             cat smoke.log
             exit 1
           fi
-          echo "Cantara is running."
+          new_webcontent="$(comm -13 <(echo "$before" | sort) <(pgrep -f com.apple.WebKit.WebContent | sort) | grep . || true)"
           kill "$pid"
+          if [ -z "$new_webcontent" ]; then
+            echo "::error::Cantara is running, but WebKit never started a web content process: its window has nothing in it."
+            cat smoke.log
+            exit 1
+          fi
+          echo "Cantara is running, and so is its web content process."
       - name: Make the disk image
         run: |
           set -euo pipefail
@@ -515,17 +553,46 @@ jobs:
       - name: Leave out an APK that failed on the emulator
         if: needs.android-test.result != 'success'
         run: rm -f artifacts/*.apk
-      - name: Checksums
-        working-directory: artifacts
+      - name: Make sure there is something to attach
         run: |
-          set -euo pipefail
-          ls -la
-          sha256sum -- * | tee ../SHA256SUMS.txt
-          mv ../SHA256SUMS.txt .
-      - name: Upload
+          if [ -z "$(ls -A artifacts 2> /dev/null)" ]; then
+            echo "::error::No package was built."
+            exit 1
+          fi
+      - name: Upload the packages
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" artifacts/* --clobber --repo "$GITHUB_REPOSITORY"
+        run: |
+          set -euo pipefail
+          rm -f artifacts/SHA256SUMS.txt
+          ls -la artifacts
+          gh release upload "$TAG" artifacts/* --clobber --repo "$GITHUB_REPOSITORY"
+      # Over what the release holds now, not over what this run built: a run
+      # by hand that rebuilds only some platforms leaves the others' earlier
+      # packages attached, and their checksums must stay in the file. The
+      # packages are downloaded again for it, so that each line is the
+      # checksum of the file a visitor actually gets.
+      - name: Checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir attached
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir attached
+          rm -f attached/SHA256SUMS.txt
+          (cd attached && sha256sum -- * | tee ../SHA256SUMS.txt)
+          # What this run built has to be what is attached now.
+          mismatch=0
+          while read -r sum name; do
+            if ! grep -qxF "$sum  $name" SHA256SUMS.txt; then
+              echo "::error::$name on the release does not match the one this run built."
+              mismatch=1
+            fi
+          done < <(cd artifacts && sha256sum -- *)
+          if [ "$mismatch" -ne 0 ]; then
+            exit 1
+          fi
+          gh release upload "$TAG" SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"
       - name: Report the platforms that are missing
         if: contains(needs.*.result, 'failure')
         run: |

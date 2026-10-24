@@ -18,8 +18,15 @@
 #   2. linuxdeploy's GTK plugin bundles GTK with its loaders and schemas and
 #      rewrites `/usr` in the bundled libwebkit2gtk to `././`, an equally long
 #      relative path;
-#   3. the classic AppImageKit `AppRun` changes into `$APPDIR/usr` before it
-#      starts Cantara, so that relative path lands on the bundled helpers.
+#   3. our own `AppRun` (packaging/linux/AppRun) changes into `$APPDIR/usr`
+#      before it starts Cantara, so that relative path lands on the bundled
+#      helpers.
+#
+# Video slides need GStreamer's plugins as well, which WebKitGTK loads at run
+# time and which therefore no dependency scan finds. linuxdeploy's GStreamer
+# plugin bundles every plugin installed on the build machine, with the plugin
+# scanner, and leaves the variables pointing at them in an AppRun hook. Which
+# plugins those are is decided by what the release workflow installs.
 #
 # Run it on the oldest distribution the AppImage should start on (the release
 # workflow uses Ubuntu 22.04): everything is taken from the build machine, and
@@ -36,10 +43,12 @@ arch="x86_64"
 # These are the builds Tauri's bundler uses.
 linuxdeploy_url="https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy-07333c6/linuxdeploy-x86_64.AppImage"
 linuxdeploy_sha="36a2d7e274d12e1050d0e9ecfe11d339ed54720b2bec464c286d53f8b07f5c62"
-apprun_url="https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64"
-apprun_sha="f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f"
 gtk_plugin_url="https://raw.githubusercontent.com/tauri-apps/tauri/c464ef928c35d7eedd64bcd5df16b62b3393b7fa/crates/tauri-bundler/src/bundle/linux/appimage/linuxdeploy-plugin-gtk.sh"
 gtk_plugin_sha="ef6b9a980417243bc62e0241b51dc49876032afd1bab9b4762389f961b406d9b"
+gst_plugin_url="https://raw.githubusercontent.com/tauri-apps/tauri/c464ef928c35d7eedd64bcd5df16b62b3393b7fa/crates/tauri-bundler/src/bundle/linux/appimage/linuxdeploy-plugin-gstreamer.sh"
+gst_plugin_sha="2a15ce9da8de6e20159e1ab27861a7a5ef8758c81a6278ba4ab30cefa1d74c9f"
+
+mkdir -p "$(dirname "$output")"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -53,9 +62,9 @@ fetch() {
     chmod +x "$dest"
 }
 fetch "$linuxdeploy_url" "$linuxdeploy_sha" "$tools/linuxdeploy"
-fetch "$apprun_url" "$apprun_sha" "$tools/AppRun"
-# linuxdeploy finds its plugins on PATH, by this name.
+# linuxdeploy finds its plugins on PATH, by these names.
 fetch "$gtk_plugin_url" "$gtk_plugin_sha" "$tools/linuxdeploy-plugin-gtk.sh"
+fetch "$gst_plugin_url" "$gst_plugin_sha" "$tools/linuxdeploy-plugin-gstreamer.sh"
 
 appdir="$work/Cantara.AppDir"
 
@@ -93,7 +102,7 @@ done
 
 # Step 3: the AppRun that changes directory. linuxdeploy keeps an AppRun that
 # is already there.
-install -m755 "$tools/AppRun" "$appdir/AppRun"
+install -m755 "$root/packaging/linux/AppRun" "$appdir/AppRun"
 
 # appimagetool would validate the AppStream file itself, online — and fail the
 # build whenever the project's homepage is unreachable. The same check without
@@ -121,8 +130,24 @@ fi
         --desktop-file "$appdir/usr/share/applications/app.cantara.Cantara.desktop" \
         --icon-file "$appdir/usr/share/icons/hicolor/256x256/apps/app.cantara.Cantara.png" \
         --plugin gtk \
+        --plugin gstreamer \
         --output appimage
 )
+
+# The plugins a video slide cannot do without: the demuxers for MP4 and WebM,
+# the H.264 parser, the decoders, and the elements WebKitGTK builds its
+# pipeline from. Missing ones mean the build machine lacks a package, and the
+# AppImage would show a black slide wherever the host lacks it, too.
+for plugin in libgstplayback libgstisomp4 libgstmatroska libgstvideoparsersbad libgstlibav libgstvpx libgstvideoconvert libgstapp; do
+    if ! compgen -G "$appdir/usr/lib/gstreamer-1.0/$plugin*.so" > /dev/null; then
+        echo "GStreamer plugin $plugin is missing from the AppImage. Are the gstreamer1.0-plugins-* and gstreamer1.0-libav packages installed?" >&2
+        exit 1
+    fi
+done
+if [ ! -x "$appdir/usr/lib/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner" ]; then
+    echo "GStreamer's plugin scanner is missing from the AppImage." >&2
+    exit 1
+fi
 
 if [ ! -f "$output" ]; then
     echo "linuxdeploy did not write $output" >&2
