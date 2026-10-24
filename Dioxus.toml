@@ -91,3 +91,12 @@ manifest = """
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 """
+
+# A theme that follows the system's dark mode. dx's own is a light one, and
+# Android's web view takes `prefers-color-scheme` from the app's theme, so the
+# page stayed light on a phone set to dark (see `src/logic/system_theme.rs`,
+# which also asks the system directly). It also darkens the window behind the
+# page and the system bars, so that starting in dark mode does not flash
+# white. An AppCompat theme, as dx's activity requires.
+[android.application]
+theme = "@style/Theme.AppCompat.DayNight.NoActionBar"

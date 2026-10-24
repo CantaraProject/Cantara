@@ -68,8 +68,10 @@ mod android {
     // `get_android_files_dir` in `logic::settings`.
     use ::jni::errors::Error as JniError;
     use ::jni::objects::{JObject, JString, JValue};
-    use ::jni::{Env, JavaVM, jni_sig, jni_str};
-    use log::{error, info, warn};
+    use ::jni::{Env, jni_sig, jni_str};
+    use log::{info, warn};
+
+    use crate::logic::android_jni::with_activity;
 
     /// Android 11, the first version with "access to all files".
     const ANDROID_11: i32 = 30;
@@ -129,41 +131,6 @@ mod android {
                 request_permissions(env, activity)
             }
         });
-    }
-
-    /// Runs `f` with the activity Dioxus' Android runtime created.
-    ///
-    /// A Java exception the calls leave behind is cleared here: a pending
-    /// exception makes every later call into Java fail, in code that has
-    /// nothing to do with this.
-    fn with_activity<T>(
-        what: &str,
-        f: impl FnOnce(&mut Env, &JObject) -> Result<T, JniError>,
-    ) -> Option<T> {
-        let ctx = ndk_context::android_context();
-
-        // Safety: the VM pointer from ndk-context is valid for the app's lifetime.
-        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) };
-
-        let result: Result<T, JniError> = vm.attach_current_thread(|env| {
-            // Safety: the context pointer is a valid Activity jobject managed
-            // by android-activity.
-            let activity = unsafe { JObject::from_raw(env, ctx.context().cast()) };
-            let result = f(env, &activity);
-            if env.exception_check() {
-                env.exception_describe();
-                env.exception_clear();
-            }
-            result
-        });
-
-        match result {
-            Ok(value) => Some(value),
-            Err(err) => {
-                error!("Could not {what}: {err}");
-                None
-            }
-        }
     }
 
     /// `Build.VERSION.SDK_INT`, the Android version as a number.

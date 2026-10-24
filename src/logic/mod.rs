@@ -134,6 +134,13 @@ pub mod timer;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod storage_access;
 
+// Calling into Java on Android, and what is asked there: whether the system
+// is in dark mode, which the web view does not reliably say.
+#[cfg(target_os = "android")]
+pub mod android_jni;
+#[cfg(target_os = "android")]
+pub mod system_theme;
+
 // Where a dragged item lands, and what moving it does to a list.
 pub mod reorder;
 

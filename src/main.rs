@@ -288,6 +288,29 @@ fn App() -> Element {
         }
     });
 
+    // On Android the page cannot go by `prefers-color-scheme`: the web view
+    // takes it from the app's theme rather than from the system. So the
+    // system is asked, and asked again every two seconds, because switching
+    // dark mode while Cantara is open does not restart it and nothing else
+    // would tell the page. See [`logic::system_theme`].
+    #[cfg(target_os = "android")]
+    use_future(move || async move {
+        let mut shown: Option<bool> = None;
+        // A `None` means Java could not be asked, which will not change; the
+        // DayNight theme in Dioxus.toml is left to do what it can, without a
+        // line in the log every two seconds.
+        while let Some(dark) = logic::system_theme::is_dark() {
+            if shown != Some(dark) {
+                let theme = if dark { "dark" } else { "light" };
+                let _ = document::eval(&format!(
+                    "document.documentElement.setAttribute('data-theme', '{theme}')"
+                ));
+                shown = Some(dark);
+            }
+            logic::timer::sleep(std::time::Duration::from_secs(2)).await;
+        }
+    });
+
     // Keeps track of how large the window is, so that the next start can open
     // it the same way. Every window of the program reports through the same
     // handler, so the events of the presentation and of a separate presenter
