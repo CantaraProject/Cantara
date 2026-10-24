@@ -792,3 +792,14 @@
     font-size: 0.85rem;
     color: var(--pico-muted-color);
 }
+
+/* On a phone, with no stream switched on: the slides are shown nowhere, and
+   the console says so. A notice rather than a footnote — it is the one thing
+   standing between the operator and an empty projector. */
+.presenter-stream-needed {
+    margin: 0.5rem 0;
+    padding: 0.5rem 0.75rem;
+    border-left: 4px solid var(--pico-primary);
+    background: var(--pico-card-sectioning-background-color);
+    font-size: 0.9rem;
+}

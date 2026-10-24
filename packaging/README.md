@@ -13,7 +13,7 @@ release is published on GitHub, and attached to that release:
 | `Cantara-<version>-x86_64.flatpak` | Any Linux with Flatpak: `flatpak install Cantara-<version>-x86_64.flatpak` (the GNOME runtime comes from Flathub). |
 | `Cantara-<version>-macos-arm64.dmg` | Macs with Apple silicon, macOS 11+. |
 | `Cantara-<version>-macos-x86_64.dmg` | Macs with an Intel processor, macOS 11+. |
-| `Cantara-<version>-android.apk` | Android 7+ (arm64 phones and tablets, x86_64 emulators and Chromebooks). Asks for "access to all files" when the library is in shared storage: Android shows an app no other files there than pictures, videos and music. |
+| `Cantara-<version>-android.apk` | Android 7+ (arm64 phones and tablets, x86_64 emulators and Chromebooks). Asks for "access to all files" when the library is in shared storage: Android shows an app no other files there than pictures, videos and music. Exports go to the share sheet. The slides reach a projector through the network stream, which runs inside the app; the remote presenter console is desktop-only. |
 | `SHA256SUMS.txt` | `sha256sum -c SHA256SUMS.txt` checks all of the above. It always covers every package attached to the release, also after a rebuild of only some of them. |
 
 The version is taken from the release's tag (`v3.0.0`, `v3.1.0-beta.1`) and

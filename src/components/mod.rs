@@ -82,13 +82,12 @@ pub mod monitor_view;
 // Rendering a presentation to HTML for the network, out of the very same
 // components the window draws.
 //
-// Gated with the thing it renders *for*. Only a desktop build serves a
-// stream — [`crate::logic::network_host`] is what asks for this, and that is
-// desktop-only — so on a phone and in a browser it would be a renderer with
-// nothing to render for. It also reaches for
-// [`crate::logic::video::path_of_video_url`], which is gated the same way and
-// is what broke the Android build.
-#[cfg(feature = "desktop")]
+// Gated with the thing it renders *for*: only a build with a network side
+// serves a stream — [`crate::logic::network_host`] is what asks for this — so
+// in a browser it would be a renderer with nothing to render for. It also
+// reaches for [`crate::logic::video::path_of_video_url`], which is gated the
+// same way.
+#[cfg(feature = "network")]
 pub mod stream_render;
 
 // What every kind of slide, in every kind of design, comes out as.

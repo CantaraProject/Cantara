@@ -668,9 +668,24 @@ pub fn save_file(name: &str, bytes: &[u8]) -> Result<bool, String> {
     Ok(true)
 }
 
+/// On Android the file goes to the share sheet: the web view would drop a
+/// download without a word, and there is no file dialog. See
+/// [`crate::logic::android_share`].
+#[cfg(target_os = "android")]
+pub fn save_file(name: &str, bytes: &[u8]) -> Result<bool, String> {
+    crate::logic::android_share::share(
+        vec![crate::logic::android_share::SharedFile {
+            name: name.to_string(),
+            bytes: bytes.to_vec(),
+        }],
+        &rust_i18n::t!("selection.export"),
+    )?;
+    Ok(true)
+}
+
 /// Without a file dialog the file travels into the page as base64 and leaves
-/// it as a download.
-#[cfg(not(feature = "desktop"))]
+/// it as a download — the browser's way.
+#[cfg(all(not(feature = "desktop"), not(target_os = "android")))]
 pub fn save_file(name: &str, bytes: &[u8]) -> Result<bool, String> {
     use base64::Engine as _;
 

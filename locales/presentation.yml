@@ -47,6 +47,11 @@ presenter:
   stream_same_as_projection:
     en: The stream is showing what the projection is showing.
     de: Die Übertragung zeigt dasselbe wie die Projektion.
+  # On a phone or tablet the console is the only thing on the screen, and the
+  # slides reach a projector only through the stream.
+  stream_needed_on_mobile:
+    en: "The slides are not shown anywhere yet: on this device, they reach a projector through the network stream. Switch on “Stream to the network” in the presentation options and open the address shown there on the computer connected to the projector."
+    de: "Die Folien werden noch nirgends angezeigt: Auf diesem Gerät gelangen sie über die Netzwerk-Übertragung zum Beamer. Schalten Sie in den Präsentationsoptionen „Ins Netzwerk übertragen“ ein und öffnen Sie die dort angezeigte Adresse auf dem Rechner am Beamer."
   chapters:
     en: Elements
     de: Elemente

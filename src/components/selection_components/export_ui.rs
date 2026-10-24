@@ -171,9 +171,33 @@ fn save_exported_files(
     Ok(SaveOutcome::Written(1))
 }
 
-/// Without a file dialog — the web and mobile — each file is offered to the
-/// WebView as a download, which is where the platform then puts it.
-#[cfg(not(feature = "desktop"))]
+/// On Android every file goes to the share sheet, from which it is saved to
+/// "Files", sent, or put on a drive — see [`crate::logic::android_share`]. The
+/// web view would drop a download without a word.
+#[cfg(target_os = "android")]
+fn save_exported_files(
+    files: &[ExportedFile],
+    format: ExportFormat,
+) -> Result<SaveOutcome, ExportError> {
+    let shared = files
+        .iter()
+        .map(|file| crate::logic::android_share::SharedFile {
+            name: format!("{}.{}", file.name, format.extension()),
+            bytes: file.content.clone().into_bytes(),
+        })
+        .collect();
+    crate::logic::android_share::share(shared, &t!("selection.export")).map_err(
+        |reason| ExportError::Write {
+            path: String::new(),
+            reason,
+        },
+    )?;
+    Ok(SaveOutcome::Written(files.len()))
+}
+
+/// Without a file dialog — the web — each file is offered to the page as a
+/// download, which is where the browser then puts it.
+#[cfg(all(not(feature = "desktop"), not(target_os = "android")))]
 fn save_exported_files(
     files: &[ExportedFile],
     format: ExportFormat,
@@ -248,9 +272,10 @@ fn export_pptx(
         return;
     };
 
-    // Only the desktop takes the bytes back into Rust to write them itself;
-    // everywhere else the WebView receives the file directly.
-    let mode = if cfg!(feature = "desktop") {
+    // The desktop takes the bytes back into Rust to write them itself, and
+    // Android to hand them to the share sheet; the browser receives the file
+    // directly.
+    let mode = if cfg!(any(feature = "desktop", target_os = "android")) {
         "\"base64\""
     } else {
         "\"download\""
@@ -261,6 +286,10 @@ fn export_pptx(
         .replace("__FILE_NAME__", &name_json)
         .replace("__PPTXGEN_URL__", &url_json)
         .replace("__MODE__", mode);
+
+    // Android names the file it shares; the task below outlives the borrow.
+    #[cfg(target_os = "android")]
+    let file_name = file_name.to_string();
 
     spawn(async move {
         // The shim returns `{ok, error, data}`; anything else means the
@@ -287,6 +316,8 @@ fn export_pptx(
 
         #[cfg(feature = "desktop")]
         let outcome = outcome.and_then(|data| write_pptx_file(&data, &target_path));
+        #[cfg(target_os = "android")]
+        let outcome = outcome.and_then(|data| share_pptx_file(&data, &file_name));
 
         match outcome {
             Ok(_) => close_dialog.set(false),
@@ -298,6 +329,27 @@ fn export_pptx(
             }
         }
     });
+}
+
+/// Decodes the deck PptxGenJS produced and offers it in the share sheet.
+#[cfg(target_os = "android")]
+fn share_pptx_file(base64_data: &str, file_name: &str) -> Result<String, String> {
+    use base64::Engine;
+
+    if base64_data.is_empty() {
+        return Err("PptxGenJS returned no data".to_string());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|error| error.to_string())?;
+    crate::logic::android_share::share(
+        vec![crate::logic::android_share::SharedFile {
+            name: file_name.to_string(),
+            bytes,
+        }],
+        &t!("selection.export"),
+    )?;
+    Ok(file_name.to_string())
 }
 
 /// Decodes the deck PptxGenJS produced and writes it to `path`.
@@ -841,7 +893,7 @@ pub(crate) fn ExportMenu(
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, feature = "desktop"))]
 mod tests {
     use super::*;
 

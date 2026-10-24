@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What Cantara's FileProvider may hand to another app: the files an export
+     writes into the cache for the share sheet, and nothing else. See
+     src/logic/android_share.rs. -->
+<paths>
+    <cache-path name="shared" path="shared/" />
+</paths>

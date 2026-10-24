@@ -168,15 +168,22 @@ test-harness = ["screens"]
 # `logic::screens::harness_monitors` and `docs/specs/0007-screen-map.md` (D8).
 screens = []
 web = ["dioxus/web", "dioxus-motion/web"]
+# The server that offers a running presentation to browsers on the network —
+# the stream for viewers, and on the desktop the remote presenter console. A
+# feature of its own because it is not the desktop's alone: a phone streams
+# too, with the server in a thread of the app rather than in a process of its
+# own. See `logic::network_host`.
+network = []
 desktop = [
     "dioxus/desktop",
     "dep:image",
     "dioxus-motion/desktop",
     "screens",
+    "network",
 ]
 # dioxus-motion has no dedicated mobile backend; its `desktop` feature is the
 # native (non-WASM) timing backend and is what mobile builds need as well.
-mobile = ["dioxus/mobile", "dioxus-motion/desktop"]
+mobile = ["dioxus/mobile", "dioxus-motion/desktop", "network"]
 
 [profile]
 
