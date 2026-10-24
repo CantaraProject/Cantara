@@ -1114,7 +1114,7 @@ fn screen_label(monitor: &crate::logic::screens::MonitorInfo) -> String {
 /// A thread that panics drops the sending end, which arrives here as the
 /// channel closing; it is reported like any other reason the switch did not go
 /// on, rather than as a switch that stays busy for ever.
-#[cfg(all(not(target_arch = "wasm32"), feature = "desktop"))]
+#[cfg(feature = "network")]
 async fn starting_a_helper<F>(start: F) -> Result<String, String>
 where
     F: FnOnce() -> Result<String, String> + Send + 'static,
@@ -1145,14 +1145,11 @@ where
 /// that service. A program that streamed once should not quietly start doing
 /// it again the next time it opens.
 ///
-/// Desktop only, like [`RemoteConsoleSwitch`] below and for the same reason:
-/// the switch starts a helper process and asks it for an address, and
-/// [`crate::logic::network_host`] — the half of that which lives in Cantara —
-/// is built for the desktop alone. `not(wasm32)` is not the same question. It
-/// is also true of the Android build, which is neither a browser nor a desktop
-/// and has no `network_host` to call, and saying otherwise is what stopped
-/// that build.
-#[cfg(all(not(target_arch = "wasm32"), feature = "desktop"))]
+/// Wherever there is a network side: the desktop, where the server is a
+/// process of its own, and a phone, where it is a thread of the app — see
+/// [`crate::logic::network_host`]. Not the browser, which has no server to
+/// put up. The console switch beside it is the desktop's alone.
+#[cfg(feature = "network")]
 #[component]
 fn StreamSwitch() -> Element {
     let settings = use_settings();
@@ -1513,9 +1510,9 @@ fn StreamSwitch() -> Element {
     rsx! {}
 }
 
-/// And no helper to start where there is no desktop: on Android the panel is
-/// the same panel, without the two switches that would need one.
-#[cfg(all(not(target_arch = "wasm32"), not(feature = "desktop")))]
+/// A native build without a network side has no stream to switch on. Every
+/// build there is has one — this keeps the panel compiling where it does not.
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "network")))]
 #[component]
 fn StreamSwitch() -> Element {
     rsx! {}

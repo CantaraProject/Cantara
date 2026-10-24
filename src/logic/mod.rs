@@ -93,12 +93,10 @@ pub mod pdf_pages;
 
 // Offering the running presentation to browsers on the local network.
 //
-// Only a desktop build. There is no server in a browser, and a phone has no
-// network side either — [`network_host`] and [`network_server`], which are
-// the only things that put one up, are gated the same way. Compiled more
-// widely than that it is a protocol and a server nothing can reach, and every
-// item in it warns as unused on the builds that cannot use it.
-#[cfg(feature = "desktop")]
+// Only a build with a network side — the desktop and the phone. There is no
+// server in a browser; [`network_host`] and [`network_server`], which are the
+// only things that put one up, are gated the same way.
+#[cfg(feature = "network")]
 pub mod stream;
 pub mod export;
 pub mod fonts;
@@ -140,6 +138,10 @@ pub mod storage_access;
 pub mod android_jni;
 #[cfg(target_os = "android")]
 pub mod system_theme;
+// Handing an exported file to the share sheet, which is what a phone has
+// instead of a file dialog.
+#[cfg(target_os = "android")]
+pub mod android_share;
 
 // Where a dragged item lands, and what moving it does to a list.
 pub mod reorder;
@@ -202,15 +204,29 @@ pub mod clipboard;
 // The bridge to a presenter console running in a browser on the network.
 // There is no server inside a browser, so the web build has no bridge.
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(
+    not(feature = "desktop"),
+    allow(
+        dead_code,
+        reason = "a phone serves no remote console; see `network_server::router`"
+    )
+)]
 pub mod remote_console;
 
-// Cantara's network side: a helper process that serves the presenter console
-// *and* the stream to viewers from one socket, and the half of Cantara that
-// starts it, tells it what to offer, and feeds it. Only the desktop has
-// either to offer.
-#[cfg(feature = "desktop")]
+// Cantara's network side: a helper that serves the presenter console *and*
+// the stream to viewers from one socket, and the half of Cantara that starts
+// it, tells it what to offer, and feeds it. A process of its own on the
+// desktop, a thread on a phone — see `network_host`.
+#[cfg(feature = "network")]
+#[cfg_attr(
+    not(feature = "desktop"),
+    allow(
+        dead_code,
+        reason = "the presenter console's half, which a phone does not serve; see `router`"
+    )
+)]
 pub mod network_server;
-#[cfg(feature = "desktop")]
+#[cfg(feature = "network")]
 pub mod network_host;
 
 // The browser's local storage. Only the web build has one.

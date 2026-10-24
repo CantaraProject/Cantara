@@ -72,7 +72,7 @@ pub fn video_source_url(path: &str) -> String {
 
 /// The path a [`video_url`] was built from, or `None` when the URL is not one
 /// of ours.
-#[cfg(feature = "desktop")]
+#[cfg(feature = "network")]
 pub fn path_of_video_url(url: &str) -> Option<String> {
     let prefix = format!("/{VIDEO_HANDLER}/");
     let encoded = url.strip_prefix(&prefix).or_else(|| {
@@ -109,7 +109,7 @@ fn encode_path(path: &str) -> String {
 ///
 /// `None` when the text is not something that function produced: a truncated
 /// escape, or bytes that are not UTF-8 once put back together.
-#[cfg(feature = "desktop")]
+#[cfg(feature = "network")]
 fn decode_path(encoded: &str) -> Option<String> {
     let bytes = encoded.as_bytes();
     let mut decoded: Vec<u8> = Vec::with_capacity(bytes.len());
@@ -134,8 +134,8 @@ fn decode_path(encoded: &str) -> Option<String> {
 /// The piece of a file a `Range` header asks for, as inclusive byte offsets.
 ///
 /// Only a build that serves a video over HTTP has any use for one, and that is
-/// the desktop's stream server.
-#[cfg(feature = "desktop")]
+/// the stream server.
+#[cfg(feature = "network")]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ByteRange {
     pub start: u64,
@@ -143,7 +143,7 @@ pub struct ByteRange {
     pub end: u64,
 }
 
-#[cfg(feature = "desktop")]
+#[cfg(feature = "network")]
 impl ByteRange {
     /// How many bytes this covers.
     pub fn length(self) -> u64 {
@@ -171,7 +171,7 @@ impl ByteRange {
 /// deliberately does *not* mean "send the whole thing" — a player that asked to
 /// start at ten minutes and silently got the beginning would play the wrong
 /// part of the video.
-#[cfg(feature = "desktop")]
+#[cfg(feature = "network")]
 pub fn parse_byte_range(header: &str, length: u64) -> Option<ByteRange> {
     if length == 0 {
         return None;

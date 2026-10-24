@@ -1251,7 +1251,7 @@ impl Settings {
     /// on, and the address shows somebody else's page. Dropping it here means
     /// the view is unreachable, which is the same outcome, arrived at without
     /// the router being asked to arbitrate.
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "network")]
     pub fn served_views(&self) -> Vec<crate::logic::network_server::ServedView> {
         // Addresses already given out, so that a second view claiming one is
         // caught here rather than downstream.
@@ -3723,7 +3723,7 @@ mod tests {
 
     /// The ordinary case: a network view's address is served, a screen view's
     /// is not.
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "network")]
     #[test]
     fn only_the_network_views_are_offered_to_the_helper() {
         let mut settings = Settings::default();
@@ -3748,7 +3748,7 @@ mod tests {
     /// it fails: a reserved address does not error, it is *shadowed* by the
     /// route that owns it, so the view exists, the switch says the stream is
     /// on, and whoever opens that address is shown somebody else's page.
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "network")]
     #[test]
     fn an_address_the_editor_would_refuse_is_not_served() {
         for bad in [
@@ -3780,7 +3780,7 @@ mod tests {
     /// A service with three views, one of them mis-addressed by a hand edit,
     /// must still stream the other two. Refusing the whole list would turn a
     /// typo into no stream at all.
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "network")]
     #[test]
     fn a_single_bad_address_does_not_silence_the_others() {
         let settings = Settings {
@@ -3834,7 +3834,7 @@ mod tests {
     /// The helper keeps one view per path, so without this the second view
     /// vanished — present in the settings, absent from the network, and
     /// nothing anywhere saying which of the two the address was showing.
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "network")]
     #[test]
     fn two_views_at_one_address_do_not_both_claim_it() {
         let at = |id: u128, path: &str| View {
@@ -3866,7 +3866,7 @@ mod tests {
     /// A browser will not distinguish them, so neither may this — the same
     /// reasoning `check_network_path` uses for its reserved paths.
     #[test]
-    #[cfg(feature = "desktop")]
+    #[cfg(feature = "network")]
     fn two_addresses_differing_only_in_case_are_one_address() {
         let at = |id: u128, path: &str| View {
             id: uuid::Uuid::from_u128(id),

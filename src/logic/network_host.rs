@@ -17,11 +17,15 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
-use std::process::{Child, Command};
+use std::process::Child;
+#[cfg(feature = "desktop")]
+use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-use super::network_server::{Configuration, Offer, ToChild, ToParent, FLAG};
+#[cfg(feature = "desktop")]
+use super::network_server::FLAG;
+use super::network_server::{Configuration, Offer, ToChild, ToParent};
 use super::remote_console::{self, ConsoleCommand};
 use super::states::RunningPresentation;
 
@@ -34,9 +38,17 @@ fn helper() -> &'static Mutex<Option<Helper>> {
 /// How many browsers have the console open, as the helper last reported.
 static CONNECTED: AtomicUsize = AtomicUsize::new(0);
 
-/// A helper process and the socket to it. Dropping this stops it.
+/// A helper and the socket to it. Dropping this stops it.
+///
+/// On the desktop the helper is a process of its own, for the reason
+/// [`crate::logic::network_server`] gives: the presenter console runs on
+/// LiveView, which cannot share a process with the window. A phone has no
+/// second program to start — the app is a library inside Android's runtime —
+/// and offers no console, so there the same helper runs as a thread of the
+/// app, connected over the same loopback socket, and `process` is `None`.
+/// Closing the socket ends the thread exactly as it ends the process.
 struct Helper {
-    process: Child,
+    process: Option<Child>,
     /// The writing half. The reading half belongs to the thread that pumps it.
     to_child: TcpStream,
     /// Where it is being served: the address a browser is given, without a
@@ -59,8 +71,10 @@ impl Drop for Helper {
         // how it is made to. Both, in that order, because a helper waiting on
         // a browser that will not close its tab would otherwise keep the port.
         let _ = self.to_child.shutdown(std::net::Shutdown::Both);
-        let _ = self.process.kill();
-        let _ = self.process.wait();
+        if let Some(process) = self.process.as_mut() {
+            let _ = process.kill();
+            let _ = process.wait();
+        }
         CONNECTED.store(0, Ordering::Relaxed);
     }
 }
@@ -142,12 +156,16 @@ pub fn disable_viewer() {
 /// `password` may be empty. What that means is the operator's decision — see
 /// [`Offer`] — and the panel with the switch says it plainly rather than
 /// refusing to switch on.
+// The remote console is the desktop's alone — see [`Helper`].
+#[cfg(feature = "desktop")]
 pub fn enable_console(port: u16, password: String) -> Result<String, String> {
     offer(port, |offer| offer.console = Some(password.clone()))
         .map(|address| format!("{address}/console"))
 }
 
 /// Stops offering it. The helper stays up while the stream is still on.
+// The remote console is the desktop's alone — see [`Helper`].
+#[cfg(feature = "desktop")]
 pub fn disable_console() {
     let _ = offer(0, |offer| offer.console = None);
 }
@@ -209,23 +227,7 @@ fn start(
         .port();
     let token = uuid::Uuid::new_v4().as_simple().to_string();
 
-    let mut command = Command::new(helper_executable()?);
-    command
-        .arg(FLAG)
-        .arg(ipc_port.to_string())
-        .arg(&token)
-        .stdin(std::process::Stdio::null());
-    no_console_window(&mut command);
-
-    let process = command
-        .spawn()
-        .map_err(|error| format!("the console helper could not be started: {error}"))?;
-
-    // From here on there is a process running. Every way out of this function
-    // has to take it with it, or a helper nobody knows about goes on serving
-    // the presentation. `Spawned` is that guarantee; it is disarmed once the
-    // helper is stored and its lifetime becomes [`Helper`]'s business.
-    let mut spawned = Spawned(Some(process));
+    let mut spawned = spawn_helper(ipc_port, &token)?;
 
     let mut to_child = accept_helper(&listener, &token)?;
 
@@ -281,13 +283,8 @@ fn start(
         .map_err(|error| format!("no thread for the console helper: {error}"))?;
 
     let helper = Helper {
-        process: match spawned.0.take() {
-            Some(process) => process,
-            // Unreachable: nothing takes it before this line. Reported rather
-            // than unwrapped, because a panic here would be in the middle of
-            // preparing a service.
-            None => return Err("the network server was lost while starting".to_string()),
-        },
+        // `None` for a helper that is a thread — see [`Helper`].
+        process: spawned.0.take(),
         to_child,
         address: address.clone(),
         last_sent: None,
@@ -326,12 +323,54 @@ fn pump(mut reader: BufReader<TcpStream>) {
     }
 }
 
+/// Starts the helper, which then connects back to `ipc_port` with `token`.
+///
+/// A process on the desktop. From here on there is a process running, and
+/// every way out of [`start`] has to take it with it, or a helper nobody knows
+/// about goes on serving the presentation. [`Spawned`] is that guarantee; it is
+/// disarmed once the helper is stored and its lifetime becomes [`Helper`]'s
+/// business.
+#[cfg(feature = "desktop")]
+fn spawn_helper(ipc_port: u16, token: &str) -> Result<Spawned, String> {
+    let mut command = Command::new(helper_executable()?);
+    command
+        .arg(FLAG)
+        .arg(ipc_port.to_string())
+        .arg(token)
+        .stdin(std::process::Stdio::null());
+    no_console_window(&mut command);
+
+    let process = command
+        .spawn()
+        .map_err(|error| format!("the console helper could not be started: {error}"))?;
+    Ok(Spawned(Some(process)))
+}
+
+/// A thread everywhere else — see [`Helper`]. It needs no killing: if
+/// [`start`] gives up, the listener it would connect to is gone, the helper's
+/// connection fails, and the thread ends by itself. And once it is serving,
+/// it ends when the socket is closed.
+#[cfg(not(feature = "desktop"))]
+fn spawn_helper(ipc_port: u16, token: &str) -> Result<Spawned, String> {
+    let token = token.to_string();
+    std::thread::Builder::new()
+        .name("cantara-network-server".to_string())
+        .spawn(move || {
+            if let Err(reason) = super::network_server::run(ipc_port, &token) {
+                log::error!("the network server stopped: {reason}");
+            }
+        })
+        .map_err(|error| format!("no thread for the network server: {error}"))?;
+    Ok(Spawned(None))
+}
+
 /// Which program to start as the helper.
 ///
 /// Cantara itself, with a flag — one binary, two jobs. A test may point this
 /// somewhere else, which is what lets the half of this module that starts and
 /// speaks to a real helper be tested at all: under a test harness
 /// `current_exe` is the harness, and it has never heard of `--remote-console`.
+#[cfg(feature = "desktop")]
 fn helper_executable() -> Result<std::path::PathBuf, String> {
     #[cfg(test)]
     if let Ok(path) = std::env::var("CANTARA_TEST_HELPER") {
@@ -429,6 +468,8 @@ pub fn is_viewer_enabled() -> bool {
 }
 
 /// Whether the console is being offered.
+// The remote console is the desktop's alone — see [`Helper`].
+#[cfg(feature = "desktop")]
 pub fn is_console_enabled() -> bool {
     with_helper(|helper| helper.offer.console.is_some()).unwrap_or(false)
 }
@@ -446,6 +487,8 @@ pub fn viewer_address() -> Option<String> {
 }
 
 /// The address the console is at, if it is being offered.
+// The remote console is the desktop's alone — see [`Helper`].
+#[cfg(feature = "desktop")]
 pub fn console_address() -> Option<String> {
     with_helper(|helper| {
         helper
@@ -475,6 +518,8 @@ fn tell(helper: &mut Helper, message: ToChild) -> bool {
 }
 
 /// How many browsers have it open.
+// The remote console is the desktop's alone — see [`Helper`].
+#[cfg(feature = "desktop")]
 pub fn connected() -> usize {
     CONNECTED.load(Ordering::Relaxed)
 }
@@ -696,7 +741,7 @@ fn no_console_window(command: &mut Command) {
     command.creation_flags(CREATE_NO_WINDOW);
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(feature = "desktop", not(target_os = "windows")))]
 fn no_console_window(_command: &mut Command) {}
 
 #[cfg(test)]
@@ -759,6 +804,86 @@ mod tests {
         Some(helper.to_path_buf())
     }
 
+    /// On a phone the helper is a thread of the app: the switch is thrown, the
+    /// address answers with the view it was given, and switching off closes
+    /// it again.
+    ///
+    /// Needs no binary, unlike the test below — the helper is this process —
+    /// so it runs wherever the tests do, a build server included. It is what
+    /// stands between the Android build and a stream switch that does
+    /// nothing, since no emulator is asked to stream.
+    #[cfg(not(feature = "desktop"))]
+    #[test]
+    fn a_phone_serves_the_stream_from_a_thread() {
+        let _helper_test = ONE_HELPER_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|held| held.into_inner());
+
+        let stage = uuid::Uuid::from_u128(0x51a9e);
+        let address = match enable_viewer(
+            0,
+            String::new(),
+            vec![crate::logic::network_server::ServedView {
+                path: "/test".to_string(),
+                id: stage,
+            }],
+        ) {
+            Ok(address) => address,
+            Err(reason) => panic!("the switch did not go on: {reason}"),
+        };
+        assert!(is_viewer_enabled(), "the switch says it is on");
+
+        let port = address
+            .rsplit(':')
+            .next()
+            .and_then(|port| port.parse::<u16>().ok())
+            .unwrap_or_else(|| panic!("no port in {address}"));
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("a client");
+        let named = client
+            .get(format!("http://127.0.0.1:{port}/test"))
+            .send()
+            .expect("the named address answers");
+        assert!(
+            named.status().is_success(),
+            "a view's own address was not served: {}",
+            named.status()
+        );
+
+        // Not the console: a phone must never put LiveView up in its own
+        // process (see `network_server::router`).
+        let console = client
+            .get(format!("http://127.0.0.1:{port}/console"))
+            .send()
+            .expect("the server answers");
+        assert!(
+            !console.status().is_success(),
+            "a phone offered a presenter console: {}",
+            console.status()
+        );
+
+        disable_viewer();
+        assert!(!is_viewer_enabled(), "the switch says it is off");
+
+        // The thread notices the closed socket and takes the server with it.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::net::TcpStream::connect_timeout(
+            &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+            std::time::Duration::from_millis(200),
+        )
+        .is_ok()
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the server was still listening after it was switched off"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+
     /// The switch is thrown, a helper appears, and the address it reports
     /// answers.
     ///
@@ -766,6 +891,9 @@ mod tests {
     /// `current_exe` is the harness — and the half that has since broken
     /// twice. It starts the real binary, so it is skipped where that has not
     /// been built.
+    // The desktop's helper, which is a process: a phone's is tested by
+    // `a_phone_serves_the_stream_from_a_thread` above.
+    #[cfg(feature = "desktop")]
     #[test]
     fn a_switch_puts_a_server_on_the_network() {
         // A poisoned lock means another helper test panicked; the guard is

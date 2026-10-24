@@ -1183,6 +1183,17 @@ fn StreamPreview(running_presentation: Signal<RunningPresentation>) -> Element {
     let mut copied: Signal<Option<bool>> = use_signal(|| None);
 
     let Some(watch_at) = address() else {
+        // On a phone the console *is* the screen: there is no window for the
+        // slides beside it, and the stream is the only way they reach a
+        // projector. Without it they are shown nowhere, which is worth saying
+        // rather than leaving the operator to wonder.
+        if cfg!(all(feature = "network", not(feature = "desktop"))) && !host.is_remote() {
+            return rsx! {
+                p { class: "presenter-stream-needed",
+                    {t!("presenter.stream_needed_on_mobile").to_string()}
+                }
+            };
+        }
         return rsx! {};
     };
 
@@ -1323,7 +1334,7 @@ fn StreamPreview(running_presentation: Signal<RunningPresentation>) -> Element {
 /// ([`crate::logic::network_server::served_viewer_address`]), because that
 /// console is running inside the helper and Cantara's handle is in the other
 /// process entirely.
-#[cfg(feature = "desktop")]
+#[cfg(feature = "network")]
 fn stream_address(host: ConsoleHost) -> Option<String> {
     if host.is_remote() {
         crate::logic::network_server::served_viewer_address()
@@ -1335,7 +1346,7 @@ fn stream_address(host: ConsoleHost) -> Option<String> {
 /// A build with no server in it has no stream to show. The web build's console
 /// drives a second browser tab, which is not something anybody can be sent the
 /// address of.
-#[cfg(not(feature = "desktop"))]
+#[cfg(not(feature = "network"))]
 fn stream_address(_host: ConsoleHost) -> Option<String> {
     None
 }

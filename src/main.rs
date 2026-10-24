@@ -409,10 +409,9 @@ fn App() -> Element {
     // Publishing is cheap and does nothing at all when streaming is off, so
     // this may follow every change without asking first.
     //
-    // Only where there *is* a network side: `network_host` is desktop-only, so
-    // on a phone this whole block was a context provider nobody consumes and
-    // an effect that subscribed to two signals in order to do nothing.
-    #[cfg(feature = "desktop")]
+    // Only where there *is* a network side, which the desktop and the phone
+    // have and the browser has not. See [`logic::network_host`].
+    #[cfg(feature = "network")]
     {
         // Counts up when streaming is switched on or off. Turning the switch is
         // not a change to the presentation, so without something for the
@@ -444,13 +443,13 @@ fn App() -> Element {
             // helper: its address would answer "not found", and an address the
             // helper did not know would be shown some other view's slides.
             // Cheap and quiet when nothing has changed — see `serve_views`.
-            #[cfg(feature = "desktop")]
+            #[cfg(feature = "network")]
             logic::network_host::serve_views(settings.read().served_views());
 
-            #[cfg(feature = "desktop")]
+            #[cfg(feature = "network")]
             logic::network_host::publish(presentations.first().cloned());
 
-            #[cfg(feature = "desktop")]
+            #[cfg(feature = "network")]
             if logic::network_host::is_viewer_enabled() {
                 // The pictures, which are the one thing the network server
                 // cannot work out for itself: a PDF page is drawn by this
@@ -518,7 +517,7 @@ fn App() -> Element {
         // its clock and its chapter timer stood still between slides. This
         // brings them round. It costs nothing unless a view being served
         // actually shows the time; see `refresh_time_widgets`.
-        #[cfg(feature = "desktop")]
+        #[cfg(feature = "network")]
         use_future(move || async move {
             loop {
                 logic::timer::sleep(std::time::Duration::from_millis(1000)).await;
@@ -555,16 +554,24 @@ fn App() -> Element {
         // is `try_recv` until empty — a burst of clicks is one write to the
         // signal — and publishing is guarded by a comparison inside
         // `publish`, so a quiet loop costs a lock and two `peek`s.
-        #[cfg(feature = "desktop")]
+        //
+        // A phone has no remote console — see `network_host` — and so nothing
+        // to drain, but the watch is kept: it is the second road the slides
+        // take to the viewers.
+        #[cfg(feature = "network")]
         use_future(move || async move {
+            #[cfg(feature = "desktop")]
             let mut running_presentations = running_presentations;
 
             loop {
                 let _ = document::eval("await new Promise(r => setTimeout(r, 50))").await;
 
-                let mut presentations = running_presentations.peek().clone();
-                if logic::remote_console::drain(&mut presentations) {
-                    running_presentations.set(presentations);
+                #[cfg(feature = "desktop")]
+                {
+                    let mut presentations = running_presentations.peek().clone();
+                    if logic::remote_console::drain(&mut presentations) {
+                        running_presentations.set(presentations);
+                    }
                 }
 
                 let now = running_presentations.peek().first().cloned();
@@ -584,7 +591,7 @@ fn App() -> Element {
         // telling it more often than that is traffic with nothing to show for
         // it, and every viewer is downloading the video itself at the same
         // time.
-        #[cfg(feature = "desktop")]
+        #[cfg(feature = "network")]
         use_future(move || async move {
             // What was last said, so a video that is paused — or a service
             // with no video in it at all — says nothing at all.
@@ -767,7 +774,7 @@ fn App() -> Element {
 /// A PDF page has to be rendered first, which happens in this window's own
 /// page and needs nothing to be on screen — the same route the PowerPoint
 /// export takes. See [`logic::pdf::page_image`].
-#[cfg(feature = "desktop")]
+#[cfg(feature = "network")]
 async fn render_for_stream(source: &str) -> Option<(Vec<u8>, &'static str)> {
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
@@ -795,5 +802,5 @@ async fn render_for_stream(source: &str) -> Option<(Vec<u8>, &'static str)> {
 /// A phone is not a projector: a full-resolution page would be several
 /// megabytes over a hall's wi-fi for no visible gain on a screen a few inches
 /// across.
-#[cfg(feature = "desktop")]
+#[cfg(feature = "network")]
 const STREAM_PICTURE_WIDTH: u32 = 1280;

@@ -91,6 +91,19 @@ grep -q 'android.permission.MANAGE_EXTERNAL_STORAGE' "$manifest"
 # (`[android.application]` in Dioxus.toml); without it the page is always light.
 grep -q 'Theme.AppCompat.DayNight' "$manifest"
 
+# --- The share sheet -----------------------------------------------------------
+#
+# Exports leave a phone through the share sheet, offered by a FileProvider
+# (src/logic/android_share.rs). The provider has to be declared inside
+# <application>, which dx has no setting for; the folder it may hand out is in
+# packaging/android/res/xml, copied with the icons below; and R8 must not
+# remove the method only Rust calls (packaging/android/cantara.pro).
+if ! grep -q 'androidx.core.content.FileProvider' "$manifest"; then
+    perl -0pi -e 's|</application>|    <provider\n            android:name="androidx.core.content.FileProvider"\n            android:authorities="\$\{applicationId\}.fileprovider"\n            android:exported="false"\n            android:grantUriPermissions="true">\n            <meta-data\n                android:name="android.support.FILE_PROVIDER_PATHS"\n                android:resource="\@xml/cantara_shared_files" />\n        </provider>\n    </application>|' "$manifest"
+fi
+grep -q 'android:authorities="${applicationId}.fileprovider"' "$manifest"
+cp packaging/android/cantara.pro "$project/app/cantara.pro"
+
 # --- The icon -----------------------------------------------------------------
 #
 # Dioxus' launcher icon is an adaptive icon (mipmap-anydpi-v26) over WebP

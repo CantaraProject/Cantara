@@ -47,11 +47,14 @@ use std::sync::{Arc, RwLock};
 use axum::extract::{Path, State, WebSocketUpgrade};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
+#[cfg(feature = "desktop")]
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
-use super::remote_console::{self, ConsoleCommand};
+use super::remote_console;
+#[cfg(feature = "desktop")]
+use super::remote_console::ConsoleCommand;
 use super::states::RunningPresentation;
 use super::stream::protocol::StreamState;
 use super::stream::StreamServer;
@@ -453,6 +456,12 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
 
         // What the operator does on the console, on its way back to the
         // program.
+        //
+        // Only where there is a console to operate. On a phone this server is
+        // a thread of the app itself, and taking the command channel here
+        // would take it from the app — the receiver is a global, one per
+        // process, and the program's half of it is `remote_console::drain`.
+        #[cfg(feature = "desktop")]
         {
             let say = say.clone();
             tokio::spawn(async move {
@@ -472,6 +481,7 @@ fn serve(configuration: Configuration, socket: TcpStream) -> Result<(), String> 
         }
 
         // How many browsers have a console open, whenever that changes.
+        #[cfg(feature = "desktop")]
         {
             let say = say.clone();
             tokio::spawn(async move {
@@ -820,6 +830,20 @@ fn video_paths(presentation: Option<&RunningPresentation>) -> std::collections::
     paths
 }
 
+/// The console's routes, merged with the stream's onto one socket.
+///
+/// Only where the helper is a process of its own. Creating a
+/// [`dioxus_liveview::LiveViewPool`] replaces the process' event converter —
+/// see the top of this module — and on a phone this runs as a thread *of the
+/// app*: the pool would take the converter from under the app's own window,
+/// whose next tap would abort the program. A phone offers no console, so it
+/// serves the stream's routes alone. See [`crate::logic::network_host`].
+#[cfg(not(feature = "desktop"))]
+fn router(_shared: Arc<Shared>) -> Router {
+    Router::new()
+}
+
+#[cfg(feature = "desktop")]
 fn router(shared: Arc<Shared>) -> Router {
     let pool = Arc::new(dioxus_liveview::LiveViewPool::new());
 
@@ -973,6 +997,7 @@ async fn asset(
 /// extension check inside `answer_video_request` says "this is a video file",
 /// which is not the same question as "this is one of ours" — and the
 /// difference was every readable video on the machine.
+#[cfg(feature = "desktop")]
 async fn video(
     State(shared): State<Arc<Shared>>,
     headers: HeaderMap,
