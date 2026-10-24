@@ -230,6 +230,11 @@ mobile = ["dioxus/mobile", "dioxus-motion/desktop"]
 [profile.dev]
 debug = "line-tables-only"
 
+# Making an RSA key unoptimised takes long enough to be the slowest part of
+# the server's OpenID Connect tests.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+
 [profile.wasm-dev]
 inherits = "dev"
 opt-level = 1

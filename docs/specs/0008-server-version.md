@@ -712,15 +712,25 @@ Every store refreshes the age of the content it uses, and a file is only
 removed after its row has stayed deleted for a moment. That way content stored
 again at the moment it is collected is not lost.
 
+**Tests of OpenID Connect against an identity provider**
+(`crates/cantara-server/tests/oidc.rs`). The test starts a small but real
+provider. It answers discovery, publishes its RS256 key as a JWKS, checks the
+client's credentials and the PKCE verifier, and signs ID tokens. The server's
+login code runs against it unchanged; only the password page of the provider
+is skipped. Covered:
+
+- a tenant's provider with joining lets somebody nobody invited in, as a
+  member, and the same person again is the same account;
+- without joining, only somebody invited gets in, and the invitation is used up;
+- an existing account is joined to a provider by a verified e-mail address
+  only;
+- an ID token with somebody else's nonce, and a state the server never handed
+  out, are refused.
+
 ## What is left
 
 - **S3-compatible storage.** Only the directory exists, which is what Q5's
   answer asked for first.
-- **OIDC is tested up to the start of the login.** There are tests for adding
-  providers, listing them on the login page and in `/info`, and refusing
-  unknown ones. Logging in through a real provider, and joining through it,
-  have no automated test. They need an identity provider, for which
-  `deploy/docker-compose.yml` has a Keycloak behind the profile `oidc`.
 - **Ended sessions stay as rows** (without media). Nothing deletes them.
 - **The web build fetches a library's content again on every load.** Its VFS
   lives in memory. Videos are streamed, and the other answers are marked

@@ -71,4 +71,8 @@ mime_guess = "2"
 
 [dev-dependencies]
 http-body-util = "0.1"
+# The identity provider the OpenID Connect tests log in through signs its ID
+# tokens with RS256, as real ones do. Already in the tree under openidconnect.
+rsa = { version = "0.9", features = ["sha2"] }
+rand = "0.8"
 tokio-tungstenite = "0.29"
