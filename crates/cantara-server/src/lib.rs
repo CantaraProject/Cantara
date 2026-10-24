@@ -16,6 +16,7 @@ pub mod auth;
 pub mod blobs;
 pub mod bootstrap;
 pub mod config;
+pub mod device;
 pub mod error;
 pub mod invitations;
 pub mod limiter;
@@ -52,6 +53,7 @@ pub fn app(state: AppState) -> Router {
         .route("/register", get(pages::register_page).post(pages::register_submit))
         .route("/invite/{token}", get(pages::invite_page).post(pages::invite_accept))
         .route("/authorize", get(pages::authorize_page).post(pages::authorize_submit))
+        .route("/device", get(device::device_page).post(device::device_submit))
         .route("/auth/oidc/callback", get(oidc::callback))
         .route("/auth/oidc/{provider}", get(oidc::start))
         .route("/healthz", get(|| async { "ok" }))

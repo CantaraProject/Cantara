@@ -614,38 +614,76 @@ through *Presentation options → Share through a server*, beside the LAN stream
 which is unchanged. The web build shows a link's presentation, or its console
 for a control link (`/s/{token}`).
 
+## What was built next
+
+**S6 — Writing from the program.** Saving a song or a Markdown file that came
+from a server writes it where the program reads it from — the cache on the
+desktop, the in-memory file system in the browser — and puts it in a queue
+(`logic::server::pending`). The queue is kept on disk (`pending.json` in the
+cache, `localStorage` in the browser). Every fifteen seconds it sends what is
+waiting as a new version, naming the version the edit started from. Offline,
+it waits. A `version_conflict` stays in the queue as a conflict, and the
+detail view offers *Keep my version* (it goes up as the newest) or *Take the
+server's version* (mine is dropped). A library the user may only read gets the
+refusal shown. A file from a server cannot be renamed here, because its name is
+the server's.
+
+**Pictures and PDFs in shared presentations.** The presenting program hands the
+server every picture and document its slides name
+(`PUT /sessions/{s}/media?path=…`), under the path the slides use. A viewer
+fetches them (`GET`, with the watch link) into its in-memory file system under
+the same path, so the existing picture and PDF rendering draws them unchanged.
+A picture that is not there yet is asked for again every second, because the
+presenter hands them over as it gets to them. Videos still play in the room
+only.
+
+**Sharing from the web build.** The web build a server serves shares the way
+the desktop does, with the same poll loop and the same switch in the
+presentation options. An operator can switch sharing off for the whole server
+(`CANTARA_ALLOW_SHARING=false`, reported as `sharing_enabled` in `/info`).
+The switch is then not offered, and the server refuses to open a session.
+
+**Offline switch per library.** Every library in use has a switch, *Keep
+pictures, PDFs and videos on this computer too*. It is on by default, and off
+for a library larger than 500 MB when it is first put to use. With it off,
+songs and Markdown are still cached. The rest is listed but only fetched when
+it is put into the running order or opened in the detail view
+(`server::ensure_local`), and it is let go after a week unused.
+
+**Device-code login (RFC 8628).** `POST /auth/device` gives a device a code to
+show. The user types it in at `/device` on any device where they are logged
+in, and the device, polling `POST /auth/device/token`, receives a token.
+Requests that poll too often are answered with `slow_down`. The program offers
+it as *Log in with a code* next to the browser login.
+
+**Browser tests of the server mode** (`playwright.server.config.js`,
+`tests/server/`, `npm run test:server`, a CI job of its own with PostgreSQL).
+They drive:
+
+- the web build's login and the server library in its song list;
+- a song edited in the browser arriving on the server as a new version;
+- an invitation, from the admin page to a new account;
+- the desktop login and the code login, which run the program's real login code
+  in the test harness while Playwright's browser plays the user;
+- a presentation shared by the harness through the program's real sharing
+  code, whose picture a viewer in another browser context sees.
+
 ## What is left
 
-- **S6, writing from the program.** The server's API for it is there (upload,
-  new version with `base_version`, `version_conflict`). What is missing is in
-  the program: saving an edited song back to a server library, and offline
-  edits queued until the server can be reached.
-- **Media in shared presentations.** A slide that shows a picture or a PDF
-  page names a path on the presenting computer, and a viewer elsewhere cannot
-  load it. Temporary upload of such files to the session (Q11) is not built
-  yet. Song slides are unaffected.
-- **Sharing from the web build.** It can watch and control a session, but it
-  cannot start one yet: its presentation runs in a tab of its own, which the
-  polling loop on the desktop does not reach.
-- **Offline switch per library (Q13).** Every used library is cached
-  completely. The switch for large video libraries is not built.
 - **Invitations by e-mail.** No SMTP: the link is shown to the person inviting,
   to pass on.
-- **Device-code flow** for devices without a browser.
 - **S3-compatible storage.** Only the directory exists, which is what Q5's
   answer asked for first.
-- **Fonts of a shared design** are not uploaded with it. A design that uses an
-  installed font needs that font on every computer.
+- **Fonts of a shared design** are not uploaded with it.
 - **Per-tenant OIDC providers.** Providers are configured per deployment.
-- **Browser tests.** The web build in server mode was checked by hand in a
-  browser against a local server: logging in, the server library in the song
-  list and the detail view (with the `uuid` tag the server wrote), the
-  administration page, creating an invitation, and `/s/{token}` waiting for a
-  presentation. No Playwright test drives these yet, and the desktop login
-  (system browser → loopback) has only been tested at the API level.
+- **Videos in shared presentations** are not handed over.
+- **Session media are kept until the session ends.** Their blobs are not
+  collected afterwards.
 - **The web build fetches a library's content again on every load.** Its VFS
   lives in memory. The answers are marked `immutable`, so the browser's own
-  cache usually serves them, but nothing in the build relies on that.
+  cache usually serves them.
+- **The queue of changes is tested in the browser only.** It has no Rust unit
+  test, because it keeps its state in the user's cache directory.
 
 ## Testing
 

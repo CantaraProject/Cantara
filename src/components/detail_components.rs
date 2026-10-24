@@ -34,15 +34,29 @@ rust_i18n::i18n!("locales", fallback = "en");
 /// Writes an element's text back.
 ///
 /// The web build has nowhere to write to, so editing there stays a preview.
+///
+/// A file from a server library is written where the program reads it from
+/// and then goes to the server as a new version — at once where the server can
+/// be reached, as soon as it can otherwise. See
+/// [`crate::logic::server::pending`].
 fn write_text(file: &SourceFile, content: &str) -> Result<(), String> {
+    let path = file.path.to_string_lossy().to_string();
     #[cfg(not(target_arch = "wasm32"))]
     {
-        std::fs::write(&file.path, content).map_err(|error| error.to_string())
+        std::fs::write(&file.path, content).map_err(|error| error.to_string())?;
+        crate::logic::server::pending::record(&path, content);
+        Ok(())
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (file, content);
-        Err(t!("detail.no_write_on_web").to_string())
+        // The browser's own repositories are downloads it cannot write back
+        // to; a server's library is the one place a change can go.
+        if crate::logic::server::item_of(&path).is_none() {
+            return Err(t!("detail.no_write_on_web").to_string());
+        }
+        crate::logic::settings::RepositoryType::store_web_file(&path, content.as_bytes().to_vec());
+        crate::logic::server::pending::record(&path, content);
+        Ok(())
     }
 }
 
@@ -99,6 +113,73 @@ fn is_editable_in_place(file: &SourceFile) -> bool {
 fn save_song(file: &SourceFile, song: &Song) -> Result<(), String> {
     let yml = song_yml_from_song(song)?;
     write_text(file, &yml)
+}
+
+/// Where a change to a file from a server stands: waiting for the server,
+/// refused, or in conflict with somebody else's — with the two ways out of a
+/// conflict.
+#[component]
+fn SyncStatus(path: String) -> Element {
+    use crate::logic::server::pending::{self, SyncState};
+
+    let mut state = use_signal(|| pending::state_of(&path));
+    let mut library_refresh: crate::logic::states::LibraryRefresh = use_context();
+    {
+        let path = path.clone();
+        use_future(move || {
+            let path = path.clone();
+            async move {
+                loop {
+                    let now = pending::state_of(&path);
+                    if *state.peek() != now {
+                        state.set(now);
+                    }
+                    crate::logic::timer::sleep(std::time::Duration::from_millis(1000)).await;
+                }
+            }
+        });
+    }
+
+    match state() {
+        None => rsx! {},
+        Some(SyncState::Waiting) => rsx! {
+            span { class: "detail-editor-status", { t!("detail.sync_waiting").to_string() } }
+        },
+        Some(SyncState::Refused) => {
+            let reason = pending::all()
+                .into_iter()
+                .find(|change| change.path == path)
+                .and_then(|change| change.refused)
+                .unwrap_or_default();
+            rsx! { span { class: "detail-editor-status", role: "alert", { reason } } }
+        }
+        Some(SyncState::Conflict) => {
+            let mine = path.clone();
+            let theirs = path.clone();
+            rsx! {
+                div { class: "detail-sync-conflict", role: "alert",
+                    p { { t!("detail.sync_conflict").to_string() } }
+                    button {
+                        class: "smaller-buttons",
+                        onclick: move |_| {
+                            pending::keep_mine(&mine);
+                            state.set(pending::state_of(&mine));
+                        },
+                        { t!("detail.sync_keep_mine").to_string() }
+                    }
+                    button {
+                        class: "smaller-buttons secondary",
+                        onclick: move |_| {
+                            pending::take_theirs(&theirs);
+                            state.set(None);
+                            library_refresh.request();
+                        },
+                        { t!("detail.sync_take_theirs").to_string() }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// One field that can be changed in place.
@@ -586,14 +667,29 @@ fn DetailPane(subject: DetailSubject) -> Element {
 
     let file = subject.source_file().clone();
 
+    // A file from a server library that is not kept whole is fetched when it
+    // is opened; until it is here, there is nothing to show of it.
+    let path = file.path.to_string_lossy().to_string();
+    let fetching = use_resource(use_reactive!(|path| async move {
+        crate::logic::server::ensure_local(std::slice::from_ref(&path)).await
+    }));
+    if crate::logic::server::needs_fetch(&path) && fetching.read().is_none() {
+        return rsx! {
+            div { class: "detail-header", h3 { { file.name.clone() } } }
+            p { aria_busy: "true", { t!("detail.fetching").to_string() } }
+        };
+    }
+
     rsx! {
         div { class: "detail-header",
             h3 {
                 InlineEditable {
                     value: file.name.clone(),
                     // Renaming means moving the file, which the web build
-                    // cannot do.
-                    editable: cfg!(not(target_arch = "wasm32")),
+                    // cannot do — and a file from a server is named on the
+                    // server, not by where this program keeps a copy.
+                    editable: cfg!(not(target_arch = "wasm32"))
+                        && crate::logic::server::item_of(&file.path.to_string_lossy()).is_none(),
                     on_commit: {
                         let file = file.clone();
                         move |new_name: String| {
@@ -1445,6 +1541,7 @@ fn TextEditor(file: SourceFile, kind: EditorKind) -> Element {
                     if let Some(message) = status() {
                         span { class: "detail-editor-status", "{message}" }
                     }
+                    SyncStatus { path: file.path.to_string_lossy().to_string() }
                 }
             }
 

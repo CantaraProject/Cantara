@@ -15,6 +15,9 @@
 //! a runtime of its own on the desktop, the browser's `WebSocket` in the web
 //! build.
 
+// The browser build shares only where a server serves it.
+#![cfg_attr(all(target_arch = "wasm32", not(feature = "server-client")), allow(dead_code))]
+
 use std::sync::Mutex;
 
 use cantara_api::{diff_top_level, apply_patch, SessionClientMessage, SessionInfo, SessionServerMessage};
@@ -46,6 +49,10 @@ struct Shared {
     in_flight: usize,
     /// Whether `remote` has news this program has not taken up.
     remote_changed: bool,
+    /// The pictures and documents handed to the server already, and those on
+    /// their way.
+    uploaded: std::collections::HashSet<String>,
+    uploading: std::collections::HashSet<String>,
     outgoing: Outgoing,
 }
 
@@ -123,6 +130,8 @@ pub fn start(instance: Uuid, tenant: Uuid, session: SessionInfo) -> Result<(), S
             remote: None,
             in_flight: 0,
             remote_changed: false,
+            uploaded: Default::default(),
+            uploading: Default::default(),
             outgoing,
         });
     }
@@ -162,6 +171,61 @@ pub fn publish(now: Option<&RunningPresentation>) {
     if shared.outgoing.send(&message) {
         shared.in_flight += 1;
         shared.published = Some(value);
+    }
+}
+
+/// The bytes of a picture or document a slide names, wherever this build
+/// keeps them.
+fn read_media(path: &str) -> Option<Vec<u8>> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::fs::read(path).ok()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::logic::settings::RepositoryType::web_read_file(path)
+    }
+}
+
+/// Hands the server the pictures and documents the presentation shows that it
+/// does not have yet, so that a viewer on another device sees what the room
+/// sees. Videos are left out: they play in the room (Q11).
+pub async fn upload_media() {
+    let (client, session, wanted) = {
+        let Ok(mut guard) = SHARED.lock() else { return };
+        let Some(shared) = guard.as_mut() else { return };
+        let Some(published) = &shared.published else { return };
+        let wanted: Vec<String> = cantara_api::media_paths(published)
+            .into_iter()
+            .filter(|path| !shared.uploaded.contains(path) && !shared.uploading.contains(path))
+            .collect();
+        if wanted.is_empty() {
+            return;
+        }
+        let Some(client) = client_for(shared.status.instance) else { return };
+        shared.uploading.extend(wanted.iter().cloned());
+        (client, shared.status.session.uuid, wanted)
+    };
+    for path in wanted {
+        let sent = match read_media(&path) {
+            Some(bytes) => match client.put_session_media(session, &path, bytes).await {
+                Ok(()) => true,
+                Err(error) => {
+                    log::warn!("{path} cannot be shared: {error}");
+                    false
+                }
+            },
+            // Nothing to send; asking again would not change that.
+            None => true,
+        };
+        if let Ok(mut guard) = SHARED.lock()
+            && let Some(shared) = guard.as_mut()
+        {
+            shared.uploading.remove(&path);
+            if sent {
+                shared.uploaded.insert(path);
+            }
+        }
     }
 }
 
@@ -368,6 +432,8 @@ mod tests {
             remote: None,
             in_flight: 0,
             remote_changed: false,
+            uploaded: Default::default(),
+            uploading: Default::default(),
             outgoing: Outgoing(sender),
         }
     }

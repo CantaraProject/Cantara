@@ -107,6 +107,9 @@ pub async fn create(
     Json(request): Json<CreateSession>,
 ) -> AppResult<Json<SessionInfo>> {
     member(&state, &user, tenant).await?;
+    if !state.config.sharing_enabled {
+        return Err(AppError::Forbidden);
+    }
     let name = if request.name.trim().is_empty() { "Präsentation" } else { request.name.trim() };
     let uuid = Uuid::now_v7();
     sqlx::query(
@@ -230,24 +233,38 @@ pub async fn socket(
     user: MaybeUser,
     upgrade: WebSocketUpgrade,
 ) -> AppResult<Response> {
-    // A page elsewhere may open a socket here and the browser would send the
-    // cookie along; such a connection is treated as anonymous.
+    let access = access_of(&state, session, query.link.as_deref(), &headers, user).await?;
+    let live = state.live.get(&state.db, session).await?;
+    Ok(upgrade.on_upgrade(move |socket| serve(state, live, access, socket)))
+}
+
+/// What a request may do with a session: by the link it carries, or by the
+/// user's membership where it carries none.
+async fn access_of(
+    state: &AppState,
+    session: Uuid,
+    link: Option<&str>,
+    headers: &HeaderMap,
+    user: MaybeUser,
+) -> AppResult<SessionAccess> {
+    // A page elsewhere may make a request here and the browser would send the
+    // cookie along; such a request is treated as anonymous.
     let foreign = headers
         .get(ORIGIN)
         .and_then(|origin| origin.to_str().ok())
         .is_some_and(|origin| origin != origin_of(&state.config.public_url));
     let user = if foreign { None } else { user.0 };
 
-    let access = match &query.link {
+    match link {
         Some(token) => {
-            let target = resolve_link(&state, token).await?;
+            let target = resolve_link(state, token).await?;
             if target.session != session {
                 return Err(AppError::NotFound);
             }
             if target.access == SessionAccess::Control && !target.anonymous_control && user.is_none() {
                 return Err(AppError::Unauthorized);
             }
-            target.access
+            Ok(target.access)
         }
         None => {
             let user = user.ok_or(AppError::Unauthorized)?;
@@ -255,16 +272,93 @@ pub async fn socket(
                 .bind(session)
                 .fetch_one(&state.db)
                 .await?;
-            let member = member(&state, &user, tenant).await?;
-            match require(&state, &member, ResourceKind::Session, session, Role::Read).await? {
+            let member = member(state, &user, tenant).await?;
+            Ok(match require(state, &member, ResourceKind::Session, session, Role::Read).await? {
                 Role::Read => SessionAccess::Watch,
                 Role::Write | Role::Manage => SessionAccess::Control,
-            }
+            })
         }
-    };
+    }
+}
 
-    let live = state.live.get(&state.db, session).await?;
-    Ok(upgrade.on_upgrade(move |socket| serve(state, live, access, socket)))
+/// Hands a picture or document the presentation shows to the server, under
+/// the path the slides name it by. Only for whoever may control the session —
+/// in practice the computer presenting.
+#[utoipa::path(put, path = "/sessions/{session}/media", tag = "sessions",
+    params(("session" = Uuid, Path), cantara_api::SessionMediaQuery),
+    request_body(content_type = "application/octet-stream", content = Vec<u8>),
+    responses((status = 204)))]
+pub async fn put_media(
+    State(state): State<AppState>,
+    Path(session): Path<Uuid>,
+    Query(query): Query<cantara_api::SessionMediaQuery>,
+    headers: HeaderMap,
+    user: MaybeUser,
+    body: axum::body::Body,
+) -> AppResult<StatusCode> {
+    if access_of(&state, session, query.link.as_deref(), &headers, user).await? != SessionAccess::Control {
+        return Err(AppError::Forbidden);
+    }
+    if query.path.is_empty() || query.path.len() > 4096 {
+        return Err(AppError::BadRequest("a path is needed".to_string()));
+    }
+    let mut incoming = state.blobs.incoming(state.config.max_upload_bytes)?;
+    let mut stream = body.into_data_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| AppError::BadRequest(error.to_string()))?;
+        incoming.write(&chunk)?;
+    }
+    let received = incoming.finish()?;
+    let sha256 = received.sha256.clone();
+    let size = received.size as i64;
+    let blobs = state.blobs.clone();
+    tokio::task::spawn_blocking(move || blobs.store(received))
+        .await
+        .map_err(AppError::internal)??;
+    let file_name = query
+        .path
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("file")
+        .to_string();
+    sqlx::query("INSERT INTO blobs (sha256, size) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(&sha256)
+        .bind(size)
+        .execute(&state.db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO session_media (session_uuid, path, sha256, file_name) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (session_uuid, path) DO UPDATE SET sha256 = EXCLUDED.sha256, file_name = EXCLUDED.file_name",
+    )
+    .bind(session)
+    .bind(&query.path)
+    .bind(&sha256)
+    .bind(&file_name)
+    .execute(&state.db)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// A picture or document of the presentation, for whoever may watch it.
+#[utoipa::path(get, path = "/sessions/{session}/media", tag = "sessions",
+    params(("session" = Uuid, Path), cantara_api::SessionMediaQuery),
+    responses((status = 200, content_type = "application/octet-stream"), (status = 404)))]
+pub async fn get_media(
+    State(state): State<AppState>,
+    Path(session): Path<Uuid>,
+    Query(query): Query<cantara_api::SessionMediaQuery>,
+    headers: HeaderMap,
+    user: MaybeUser,
+    request: axum::extract::Request,
+) -> AppResult<Response> {
+    access_of(&state, session, query.link.as_deref(), &headers, user).await?;
+    let (sha256, file_name): (String, String) =
+        sqlx::query_as("SELECT sha256, file_name FROM session_media WHERE session_uuid = $1 AND path = $2")
+            .bind(session)
+            .bind(&query.path)
+            .fetch_one(&state.db)
+            .await?;
+    crate::api::libraries::serve_blob(&state, &sha256, &file_name, request).await
 }
 
 fn text(message: &SessionServerMessage) -> Option<Message> {

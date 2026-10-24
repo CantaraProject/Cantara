@@ -56,6 +56,18 @@ settings:
   server_login_prompt:
     en: "The address of the server (e.g. lieder.example.org). The login page opens in your browser."
     de: "Die Adresse des Servers (z. B. lieder.example.org). Die Anmeldeseite öffnet sich im Browser."
+  server_login_code:
+    en: Log in with a code
+    de: Mit Code anmelden
+  server_login_prompt_code:
+    en: "The address of the server. You then get a code to type in on another device (a phone, a computer)."
+    de: "Die Adresse des Servers. Du bekommst dann einen Code, den du auf einem anderen Gerät (Handy, Computer) eingibst."
+  server_code_instructions:
+    en: "Open this address on another device, log in, and type in the code:"
+    de: "Öffne diese Adresse auf einem anderen Gerät, melde dich an und gib den Code ein:"
+  server_library_offline:
+    en: Keep pictures, PDFs and videos on this computer too (otherwise they are fetched when used)
+    de: Bilder, PDFs und Videos auch auf diesem Computer behalten (sonst werden sie bei Bedarf geholt)
   server_login_waiting:
     en: Waiting for the login in the browser …
     de: Warte auf die Anmeldung im Browser …

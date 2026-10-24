@@ -36,6 +36,7 @@ use uuid::Uuid;
 pub mod cache;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod login;
+pub mod pending;
 pub mod secrets;
 pub mod session;
 #[cfg(target_arch = "wasm32")]
@@ -66,10 +67,17 @@ pub struct ServerInstance {
     pub user_email: String,
     #[serde(default)]
     pub user_name: String,
+    /// Whether the server lets presentations be shared through it.
+    #[serde(default = "sharing_by_default")]
+    pub sharing: bool,
     /// The token, where the system has no keyring to keep it in. `None` while
     /// it is in the keyring — see [`secrets`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_fallback: Option<String>,
+}
+
+fn sharing_by_default() -> bool {
+    true
 }
 
 /// What a repository needs to reach its server.
@@ -249,6 +257,7 @@ impl Client {
         Self::answer(self.request(method, path).json(body).send().await).await
     }
 
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub async fn info(&self) -> Result<ServerInfo, ClientError> {
         self.get("/info").await
     }
@@ -261,6 +270,110 @@ impl Client {
         let response = self.request(reqwest::Method::POST, "/auth/logout").send().await;
         let response = response.map_err(|error| ClientError::Unreachable(error.to_string()))?;
         if response.status().is_success() { Ok(()) } else { Err(ClientError::Refused { status: response.status().as_u16(), error: None }) }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub async fn device_authorize(&self, device_name: &str) -> Result<DeviceAuthorization, ClientError> {
+        let request = DeviceAuthorizationRequest {
+            client_id: DESKTOP_CLIENT_ID.to_string(),
+            device_name: device_name.to_string(),
+        };
+        self.send(reqwest::Method::POST, "/auth/device", &request).await
+    }
+
+    /// Asks once whether a device code has been approved. A refusal with the
+    /// code `authorization_pending` or `slow_down` means: ask again later.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub async fn device_token(&self, device_code: &str) -> Result<TokenResponse, ClientError> {
+        let request = DeviceTokenRequest {
+            device_code: device_code.to_string(),
+        };
+        self.send(reqwest::Method::POST, "/auth/device/token", &request).await
+    }
+
+    /// Stores a new version of an item. `base_version` is the version the
+    /// edit started from; the server refuses with `version_conflict` if the
+    /// item has moved on since.
+    pub async fn replace_item(
+        &self,
+        tenant: Uuid,
+        library: Uuid,
+        lineage: Uuid,
+        file_name: &str,
+        bytes: Vec<u8>,
+        base_version: Option<Uuid>,
+    ) -> Result<StoredItem, ClientError> {
+        let part = reqwest::multipart::Part::bytes(bytes).file_name(file_name.to_string());
+        let mut form = reqwest::multipart::Form::new().part("file", part);
+        if let Some(base) = base_version {
+            form = form.text("base_version", base.to_string());
+        }
+        Self::answer(
+            self.request(reqwest::Method::PUT, &format!("/tenants/{tenant}/libraries/{library}/items/{lineage}"))
+                .multipart(form)
+                .send()
+                .await,
+        )
+        .await
+    }
+
+    /// Hands a picture or document of a shared presentation to the server,
+    /// under the path its slides name it by.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub async fn put_session_media(&self, session: Uuid, path: &str, bytes: Vec<u8>) -> Result<(), ClientError> {
+        let response = self
+            .http
+            .put(self.session_media_url(session, path, None))
+            .body(bytes);
+        let response = match &self.token {
+            Some(token) => response.bearer_auth(token),
+            None => response,
+        }
+        .send()
+        .await
+        .map_err(|error| ClientError::Unreachable(error.to_string()))?;
+        match response.status() {
+            status if status.is_success() => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => Err(ClientError::Unauthorized),
+            status => Err(ClientError::Refused { status: status.as_u16(), error: None }),
+        }
+    }
+
+    /// Where a viewer fetches a picture or document of a shared presentation.
+    pub fn session_media_url(&self, session: Uuid, path: &str, link: Option<&str>) -> String {
+        let path: String = path
+            .bytes()
+            .map(|byte| match byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (byte as char).to_string(),
+                other => format!("%{other:02X}"),
+            })
+            .collect();
+        let mut url = self.url(&format!("/sessions/{session}/media?path={path}"));
+        if let Some(link) = link {
+            url.push_str("&link=");
+            url.push_str(link);
+        }
+        url
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    /// The bytes of a picture or document of a shared presentation, if the
+    /// presenting computer has handed it over yet.
+    pub async fn session_media(&self, session: Uuid, path: &str, link: Option<&str>) -> Result<Vec<u8>, ClientError> {
+        let request = self.http.get(self.session_media_url(session, path, link));
+        let request = match &self.token {
+            Some(token) => request.bearer_auth(token),
+            None => request,
+        };
+        let response = request.send().await.map_err(|error| ClientError::Unreachable(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(ClientError::Refused { status: response.status().as_u16(), error: None });
+        }
+        response
+            .bytes()
+            .await
+            .map(|bytes| bytes.to_vec())
+            .map_err(|error| ClientError::Unreadable(error.to_string()))
     }
 
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -506,6 +619,73 @@ pub fn item_of(path: &str) -> Option<ServerItem> {
     ITEMS.read().ok()?.as_ref()?.get(path).copied()
 }
 
+/// Whether a server library newly put to use is kept whole on this
+/// computer. Yes, unless it is large — see [`Settings::use_server_library`].
+pub fn offline_by_default() -> bool {
+    true
+}
+
+/// A library above this size is not kept whole unless the user says so: a
+/// church's video archive may not fit on the laptop at the technician's desk.
+pub const OFFLINE_LIMIT_BYTES: i64 = 500 * 1024 * 1024;
+
+/// A file that is listed but not fetched yet, and what fetching it takes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lazy {
+    pub instance: Uuid,
+    pub tenant: Uuid,
+    pub version: Uuid,
+    pub sha256: String,
+}
+
+static LAZY: RwLock<Option<HashMap<String, Lazy>>> = RwLock::new(None);
+
+pub(crate) fn remember_lazy(path: &str, lazy: Lazy) {
+    if let Ok(mut known) = LAZY.write() {
+        known.get_or_insert_with(HashMap::new).insert(path.to_string(), lazy);
+    }
+}
+
+fn lazy_of(path: &str) -> Option<Lazy> {
+    LAZY.read().ok()?.as_ref()?.get(path).cloned()
+}
+
+/// Whether the file at `path` is one from a server that has not been fetched.
+pub fn needs_fetch(path: &str) -> bool {
+    lazy_of(path).is_some() && !is_local(path)
+}
+
+fn is_local(path: &str) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::path::Path::new(path).exists()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::is_local(path)
+    }
+}
+
+/// Fetches whichever of `paths` are server files not fetched yet. Called when
+/// an element is put into the running order or opened, so that a library
+/// that is not kept whole still has what the service needs. Returns how many
+/// were fetched.
+pub async fn ensure_local(paths: &[String]) -> usize {
+    let mut fetched = 0;
+    for path in paths {
+        let Some(lazy) = lazy_of(path) else { continue };
+        #[cfg(not(target_arch = "wasm32"))]
+        let result = cache::fetch(path, &lazy).await;
+        #[cfg(target_arch = "wasm32")]
+        let result = if is_local(path) { Ok(()) } else { web::fetch(path, &lazy).await };
+        match result {
+            Ok(()) => fetched += 1,
+            Err(error) => log::warn!("{path}: {error}"),
+        }
+    }
+    fetched
+}
+
 /// The display name of a file, as the rest of the program would give it.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub(crate) fn display_name(file_name: &str) -> String {
@@ -518,6 +698,7 @@ use crate::logic::settings::{Repository, RepositoryType, Settings};
 
 impl Settings {
     /// Adds an instance this program has just logged in to.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub fn add_server_instance(&mut self, instance: ServerInstance) {
         self.server_instances.retain(|known| known.uuid != instance.uuid);
         self.server_instances.push(instance);
@@ -568,12 +749,33 @@ impl Settings {
                     instance,
                     tenant,
                     library: library.uuid,
+                    offline: library.size_bytes <= OFFLINE_LIMIT_BYTES,
                 },
             });
         } else if !used && present {
             self.repositories.retain(|repository| {
                 !matches!(repository.repository_type, RepositoryType::Server { instance: i, library: l, .. } if i == instance && l == library.uuid)
             });
+        }
+    }
+
+    /// Whether a server library in use is kept whole on this computer.
+    pub fn server_library_offline(&self, instance: Uuid, library: Uuid) -> Option<bool> {
+        self.repositories.iter().find_map(|repository| match repository.repository_type {
+            RepositoryType::Server { instance: i, library: l, offline, .. } if i == instance && l == library => Some(offline),
+            _ => None,
+        })
+    }
+
+    /// Keeps a server library whole on this computer, or no longer.
+    pub fn set_server_library_offline(&mut self, instance: Uuid, library: Uuid, keep: bool) {
+        for repository in &mut self.repositories {
+            if let RepositoryType::Server { instance: i, library: l, offline, .. } = &mut repository.repository_type
+                && *i == instance
+                && *l == library
+            {
+                *offline = keep;
+            }
         }
     }
 

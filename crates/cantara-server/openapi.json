@@ -14,6 +14,75 @@
     }
   ],
   "paths": {
+    "/auth/device": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "A device asks to be logged in.",
+        "operationId": "authorize",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceAuthorizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceAuthorization"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/device/token": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "The device asks whether it has been let in.",
+        "operationId": "token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/login": {
       "post": {
         "tags": [
@@ -381,6 +450,110 @@
             }
           }
         ],
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/sessions/{session}/media": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "A picture or document of the presentation, for whoever may watch it.",
+        "operationId": "get_media",
+        "parameters": [
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "link",
+            "in": "query",
+            "description": "A session link, for a viewer who is not logged in.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "404": {}
+        }
+      },
+      "put": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Hands a picture or document the presentation shows to the server, under\nthe path the slides name it by. Only for whoever may control the session —\nin practice the computer presenting.",
+        "operationId": "put_media",
+        "parameters": [
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "link",
+            "in": "query",
+            "description": "A session link, for a viewer who is not logged in.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "204": {}
         }
@@ -2509,6 +2682,72 @@
           }
         }
       },
+      "DeviceAuthorization": {
+        "type": "object",
+        "required": [
+          "device_code",
+          "user_code",
+          "verification_uri",
+          "verification_uri_complete",
+          "expires_in",
+          "interval"
+        ],
+        "properties": {
+          "device_code": {
+            "type": "string",
+            "description": "What the device polls with. Secret."
+          },
+          "expires_in": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds until the codes expire."
+          },
+          "interval": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds to wait between two polls."
+          },
+          "user_code": {
+            "type": "string",
+            "description": "What the user types in — `WDJB-MJHT`."
+          },
+          "verification_uri": {
+            "type": "string",
+            "description": "Where they type it in."
+          },
+          "verification_uri_complete": {
+            "type": "string",
+            "description": "The same, with the code already filled in (for a QR code)."
+          }
+        }
+      },
+      "DeviceAuthorizationRequest": {
+        "type": "object",
+        "description": "`POST /auth/device`: a device without a browser of its own asks to be\nlogged in (RFC 8628). It shows the user code and the address; the user\ntypes the code in on a phone or a computer.",
+        "required": [
+          "client_id"
+        ],
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "device_name": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceTokenRequest": {
+        "type": "object",
+        "description": "`POST /auth/device/token`: the device asks whether the user has said yes.\nUntil they have, the answer is an [`ApiError`] with the code\n`authorization_pending` (or `slow_down`, `expired_token`,\n`access_denied`).",
+        "required": [
+          "device_code"
+        ],
+        "properties": {
+          "device_code": {
+            "type": "string"
+          }
+        }
+      },
       "GrantInfo": {
         "type": "object",
         "required": [
@@ -3248,6 +3487,10 @@
           "registration_open": {
             "type": "boolean",
             "description": "Whether people may create an account without an invitation."
+          },
+          "sharing_enabled": {
+            "type": "boolean",
+            "description": "Whether presentations may be shared through this server. An operator\nmay switch it off; clients then do not offer it."
           },
           "single_tenant": {
             "type": "boolean",

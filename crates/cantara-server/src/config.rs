@@ -46,6 +46,8 @@ pub struct Config {
     pub max_upload_bytes: u64,
     /// How long a browser session lasts without being used, in days.
     pub session_days: i64,
+    /// Whether presentations may be shared through this server.
+    pub sharing_enabled: bool,
     pub oidc_providers: Vec<OidcProvider>,
 }
 
@@ -141,6 +143,7 @@ impl Config {
             bootstrap_admin_password: var("CANTARA_BOOTSTRAP_ADMIN_PASSWORD"),
             max_upload_bytes: number("CANTARA_MAX_UPLOAD_BYTES", 2 * 1024 * 1024 * 1024)?,
             session_days: number("CANTARA_SESSION_DAYS", 30)?,
+            sharing_enabled: flag("CANTARA_ALLOW_SHARING", true)?,
             oidc_providers,
         })
     }
@@ -170,6 +173,7 @@ impl Config {
             bootstrap_admin_password: Some("admin-password".to_string()),
             max_upload_bytes: 50 * 1024 * 1024,
             session_days: 30,
+            sharing_enabled: true,
             oidc_providers: Vec::new(),
         }
     }

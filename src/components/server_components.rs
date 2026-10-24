@@ -45,7 +45,37 @@ pub fn ServerSettings() -> Element {
     let mut settings = use_settings();
     #[allow(unused_mut)]
     let mut busy = use_signal(|| false);
+    // The code to type in elsewhere, while a login by code is waiting.
+    #[allow(unused_mut)]
+    let mut device_code: Signal<Option<cantara_api::DeviceAuthorization>> = use_signal(|| None);
     let instances = use_memo(move || settings.read().server_instances.clone());
+
+    let login_with_code = move |_| async move {
+        let Some(address) = prompt_box(t!("settings.server_login_prompt_code").to_string(), String::new()).await else {
+            return;
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            busy.set(true);
+            let result = crate::logic::server::login::login_with_code(&address, |authorization| {
+                device_code.set(Some(authorization.clone()));
+            })
+            .await;
+            busy.set(false);
+            device_code.set(None);
+            match result {
+                Ok(logged_in) => settings.write().add_server_instance(logged_in.instance),
+                Err(error) => {
+                    message_box(t!("settings.server_login_failed", reason = error).to_string()).await;
+                }
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = address;
+            message_box(t!("settings.server_login_unavailable").to_string()).await;
+        }
+    };
 
     let login = move |_| async move {
         let Some(address) = prompt_box(t!("settings.server_login_prompt").to_string(), String::new()).await else {
@@ -83,15 +113,30 @@ pub fn ServerSettings() -> Element {
         for instance in instances() {
             ServerInstanceCard { key: "{instance.uuid}", instance: instance.clone() }
         }
-        button {
-            class: "smaller-buttons",
-            disabled: busy(),
-            aria_busy: if busy() { "true" } else { "false" },
-            onclick: login,
-            if busy() {
-                { t!("settings.server_login_waiting").to_string() }
-            } else {
-                { t!("settings.server_login").to_string() }
+        if let Some(code) = device_code() {
+            article { class: "server-device-code",
+                p { { t!("settings.server_code_instructions").to_string() } }
+                p { a { href: "{code.verification_uri_complete}", target: "_blank", { code.verification_uri.clone() } } }
+                p { class: "server-device-code-value", strong { { code.user_code.clone() } } }
+            }
+        }
+        div { class: "grid",
+            button {
+                class: "smaller-buttons",
+                disabled: busy(),
+                aria_busy: if busy() { "true" } else { "false" },
+                onclick: login,
+                if busy() {
+                    { t!("settings.server_login_waiting").to_string() }
+                } else {
+                    { t!("settings.server_login").to_string() }
+                }
+            }
+            button {
+                class: "smaller-buttons secondary",
+                disabled: busy(),
+                onclick: login_with_code,
+                { t!("settings.server_login_code").to_string() }
             }
         }
     }
@@ -206,9 +251,43 @@ fn LibraryChoice(instance: Uuid, tenant: Uuid, library: LibraryInfo) -> Element 
             }
             { library.name.clone() }
             span { class: "muted",
-                { format!(" — {}", t!("settings.server_library_count", count = library.item_count)) }
+                {
+                    format!(
+                        " — {}, {}",
+                        t!("settings.server_library_count", count = library.item_count),
+                        human_size(library.size_bytes),
+                    )
+                }
             }
         }
+        if let Some(offline) = settings.read().server_library_offline(instance, library.uuid) {
+            label { class: "server-library-offline",
+                input {
+                    r#type: "checkbox",
+                    checked: offline,
+                    onchange: move |event| {
+                        settings.write().set_server_library_offline(instance, library.uuid, event.checked());
+                    },
+                }
+                { t!("settings.server_library_offline").to_string() }
+            }
+        }
+    }
+}
+
+/// `1.4 GB`, `320 MB`, `12 KB`.
+fn human_size(bytes: i64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut size = bytes.max(0) as f64;
+    let mut unit = 0;
+    while size >= 1000.0 && unit < UNITS.len() - 1 {
+        size /= 1000.0;
+        unit += 1;
+    }
+    if unit == 0 || size >= 10.0 {
+        format!("{size:.0} {}", UNITS[unit])
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
     }
 }
 
@@ -242,7 +321,7 @@ pub fn ServerShareSwitch() -> Element {
         .read()
         .server_instances
         .iter()
-        .filter(|instance| instance.tenant.is_some())
+        .filter(|instance| instance.tenant.is_some() && instance.sharing)
         .cloned()
         .collect();
     if instances.is_empty() && sharing().is_none() {
@@ -455,6 +534,7 @@ fn shared_session_web(token: String) -> Element {
     let mut access: Signal<Option<SessionAccess>> = use_signal(|| None);
     let mut problem: Signal<Option<String>> = use_signal(|| None);
     let mut ended = use_signal(|| false);
+    let mut media_generation = use_signal(|| 0u32);
 
     use_future(move || {
         let token = token.clone();
@@ -486,7 +566,33 @@ fn shared_session_web(token: String) -> Element {
             // sent it or received it — the base a controller's changes are
             // measured against.
             let mut known: Option<serde_json::Value> = None;
+            // The pictures and documents the slides name that are not here
+            // yet, and when they were last asked for: the presenting computer
+            // hands them over as it gets to them.
+            let mut missing: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut ticks: u32 = 0;
+            let mut asked_at: u32 = 0;
             loop {
+                ticks = ticks.wrapping_add(1);
+                // What is missing is asked for at once, and then every second
+                // until the presenting computer has handed it over.
+                if !missing.is_empty() && ticks.wrapping_sub(asked_at) >= 20 {
+                    asked_at = ticks;
+                    let mut arrived = false;
+                    for path in missing.iter().cloned().collect::<Vec<_>>() {
+                        if let Ok(bytes) = client.session_media(link.session, &path, Some(&token)).await {
+                            crate::logic::settings::RepositoryType::store_web_file(&path, bytes);
+                            missing.remove(&path);
+                            arrived = true;
+                        }
+                    }
+                    // The slides are drawn afresh: a picture slide whose
+                    // picture was not there drew an empty box, and the same
+                    // slide again would not be drawn again.
+                    if arrived {
+                        media_generation += 1;
+                    }
+                }
                 crate::logic::timer::sleep(std::time::Duration::from_millis(50)).await;
                 let (incoming, now_access, finished, error) = VIEWER.with(|viewer| {
                     let mut viewer = viewer.borrow_mut();
@@ -502,6 +608,20 @@ fn shared_session_web(token: String) -> Element {
                     access.set(now_access);
                 }
                 if let Some(state) = incoming {
+                    // What the slides name is fetched before they are drawn,
+                    // where the presenting computer has handed it over
+                    // already; what it has not is asked for again below.
+                    for path in cantara_api::media_paths(&state) {
+                        if crate::logic::settings::RepositoryType::web_read_file(&path).is_some() {
+                            continue;
+                        }
+                        match client.session_media(link.session, &path, Some(&token)).await {
+                            Ok(bytes) => crate::logic::settings::RepositoryType::store_web_file(&path, bytes),
+                            Err(_) => {
+                                missing.insert(path);
+                            }
+                        }
+                    }
                     if let Ok(presentation) = serde_json::from_value::<RunningPresentation>(state.clone()) {
                         running_presentations.set(vec![presentation]);
                     }
@@ -553,9 +673,16 @@ fn shared_session_web(token: String) -> Element {
             }
         };
     }
-    match access() {
-        Some(SessionAccess::Control) => rsx! { PresenterConsolePage {} },
-        _ => rsx! { PresentationPage {} },
+    // A picture that arrived after its slide was drawn needs the slide drawn
+    // again, and the same slide in the same place is not. Two different
+    // wrappers, taking turns, make it a different place.
+    let fresh = media_generation() % 2 == 1;
+    let control = access() == Some(SessionAccess::Control);
+    match (control, fresh) {
+        (true, false) => rsx! { div { PresenterConsolePage {} } },
+        (true, true) => rsx! { section { PresenterConsolePage {} } },
+        (false, false) => rsx! { div { PresentationPage {} } },
+        (false, true) => rsx! { section { PresentationPage {} } },
     }
 }
 

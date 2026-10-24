@@ -1676,6 +1676,12 @@ pub enum RepositoryType {
         instance: uuid::Uuid,
         tenant: uuid::Uuid,
         library: uuid::Uuid,
+        /// Whether pictures, PDFs and videos are kept on this computer as
+        /// well, so that the whole library works without a network. Songs and
+        /// Markdown always are; without this, the rest is fetched when it is
+        /// first used and let go again after a week unused (Q13).
+        #[serde(default = "crate::logic::server::offline_by_default")]
+        offline: bool,
     },
 
     /// A repository that is a GitHub repository, accessed via the GitHub API.
@@ -1898,8 +1904,8 @@ impl RepositoryType {
                     }
                     files
                 }
-                RepositoryType::Server { instance, tenant, library } => {
-                    crate::logic::server::cache::files_of(*instance, *tenant, *library).await
+                RepositoryType::Server { instance, tenant, library, offline } => {
+                    crate::logic::server::cache::files_of(*instance, *tenant, *library, *offline).await
                 }
                 _ => vec![],
             }
@@ -1908,8 +1914,8 @@ impl RepositoryType {
         #[cfg(target_arch = "wasm32")]
         {
             match self {
-                RepositoryType::Server { instance, tenant, library } => {
-                    crate::logic::server::web::files_of(*instance, *tenant, *library).await
+                RepositoryType::Server { instance, tenant, library, offline } => {
+                    crate::logic::server::web::files_of(*instance, *tenant, *library, *offline).await
                 }
                 RepositoryType::RemoteZip(url) => {
                     let prefix = format!("web-zip://{}", url);

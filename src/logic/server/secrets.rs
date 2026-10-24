@@ -10,7 +10,20 @@
 //! settings file instead: a login that works is worth more than one that is
 //! refused for want of a keyring.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use uuid::Uuid;
+
+/// Whether the keyring may be used. Off in the test harness, which logs in to
+/// throwaway servers and has no business in the keyring of whoever runs it.
+static KEYRING: AtomicBool = AtomicBool::new(true);
+
+/// Keeps tokens out of the keyring from now on; [`store`] then reports that it
+/// could not keep them, and they go into the settings instead.
+#[cfg_attr(not(feature = "test-harness"), allow(dead_code))]
+pub fn without_keyring() {
+    KEYRING.store(false, Ordering::Relaxed);
+}
 
 #[cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_arch = "wasm32"))))]
 mod keyring_store {
@@ -57,6 +70,9 @@ mod keyring_store {
 /// in.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub fn store(instance: Uuid, token: &str) -> bool {
+    if !KEYRING.load(Ordering::Relaxed) {
+        return false;
+    }
     #[cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_arch = "wasm32"))))]
     {
         keyring_store::store(instance, token)

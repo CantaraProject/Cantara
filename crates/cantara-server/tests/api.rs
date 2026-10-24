@@ -655,6 +655,97 @@ async fn a_repository_is_imported_from_a_zip() {
     assert_eq!(index.entries[0].title, "Info");
 }
 
+#[tokio::test]
+async fn a_device_without_a_browser_is_let_in_by_code() {
+    let Some(server) = server().await else { return };
+    let (admin, _) = admin_and_tenant(&server).await;
+
+    let device: DeviceAuthorization = server
+        .ok("POST", "/auth/device", &As::Nobody, Some(json!({ "client_id": DESKTOP_CLIENT_ID, "device_name": "Notenpult" })))
+        .await;
+    assert!(device.verification_uri.ends_with("/device"));
+    assert_eq!(device.user_code.len(), 9);
+
+    let server = &server;
+    let poll = |code: String| async move {
+        server
+            .json::<ApiError>("POST", "/auth/device/token", &As::Nobody, Some(json!({ "device_code": code })))
+            .await
+    };
+    let (status, error) = poll(device.device_code.clone()).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(error.unwrap().code, "authorization_pending");
+    let (_, error) = poll(device.device_code.clone()).await;
+    assert_eq!(error.unwrap().code, "slow_down", "asked again at once");
+
+    // Somebody logged in types the code in, the way the page sends it.
+    let As::Cookie(cookie) = admin else { unreachable!() };
+    let typed = device.user_code.to_lowercase().replace('-', " ");
+    let request = Request::post("/device")
+        .header(header::COOKIE, format!("{SESSION_COOKIE}={cookie}"))
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(format!("user_code={}&decision=allow", typed.replace(' ', "+"))))
+        .unwrap();
+    let (status, page, _) = server.send(request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(String::from_utf8_lossy(&page).contains("Verbunden"));
+
+    let token: TokenResponse = server
+        .ok("POST", "/auth/device/token", &As::Nobody, Some(json!({ "device_code": device.device_code })))
+        .await;
+    assert_eq!(token.user.email, "admin@example.org");
+    let me: Me = server.ok("GET", "/me", &As::Bearer(token.access_token), None).await;
+    assert_eq!(me.user.email, "admin@example.org");
+    let tokens: Vec<ApiTokenInfo> = server.ok("GET", "/me/tokens", &As::Cookie(cookie), None).await;
+    assert_eq!(tokens[0].name, "Notenpult");
+
+    // The code is used up.
+    assert_eq!(
+        server
+            .json::<ApiError>("POST", "/auth/device/token", &As::Nobody, Some(json!({ "device_code": device.device_code })))
+            .await
+            .1
+            .unwrap()
+            .code,
+        "expired_token"
+    );
+}
+
+#[tokio::test]
+async fn the_pictures_of_a_shared_presentation_travel_with_it() {
+    let Some(server) = server().await else { return };
+    let (admin, tenant) = admin_and_tenant(&server).await;
+    let session: SessionInfo = server
+        .ok("POST", &format!("/tenants/{tenant}/sessions"), &admin, Some(json!({ "name": "Mit Bildern" })))
+        .await;
+    let watch = session.watch_link.unwrap().rsplit('/').next().unwrap().to_string();
+    let path = "/home/technik/Bilder/Banner.png";
+    let encoded: String = url::form_urlencoded::byte_serialize(path.as_bytes()).collect();
+    let media = format!("{API_PREFIX}/sessions/{}/media?path={encoded}", session.uuid);
+
+    // A watcher cannot put anything there.
+    let request = server
+        .request("PUT", &format!("{media}&link={watch}"), &As::Nobody)
+        .body(Body::from(b"\x89PNG fake".to_vec()))
+        .unwrap();
+    assert_eq!(server.send(request).await.0, StatusCode::FORBIDDEN);
+
+    // Before it is there, a viewer is told so.
+    let request = server.request("GET", &format!("{media}&link={watch}"), &As::Nobody).body(Body::empty()).unwrap();
+    assert_eq!(server.send(request).await.0, StatusCode::NOT_FOUND);
+
+    // The presenting program, which owns the session, hands it over.
+    let request = server.request("PUT", &media, &admin).body(Body::from(b"\x89PNG fake".to_vec())).unwrap();
+    assert_eq!(server.send(request).await.0, StatusCode::NO_CONTENT);
+
+    // And somebody holding the link to watch gets it.
+    let request = server.request("GET", &format!("{media}&link={watch}"), &As::Nobody).body(Body::empty()).unwrap();
+    let (status, bytes, headers) = server.send(request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, b"\x89PNG fake");
+    assert_eq!(headers.get(header::CONTENT_TYPE).unwrap(), "image/png");
+}
+
 #[test]
 fn the_published_openapi_document_is_current() {
     let generated = serde_json::to_string_pretty(&cantara_server::api::openapi()).unwrap() + "\n";

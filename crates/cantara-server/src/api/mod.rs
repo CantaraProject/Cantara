@@ -72,6 +72,8 @@ fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(account::register))
         .routes(routes!(account::logout))
         .routes(routes!(account::token))
+        .routes(routes!(crate::device::authorize))
+        .routes(routes!(crate::device::token))
         .routes(routes!(account::me, account::update_me, account::delete_me))
         .routes(routes!(account::export_me))
         .routes(routes!(account::tokens))
@@ -109,6 +111,7 @@ fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(sessions::renew_links))
         .routes(routes!(sessions::link_info))
         .routes(routes!(sessions::socket))
+        .routes(routes!(sessions::put_media, sessions::get_media))
 }
 
 /// The OpenAPI document, as the server publishes it.

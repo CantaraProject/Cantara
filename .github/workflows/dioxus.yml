@@ -217,6 +217,65 @@ jobs:
       - name: Build the server image
         run: docker build -t cantara-server .
 
+  # The server mode in a browser: the web build a server serves, the desktop
+  # program's login through the browser and with a code (run by the test
+  # harness, with Playwright's browser playing the user), and a presentation
+  # shared through the server with its pictures. See
+  # `playwright.server.config.js` and `tests/server/`.
+  server-browser:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: cantara
+          POSTGRES_PASSWORD: cantara
+          POSTGRES_DB: cantara_browser
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cantara"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Provide npm
+        uses: actions/setup-node@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Run npm install
+        run: npm install
+      - name: Install Rust wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Install cargo bininstall
+        uses: cargo-bins/cargo-binstall@main
+      - name: Install dioxus-cli
+        run: cargo binstall -y --locked dioxus-cli@${{ env.DIOXUS_CLI_VERSION }}
+      - name: Install dependencies
+        run: |-
+          sudo apt update
+          sudo apt install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev postgresql-client
+      - name: Install the browser the tests drive
+        run: npx playwright install --with-deps chromium
+      - name: Run the server-mode browser tests
+        env:
+          CANTARA_BROWSER_DATABASE_URL: postgres://cantara:cantara@127.0.0.1:5432/cantara_browser
+          OPENSSL_ROOT_DIR: /usr
+          OPENSSL_DIR: /usr
+          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
+          OPENSSL_INCLUDE_DIR: /usr/include
+        run: npx playwright test -c playwright.server.config.js
+      - name: Upload the browser test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-server
+          path: |-
+            playwright-report/
+            test-results/
+          retention-days: 7
+
   build-android:
     name: Build Android
     runs-on: ubuntu-latest

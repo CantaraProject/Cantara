@@ -101,6 +101,7 @@ pub async fn info(State(state): State<AppState>) -> Json<ServerInfo> {
         single_tenant: state.config.single_tenant,
         registration_open: state.config.registration_open,
         password_login: state.config.password_login,
+        sharing_enabled: state.config.sharing_enabled,
         oidc_providers: state
             .config
             .oidc_providers

@@ -11,6 +11,7 @@
   "scripts": {
     "test:browser": "playwright test",
     "test:browser:ui": "playwright test --ui",
+    "test:server": "playwright test -c playwright.server.config.js",
     "test:window": "cargo build --features test-harness && ./target/debug/cantara --test-harness measure"
   }
 }

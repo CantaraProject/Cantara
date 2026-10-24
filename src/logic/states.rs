@@ -5,9 +5,7 @@
 //! [`crate::logic::settings`].
 
 use dioxus::prelude::Signal;
-// Only [`LibraryRefresh::request`] needs them, and only the builds that can
-// change the library on disk have that.
-#[cfg(not(target_arch = "wasm32"))]
+// What [`LibraryRefresh::request`] needs.
 use dioxus::prelude::{ReadableExt, WritableExt};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -104,9 +102,9 @@ impl LibraryRefresh {
 
     /// Asks for a fresh scan.
     ///
-    /// Only the builds that can change the library on disk have anything to
-    /// ask about — see [`crate::components::element_creation`].
-    #[cfg(not(target_arch = "wasm32"))]
+    /// The desktop asks after changing a folder (see
+    /// [`crate::components::element_creation`]); every build asks after a
+    /// change has reached a server (see [`crate::logic::server::pending`]).
     pub fn request(&mut self) {
         let next = *self.generation.peek() + 1;
         self.generation.set(next);

@@ -9,12 +9,12 @@
 //! (`POST /auth/token`), which is kept in the keyring.
 
 use base64::Engine;
-use cantara_api::{TokenRequest, DESKTOP_CLIENT_ID};
+use cantara_api::{DeviceAuthorization, TokenRequest, DESKTOP_CLIENT_ID};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
-use super::{normalise_url, secrets, Client, ServerInstance};
+use super::{normalise_url, secrets, Client, ClientError, ServerInstance};
 
 /// How long the browser has to come back.
 const WAIT: std::time::Duration = std::time::Duration::from_secs(300);
@@ -94,8 +94,18 @@ const DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><title>Cantara</titl
 <p>Cantara ist verbunden. Dieses Fenster kann geschlossen werden.<br>\
 Cantara is connected. You can close this window.</p>";
 
-/// Logs in to the server at `address`, through the browser.
+/// Logs in to the server at `address`, through the system browser.
 pub async fn login(address: &str) -> Result<LoggedIn, String> {
+    login_with(address, |url| {
+        webbrowser::open(url).map_err(|error| format!("the browser cannot be opened: {error}"))
+    })
+    .await
+}
+
+/// Logs in to the server at `address`, with `open` sending somebody to the
+/// server's page. The system browser in [`login`]; the browser a test drives
+/// in the harness.
+pub async fn login_with(address: &str, open: impl FnOnce(&str) -> Result<(), String>) -> Result<LoggedIn, String> {
     let url = normalise_url(address).ok_or("that is not the address of a server")?;
     let anonymous = Client::new(&url, None);
     let info = anonymous
@@ -118,7 +128,7 @@ pub async fn login(address: &str) -> Result<LoggedIn, String> {
         encode(&redirect),
         encode(&device),
     );
-    webbrowser::open(&authorize).map_err(|error| format!("the browser cannot be opened: {error}"))?;
+    open(&authorize)?;
 
     // The first request that arrives with our state is the answer. Anything
     // else knocking on the port (a browser asking for a favicon) is told no
@@ -159,23 +169,65 @@ pub async fn login(address: &str) -> Result<LoggedIn, String> {
         })
         .await
         .map_err(|error| error.to_string())?;
+    logged_in(&url, info, token.access_token).await
+}
 
-    let client = Client::new(&url, Some(token.access_token.clone()));
+/// Logs in to the server at `address` with a code typed in elsewhere — for a
+/// device whose browser cannot come back to it (RFC 8628). `show` is told the
+/// code and where to type it in, and is shown it until the user has done so.
+pub async fn login_with_code(address: &str, show: impl FnOnce(&DeviceAuthorization)) -> Result<LoggedIn, String> {
+    let url = normalise_url(address).ok_or("that is not the address of a server")?;
+    let anonymous = Client::new(&url, None);
+    let info = anonymous
+        .info()
+        .await
+        .map_err(|error| format!("{url} does not answer as a Cantara server: {error}"))?;
+    let authorization = anonymous
+        .device_authorize(&device_name())
+        .await
+        .map_err(|error| error.to_string())?;
+    show(&authorization);
+
+    let mut interval = authorization.interval.max(1) as u64;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(authorization.expires_in.max(1) as u64);
+    loop {
+        crate::logic::timer::sleep(std::time::Duration::from_secs(interval)).await;
+        if std::time::Instant::now() > deadline {
+            return Err("the code has expired".to_string());
+        }
+        match anonymous.device_token(&authorization.device_code).await {
+            Ok(token) => return logged_in(&url, info, token.access_token).await,
+            Err(ClientError::Refused { error: Some(error), .. }) => match error.code.as_str() {
+                "authorization_pending" => {}
+                "slow_down" => interval += 5,
+                "access_denied" => return Err("the login was declined".to_string()),
+                _ => return Err(error.message),
+            },
+            // Offline for a moment: keep asking until the code expires.
+            Err(ClientError::Unreachable(_)) => {}
+            Err(other) => return Err(other.to_string()),
+        }
+    }
+}
+
+/// What a token buys: the instance, with the first organisation chosen.
+async fn logged_in(url: &str, info: cantara_api::ServerInfo, token: String) -> Result<LoggedIn, String> {
+    let client = Client::new(url, Some(token.clone()));
     let me = client.me().await.map_err(|error| error.to_string())?;
-
     let uuid = Uuid::new_v4();
-    let kept = secrets::store(uuid, &token.access_token);
+    let kept = secrets::store(uuid, &token);
     let first = me.tenants.first();
     Ok(LoggedIn {
         instance: ServerInstance {
             uuid,
-            url,
+            url: url.to_string(),
             name: info.name,
             tenant: first.map(|membership| membership.tenant.uuid),
             tenant_name: first.map(|membership| membership.tenant.name.clone()).unwrap_or_default(),
             user_email: me.user.email,
             user_name: me.user.display_name,
-            token_fallback: (!kept).then_some(token.access_token),
+            sharing: info.sharing_enabled,
+            token_fallback: (!kept).then_some(token),
         },
     })
 }

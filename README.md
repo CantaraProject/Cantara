@@ -159,6 +159,15 @@ cargo clippy -p cantara-server -p cantara-api --all-targets -- -D warnings
 A change to the API changes the committed OpenAPI document, and a test fails
 until it is regenerated with `UPDATE_OPENAPI=1 cargo test -p cantara-server`.
 
+The server mode in a browser has a Playwright suite of its own. It covers the
+web build a server serves, the desktop login through the browser and with a
+code, and a presentation shared with its pictures. It needs a database it may
+wipe:
+
+```bash
+CANTARA_BROWSER_DATABASE_URL=postgres://cantara@127.0.0.1:5432/cantara_browser npm run test:server
+```
+
 ### Browser tests via Playwright
 
 ```bash

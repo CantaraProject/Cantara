@@ -59,6 +59,14 @@ pub struct ServerInfo {
     pub password_login: bool,
     /// The OpenID Connect providers one can log in with.
     pub oidc_providers: Vec<OidcProviderInfo>,
+    /// Whether presentations may be shared through this server. An operator
+    /// may switch it off; clients then do not offer it.
+    #[serde(default = "yes")]
+    pub sharing_enabled: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -146,6 +154,44 @@ pub struct TokenResponse {
     /// Sent as `Authorization: Bearer …` from now on. Shown once.
     pub access_token: String,
     pub user: UserInfo,
+}
+
+/// `POST /auth/device`: a device without a browser of its own asks to be
+/// logged in (RFC 8628). It shows the user code and the address; the user
+/// types the code in on a phone or a computer.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DeviceAuthorizationRequest {
+    pub client_id: String,
+    #[serde(default)]
+    pub device_name: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DeviceAuthorization {
+    /// What the device polls with. Secret.
+    pub device_code: String,
+    /// What the user types in — `WDJB-MJHT`.
+    pub user_code: String,
+    /// Where they type it in.
+    pub verification_uri: String,
+    /// The same, with the code already filled in (for a QR code).
+    pub verification_uri_complete: String,
+    /// Seconds until the codes expire.
+    pub expires_in: i64,
+    /// Seconds to wait between two polls.
+    pub interval: i64,
+}
+
+/// `POST /auth/device/token`: the device asks whether the user has said yes.
+/// Until they have, the answer is an [`ApiError`] with the code
+/// `authorization_pending` (or `slow_down`, `expired_token`,
+/// `access_denied`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DeviceTokenRequest {
+    pub device_code: String,
 }
 
 /// One of the tokens a user has handed out to programs.
@@ -673,6 +719,50 @@ pub struct SessionLink {
     pub login_required: bool,
 }
 
+/// The query naming one picture or document of a shared presentation:
+/// `GET`/`PUT /sessions/{session}/media?path=…`. The path is the one the
+/// presentation's slides name it by — on the presenting computer, a file
+/// path — and is only a key; nothing is read from it on the server.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema, utoipa::IntoParams))]
+pub struct SessionMediaQuery {
+    pub path: String,
+    /// A session link, for a viewer who is not logged in.
+    #[serde(default)]
+    pub link: Option<String>,
+}
+
+/// The pictures and documents a presentation's state names, by the paths its
+/// slides use. What has to travel with a shared presentation for a viewer on
+/// another device to see what the room sees.
+pub fn media_paths(state: &serde_json::Value) -> Vec<String> {
+    fn walk(value: &serde_json::Value, found: &mut Vec<String>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (key, value) in map {
+                    // A PDF page shown as a picture carries the page as a
+                    // fragment — `handout.pdf#page=2` — and the document is
+                    // what travels.
+                    if matches!(key.as_str(), "picture_path" | "pdf_path")
+                        && let Some(path) = value.as_str().map(|path| path.split('#').next().unwrap_or(path))
+                        && !path.is_empty()
+                        && !found.iter().any(|known| known == path)
+                    {
+                        found.push(path.to_string());
+                    } else {
+                        walk(value, found);
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|item| walk(item, found)),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    walk(state, &mut found);
+    found
+}
+
 /// What the server sends on a session's socket.
 ///
 /// The state is the program's `RunningPresentation`, serialised; the server
@@ -784,6 +874,20 @@ mod tests {
         assert_eq!(ItemKind::of("Banner.PNG"), ItemKind::Image);
         assert_eq!(ItemKind::of("notes.txt"), ItemKind::Other);
         assert_eq!(ItemKind::parse(ItemKind::Video.as_str()), ItemKind::Video);
+    }
+
+    #[test]
+    fn the_media_of_a_presentation_are_found_wherever_they_are() {
+        let state = json!({
+            "presentation": [
+                { "slides": [ { "content": { "SimplePicture": { "picture_path": "/a/b.png" } } },
+                              { "content": { "SimplePicture": { "picture_path": "/c.pdf#page=4" } } } ] },
+                { "slides": [ { "content": { "PdfPage": { "pdf_path": "/c.pdf", "page_number": 2 } } },
+                              { "content": { "PdfPage": { "pdf_path": "/c.pdf", "page_number": 3 } } } ] }
+            ],
+            "position": null
+        });
+        assert_eq!(media_paths(&state), vec!["/a/b.png".to_string(), "/c.pdf".to_string()]);
     }
 
     #[test]

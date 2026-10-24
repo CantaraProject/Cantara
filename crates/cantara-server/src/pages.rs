@@ -86,6 +86,11 @@ hr {{ border: 0; border-top: 1px solid light-dark(#e1e4e8, #33373c); margin: 1.5
     .into_response()
 }
 
+/// A page in the server's own plain look, for the pages other modules draw.
+pub fn plain_page(title: &str, body: &str) -> Response {
+    page(title, body)
+}
+
 pub fn error_page(message: &str) -> Response {
     let mut response = page("Fehler", &format!("<h1>Cantara</h1><p class=\"error\">{}</p><a class=\"button\" href=\"/login\">Login</a>", escape(message)));
     *response.status_mut() = StatusCode::BAD_REQUEST;

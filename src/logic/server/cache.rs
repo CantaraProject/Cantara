@@ -27,7 +27,7 @@ use crate::logic::sourcefiles::{SourceFile, SourceFileType};
 /// How long a version nothing refers to any more is kept.
 const KEEP_UNREFERENCED: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
-fn cache_root() -> Option<PathBuf> {
+pub(crate) fn cache_root() -> Option<PathBuf> {
     #[cfg(target_os = "android")]
     {
         crate::logic::settings::get_settings_folder().map(|dir| dir.join("cache"))
@@ -130,25 +130,31 @@ async fn download(client: &Client, tenant: Uuid, version: Uuid, sha256: &str, ta
     std::fs::rename(&partial, target).map_err(|error| error.to_string())
 }
 
+/// How long a picture, PDF or video of a library that is not kept whole
+/// stays after it was last used.
+const KEEP_UNUSED_MEDIA: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
 /// Removes versions no entry of `index` names, once they have been unused
-/// for [`KEEP_UNREFERENCED`].
-fn collect_garbage(dir: &Path, index: &LibraryIndex) {
+/// for [`KEEP_UNREFERENCED`] — and, in a library that is not kept whole, the
+/// pictures, PDFs and videos nobody has used for [`KEEP_UNUSED_MEDIA`].
+fn collect_garbage(dir: &Path, index: &LibraryIndex, offline: bool) {
     let Ok(versions) = std::fs::read_dir(dir.join("files")) else {
         return;
     };
-    let current: std::collections::HashSet<String> =
-        index.entries.iter().map(|entry| entry.version.to_string()).collect();
+    let current: std::collections::HashMap<String, bool> = index
+        .entries
+        .iter()
+        .map(|entry| (entry.version.to_string(), entry.kind.is_text()))
+        .collect();
     for version in versions.flatten() {
         let name = version.file_name().to_string_lossy().to_string();
-        if current.contains(&name) {
-            continue;
-        }
-        let old = version
-            .metadata()
-            .and_then(|metadata| metadata.modified())
-            .ok()
-            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
-            .is_some_and(|age| age > KEEP_UNREFERENCED);
+        let keep_for = match current.get(&name) {
+            Some(true) => continue,
+            Some(false) if offline => continue,
+            Some(false) => KEEP_UNUSED_MEDIA,
+            None => KEEP_UNREFERENCED,
+        };
+        let old = unused_for(&version.path()).is_none_or(|age| age > keep_for);
         if old {
             let _ = std::fs::remove_dir_all(version.path());
         }
@@ -157,7 +163,7 @@ fn collect_garbage(dir: &Path, index: &LibraryIndex) {
 
 /// The files of a server library: brought up to date where the server can be
 /// reached, from the cache where it cannot.
-pub async fn files_of(instance: Uuid, tenant: Uuid, library: Uuid) -> Vec<SourceFile> {
+pub async fn files_of(instance: Uuid, tenant: Uuid, library: Uuid, offline: bool) -> Vec<SourceFile> {
     let Some(dir) = library_dir(instance, library) else {
         return Vec::new();
     };
@@ -187,7 +193,20 @@ pub async fn files_of(instance: Uuid, tenant: Uuid, library: Uuid) -> Vec<Source
             .join("files")
             .join(entry.version.to_string())
             .join(safe_file_name(&entry.file_name));
-        if !path.exists() {
+        // A picture, a PDF or a video of a library that is not kept whole is
+        // listed, and fetched when it is first used — see `ensure_local`.
+        let lazy = !offline && !entry.kind.is_text();
+        if lazy && !path.exists() {
+            super::remember_lazy(
+                &path.to_string_lossy(),
+                super::Lazy {
+                    instance,
+                    tenant,
+                    version: entry.version,
+                    sha256: entry.sha256.clone(),
+                },
+            );
+        } else if !path.exists() {
             let Some(client) = &client else { continue };
             if let Err(error) = download(client, tenant, entry.version, &entry.sha256, &path).await {
                 log::warn!("{}: {error}", entry.relative_path);
@@ -212,8 +231,37 @@ pub async fn files_of(instance: Uuid, tenant: Uuid, library: Uuid) -> Vec<Source
             relative_path: Some(entry.relative_path.clone()),
         });
     }
-    collect_garbage(&dir, &index);
+    collect_garbage(&dir, &index, offline);
     files
+}
+
+/// Fetches a lazily listed file to where its path says.
+pub async fn fetch(path: &str, lazy: &super::Lazy) -> Result<(), String> {
+    let client = client_for(lazy.instance).ok_or("the server is not known")?;
+    let path = Path::new(path);
+    if !path.exists() {
+        download(&client, lazy.tenant, lazy.version, &lazy.sha256, path).await?;
+    }
+    touch(path);
+    Ok(())
+}
+
+/// Marks a fetched file as used now, which is what keeps it from being let go
+/// in a library that is not kept whole.
+fn touch(path: &Path) {
+    if let Ok(file) = std::fs::File::options().append(true).open(path) {
+        let _ = file.set_modified(SystemTime::now());
+    }
+}
+
+/// How long ago anything in a version's directory was last used.
+fn unused_for(directory: &Path) -> Option<Duration> {
+    std::fs::read_dir(directory)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| entry.metadata().and_then(|metadata| metadata.modified()).ok())
+        .filter_map(|modified| SystemTime::now().duration_since(modified).ok())
+        .min()
 }
 
 /// How many files the cached index of a library names, without asking the

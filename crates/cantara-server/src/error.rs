@@ -35,6 +35,10 @@ pub enum AppError {
     Unsupported(String),
     #[error("too many attempts — try again in a minute")]
     TooManyRequests,
+    /// An answer of the device flow (RFC 8628), whose codes a client acts on:
+    /// `authorization_pending`, `slow_down`, `expired_token`, `access_denied`.
+    #[error("{1}")]
+    Device(&'static str, String),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -55,6 +59,7 @@ impl AppError {
             AppError::TooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "too_large"),
             AppError::Unsupported(_) => (StatusCode::UNPROCESSABLE_ENTITY, "unsupported"),
             AppError::TooManyRequests => (StatusCode::TOO_MANY_REQUESTS, "too_many_requests"),
+            AppError::Device(code, _) => (StatusCode::BAD_REQUEST, code),
             AppError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
         }
     }
