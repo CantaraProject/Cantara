@@ -88,6 +88,13 @@ fn SettingsContent() -> Element {
     // does; `use_section_spy` watches exactly them.
     let sections: Vec<JumpTarget> = vec![
         JumpTarget::section("settings-repositories", t!("settings.repositories_headline")),
+        // Logging in to a server needs the system browser and a port to come
+        // back to, neither of which the browser build has — and the server's
+        // own web build is logged in by being loaded.
+        #[cfg(not(target_arch = "wasm32"))]
+        JumpTarget::section("settings-servers", t!("settings.servers_headline")),
+        #[cfg(all(target_arch = "wasm32", feature = "server-client"))]
+        JumpTarget::section("settings-account", t!("admin.account")),
         JumpTarget::section("settings-screens", t!("settings.screen_headline")),
         JumpTarget::section("settings-presentation", t!("settings.presentation_headline")),
         JumpTarget::section("settings-slides", t!("settings.song_slide_headline")),
@@ -139,6 +146,18 @@ fn SettingsContent() -> Element {
             div { class: "jump-layout-content",
                 section { id: "settings-repositories", onclick: move |_| mark("settings-repositories"), RepositorySettings {} }
                 hr {}
+                if cfg!(not(target_arch = "wasm32")) {
+                    section { id: "settings-servers", onclick: move |_| mark("settings-servers"),
+                        super::server_components::ServerSettings {}
+                    }
+                    hr {}
+                }
+                if cfg!(all(target_arch = "wasm32", feature = "server-client")) {
+                    section { id: "settings-account", onclick: move |_| mark("settings-account"),
+                        super::server_components::ServerAccount {}
+                    }
+                    hr {}
+                }
                 section { id: "settings-screens", onclick: move |_| mark("settings-screens"), ScreenSettings {} }
                 hr {}
                 section { id: "settings-presentation", onclick: move |_| mark("settings-presentation"), PresentationSettings {} }
@@ -505,6 +524,19 @@ fn RepositorySettings() -> Element {
                             div { { t!("settings.repositories_remote_zip").to_string() }
                                 br {}
                                 { string.clone() }
+                            }
+                        }
+                    }
+                    RepositoryType::Server { instance, .. } => {
+                        let server = settings
+                            .read()
+                            .server_instance(*instance)
+                            .map(|server| format!("{} ({})", server.name, server.url))
+                            .unwrap_or_default();
+                        rsx! {
+                            div { { t!("settings.repositories_server").to_string() }
+                                br {}
+                                { server }
                             }
                         }
                     }

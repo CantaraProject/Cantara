@@ -1,0 +1,3738 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Cantara server",
+    "description": "Libraries, designs, running orders and shared presentations for Cantara. See docs/specs/0008-server-version.md in the Cantara repository.",
+    "license": {
+      "name": "AGPL-3.0-or-later"
+    },
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Logs in with a password; the answer sets the session cookie.",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Ends the browser session.",
+        "operationId": "logout",
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Creates an account. Open to anybody where registration is open, and to\nthe holder of an invitation everywhere.",
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/token": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "The end of the authorisation flow: a desktop program exchanges the code it\nwas redirected with, and the verifier only it knows, for a token.",
+        "operationId": "token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/info": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "What anybody may know about this server.",
+        "operationId": "info",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invitations/{token}": {
+      "get": {
+        "tags": [
+          "invitations"
+        ],
+        "summary": "What an invitation link leads to. Needs no login: it is what is shown\nbefore one.",
+        "operationId": "preview",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationPreview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invitations/{token}/accept": {
+      "post": {
+        "tags": [
+          "invitations"
+        ],
+        "summary": "Accepts an invitation for the logged-in account.",
+        "operationId": "accept",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/links/{token}": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "What a session link leads to. Needs no login.",
+        "operationId": "link_info",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionLink"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Who is logged in.",
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Deletes the account. What the user stored stays with the organisation it\nbelongs to, without their name on it.",
+        "operationId": "delete_me",
+        "responses": {
+          "204": {}
+        }
+      },
+      "patch": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Changes the user's name or password.",
+        "operationId": "update_me",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMe"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/export": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Everything the server holds about the user, for taking it elsewhere.",
+        "operationId": "export_me",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/tokens": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "The tokens the user has given to programs.",
+        "operationId": "tokens",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiTokenInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/tokens/{token}": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Takes a token back. The program holding it is logged out.",
+        "operationId": "revoke_token",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/sessions/{session}/socket": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "The socket a presenting device, a console or a viewer connects to. The\nmessages are `SessionServerMessage` and `SessionClientMessage` of the\n`cantara-api` crate, as JSON text frames.",
+        "operationId": "socket",
+        "parameters": [
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "link",
+            "in": "query",
+            "description": "The token of a session link. Without one, the user's membership\ndecides.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "101": {}
+        }
+      }
+    },
+    "/tenants": {
+      "get": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "The tenants the user belongs to — every tenant, for a server admin.",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TenantInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "Creates a tenant. Only a server admin may, and becomes its first admin.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTenant"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}": {
+      "patch": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "Renames a tenant.",
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTenant"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/grants/{kind}/{resource}": {
+      "get": {
+        "tags": [
+          "grants"
+        ],
+        "summary": "Who a resource is shared with.",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GrantInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "grants"
+        ],
+        "summary": "Shares a resource with a member or a group of the tenant — or changes how\nfar an existing share goes.",
+        "operationId": "create",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGrant"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/grants/{kind}/{resource}/{grant}": {
+      "delete": {
+        "tags": [
+          "grants"
+        ],
+        "summary": "Stops sharing.",
+        "operationId": "delete",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "grant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/tenants/{tenant}/groups": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "The tenant's groups.",
+        "operationId": "groups",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GroupInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Creates a group.",
+        "operationId": "create_group",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveGroup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/groups/{group}": {
+      "delete": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Deletes a group, and whatever was shared with it.",
+        "operationId": "delete_group",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "group",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {}
+        }
+      },
+      "patch": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Renames a group.",
+        "operationId": "update_group",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "group",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveGroup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/tenants/{tenant}/groups/{group}/members": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Who is in a group.",
+        "operationId": "group_members",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "group",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GroupMemberInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Puts a member of the tenant into a group, or changes their role in it.",
+        "operationId": "save_group_member",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "group",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveGroupMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/tenants/{tenant}/groups/{group}/members/{user}": {
+      "delete": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Takes somebody out of a group.",
+        "operationId": "remove_group_member",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "group",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/tenants/{tenant}/invitations": {
+      "get": {
+        "tags": [
+          "invitations"
+        ],
+        "summary": "The invitations not yet accepted: all of them for an admin, those into\ntheir groups for a manager.",
+        "operationId": "invitations",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InvitationInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "invitations"
+        ],
+        "summary": "Invites an address. An admin may invite into the tenant and into any\ngroup; a group manager into their group, as a member.",
+        "operationId": "invite",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvitation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/invitations/{invitation}": {
+      "delete": {
+        "tags": [
+          "invitations"
+        ],
+        "summary": "Withdraws an invitation.",
+        "operationId": "withdraw",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "invitation",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/tenants/{tenant}/libraries": {
+      "get": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "The libraries the user may read.",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LibraryInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Creates a library. Only admins may; who else may use it is said with\ngrants afterwards.",
+        "operationId": "create",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLibrary"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/libraries/{library}": {
+      "get": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "One library.",
+        "operationId": "get",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "library",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryInfo"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Deletes a library with everything in it.",
+        "operationId": "delete",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "library",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {}
+        }
+      },
+      "patch": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Renames a library or changes its description.",
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "library",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLibrary"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/libraries/{library}/import": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Imports a whole repository from a ZIP, the way `RepositoryType::RemoteZip`\nreads one: every file Cantara reads is stored, at its path inside the\narchive. An archive whose files all sit in one top folder (a GitHub\ndownload) is read as if that folder were the root.",
+        "operationId": "import",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "library",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/libraries/{library}/index": {
+      "get": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "What is in a library — all of it, or what changed since a revision. This\nis the whole of a client's sync.",
+        "operationId": "index",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "library",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "The revision the client last saw. Without it, the whole library.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryIndex"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/libraries/{library}/items": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Stores a file: a new item, or a new version of the item it turns out to\nbe. A multipart form with `file`, and optionally `relative_path` (default:\nthe file's name) and `base_version`.",
+        "operationId": "upload",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "library",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredItem"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/libraries/{library}/items/{lineage}": {
+      "get": {
+        "tags": [
+          "items"
+        ],
+        "summary": "One item, as it is now.",
+        "operationId": "item",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "library",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "lineage",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemInfo"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "items"
+        ],
+        "summary": "A new version of a particular item. Like the upload, but the item is\nnamed; `relative_path` moves it.",
+        "operationId": "replace",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "library",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "lineage",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredItem"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Removes an item. Its history stays, and it can be restored.",
+        "operationId": "delete_item",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "library",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "lineage",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/tenants/{tenant}/libraries/{library}/items/{lineage}/restore": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Makes an earlier version the current one again — as a new version, so\nthat nothing in the history is lost. Also brings back a deleted item.",
+        "operationId": "restore",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "library",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "lineage",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Restore"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredItem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/libraries/{library}/items/{lineage}/versions": {
+      "get": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Every version of an item, newest first.",
+        "operationId": "versions",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "library",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "lineage",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/VersionInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/members": {
+      "get": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "The tenant's members. Every member may see who else is one — they are who\na selection can be shared with.",
+        "operationId": "members",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MemberInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/members/{user}": {
+      "delete": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "Removes somebody from the tenant, its groups, and everything shared with\nthem there.",
+        "operationId": "remove_member",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {}
+        }
+      },
+      "patch": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "Makes a member an admin, or no longer one.",
+        "operationId": "update_member",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/tenants/{tenant}/selections": {
+      "get": {
+        "tags": [
+          "selections"
+        ],
+        "summary": "The running orders the user may see, the next service first.",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SelectionSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "selections"
+        ],
+        "summary": "Saves a new running order, owned by the user.",
+        "operationId": "create",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveSelection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelectionDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/selections/{selection}": {
+      "get": {
+        "tags": [
+          "selections"
+        ],
+        "summary": "One running order, with everything in it.",
+        "operationId": "get",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "selection",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelectionDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "selections"
+        ],
+        "summary": "Saves changes to a running order.",
+        "operationId": "save",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "selection",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveSelection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelectionDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "selections"
+        ],
+        "summary": "Deletes a running order.",
+        "operationId": "delete",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "selection",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/tenants/{tenant}/sessions": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "The presentations running in the tenant that the user may watch.",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SessionInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Opens a session to present into. Whoever opens it owns it.",
+        "operationId": "create",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSession"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/sessions/{session}": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "One session.",
+        "operationId": "get",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Ends the presentation for everybody.",
+        "operationId": "end",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/tenants/{tenant}/sessions/{session}/links": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Replaces both links; whoever held the old ones is shut out from the next\ntime they connect.",
+        "operationId": "renew_links",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "The tenant's designs and slide divisions.",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "`design` or `slide_settings`; both without it.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SettingsEntry"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/settings/{kind}": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Adds a design or a slide division.",
+        "operationId": "create",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsEntry"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/settings/{kind}/{lineage}": {
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Saves a new version of a design or slide division.",
+        "operationId": "save",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lineage",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsEntry"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Removes a design or slide division.",
+        "operationId": "delete",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lineage",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/tenants/{tenant}/versions/{version}/content": {
+      "get": {
+        "tags": [
+          "items"
+        ],
+        "summary": "The bytes of one version. Never changes, and says so to every cache on\nthe way; answers range requests, which is what lets a browser seek in a\nvideo.",
+        "operationId": "content",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {}
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "description": "What every failed request answers with, whatever its status code.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "A stable, machine-readable reason — `not_found`, `version_conflict`."
+          },
+          "current_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "For a `version_conflict`: the version the item has now."
+          },
+          "message": {
+            "type": "string",
+            "description": "The same, for a person."
+          }
+        }
+      },
+      "ApiTokenInfo": {
+        "type": "object",
+        "description": "One of the tokens a user has handed out to programs.",
+        "required": [
+          "uuid",
+          "name",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "CreateGrant": {
+        "type": "object",
+        "required": [
+          "grantee",
+          "role"
+        ],
+        "properties": {
+          "grantee": {
+            "$ref": "#/components/schemas/Grantee"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        }
+      },
+      "CreateInvitation": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The group the invited person joins. Without one they only join the\ntenant — which only an admin may invite to."
+          },
+          "role": {
+            "$ref": "#/components/schemas/GroupRole"
+          }
+        }
+      },
+      "CreateSession": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "anonymous_control": {
+            "type": "boolean",
+            "description": "Whether somebody holding the control link may control without logging\nin. Off by default."
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateTenant": {
+        "type": "object",
+        "required": [
+          "name",
+          "slug"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "GrantInfo": {
+        "type": "object",
+        "required": [
+          "uuid",
+          "grantee",
+          "grantee_name",
+          "role"
+        ],
+        "properties": {
+          "grantee": {
+            "$ref": "#/components/schemas/Grantee"
+          },
+          "grantee_name": {
+            "type": "string",
+            "description": "The user's or group's name, for showing the list."
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "Grantee": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "uuid",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "user"
+                ]
+              },
+              "uuid": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "uuid",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "group"
+                ]
+              },
+              "uuid": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        ]
+      },
+      "GroupInfo": {
+        "type": "object",
+        "required": [
+          "uuid",
+          "name",
+          "system",
+          "member_count"
+        ],
+        "properties": {
+          "member_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "system": {
+            "type": "boolean",
+            "description": "The `admins` group. It cannot be renamed or deleted."
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GroupMemberInfo": {
+        "type": "object",
+        "required": [
+          "user",
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/GroupRole"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserInfo"
+          }
+        }
+      },
+      "GroupRef": {
+        "type": "object",
+        "required": [
+          "uuid",
+          "name",
+          "role"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/GroupRole"
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GroupRole": {
+        "type": "string",
+        "description": "What somebody is in a group.",
+        "enum": [
+          "member",
+          "manager"
+        ]
+      },
+      "ImportReport": {
+        "type": "object",
+        "description": "`POST /tenants/{t}/libraries/{l}/import`: a whole repository as a ZIP.",
+        "required": [
+          "created",
+          "new_versions",
+          "unchanged",
+          "skipped",
+          "possible_duplicates"
+        ],
+        "properties": {
+          "created": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "new_versions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "possible_duplicates": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Pairs of paths with identical content."
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Files in the archive Cantara does not read."
+          },
+          "unchanged": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "IndexEntry": {
+        "type": "object",
+        "description": "One item as the index lists it: enough to decide whether the cached copy\nis current, and to fetch it when it is not.",
+        "required": [
+          "lineage",
+          "version",
+          "relative_path",
+          "file_name",
+          "title",
+          "kind",
+          "size",
+          "sha256",
+          "md5",
+          "revision",
+          "updated_at"
+        ],
+        "properties": {
+          "file_name": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ItemKind"
+          },
+          "lineage": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The item, across all its versions. A song's `uuid` tag."
+          },
+          "md5": {
+            "type": "string"
+          },
+          "relative_path": {
+            "type": "string",
+            "description": "Where the item sits in the library — `Lieder/Amazing Grace.song`."
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The library revision this entry last changed in."
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The current version. Never reused: whatever is cached under this id is\nexactly what the server has under it."
+          }
+        }
+      },
+      "InvitationInfo": {
+        "type": "object",
+        "required": [
+          "uuid",
+          "email",
+          "expires_at"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "group": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GroupRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "invited_by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UserRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The link to pass on. Only in the answer to creating the invitation —\nthe server keeps nothing but a hash of it."
+          },
+          "mailed": {
+            "type": "boolean",
+            "description": "Whether the server sent the link by e-mail itself."
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "InvitationPreview": {
+        "type": "object",
+        "description": "What an invitation link shows before it is accepted.",
+        "required": [
+          "tenant",
+          "email",
+          "expires_at"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tenant": {
+            "$ref": "#/components/schemas/TenantInfo"
+          }
+        }
+      },
+      "ItemInfo": {
+        "type": "object",
+        "required": [
+          "lineage",
+          "library",
+          "current",
+          "deleted"
+        ],
+        "properties": {
+          "current": {
+            "$ref": "#/components/schemas/VersionInfo"
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "library": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lineage": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ItemKind": {
+        "type": "string",
+        "description": "What a file is, in the terms Cantara presents it in.",
+        "enum": [
+          "song",
+          "image",
+          "video",
+          "pdf",
+          "markdown",
+          "other"
+        ]
+      },
+      "LibraryIndex": {
+        "type": "object",
+        "description": "`GET /tenants/{t}/libraries/{l}/index[?since=n]`.\n\nAsked without `since`, it lists every item and `complete` is true. Asked\nwith the revision a client last saw, it lists only what changed since and\nwhat was removed since; a client applies that to what it has. A server that\ncannot answer incrementally (the revision is too old) answers completely.",
+        "required": [
+          "library",
+          "revision",
+          "complete",
+          "entries",
+          "removed"
+        ],
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IndexEntry"
+            }
+          },
+          "library": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Lineages removed since `since`."
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "LibraryInfo": {
+        "type": "object",
+        "description": "A library: what a client shows as one repository.",
+        "required": [
+          "uuid",
+          "name",
+          "description",
+          "revision",
+          "item_count",
+          "size_bytes",
+          "role"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "item_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Counts up with every change to the library. See [`LibraryIndex`]."
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "What the asking user may do with it."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "Me": {
+        "type": "object",
+        "description": "`GET /me`: who is logged in, and where they belong.",
+        "required": [
+          "user",
+          "tenants"
+        ],
+        "properties": {
+          "tenants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantMembership"
+            }
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserInfo"
+          }
+        }
+      },
+      "MemberInfo": {
+        "type": "object",
+        "description": "A member of a tenant.",
+        "required": [
+          "user",
+          "is_admin",
+          "joined_at"
+        ],
+        "properties": {
+          "is_admin": {
+            "type": "boolean"
+          },
+          "joined_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserInfo"
+          }
+        }
+      },
+      "OidcProviderInfo": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "required": [
+          "email",
+          "password",
+          "display_name"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "invitation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The token of an invitation. With one, an account can be created even\nwhere registration is closed — for the address the invitation names."
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "Restore": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "Role": {
+        "type": "string",
+        "description": "How far somebody may go with a resource. Each role includes the ones\nbefore it.",
+        "enum": [
+          "read",
+          "write",
+          "manage"
+        ]
+      },
+      "SaveGroup": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "SaveGroupMember": {
+        "type": "object",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/GroupRole"
+          },
+          "user": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "SaveLibrary": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "SaveSelection": {
+        "type": "object",
+        "required": [
+          "name",
+          "manifest"
+        ],
+        "properties": {
+          "date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "manifest": {
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "SaveSettings": {
+        "type": "object",
+        "required": [
+          "name",
+          "body"
+        ],
+        "properties": {
+          "base_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The version this edit started from. A save that names a version the\nentry has since moved on from is refused with `version_conflict`."
+          },
+          "body": {
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "SelectionDetail": {
+        "type": "object",
+        "description": "A saved running order.\n\nThe manifest is the `selection.json` of a `.cantara.zip` (format\n`cantara.selection`), whose items may name a server item by `lineage` and\n`item_version` instead of by a file in an archive.",
+        "required": [
+          "summary",
+          "manifest"
+        ],
+        "properties": {
+          "manifest": {
+            "type": "object"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/SelectionSummary"
+          }
+        }
+      },
+      "SelectionSummary": {
+        "type": "object",
+        "required": [
+          "uuid",
+          "name",
+          "note",
+          "owner",
+          "updated_at",
+          "item_count",
+          "role"
+        ],
+        "properties": {
+          "date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The day of the service, where the selection is for one."
+          },
+          "item_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/UserRef"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "What the asking user may do with it."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ServerInfo": {
+        "type": "object",
+        "description": "What anybody may ask a server before logging in: `GET /info`.",
+        "required": [
+          "name",
+          "version",
+          "single_tenant",
+          "registration_open",
+          "password_login",
+          "oidc_providers"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name the operator gave this server."
+          },
+          "oidc_providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OidcProviderInfo"
+            },
+            "description": "The OpenID Connect providers one can log in with."
+          },
+          "password_login": {
+            "type": "boolean",
+            "description": "Whether accounts with a password exist on this server at all."
+          },
+          "registration_open": {
+            "type": "boolean",
+            "description": "Whether people may create an account without an invitation."
+          },
+          "single_tenant": {
+            "type": "boolean",
+            "description": "Whether this server serves one organisation only. Clients hide the\nchoice of tenant then."
+          },
+          "version": {
+            "type": "string",
+            "description": "The version of `cantara-server`."
+          }
+        }
+      },
+      "SessionAccess": {
+        "type": "string",
+        "description": "What a link to a session lets its holder do.",
+        "enum": [
+          "watch",
+          "control"
+        ]
+      },
+      "SessionInfo": {
+        "type": "object",
+        "required": [
+          "uuid",
+          "name",
+          "owner",
+          "created_at",
+          "revision",
+          "running",
+          "anonymous_control",
+          "viewers",
+          "role"
+        ],
+        "properties": {
+          "anonymous_control": {
+            "type": "boolean"
+          },
+          "control_link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/UserRef"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "What the asking user may do: `read` watches, `write` controls,\n`manage` may also share and end it."
+          },
+          "running": {
+            "type": "boolean",
+            "description": "Whether anybody has put a presentation into it yet."
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "viewers": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "watch_link": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The links to pass on. Only for somebody who may share the session."
+          }
+        }
+      },
+      "SessionLink": {
+        "type": "object",
+        "description": "`GET /links/{token}`: what a session link leads to.",
+        "required": [
+          "session",
+          "name",
+          "access",
+          "login_required"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/SessionAccess"
+          },
+          "login_required": {
+            "type": "boolean",
+            "description": "Whether the holder has to log in before connecting."
+          },
+          "name": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "SettingsEntry": {
+        "type": "object",
+        "description": "A design or a slide division the tenant shares.\n\nThe body is what the program serialises the setting as. The server does\nnot look inside it, so a newer program's fields survive an older server.",
+        "required": [
+          "lineage",
+          "version",
+          "kind",
+          "name",
+          "body",
+          "updated_at"
+        ],
+        "properties": {
+          "body": {
+            "type": "object"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SettingsKind"
+          },
+          "lineage": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UserRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "SettingsKind": {
+        "type": "string",
+        "enum": [
+          "design",
+          "slide_settings"
+        ]
+      },
+      "StoreOutcome": {
+        "type": "string",
+        "description": "What storing a file did.",
+        "enum": [
+          "created",
+          "new_version",
+          "unchanged"
+        ]
+      },
+      "StoredItem": {
+        "type": "object",
+        "required": [
+          "outcome",
+          "item"
+        ],
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/ItemInfo"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/StoreOutcome"
+          },
+          "possible_duplicate_of": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Another item of the library with the very same content, if there is\none. Reported rather than merged."
+          }
+        }
+      },
+      "TenantInfo": {
+        "type": "object",
+        "required": [
+          "uuid",
+          "name",
+          "slug"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "TenantMembership": {
+        "type": "object",
+        "required": [
+          "tenant",
+          "is_admin",
+          "groups"
+        ],
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupRef"
+            }
+          },
+          "is_admin": {
+            "type": "boolean",
+            "description": "Member of the tenant's `admins` group."
+          },
+          "tenant": {
+            "$ref": "#/components/schemas/TenantInfo"
+          }
+        }
+      },
+      "TokenRequest": {
+        "type": "object",
+        "description": "`POST /auth/token`: the end of the authorisation flow a desktop program\ngoes through — the code it was handed, and the verifier only it knows.",
+        "required": [
+          "code",
+          "code_verifier",
+          "redirect_uri"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "code_verifier": {
+            "type": "string"
+          },
+          "device_name": {
+            "type": "string",
+            "description": "What the token is to be called in the list of the user's tokens —\nusually the name of the computer."
+          },
+          "redirect_uri": {
+            "type": "string"
+          }
+        }
+      },
+      "TokenResponse": {
+        "type": "object",
+        "required": [
+          "access_token",
+          "user"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Sent as `Authorization: Bearer …` from now on. Shown once."
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserInfo"
+          }
+        }
+      },
+      "UpdateMe": {
+        "type": "object",
+        "properties": {
+          "current_password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Needed to change the password of an account that has one."
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateMember": {
+        "type": "object",
+        "required": [
+          "is_admin"
+        ],
+        "properties": {
+          "is_admin": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UserInfo": {
+        "type": "object",
+        "description": "A person, as far as anybody else needs to know.",
+        "required": [
+          "uuid",
+          "email",
+          "display_name",
+          "is_server_admin"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "is_server_admin": {
+            "type": "boolean",
+            "description": "May create tenants and see every one of them. The account set up from\nthe server's environment is one."
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "UserRef": {
+        "type": "object",
+        "description": "A person named as the author of something.",
+        "required": [
+          "uuid",
+          "display_name"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "VersionInfo": {
+        "type": "object",
+        "required": [
+          "uuid",
+          "lineage",
+          "relative_path",
+          "file_name",
+          "kind",
+          "size",
+          "sha256",
+          "md5",
+          "title",
+          "tags",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UserRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ItemKind"
+          },
+          "lineage": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "md5": {
+            "type": "string"
+          },
+          "relative_path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tags": {
+            "type": "object",
+            "description": "The song's tags, where the item is a song.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "cookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "cantara_session"
+      },
+      "token": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "security": [
+    {
+      "token": []
+    },
+    {
+      "cookie": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "account",
+      "description": "Logging in, the account, and tokens for programs"
+    },
+    {
+      "name": "tenants",
+      "description": "Organisations and their members"
+    },
+    {
+      "name": "groups",
+      "description": "Groups within a tenant"
+    },
+    {
+      "name": "invitations",
+      "description": "Inviting people into a tenant or a group"
+    },
+    {
+      "name": "grants",
+      "description": "Sharing resources with members and groups"
+    },
+    {
+      "name": "libraries",
+      "description": "Libraries and their index"
+    },
+    {
+      "name": "items",
+      "description": "Files in a library, and their versions"
+    },
+    {
+      "name": "settings",
+      "description": "Designs and slide divisions"
+    },
+    {
+      "name": "selections",
+      "description": "Saved running orders"
+    },
+    {
+      "name": "sessions",
+      "description": "Presentations running on the server"
+    }
+  ]
+}

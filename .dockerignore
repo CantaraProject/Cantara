@@ -1,0 +1,10 @@
+target
+node_modules
+bundled_repos
+test-results
+playwright-report
+.git
+.flatpak
+.flatpak-builder
+release
+deploy/.env

@@ -176,6 +176,12 @@ pub struct Settings {
     /// [`Settings::reference_view`].
     #[serde(default)]
     pub reference_view_index: usize,
+
+    /// The Cantara servers this program is logged in to. A library on one of
+    /// them is a repository of the kind [`RepositoryType::Server`], naming the
+    /// instance by its uuid. See [`crate::logic::server`].
+    #[serde(default)]
+    pub server_instances: Vec<crate::logic::server::ServerInstance>,
 }
 
 /// What the streaming server is set up to do, when it is switched on.
@@ -618,6 +624,7 @@ impl Default for Settings {
             tag_mappings: Vec::new(),
             views: Vec::new(),
             reference_view_index: 0,
+            server_instances: Vec::new(),
         }
     }
 }
@@ -755,6 +762,7 @@ impl Settings {
                 .and_then(|stored| Self::from_stored(&stored))
                 .unwrap_or_else(Self::started_fresh);
             settings.ensure_bundled_repos();
+            crate::logic::server::register(&settings.server_instances);
             settings
         }
 
@@ -789,6 +797,10 @@ impl Settings {
             {
                 crate::logic::legacy_import::leave_notice(report);
             }
+
+            // Where the libraries on servers are to be fetched from, and with
+            // which token — the repositories only name the instance.
+            crate::logic::server::register(&settings.server_instances);
 
             settings
         }
@@ -1649,6 +1661,16 @@ pub enum RepositoryType {
     /// The String contains the URL to the ZIP file.
     RemoteZip(String),
 
+    /// A library on a Cantara server. The server is the instance of
+    /// [`Settings::server_instances`] with that uuid; the files are kept in a
+    /// cache on this computer by version, so the library stays usable without
+    /// a network. See [`crate::logic::server`].
+    Server {
+        instance: uuid::Uuid,
+        tenant: uuid::Uuid,
+        library: uuid::Uuid,
+    },
+
     /// A repository that is a GitHub repository, accessed via the GitHub API.
     /// The zipball of the default branch (main/master) is downloaded and extracted.
     GitHub {
@@ -1869,6 +1891,9 @@ impl RepositoryType {
                     }
                     files
                 }
+                RepositoryType::Server { instance, tenant, library } => {
+                    crate::logic::server::cache::files_of(*instance, *tenant, *library).await
+                }
                 _ => vec![],
             }
         }
@@ -1876,6 +1901,9 @@ impl RepositoryType {
         #[cfg(target_arch = "wasm32")]
         {
             match self {
+                RepositoryType::Server { instance, tenant, library } => {
+                    crate::logic::server::web::files_of(*instance, *tenant, *library).await
+                }
                 RepositoryType::RemoteZip(url) => {
                     let prefix = format!("web-zip://{}", url);
                     // Return cached files if already downloaded
@@ -1942,6 +1970,11 @@ impl RepositoryType {
                 RepositoryType::GitHub { owner, repo, .. } => {
                     let cache_key = Self::github_cache_key(owner, repo);
                     if let Some(count) = Self::count_in_temp_dir(&cache_key) {
+                        return count;
+                    }
+                }
+                RepositoryType::Server { instance, library, .. } => {
+                    if let Some(count) = crate::logic::server::cache::cached_count(*instance, *library) {
                         return count;
                     }
                 }
@@ -2320,7 +2353,7 @@ pub fn get_settings_folder() -> Option<PathBuf> {
 /// the platform verifier entirely, while still verifying server certificates
 /// against Mozilla's trusted root CA bundle.
 #[cfg(any(target_os = "android", target_os = "ios"))]
-fn mobile_tls_config() -> rustls::ClientConfig {
+pub(crate) fn mobile_tls_config() -> rustls::ClientConfig {
     let mut root_store = rustls::RootCertStore::empty();
     root_store.add_parsable_certificates(
         webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter().cloned(),

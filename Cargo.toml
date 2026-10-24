@@ -43,6 +43,12 @@ sys-locale = "=0.3"
 
 # Cantara libraries
 cantara-songlib = "0.7"
+# What a Cantara server and this program say to one another — see
+# `docs/specs/0008-server-version.md`. Plain data, built on every target.
+cantara-api = { path = "crates/cantara-api" }
+# The PKCE challenge of the login at a server is a SHA-256. Already in the
+# tree through several crates.
+sha2 = "0.10"
 markdown = "1"
 rgb = { version = "0.8", features = ["serde"] }
 # The monitor view's clock widget needs the *local* time, which the standard
@@ -63,7 +69,7 @@ image = { version = "0.25", optional = true, default-features = false, features 
 log = "0.4.28"
 # reqwest without default TLS on all targets; TLS and blocking added for non-WASM below
 # On WASM, the browser's native fetch API handles HTTP/TLS natively
-reqwest = { version = "0.13", default-features = false, features = ["json"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart"] }
 zip = "9"
 regex = "1"
 md5 = "0.8"
@@ -80,6 +86,21 @@ dark-light = "2"
 lopdf = "0.44"
 base64 = "0.22"
 
+# Where the token a server hands this program is kept: the system's keyring
+# (Keychain, Credential Manager, the Secret Service on Linux). On Linux through
+# zbus, which is pure Rust — no libdbus needed to build. Where there is no
+# keyring (mobile, a Linux without a Secret Service) the token goes into the
+# settings file instead; see `logic::server::secrets`. MIT OR Apache-2.0.
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(all(target_os = "linux", not(target_arch = "wasm32")))'.dependencies.keyring]
+version = "3"
+features = ["async-secret-service", "async-io", "crypto-rust"]
+
 # Linux desktop dependencies (same libraries, with xdg-portal support for rfd)
 [target.'cfg(all(target_os = "linux", not(target_arch = "wasm32")))'.dependencies]
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
@@ -94,7 +115,7 @@ base64 = "0.23"
 # no compilation and no licence beyond what is here (MIT, as is tokio).
 # There is no server inside a browser, hence non-WASM only.
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
-tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "macros", "io-util"] }
 # One stream adaptor, for turning "the state changed" into server-sent events.
 # Also already in the tree, and dual MIT/Apache-2.0.
 futures-util = { version = "0.3", default-features = false }
@@ -103,6 +124,13 @@ futures-util = { version = "0.3", default-features = false }
 # enough: a hall network with no route to the internet answers "nowhere", and
 # what was then shown was `localhost`. MIT OR Apache-2.0.
 local-ip-address = "0.6"
+# Opens the server's login page in the system browser, which is where a
+# password or the organisation's single sign-on belongs — not in a field of
+# this program. Already in the tree under Dioxus; MIT OR Apache-2.0.
+webbrowser = "1"
+# The socket a presentation shared through a server is kept told over. Already
+# in the tree; the TLS feature is what reaches a server behind HTTPS.
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 # Enumerates the installed system fonts so they can be offered in the settings.
 # `fs` is enough — the font data itself is never needed, only the family names.
 fontdb = { version = "0.24", default-features = false, features = ["fs"] }
@@ -133,7 +161,7 @@ ndk-context = "0.1"
 
 # Web (WASM) specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["Window", "Storage", "Location"] }
+web-sys = { version = "0.3", features = ["Window", "Storage", "Location", "WebSocket", "MessageEvent", "BinaryType", "CloseEvent"] }
 lopdf = { version = "0.44", default-features = false }
 base64 = "0.23"
 # getrandom needs wasm_js feature to use browser's crypto API on WASM
@@ -150,6 +178,9 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 # chapter timer needs a wall clock on every target. `Date.now()` is what the
 # page itself uses; js-sys is already in the tree under web-sys.
 js-sys = "0.3"
+# The callbacks of the browser's `WebSocket`, for a presentation shared through
+# a server. Already in the tree under web-sys.
+wasm-bindgen = "0.2"
 # Asking the browser what language the reader speaks.
 #
 # Without the `js` feature, `sys-locale` compiles an empty provider on wasm:
@@ -176,6 +207,10 @@ test-harness = ["screens"]
 # with a fabricated set of screens behind it. See
 # `logic::screens::harness_monitors` and `docs/specs/0007-screen-map.md` (D8).
 screens = []
+# The web build a Cantara server serves (see the `Dockerfile`): it talks to the
+# server it was loaded from, sends people to that server's login page, and
+# offers what is on the server. Meaningless without `web`.
+server-client = []
 web = ["dioxus/web", "dioxus-motion/web"]
 desktop = [
     "dioxus/desktop",

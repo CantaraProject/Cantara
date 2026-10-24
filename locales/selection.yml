@@ -34,6 +34,91 @@ selection:
   start_presentation:
     en: Start Presentation...
     de: Präsentation starten...
+  # Sharing through a Cantara server — see `components::server_components`.
+  server_share_headline:
+    en: Share through a server
+    de: Über einen Server teilen
+  server_share_description:
+    en: Watch and control the running presentation from anywhere, through a Cantara server you are logged in to.
+    de: Die laufende Präsentation von überall ansehen und steuern – über einen Cantara-Server, bei dem du angemeldet bist.
+  server_share_session_name:
+    en: Presentation
+    de: Präsentation
+  server_share_start:
+    en: Share
+    de: Teilen
+  server_share_stop:
+    en: Stop sharing
+    de: Teilen beenden
+  server_share_anonymous_control:
+    en: The control link works without logging in
+    de: Der Steuerungslink funktioniert ohne Anmeldung
+  server_share_watch:
+    en: "Link to watch:"
+    de: "Link zum Ansehen:"
+  server_share_control:
+    en: "Link to control:"
+    de: "Link zum Steuern:"
+  server_share_running:
+    en: "Shared — %{viewers} connected."
+    de: "Geteilt – %{viewers} verbunden."
+  server_share_connecting:
+    en: Connecting …
+    de: Verbinde …
+  server_share_broken:
+    en: "The connection to the server is gone (%{reason})."
+    de: "Die Verbindung zum Server ist weg (%{reason})."
+  server_selections:
+    en: Server
+    de: Server
+  server_selections_title:
+    en: Running orders on the server
+    de: Abläufe auf dem Server
+  server_selections_none:
+    en: There is no running order on the server yet.
+    de: Auf dem Server gibt es noch keinen Ablauf.
+  server_selections_close:
+    en: Close
+    de: Schließen
+  server_selection_save:
+    en: "Save this running order on %{server}"
+    de: "Diesen Ablauf auf %{server} speichern"
+  server_selection_name:
+    en: "Name of the running order (e.g. 3rd Sunday of Advent)"
+    de: "Name des Ablaufs (z. B. 3. Advent)"
+  server_selection_saved:
+    en: Saved.
+    de: Gespeichert.
+  server_selection_open:
+    en: Open
+    de: Öffnen
+  server_selection_overwrite:
+    en: Replace with this one
+    de: Durch diesen ersetzen
+  server_selection_overwrite_confirm:
+    en: "Replace \"%{name}\" on the server with the running order on screen?"
+    de: "„%{name}“ auf dem Server durch den Ablauf auf dem Bildschirm ersetzen?"
+  server_selection_items:
+    en: "%{count} elements"
+    de: "%{count} Elemente"
+  server_selection_missing:
+    en: "%{count} elements are not in the library and were left out. Is the library they come from in use?"
+    de: "%{count} Elemente sind nicht in der Bibliothek und wurden ausgelassen. Ist die Bibliothek, aus der sie stammen, eingebunden?"
+  server_share_not_here:
+    en: Open this link in a browser.
+    de: Öffne diesen Link im Browser.
+  server_share_link_invalid:
+    en: This link is not valid any more — the presentation may have ended.
+    de: Dieser Link ist nicht mehr gültig – die Präsentation ist vielleicht beendet.
+  server_share_waiting:
+    en: Waiting for the presentation to start …
+    de: Warte darauf, dass die Präsentation beginnt …
+  server_share_ended:
+    en: The presentation has ended.
+    de: Die Präsentation ist beendet.
+  server_share_failed:
+    en: "Sharing did not start: %{reason}"
+    de: "Teilen hat nicht begonnen: %{reason}"
   stream_headline:
     en: Stream to the network
     de: Ins Netzwerk übertragen

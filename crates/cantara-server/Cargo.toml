@@ -2,6 +2,62 @@
 name = "cantara-server"
 version = "0.1.0"
 edition = "2024"
+# The program is GPL; the server is AGPL, so that whoever runs a modified
+# server for others has to offer them its source — see Q15 of
+# `docs/specs/0008-server-version.md`.
 license = "AGPL-3.0-or-later"
 description = "The server Cantara clients share libraries, designs and presentations through"
 repository = "https://github.com/CantaraProject/Cantara"
+
+[dependencies]
+cantara-api = { path = "../cantara-api", features = ["openapi"] }
+# Reads the title and tags out of a song when it is stored, and is what puts a
+# `uuid` tag into a song that has none.
+cantara-songlib = "0.7"
+
+axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "trace", "set-header"] }
+futures-util = "0.3"
+
+sqlx = { version = "0.9", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+    "migrate",
+    "derive",
+    "macros",
+] }
+
+utoipa = { version = "6", features = ["axum_extras", "uuid", "chrono"] }
+utoipa-axum = "0.3"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+argon2 = { version = "0.5", features = ["std"] }
+getrandom = "0.3"
+sha2 = "0.10"
+md5 = "0.8"
+hex = "0.4"
+base64 = "0.22"
+openidconnect = "4"
+url = "2"
+
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+zip = "9"
+tempfile = "3"
+mime_guess = "2"
+
+[dev-dependencies]
+http-body-util = "0.1"
+tokio-tungstenite = "0.29"

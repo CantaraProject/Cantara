@@ -148,6 +148,7 @@ pub(crate) fn PresentationOptions(
                     DefaultDesignSettings {}
                     ViewList {}
                     StreamSwitch {}
+                    crate::components::server_components::ServerShareSwitch {}
                 }
             }
             PresentationOptionTabState::Specific => {

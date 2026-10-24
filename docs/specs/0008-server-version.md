@@ -1,12 +1,10 @@
 # 0008 — A server version of Cantara
 
-Status: **draft — questions open.** The brief below is unchanged. What follows
-it is what the code says about it, a proposed architecture, the
-[questions](#questions) that have to be answered before the first line is
-written, and a [work plan](#work-plan) in stages that each land green on their
-own. Every question carries a recommendation, so the plan can be read as "what
-happens if every recommendation is taken"; an answer that differs changes the
-stages it names and nothing else.
+Status: **partly built.** The questions are answered (each one carries its
+**Answer**), and the stages of the [work plan](#work-plan) have been built as
+far as [What was built](#what-was-built) says. What is still open is listed in
+[What is left](#what-is-left). The brief below is unchanged. After it come what
+the code says about the brief, the architecture, the questions, and the plan.
 
 ## The brief
 
@@ -543,6 +541,105 @@ be reviewed as a server on their own.
   session, a security review of the token flows.
 * Data export and deletion for a user (Q15).
 * Backup and restore documented (`pg_dump` + the blob volume).
+
+## What was built
+
+All stages were started together. They are listed here by what exists now.
+
+**S0 — Workspace.** The program stays at the root, so `dx` and the release
+workflow are unchanged. `crates/cantara-api` holds the request, answer and
+socket types, with OpenAPI derives behind the `openapi` feature. It builds for
+`wasm32`. A plain `cargo build`/`cargo test` at the root still means the
+program alone.
+
+**S1 — Server and deployment.** `crates/cantara-server` (AGPL-3.0-or-later):
+axum, sqlx/PostgreSQL with migrations run on start, configuration from the
+environment, `/healthz` and `/readyz`. The OpenAPI document is generated with
+utoipa (`/api/v1/openapi.json`, rendered at `/api/v1/docs`) and committed as
+`crates/cantara-server/openapi.json`. A test fails when the document no longer
+matches the code. Also built: a `Dockerfile` that builds the server and the
+web build in its server flavour, plus `deploy/docker-compose.yml` (PostgreSQL,
+a volume for the files that can be any host directory through `CANTARA_DATA`,
+and Keycloak behind the profile `oidc`) and `deploy/.env.example`. CI has a
+job of its own with PostgreSQL as a service.
+
+**S2 — Accounts.** Every tenant has an `admins` group, and tenants are kept
+apart in one place (`auth::member`). Logging in works with a password
+(argon2id) and through OpenID Connect providers configured in the environment.
+Self-registration can be switched on, and an invitation allows registration
+even where it is off. Browser sessions are HTTP-only cookies; a request that
+carries the cookie, changes something and comes from another origin is
+refused. A desktop program gets an API token through the authorisation-code
+flow with PKCE to a loopback port. Tokens can be listed and revoked, and a
+user can export their data and delete their account. Repeated failed logins
+are slowed down.
+
+**S3 — Libraries.** Items have immutable versions. Content lives in a
+directory addressed by SHA-256, which is the Docker volume. Metadata (title,
+tags) is read again from every version, so a song whose title changed in its
+text is listed under the new title at once (the answer to Q5). Lineage follows
+Q6/Q7: a song without a `uuid` tag is given one, written into a `.song` or
+`.song.yml`. Also built: the index with `?since=`, content with range requests
+and `immutable` caching, version history, restore, soft delete, ZIP import of
+a whole repository, and grants.
+
+**S4 — Shared settings and running orders.** Designs and slide divisions are
+stored as the program's own JSON and versioned, with `version_conflict`.
+Running orders are the `selection.json` manifest, extended by `lineage` and
+`item_version`.
+
+**S5 — The program as a client.** *Settings → Online instances*: logging in
+through the browser (the token is kept in the keyring, or in the settings file
+where there is none), choosing the organisation, and choosing which libraries
+to use. A used library is a repository of the new kind
+`RepositoryType::Server`. It is cached by version in the user's cache
+directory, checked against the SHA-256, and read from the cache when the
+server cannot be reached. Unreferenced versions are collected after 30 days.
+The server's designs and slide divisions can be taken over, and the user's own
+can be offered to the organisation. Running orders can be saved to and opened
+from a server.
+
+**S7 — Web UI.** The `server-client` feature makes the web build the server's
+client. It finds out who is logged in (or sends them to `/login`) and turns
+the libraries they may use into repositories. An administration page
+(`/admin`) is shared by the web build and the desktop: libraries with upload,
+ZIP import and sharing; members and the admin role; invitations; groups and
+their members.
+
+**S8 — Presentations through the server.** Sessions with links to watch and to
+control, and the anonymous control switch. The socket sends the whole
+presentation once and then only the top-level fields that changed. The state is
+written to the database, so a restart does not lose it. The desktop shares
+through *Presentation options → Share through a server*, beside the LAN stream,
+which is unchanged. The web build shows a link's presentation, or its console
+for a control link (`/s/{token}`).
+
+## What is left
+
+- **S6, writing from the program.** The server's API for it is there (upload,
+  new version with `base_version`, `version_conflict`). What is missing is in
+  the program: saving an edited song back to a server library, and offline
+  edits queued until the server can be reached.
+- **Media in shared presentations.** A slide that shows a picture or a PDF
+  page names a path on the presenting computer, and a viewer elsewhere cannot
+  load it. Temporary upload of such files to the session (Q11) is not built
+  yet. Song slides are unaffected.
+- **Sharing from the web build.** It can watch and control a session, but it
+  cannot start one yet: its presentation runs in a tab of its own, which the
+  polling loop on the desktop does not reach.
+- **Offline switch per library (Q13).** Every used library is cached
+  completely. The switch for large video libraries is not built.
+- **Invitations by e-mail.** No SMTP: the link is shown to the person inviting,
+  to pass on.
+- **Device-code flow** for devices without a browser.
+- **S3-compatible storage.** Only the directory exists, which is what Q5's
+  answer asked for first.
+- **Fonts of a shared design** are not uploaded with it. A design that uses an
+  installed font needs that font on every computer.
+- **Per-tenant OIDC providers.** Providers are configured per deployment.
+- **Not verified in a real browser yet:** the web build in server mode, the
+  admin page, and `/s/{token}`. Their Rust code compiles and the server side is
+  tested, but no Playwright test drives them yet.
 
 ## Testing
 

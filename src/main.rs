@@ -47,6 +47,8 @@ use crate::components::presenter_console_components::PRESENTER_CONSOLE_CSS;
 use crate::components::route_transitions::RouteFadeLayout;
 use crate::components::song_slide_settings_components::SongSlideSettingsPage;
 use crate::components::wizard_components::Wizard;
+use crate::components::server_components::SharedSession;
+use crate::components::admin_components::AdminPage;
 use dioxus::prelude::*;
 use logic::settings::*;
 use logic::sourcefiles::SourceFile;
@@ -142,6 +144,17 @@ pub enum Route {
     /// to. See `docs/specs/0005-add-info-page.md`.
     #[route("/about")]
     AboutPage {},
+
+    /// A presentation shared through a Cantara server, reached by the link
+    /// to watch or to control it. Only meaningful in the web build the server
+    /// serves. See `docs/specs/0008-server-version.md`.
+    #[route("/s/:token")]
+    SharedSession { token: String },
+
+    /// Administering an organisation on a Cantara server: members, groups,
+    /// invitations, libraries.
+    #[route("/admin")]
+    AdminPage {},
 }
 
 fn main() {
@@ -340,6 +353,12 @@ fn App() -> Element {
     // Initialize settings and provide them as a context to all components
     let settings: Signal<Settings> = use_signal(Settings::load);
     use_context_provider(|| settings);
+
+    // The web build a Cantara server serves is that server's client: it finds
+    // out who is logged in there (or sends them to log in) and offers the
+    // libraries they may use. See `docs/specs/0008-server-version.md`.
+    #[cfg(all(target_arch = "wasm32", feature = "server-client"))]
+    use_future(move || logic::server::web::connect_to_origin(settings));
 
     // The installed fonts are read on a thread of their own, started here so
     // that they are usually there by the time anyone opens a design — the
@@ -546,6 +565,25 @@ fn App() -> Element {
 
                 let now = running_presentations.peek().first().cloned();
                 logic::network_host::publish(now);
+            }
+        });
+
+        // A presentation shared through a Cantara server: told what changed
+        // here, and given what a controller changed there. The same polling
+        // loop as the remote console's above, for the same reasons. See
+        // [`logic::server::session`].
+        use_future(move || async move {
+            let mut running_presentations = running_presentations;
+            loop {
+                logic::timer::sleep(std::time::Duration::from_millis(50)).await;
+                if logic::server::session::status().is_none() {
+                    continue;
+                }
+                let mut presentations = running_presentations.peek().clone();
+                if logic::server::session::drain(&mut presentations) {
+                    running_presentations.set(presentations);
+                }
+                logic::server::session::publish(running_presentations.peek().first());
             }
         });
 

@@ -180,6 +180,43 @@ jobs:
           name: release-${{ matrix.target_dir }}
           path: target/dx/cantara/release/${{ matrix.target_dir }}/app/
 
+  # The server and the types it shares with the program — see
+  # `docs/specs/0008-server-version.md`. Its tests run against a real
+  # PostgreSQL, started here as a service; each test makes a database of its
+  # own on it. The image is built too, so that a Dockerfile that no longer
+  # builds is found here rather than at the next deployment.
+  server:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: cantara
+          POSTGRES_PASSWORD: cantara
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cantara"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Test the server and the API types
+        env:
+          CANTARA_TEST_DATABASE_URL: postgres://cantara:cantara@127.0.0.1:5432/postgres
+        run: cargo test -p cantara-server -p cantara-api
+      - name: Check the server's lints
+        run: cargo clippy -p cantara-server -p cantara-api --all-targets -- -D warnings
+      - name: The API types build for the browser
+        run: |-
+          rustup target add wasm32-unknown-unknown
+          cargo build -p cantara-api --target wasm32-unknown-unknown
+      - name: Build the server image
+        run: docker build -t cantara-server .
+
   build-android:
     name: Build Android
     runs-on: ubuntu-latest

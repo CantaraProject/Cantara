@@ -76,6 +76,40 @@ cargo build --release
 
 The compiled binary will be available in the `target/release` directory.
 
+## Running a Cantara server
+
+Besides the program, this repository contains a server
+(`crates/cantara-server`). It holds an organisation's libraries, designs,
+slide settings and running orders, and lets a running presentation be watched
+and controlled from anywhere through a link. The desktop program logs in to
+one or several servers under *Settings → Online instances*. Their libraries
+then become repositories, cached on the computer so that they keep working
+offline. The server also serves the browser version of Cantara, which works
+with what is on that server. What it is and why it is built this way is
+explained in [`docs/specs/0008-server-version.md`](docs/specs/0008-server-version.md).
+
+```bash
+cp deploy/.env.example deploy/.env    # then fill in the passwords and the address
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+The server is then reachable at `http://localhost:8080`. The administrator
+from `deploy/.env` can log in there. The API is described at
+`/api/v1/docs` (OpenAPI document: `/api/v1/openapi.json`, also committed as
+[`crates/cantara-server/openapi.json`](crates/cantara-server/openapi.json)).
+Files are kept in the `/data` volume and everything else is kept in PostgreSQL.
+A backup is a `pg_dump` together with a copy of that volume. The server is
+licensed under the AGPL-3.0-or-later.
+
+To run it without Docker against a PostgreSQL of your own:
+
+```bash
+DATABASE_URL=postgres://cantara:secret@localhost/cantara \
+CANTARA_BOOTSTRAP_ADMIN_EMAIL=admin@example.org \
+CANTARA_BOOTSTRAP_ADMIN_PASSWORD=change-me-too \
+cargo run -p cantara-server
+```
+
 ## Development
 
 To develop the app locally, run the following command in the root of your project:
@@ -112,6 +146,19 @@ cargo test --features test-harness
 cargo clippy --all-targets --features test-harness -- -D warnings
 ```
 
+### The server
+
+The server's tests need a PostgreSQL. Each test creates a database of its own
+on it. Without `CANTARA_TEST_DATABASE_URL` the database tests are skipped.
+
+```bash
+CANTARA_TEST_DATABASE_URL=postgres://cantara@127.0.0.1:5432/postgres cargo test -p cantara-server -p cantara-api
+cargo clippy -p cantara-server -p cantara-api --all-targets -- -D warnings
+```
+
+A change to the API changes the committed OpenAPI document, and a test fails
+until it is regenerated with `UPDATE_OPENAPI=1 cargo test -p cantara-server`.
+
 ### Browser tests via Playwright
 
 ```bash
@@ -143,6 +190,9 @@ High-level structure:
 - `src/logic/presentation.rs`: presentation assembly and content transformation helpers
 - `src/logic/sourcefiles.rs`: source-file discovery and type classification
 - `src/logic/selection_io.rs`: saving a running order to a file and opening one
+- `src/logic/server/`: Cantara as a client of a Cantara server (login, cached libraries, shared presentations)
+- `crates/cantara-api/`: the types the server and every client exchange
+- `crates/cantara-server/`: the server (axum, PostgreSQL), see `deploy/` for running it
 
 File formats:
 

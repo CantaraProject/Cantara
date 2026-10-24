@@ -101,6 +101,10 @@ mod slide_markup;
 pub mod presentation_design_settings_components;
 
 pub mod settings_components;
+// The servers this program is logged in to, as a section of the settings.
+pub mod server_components;
+// Administering an organisation on a server.
+pub mod admin_components;
 
 // What the program says about itself. Reached from the bottom of the settings.
 pub mod about_components;
