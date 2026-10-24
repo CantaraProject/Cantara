@@ -12,7 +12,7 @@ repository = "https://github.com/CantaraProject/Cantara"
 
 [dependencies]
 dioxus = { version = "=0.8.0-alpha.3", features = ["router"] }
-dirs = "6.0.0"
+dirs = "6"
 
 # Animated route transitions. The platform backend (`web` vs. `desktop`) is
 # selected through Cantara's own platform features below, since the crate's
@@ -24,16 +24,18 @@ dioxus-free-icons = { version = "0.10.0", features = [
     "font-awesome-solid",
 ] }
 
-rust-i18n = "4.2.1"
-serde = "1.0.228"
+rust-i18n = "4"
+# 4.2.x gates what rust-i18n-macro 4.0.0 needs behind a feature (and its toml clashes with dioxus)
+rust-i18n-support = "=4.0.0"
+serde = "1.0"
 serde_json = "1.0.145"
 uuid = { version = "1", features = ["v4", "serde"] }
-sys-locale = "=0.3.2"
+sys-locale = "=0.3"
 
 # Cantara libraries
-cantara-songlib = "0.5.0"
-markdown = "1.0.0"
-rgb = { version = "0.8.52", features = ["serde"] }
+cantara-songlib = "0.7"
+markdown = "1"
+rgb = { version = "0.8", features = ["serde"] }
 # The monitor view's clock widget needs the *local* time, which the standard
 # library cannot give on any target: it has no time zone database and no civil
 # calendar. Already in the tree as a transitive dependency, so making it a
@@ -52,11 +54,11 @@ image = { version = "0.25", optional = true, default-features = false, features 
 log = "0.4.28"
 # reqwest without default TLS on all targets; TLS and blocking added for non-WASM below
 # On WASM, the browser's native fetch API handles HTTP/TLS natively
-reqwest = { version = "0.13.2", default-features = false, features = ["json"] }
-zip = "8.1.0"
-regex = "1.12.3"
-md5 = "0.8.0"
-fuzzy-matcher = "0.3.7"
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+zip = "9"
+regex = "1"
+md5 = "0.8"
+fuzzy-matcher = "0.3"
 # Hands a dialog's answer back to the code that opened it. Already in the tree —
 # Dioxus builds on it — and it is what lets an in-app dialog be awaited the way
 # the browser's blocking `confirm()` used to be. MIT OR Apache-2.0.
@@ -64,17 +66,17 @@ futures-channel = "0.3"
 
 # Non-Linux desktop dependencies (macOS, Windows, etc. – excluded from Android, iOS, and web/WASM)
 [target.'cfg(not(any(target_os = "linux", target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
-rfd = { version = "0.17.2", default-features = false }
-dark-light = "2.0"
-lopdf = "0.44.0"
-base64 = "0.22.1"
+rfd = { version = "0.17", default-features = false }
+dark-light = "2"
+lopdf = "0.44"
+base64 = "0.22"
 
 # Linux desktop dependencies (same libraries, with xdg-portal support for rfd)
 [target.'cfg(all(target_os = "linux", not(target_arch = "wasm32")))'.dependencies]
-rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
-dark-light = "2.0"
-lopdf = "0.44.0"
-base64 = "0.23.0"
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+dark-light = "2"
+lopdf = "0.44"
+base64 = "0.23"
 
 # Non-WASM dependencies (blocking HTTP client, TLS, and filesystem helpers not available on WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -95,8 +97,8 @@ local-ip-address = "0.6"
 # Enumerates the installed system fonts so they can be offered in the settings.
 # `fs` is enough — the font data itself is never needed, only the family names.
 fontdb = { version = "0.24", default-features = false, features = ["fs"] }
-reqwest = { version = "0.13.2", features = ["blocking", "default-tls"] }
-tempfile = "3.23"
+reqwest = { version = "0.13", features = ["blocking", "default-tls"] }
+tempfile = "3"
 dioxus-liveview = { version = "=0.8.0-alpha.3", features = ["axum"] }
 
 # Mobile (Android, iOS) dependencies: PDF, encoding, and TLS libraries
@@ -109,8 +111,8 @@ dioxus-liveview = { version = "=0.8.0-alpha.3", features = ["axum"] }
 # Certificate verification uses embedded Mozilla root certificates (webpki-root-certs)
 # via `use_preconfigured_tls()` instead of the platform verifier.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
-lopdf = "0.44.0"
-base64 = "0.23.1"
+lopdf = "0.44"
+base64 = "0.23"
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 webpki-root-certs = "1.0"
 
@@ -123,8 +125,8 @@ ndk-context = "0.1"
 # Web (WASM) specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["Window", "Storage", "Location"] }
-lopdf = { version = "0.44.0", default-features = false }
-base64 = "0.23.0"
+lopdf = { version = "0.44", default-features = false }
+base64 = "0.23"
 # getrandom needs wasm_js feature to use browser's crypto API on WASM
 # Both v0.3 and v0.4 are needed because transitive deps use different major versions:
 # lopdf -> rand -> rand_core -> getrandom 0.3, zip -> getrandom 0.4
