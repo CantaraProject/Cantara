@@ -60,10 +60,13 @@ pub async fn files_of(instance: Uuid, tenant: Uuid, library: Uuid, offline: bool
     for entry in &index.entries {
         let path = format!("{prefix}/{}", entry.relative_path);
         let current = VERSIONS.with(|versions| versions.borrow().get(&path) == Some(&entry.version));
-        // A picture, a PDF or a video of a library that is not kept whole is
-        // fetched when it is first used — see `ensure_local`.
+        // A video plays from the server as it streams, and is never fetched
+        // whole into memory. A picture or a PDF of a library that is not kept
+        // whole is fetched when it is first used — see `ensure_local`.
         let lazy = !offline && !entry.kind.is_text();
-        if lazy && !current {
+        if entry.kind == cantara_api::ItemKind::Video {
+            super::register_media_url(&path, client.content_url(tenant, entry.version));
+        } else if lazy && !current {
             super::remember_lazy(
                 &path,
                 super::Lazy {

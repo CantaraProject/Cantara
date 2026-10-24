@@ -155,6 +155,7 @@ fn AdminContent(target: Target, name: String) -> Element {
     let mut invite_group: Signal<Option<Uuid>> = use_signal(|| None);
     let mut invite_manager = use_signal(|| false);
     let mut invitation_link: Signal<Option<String>> = use_signal(|| None);
+    let mut invitation_mailed = use_signal(|| false);
     let invite = move |event: Event<FormData>| {
         event.prevent_default();
         let email = invite_email();
@@ -167,6 +168,7 @@ fn AdminContent(target: Target, name: String) -> Element {
             let Some(client) = target.client() else { return };
             match client.invite(target.tenant, &request).await {
                 Ok(created) => {
+                    invitation_mailed.set(created.mailed);
                     invitation_link.set(created.link);
                     invite_email.set(String::new());
                     message.set(None);
@@ -299,6 +301,10 @@ fn AdminContent(target: Target, name: String) -> Element {
                     }
                     if let Some(link) = invitation_link() {
                         p {
+                            if invitation_mailed() {
+                                { t!("admin.invitation_mailed").to_string() }
+                                br {}
+                            }
                             { t!("admin.invitation_link").to_string() }
                             br {}
                             code { { link } }
@@ -345,6 +351,8 @@ fn AdminContent(target: Target, name: String) -> Element {
                     }
                     button { class: "smaller-buttons", onclick: add_group, { t!("admin.group_add").to_string() } }
                 }
+                hr {}
+                OidcProviders { target }
             },
         }
     }
@@ -637,6 +645,124 @@ fn LibraryAdmin(
                     },
                     { t!("admin.library_delete").to_string() }
                 }
+            }
+        }
+    }
+}
+
+/// The organisation's own OpenID Connect providers: its people log in through
+/// their own directory, and — where wanted — become members by doing so.
+#[component]
+fn OidcProviders(target: Target) -> Element {
+    use cantara_api::SaveTenantOidcProvider;
+
+    let mut generation = use_signal(|| 0u32);
+    let mut message: Signal<Option<String>> = use_signal(|| None);
+    let providers = use_resource(move || async move {
+        let _ = generation();
+        match target.client() {
+            Some(client) => client.oidc_providers(target.tenant).await.map_err(|error| error.to_string()),
+            None => Err(t!("settings.server_unknown").to_string()),
+        }
+    });
+    let mut name = use_signal(String::new);
+    let mut slug = use_signal(String::new);
+    let mut issuer = use_signal(String::new);
+    let mut client_id = use_signal(String::new);
+    let mut client_secret = use_signal(String::new);
+    let mut auto_join = use_signal(|| false);
+
+    let add = move |event: Event<FormData>| {
+        event.prevent_default();
+        let request = SaveTenantOidcProvider {
+            slug: slug(),
+            name: name(),
+            issuer: issuer(),
+            client_id: client_id(),
+            client_secret: Some(client_secret()).filter(|secret| !secret.is_empty()),
+            auto_join: auto_join(),
+        };
+        spawn(async move {
+            let Some(client) = target.client() else { return };
+            match client.create_oidc_provider(target.tenant, &request).await {
+                Ok(_) => {
+                    for mut field in [name, slug, issuer, client_id, client_secret] {
+                        field.set(String::new());
+                    }
+                    auto_join.set(false);
+                    message.set(None);
+                }
+                Err(error) => message.set(Some(error.to_string())),
+            }
+            generation += 1;
+        });
+    };
+
+    rsx! {
+        section {
+            h4 { { t!("admin.oidc").to_string() } }
+            p { class: "muted", { t!("admin.oidc_description").to_string() } }
+            match providers.read().clone() {
+                None => rsx! { p { aria_busy: "true" } },
+                Some(Err(error)) => rsx! { p { { error } } },
+                Some(Ok(providers)) => rsx! {
+                    for provider in providers {
+                        article { key: "{provider.uuid}", class: "listed-article",
+                            h6 { { provider.name.clone() } }
+                            small {
+                                { format!("{} · {}", provider.issuer, provider.client_id) }
+                                if provider.auto_join { { format!(" · {}", t!("admin.oidc_auto_join_short")) } }
+                                br {}
+                                { format!("{} {}", t!("admin.oidc_redirect"), provider.redirect_uri) }
+                                br {}
+                                { format!("{} {}", t!("admin.oidc_login_path"), provider.login_path) }
+                            }
+                            br {}
+                            a {
+                                href: "#",
+                                onclick: {
+                                    let uuid = provider.uuid;
+                                    let provider_name = provider.name.clone();
+                                    move |event: Event<MouseData>| {
+                                        event.prevent_default();
+                                        let provider_name = provider_name.clone();
+                                        spawn(async move {
+                                            if !confirm_box(t!("admin.oidc_delete_confirm", name = provider_name).to_string()).await {
+                                                return;
+                                            }
+                                            if let Some(client) = target.client()
+                                                && let Err(error) = client.delete_oidc_provider(target.tenant, uuid).await
+                                            {
+                                                message.set(Some(error.to_string()));
+                                            }
+                                            generation += 1;
+                                        });
+                                    }
+                                },
+                                { t!("admin.remove").to_string() }
+                            }
+                        }
+                    }
+                },
+            }
+            form { onsubmit: add,
+                div { class: "grid",
+                    input { placeholder: t!("admin.oidc_name").to_string(), required: true, value: name(), oninput: move |event| name.set(event.value()) }
+                    input { placeholder: t!("admin.oidc_slug").to_string(), required: true, value: slug(), oninput: move |event| slug.set(event.value()) }
+                }
+                input { r#type: "url", placeholder: t!("admin.oidc_issuer").to_string(), required: true, value: issuer(), oninput: move |event| issuer.set(event.value()) }
+                div { class: "grid",
+                    input { placeholder: t!("admin.oidc_client_id").to_string(), required: true, value: client_id(), oninput: move |event| client_id.set(event.value()) }
+                    input { r#type: "password", placeholder: t!("admin.oidc_client_secret").to_string(), value: client_secret(), oninput: move |event| client_secret.set(event.value()) }
+                }
+                label {
+                    input { r#type: "checkbox", checked: auto_join(), onchange: move |event| auto_join.set(event.checked()) }
+                    { t!("admin.oidc_auto_join").to_string() }
+                }
+                button { r#type: "submit", class: "smaller-buttons", { t!("admin.oidc_add").to_string() } }
+            }
+            if let Some(message) = message() {
+                p { role: "status", { message } }
             }
         }
     }

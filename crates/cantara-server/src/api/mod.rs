@@ -14,6 +14,7 @@ use crate::state::AppState;
 pub mod account;
 pub mod grants;
 pub mod libraries;
+pub mod oidc_admin;
 pub mod selections;
 pub mod sessions;
 pub mod settings;
@@ -88,6 +89,8 @@ fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(tenants::remove_group_member))
         .routes(routes!(tenants::invitations, tenants::invite))
         .routes(routes!(tenants::withdraw))
+        .routes(routes!(oidc_admin::list, oidc_admin::create))
+        .routes(routes!(oidc_admin::update, oidc_admin::delete))
         .routes(routes!(tenants::preview))
         .routes(routes!(tenants::accept))
         .routes(routes!(grants::list, grants::create))
@@ -104,6 +107,7 @@ fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(settings::list))
         .routes(routes!(settings::create))
         .routes(routes!(settings::save, settings::delete))
+        .routes(routes!(settings::put_package, settings::get_package))
         .routes(routes!(selections::list, selections::create))
         .routes(routes!(selections::get, selections::save, selections::delete))
         .routes(routes!(sessions::list, sessions::create))

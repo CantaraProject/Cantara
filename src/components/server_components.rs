@@ -612,6 +612,14 @@ fn shared_session_web(token: String) -> Element {
                     // where the presenting computer has handed it over
                     // already; what it has not is asked for again below.
                     for path in cantara_api::media_paths(&state) {
+                        // A video plays from the server as it streams.
+                        if cantara_api::is_video(&path) {
+                            crate::logic::server::register_media_url(
+                                &path,
+                                client.session_media_url(link.session, &path, Some(&token)),
+                            );
+                            continue;
+                        }
                         if crate::logic::settings::RepositoryType::web_read_file(&path).is_some() {
                             continue;
                         }
@@ -974,6 +982,20 @@ fn ServerSelectionsDialog(
 
 // ── Designs and slide divisions shared on a server ───────────────────────────
 
+/// Where the background picture of a design taken over from a server is put.
+fn picture_folder() -> std::path::PathBuf {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        crate::logic::settings::get_settings_folder()
+            .map(|folder| folder.join("design-pictures"))
+            .unwrap_or_else(std::env::temp_dir)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::path::PathBuf::new()
+    }
+}
+
 /// The designs and slide divisions an organisation shares on a server: taken
 /// over into this program's own lists, or this program's own ones offered to
 /// everybody there (Q9 of `docs/specs/0008-server-version.md`). A design taken
@@ -994,17 +1016,41 @@ fn ServerDesigns(instance: Uuid, tenant: Uuid) -> Element {
         }
     });
 
-    let mut take_over = move |entry: cantara_api::SettingsEntry| {
-        let taken = match entry.kind {
-            SettingsKind::Design => serde_json::from_value::<PresentationDesign>(entry.body.clone())
-                .map(|design| settings.write().presentation_designs.push(design)),
-            SettingsKind::SlideSettings => serde_json::from_value::<SongSlideSettings>(entry.body.clone())
-                .map(|division| settings.write().song_slide_settings.push(division)),
-        };
-        message.set(Some(match taken {
-            Ok(()) => t!("settings.server_design_taken", name = entry.name.clone()).to_string(),
-            Err(error) => t!("settings.server_design_unreadable", reason = error.to_string()).to_string(),
-        }));
+    let take_over = move |entry: cantara_api::SettingsEntry| {
+        spawn(async move {
+            // A design that travelled with its package brings its fonts and
+            // its background picture; the same import that opens a
+            // `.cantara-design.zip` takes it in.
+            if entry.kind == SettingsKind::Design && entry.has_package {
+                let package = match client_for(instance) {
+                    Some(client) => client.settings_package(tenant, "design", entry.lineage).await,
+                    None => return,
+                };
+                let imported = package
+                    .map_err(|error| error.to_string())
+                    .and_then(|bytes| crate::logic::settings_io::read_design(&bytes).map_err(|error| format!("{error:?}")))
+                    .and_then(|package| {
+                        let folder = picture_folder();
+                        crate::logic::settings_io::import_design(&mut settings.write(), &package, &folder)
+                            .map_err(|error| format!("{error:?}"))
+                    });
+                message.set(Some(match imported {
+                    Ok(_) => t!("settings.server_design_taken", name = entry.name.clone()).to_string(),
+                    Err(error) => t!("settings.server_design_unreadable", reason = error).to_string(),
+                }));
+                return;
+            }
+            let taken = match entry.kind {
+                SettingsKind::Design => serde_json::from_value::<PresentationDesign>(entry.body.clone())
+                    .map(|design| settings.write().presentation_designs.push(design)),
+                SettingsKind::SlideSettings => serde_json::from_value::<SongSlideSettings>(entry.body.clone())
+                    .map(|division| settings.write().song_slide_settings.push(division)),
+            };
+            message.set(Some(match taken {
+                Ok(()) => t!("settings.server_design_taken", name = entry.name.clone()).to_string(),
+                Err(error) => t!("settings.server_design_unreadable", reason = error.to_string()).to_string(),
+            }));
+        });
     };
 
     let publish = move |kind: SettingsKind, index: usize| {
@@ -1019,11 +1065,31 @@ fn ServerDesigns(instance: Uuid, tenant: Uuid) -> Element {
             }
         };
         let Ok(body) = body else { return };
+        // A design goes with its package — its fonts and background picture
+        // — so that it looks the same wherever it is taken over.
+        let package = match kind {
+            SettingsKind::Design => settings
+                .read()
+                .presentation_designs
+                .get(index)
+                .and_then(|design| {
+                    crate::logic::settings_io::write_design(design, &crate::logic::sourcefiles::read_source_file_bytes).ok()
+                })
+                .map(|(_, bytes)| bytes),
+            SettingsKind::SlideSettings => None,
+        };
         spawn(async move {
             let Some(client) = client_for(instance) else { return };
             let request = SaveSettings { name: name.clone(), body, base_version: None };
             let path = kind.as_str();
-            match client.publish_settings(tenant, path, &request).await {
+            let published = match client.publish_settings(tenant, path, &request).await {
+                Ok(entry) => match package {
+                    Some(bytes) => client.put_settings_package(tenant, path, entry.lineage, bytes).await,
+                    None => Ok(entry),
+                },
+                Err(error) => Err(error),
+            };
+            match published {
                 Ok(_) => {
                     message.set(Some(t!("settings.server_design_published", name = name).to_string()));
                     generation += 1;

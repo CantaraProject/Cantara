@@ -23,12 +23,17 @@ pub struct Inner {
     /// Counts failed logins, so that a password cannot be guessed at speed.
     pub limiter: Limiter,
     pub oidc: OidcClients,
+    pub mailer: crate::mail::Mailer,
 }
 
 impl AppState {
     pub fn new(config: Config, db: PgPool, blobs: BlobStore) -> AppState {
         let oidc = OidcClients::new(config.oidc_providers.clone());
+        // Checked in `prepare` already; a configuration that got this far
+        // builds.
+        let mailer = crate::mail::Mailer::new(&config.mail).unwrap_or(crate::mail::Mailer::Off);
         AppState(Arc::new(Inner {
+            mailer,
             live: LiveSessions::default(),
             limiter: Limiter::default(),
             oidc,

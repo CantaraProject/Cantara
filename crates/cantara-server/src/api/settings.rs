@@ -26,15 +26,16 @@ fn parse_kind(kind: &str) -> AppResult<SettingsKind> {
     }
 }
 
-type EntryRow = (Uuid, Uuid, String, String, serde_json::Value, DateTime<Utc>, Option<Uuid>, Option<String>);
+type EntryRow = (Uuid, Uuid, String, String, serde_json::Value, DateTime<Utc>, Option<Uuid>, Option<String>, bool);
 
-const ENTRY_QUERY: &str = "SELECT e.lineage_uuid, v.uuid, e.kind, v.name, v.body, v.created_at, u.uuid, u.display_name
+const ENTRY_QUERY: &str = "SELECT e.lineage_uuid, v.uuid, e.kind, v.name, v.body, v.created_at, u.uuid, u.display_name,
+            v.package_sha256 IS NOT NULL
        FROM settings_entries e JOIN settings_versions v ON v.uuid = e.current_version
        LEFT JOIN users u ON u.uuid = v.created_by
       WHERE e.tenant_uuid = $1 AND e.deleted_at IS NULL";
 
 fn entry(row: EntryRow) -> SettingsEntry {
-    let (lineage, version, kind, name, body, updated_at, by, by_name) = row;
+    let (lineage, version, kind, name, body, updated_at, by, by_name, has_package) = row;
     SettingsEntry {
         lineage,
         version,
@@ -43,6 +44,7 @@ fn entry(row: EntryRow) -> SettingsEntry {
         body,
         updated_at,
         updated_by: by.zip(by_name).map(|(uuid, display_name)| UserRef { uuid, display_name }),
+        has_package,
     }
 }
 
@@ -196,4 +198,86 @@ pub async fn delete(
         return Err(AppError::NotFound);
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Attaches the design's package — the `.cantara-design.zip` with its fonts
+/// and background picture — to its current version, so that whoever takes the
+/// design over gets what it needs to look right.
+#[utoipa::path(put, path = "/tenants/{tenant}/settings/{kind}/{lineage}/package", tag = "settings",
+    params(("tenant" = Uuid, Path), ("kind" = String, Path), ("lineage" = Uuid, Path)),
+    request_body(content_type = "application/zip", content = Vec<u8>),
+    responses((status = 200, body = SettingsEntry)))]
+pub async fn put_package(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path((tenant, kind, lineage)): Path<(Uuid, String, Uuid)>,
+    body: axum::body::Body,
+) -> AppResult<Json<SettingsEntry>> {
+    use futures_util::StreamExt;
+
+    let kind = parse_kind(&kind)?;
+    let member = member(&state, &user, tenant).await?;
+    require(&state, &member, ResourceKind::Settings, tenant, Role::Write).await?;
+    let version: Uuid = sqlx::query_scalar(
+        "SELECT current_version FROM settings_entries
+          WHERE tenant_uuid = $1 AND lineage_uuid = $2 AND kind = $3 AND deleted_at IS NULL",
+    )
+    .bind(tenant)
+    .bind(lineage)
+    .bind(kind.as_str())
+    .fetch_one(&state.db)
+    .await?;
+
+    let mut incoming = state.blobs.incoming(state.config.max_upload_bytes)?;
+    let mut stream = body.into_data_stream();
+    while let Some(chunk) = stream.next().await {
+        incoming.write(&chunk.map_err(|error| AppError::BadRequest(error.to_string()))?)?;
+    }
+    let received = incoming.finish()?;
+    let sha256 = received.sha256.clone();
+    let size = received.size as i64;
+    let blobs = state.blobs.clone();
+    tokio::task::spawn_blocking(move || blobs.store(received))
+        .await
+        .map_err(AppError::internal)??;
+
+    let mut tx = state.db.begin().await?;
+    sqlx::query("INSERT INTO blobs (sha256, size) VALUES ($1, $2) ON CONFLICT (sha256) DO UPDATE SET created_at = now()")
+        .bind(&sha256)
+        .bind(size)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE settings_versions SET package_sha256 = $2 WHERE uuid = $1")
+        .bind(version)
+        .bind(&sha256)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(Json(get_entry(&state, tenant, lineage).await?))
+}
+
+/// The package of a design's current version.
+#[utoipa::path(get, path = "/tenants/{tenant}/settings/{kind}/{lineage}/package", tag = "settings",
+    params(("tenant" = Uuid, Path), ("kind" = String, Path), ("lineage" = Uuid, Path)),
+    responses((status = 200, content_type = "application/zip"), (status = 404)))]
+pub async fn get_package(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path((tenant, kind, lineage)): Path<(Uuid, String, Uuid)>,
+    request: axum::extract::Request,
+) -> AppResult<axum::response::Response> {
+    let kind = parse_kind(&kind)?;
+    let member = member(&state, &user, tenant).await?;
+    require(&state, &member, ResourceKind::Settings, tenant, Role::Read).await?;
+    let sha256: Option<String> = sqlx::query_scalar(
+        "SELECT v.package_sha256 FROM settings_entries e JOIN settings_versions v ON v.uuid = e.current_version
+          WHERE e.tenant_uuid = $1 AND e.lineage_uuid = $2 AND e.kind = $3 AND e.deleted_at IS NULL",
+    )
+    .bind(tenant)
+    .bind(lineage)
+    .bind(kind.as_str())
+    .fetch_one(&state.db)
+    .await?;
+    let sha256 = sha256.ok_or(AppError::NotFound)?;
+    crate::api::libraries::serve_blob(&state, &sha256, "design.cantara-design.zip", request).await
 }

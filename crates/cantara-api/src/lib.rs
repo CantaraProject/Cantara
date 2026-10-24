@@ -320,6 +320,43 @@ pub struct InvitationPreview {
     pub expires_at: DateTime<Utc>,
 }
 
+/// An OpenID Connect provider an organisation brings itself — its own
+/// directory of people (a diocese's, a school's). Only admins see these.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TenantOidcProvider {
+    pub uuid: Uuid,
+    /// Short, for the URL.
+    pub slug: String,
+    /// What the login page calls it.
+    pub name: String,
+    pub issuer: String,
+    pub client_id: String,
+    /// Whether a client secret is kept. The secret itself is never sent out.
+    pub has_secret: bool,
+    /// Whether somebody logging in through it becomes a member of the
+    /// organisation, invited or not.
+    pub auto_join: bool,
+    /// The address to register with the provider.
+    pub redirect_uri: String,
+    /// Where the login through it starts.
+    pub login_path: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SaveTenantOidcProvider {
+    pub slug: String,
+    pub name: String,
+    pub issuer: String,
+    pub client_id: String,
+    /// Left out when changing a provider: the kept secret stays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_secret: Option<String>,
+    #[serde(default)]
+    pub auto_join: bool,
+}
+
 // ── Permissions ──────────────────────────────────────────────────────────────
 
 /// How far somebody may go with a resource. Each role includes the ones
@@ -609,6 +646,11 @@ pub struct SettingsEntry {
     pub body: serde_json::Value,
     pub updated_at: DateTime<Utc>,
     pub updated_by: Option<UserRef>,
+    /// Whether the design was stored with its package — the
+    /// `.cantara-design.zip` with its fonts and background picture — which
+    /// `GET …/package` hands out.
+    #[serde(default)]
+    pub has_package: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -732,8 +774,8 @@ pub struct SessionMediaQuery {
     pub link: Option<String>,
 }
 
-/// The pictures and documents a presentation's state names, by the paths its
-/// slides use. What has to travel with a shared presentation for a viewer on
+/// The pictures, documents and videos a presentation's state names, by the
+/// paths its slides use. What has to travel with a shared presentation for a viewer on
 /// another device to see what the room sees.
 pub fn media_paths(state: &serde_json::Value) -> Vec<String> {
     fn walk(value: &serde_json::Value, found: &mut Vec<String>) {
@@ -743,7 +785,7 @@ pub fn media_paths(state: &serde_json::Value) -> Vec<String> {
                     // A PDF page shown as a picture carries the page as a
                     // fragment — `handout.pdf#page=2` — and the document is
                     // what travels.
-                    if matches!(key.as_str(), "picture_path" | "pdf_path")
+                    if matches!(key.as_str(), "picture_path" | "pdf_path" | "video_path")
                         && let Some(path) = value.as_str().map(|path| path.split('#').next().unwrap_or(path))
                         && !path.is_empty()
                         && !found.iter().any(|known| known == path)
@@ -761,6 +803,12 @@ pub fn media_paths(state: &serde_json::Value) -> Vec<String> {
     let mut found = Vec::new();
     walk(state, &mut found);
     found
+}
+
+/// Whether a path names a video — which a viewer plays from the server as it
+/// streams rather than fetching it whole.
+pub fn is_video(path: &str) -> bool {
+    ItemKind::of(path) == ItemKind::Video
 }
 
 /// What the server sends on a session's socket.
@@ -883,11 +931,17 @@ mod tests {
                 { "slides": [ { "content": { "SimplePicture": { "picture_path": "/a/b.png" } } },
                               { "content": { "SimplePicture": { "picture_path": "/c.pdf#page=4" } } } ] },
                 { "slides": [ { "content": { "PdfPage": { "pdf_path": "/c.pdf", "page_number": 2 } } },
-                              { "content": { "PdfPage": { "pdf_path": "/c.pdf", "page_number": 3 } } } ] }
+                              { "content": { "PdfPage": { "pdf_path": "/c.pdf", "page_number": 3 } } } ] },
+                { "slides": [ { "content": { "Video": { "video_path": "/d.mp4", "autostart": true } } } ] }
             ],
             "position": null
         });
-        assert_eq!(media_paths(&state), vec!["/a/b.png".to_string(), "/c.pdf".to_string()]);
+        assert_eq!(
+            media_paths(&state),
+            vec!["/a/b.png".to_string(), "/c.pdf".to_string(), "/d.mp4".to_string()]
+        );
+        assert!(is_video("/d.mp4"));
+        assert!(!is_video("/c.pdf"));
     }
 
     #[test]

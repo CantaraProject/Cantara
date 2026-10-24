@@ -102,14 +102,10 @@ pub async fn info(State(state): State<AppState>) -> Json<ServerInfo> {
         registration_open: state.config.registration_open,
         password_login: state.config.password_login,
         sharing_enabled: state.config.sharing_enabled,
-        oidc_providers: state
-            .config
-            .oidc_providers
-            .iter()
-            .map(|provider| OidcProviderInfo {
-                id: provider.id.clone(),
-                name: provider.name.clone(),
-            })
+        oidc_providers: crate::pages::all_providers(&state)
+            .await
+            .into_iter()
+            .map(|(id, name)| OidcProviderInfo { id, name })
             .collect(),
     })
 }

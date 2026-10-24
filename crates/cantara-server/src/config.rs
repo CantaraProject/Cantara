@@ -20,6 +20,27 @@ pub struct OidcProvider {
     pub client_secret: Option<String>,
 }
 
+/// How invitations are sent.
+#[derive(Clone, Debug, Default)]
+pub enum MailConfig {
+    /// Not at all: the link is shown to whoever invites, to pass on.
+    #[default]
+    Off,
+    Smtp {
+        host: String,
+        port: u16,
+        /// `starttls` (the default), `tls`, or `none` — the last only for a
+        /// relay on the same machine.
+        security: String,
+        username: Option<String>,
+        password: Option<String>,
+        from: String,
+    },
+    /// Into a directory, one `.eml` file per message — for development and
+    /// for the tests.
+    Directory { path: PathBuf, from: String },
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     /// What this server is called on its pages and in clients.
@@ -49,6 +70,7 @@ pub struct Config {
     /// Whether presentations may be shared through this server.
     pub sharing_enabled: bool,
     pub oidc_providers: Vec<OidcProvider>,
+    pub mail: MailConfig,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -126,7 +148,36 @@ impl Config {
             });
         }
 
+        let from = var("CANTARA_MAIL_FROM").unwrap_or_else(|| "Cantara <cantara@localhost>".to_string());
+        let mail = match (var("CANTARA_SMTP_HOST"), var("CANTARA_MAIL_DIR")) {
+            (Some(host), _) => {
+                let security = var("CANTARA_SMTP_SECURITY").unwrap_or_else(|| "starttls".to_string());
+                if !matches!(security.as_str(), "starttls" | "tls" | "none") {
+                    return Err(ConfigError::Invalid {
+                        name: "CANTARA_SMTP_SECURITY".to_string(),
+                        reason: format!("expected starttls, tls or none, got `{security}`"),
+                    });
+                }
+                let default_port = match security.as_str() {
+                    "tls" => 465,
+                    "none" => 25,
+                    _ => 587,
+                };
+                MailConfig::Smtp {
+                    host,
+                    port: number("CANTARA_SMTP_PORT", default_port)?,
+                    security,
+                    username: var("CANTARA_SMTP_USERNAME"),
+                    password: var("CANTARA_SMTP_PASSWORD"),
+                    from,
+                }
+            }
+            (None, Some(path)) => MailConfig::Directory { path: PathBuf::from(path), from },
+            (None, None) => MailConfig::Off,
+        };
+
         Ok(Config {
+            mail,
             name: var("CANTARA_SERVER_NAME").unwrap_or_else(|| "Cantara".to_string()),
             listen,
             public_url,
@@ -175,6 +226,7 @@ impl Config {
             session_days: 30,
             sharing_enabled: true,
             oidc_providers: Vec::new(),
+            mail: MailConfig::Off,
         }
     }
 }

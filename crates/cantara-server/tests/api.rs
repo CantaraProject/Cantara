@@ -24,7 +24,9 @@ use cantara_server::config::Config;
 
 struct TestServer {
     app: Router,
+    state: cantara_server::state::AppState,
     _blobs: tempfile::TempDir,
+    mail: tempfile::TempDir,
     database_url: String,
 }
 
@@ -43,11 +45,18 @@ async fn server() -> Option<TestServer> {
     url.set_path(&name);
 
     let blobs = tempfile::tempdir().expect("a temporary directory");
-    let config = Config::for_tests(url.as_str(), blobs.path().to_path_buf());
+    let mail = tempfile::tempdir().expect("a temporary directory");
+    let mut config = Config::for_tests(url.as_str(), blobs.path().to_path_buf());
+    config.mail = cantara_server::config::MailConfig::Directory {
+        path: mail.path().to_path_buf(),
+        from: "Cantara <cantara@example.org>".to_string(),
+    };
     let state = cantara_server::prepare(config).await.expect("the server starts");
     Some(TestServer {
-        app: cantara_server::app(state),
+        app: cantara_server::app(state.clone()),
+        state,
         _blobs: blobs,
+        mail,
         database_url: url.to_string(),
     })
 }
@@ -744,6 +753,158 @@ async fn the_pictures_of_a_shared_presentation_travel_with_it() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(bytes, b"\x89PNG fake");
     assert_eq!(headers.get(header::CONTENT_TYPE).unwrap(), "image/png");
+}
+
+#[tokio::test]
+async fn an_invitation_is_sent_by_mail() {
+    let Some(server) = server().await else { return };
+    let (admin, tenant) = admin_and_tenant(&server).await;
+    let invitation: InvitationInfo = server
+        .ok("POST", &format!("/tenants/{tenant}/invitations"), &admin, Some(json!({ "email": "chor@example.org" })))
+        .await;
+    assert!(invitation.mailed);
+    let link = invitation.link.unwrap();
+
+    let messages: Vec<_> = std::fs::read_dir(server.mail.path()).unwrap().flatten().collect();
+    assert_eq!(messages.len(), 1);
+    let message = std::fs::read_to_string(messages[0].path()).unwrap();
+    assert!(message.contains("To: chor@example.org"), "{message}");
+    assert!(message.contains("Gemeinde"));
+    // The link is in it — in the text, wrapped or not.
+    let unfolded = message.replace("=\r\n", "").replace("=3D", "=");
+    assert!(unfolded.contains(&link), "{message}");
+}
+
+#[tokio::test]
+async fn a_design_travels_with_its_package() {
+    let Some(server) = server().await else { return };
+    let (admin, tenant) = admin_and_tenant(&server).await;
+    let design: SettingsEntry = server
+        .ok("POST", &format!("/tenants/{tenant}/settings/design"), &admin, Some(json!({ "name": "Fest", "body": { "name": "Fest" } })))
+        .await;
+    assert!(!design.has_package);
+    let package_path = format!("{API_PREFIX}/tenants/{tenant}/settings/design/{}/package", design.lineage);
+
+    let request = server.request("GET", &package_path, &admin).body(Body::empty()).unwrap();
+    assert_eq!(server.send(request).await.0, StatusCode::NOT_FOUND);
+
+    let request = server.request("PUT", &package_path, &admin).body(Body::from(b"PK zip".to_vec())).unwrap();
+    let (status, body, _) = server.send(request).await;
+    assert_eq!(status, StatusCode::OK);
+    let entry: SettingsEntry = serde_json::from_slice(&body).unwrap();
+    assert!(entry.has_package);
+
+    let singer = server.register("singer@example.org", "Sänger").await;
+    let request = server.request("GET", &package_path, &singer).body(Body::empty()).unwrap();
+    let (status, bytes, _) = server.send(request).await;
+    assert_eq!(status, StatusCode::OK, "every member may take a design over");
+    assert_eq!(bytes, b"PK zip");
+    let request = server.request("PUT", &package_path, &singer).body(Body::from(b"other".to_vec())).unwrap();
+    assert_eq!(server.send(request).await.0, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn an_organisation_brings_its_own_login() {
+    let Some(server) = server().await else { return };
+    let (admin, tenant) = admin_and_tenant(&server).await;
+    let singer = server.register("singer@example.org", "Sänger").await;
+    let provider = json!({
+        "slug": "bistum",
+        "name": "Bistums-Login",
+        "issuer": "https://login.example.org/realms/bistum",
+        "client_id": "cantara",
+        "client_secret": "geheim",
+        "auto_join": true
+    });
+    assert_eq!(
+        server.status("POST", &format!("/tenants/{tenant}/oidc-providers"), &singer, Some(provider.clone())).await,
+        StatusCode::FORBIDDEN
+    );
+    let created: TenantOidcProvider = server
+        .ok("POST", &format!("/tenants/{tenant}/oidc-providers"), &admin, Some(provider))
+        .await;
+    assert!(created.has_secret);
+    assert_eq!(created.login_path, "/auth/oidc/t/default/bistum");
+    assert!(created.redirect_uri.ends_with("/auth/oidc/callback"));
+
+    // The secret is never handed out again.
+    let listed: Vec<serde_json::Value> = server.ok("GET", &format!("/tenants/{tenant}/oidc-providers"), &admin, None).await;
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].get("client_secret").is_none());
+
+    // Offered to everybody before logging in.
+    let info: ServerInfo = server.ok("GET", "/info", &As::Nobody, None).await;
+    assert!(info.oidc_providers.iter().any(|provider| provider.id == "t/default/bistum" && provider.name == "Bistums-Login"));
+    let request = Request::get("/login").header(header::ACCEPT_LANGUAGE, "en").body(Body::empty()).unwrap();
+    let (_, page, _) = server.send(request).await;
+    let page = String::from_utf8_lossy(&page);
+    assert!(page.contains("/auth/oidc/t/default/bistum"), "{page}");
+    assert!(page.contains("Log in with Bistums-Login"));
+
+    // A provider that does not exist is not started.
+    let request = Request::get("/auth/oidc/t/default/nirgends").body(Body::empty()).unwrap();
+    assert_eq!(server.send(request).await.0, StatusCode::NOT_FOUND);
+
+    assert_eq!(
+        server.status("DELETE", &format!("/tenants/{tenant}/oidc-providers/{}", created.uuid), &admin, None).await,
+        StatusCode::NO_CONTENT
+    );
+    let info: ServerInfo = server.ok("GET", "/info", &As::Nobody, None).await;
+    assert!(info.oidc_providers.is_empty());
+}
+
+#[tokio::test]
+async fn what_a_presentation_showed_goes_when_it_ends() {
+    let Some(server) = server().await else { return };
+    let (admin, tenant) = admin_and_tenant(&server).await;
+
+    // A song in a library, whose content must survive any collecting.
+    let library: LibraryInfo = server
+        .ok("POST", &format!("/tenants/{tenant}/libraries"), &admin, Some(json!({ "name": "Lieder" })))
+        .await;
+    let (_, stored) = server
+        .upload(&format!("/tenants/{tenant}/libraries/{}/items", library.uuid), &admin, "Lied.song", SONG.as_bytes(), &[])
+        .await;
+    let song_sha = stored["item"]["current"]["sha256"].as_str().unwrap().to_string();
+
+    let session: SessionInfo = server
+        .ok("POST", &format!("/tenants/{tenant}/sessions"), &admin, Some(json!({ "name": "Kurz" })))
+        .await;
+    let media = |path: &str| {
+        let encoded: String = url::form_urlencoded::byte_serialize(path.as_bytes()).collect();
+        format!("{API_PREFIX}/sessions/{}/media?path={encoded}", session.uuid)
+    };
+    let video = vec![7u8; 4096];
+    let request = server.request("PUT", &media("/clips/Intro.mp4"), &admin).body(Body::from(video.clone())).unwrap();
+    assert_eq!(server.send(request).await.0, StatusCode::NO_CONTENT);
+
+    // A video is streamed: a range is answered with that range.
+    let request = server
+        .request("GET", &media("/clips/Intro.mp4"), &admin)
+        .header(header::RANGE, "bytes=100-199")
+        .body(Body::empty())
+        .unwrap();
+    let (status, bytes, headers) = server.send(request).await;
+    assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+    assert_eq!(bytes.len(), 100);
+    assert_eq!(headers.get(header::CONTENT_TYPE).unwrap(), "video/mp4");
+
+    assert_eq!(server.status("DELETE", &format!("/tenants/{tenant}/sessions/{}", session.uuid), &admin, None).await, StatusCode::NO_CONTENT);
+    let db = sqlx::PgPool::connect(&server.database_url).await.unwrap();
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM session_media").fetch_one(&db).await.unwrap();
+    assert_eq!(left, 0);
+
+    let video_sha = {
+        use sha2::Digest;
+        hex::encode(sha2::Sha256::digest(&video))
+    };
+    assert!(server.state.blobs.path_of(&video_sha).exists());
+    let removed = cantara_server::gc::collect(&server.state, std::time::Duration::ZERO, std::time::Duration::ZERO)
+        .await
+        .unwrap();
+    assert_eq!(removed, 1);
+    assert!(!server.state.blobs.path_of(&video_sha).exists());
+    assert!(server.state.blobs.path_of(&song_sha).exists(), "what a library uses stays");
 }
 
 #[test]

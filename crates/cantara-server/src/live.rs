@@ -77,6 +77,13 @@ impl LiveSessions {
             .bind(uuid)
             .execute(db)
             .await?;
+        // What the presentation showed goes with it. The files themselves are
+        // collected later, unless something else uses the same content —
+        // see `crate::gc`.
+        sqlx::query("DELETE FROM session_media WHERE session_uuid = $1")
+            .bind(uuid)
+            .execute(db)
+            .await?;
         let live = self.sessions.lock().map_err(AppError::internal)?.remove(&uuid);
         if let Some(live) = live {
             let _ = live.events.send(Event::Ended);

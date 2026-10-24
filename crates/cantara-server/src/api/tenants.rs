@@ -549,6 +549,21 @@ pub async fn invite(
     .execute(&state.db)
     .await?;
 
+    let link = format!("{}/invite/{token}", state.config.public_url);
+    let organisation: String = sqlx::query_scalar("SELECT name FROM tenants WHERE uuid = $1")
+        .bind(tenant)
+        .fetch_one(&state.db)
+        .await?;
+    // A message that cannot be sent costs nothing but the sending: the link
+    // is in the answer either way, to be passed on by hand.
+    let mailed = match state.mailer.invite(&email, &organisation, &user.display_name, &link).await {
+        Ok(mailed) => mailed,
+        Err(error) => {
+            tracing::warn!("the invitation to {email} could not be sent: {error}");
+            false
+        }
+    };
+
     Ok(Json(InvitationInfo {
         uuid,
         email,
@@ -558,8 +573,8 @@ pub async fn invite(
             display_name: user.display_name.clone(),
         }),
         expires_at,
-        link: Some(format!("{}/invite/{token}", state.config.public_url)),
-        mailed: false,
+        link: Some(link),
+        mailed,
     }))
 }
 

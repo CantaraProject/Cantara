@@ -75,14 +75,79 @@ async fn metadata(state: &AppState, provider: &OidcProvider) -> AppResult<CorePr
     Ok(discovered)
 }
 
-fn provider(state: &AppState, id: &str) -> AppResult<OidcProvider> {
+/// A provider and, for one an organisation brought itself, that
+/// organisation and whether its people join it by logging in.
+#[derive(Clone, Debug)]
+struct Found {
+    provider: OidcProvider,
+    tenant: Option<(Uuid, bool)>,
+}
+
+/// The key a tenant's provider is known by in states and identities:
+/// `t:{tenant uuid}:{slug}`. A global provider's key is its id.
+pub fn tenant_key(tenant: Uuid, slug: &str) -> String {
+    format!("t:{tenant}:{slug}")
+}
+
+async fn provider(state: &AppState, key: &str) -> AppResult<Found> {
+    if let Some(rest) = key.strip_prefix("t:") {
+        let (tenant, slug) = rest.split_once(':').ok_or(AppError::NotFound)?;
+        let tenant = Uuid::parse_str(tenant).map_err(|_| AppError::NotFound)?;
+        let row: Option<(String, String, String, Option<String>, bool)> = sqlx::query_as(
+            "SELECT name, issuer, client_id, client_secret, auto_join FROM tenant_oidc_providers
+              WHERE tenant_uuid = $1 AND slug = $2",
+        )
+        .bind(tenant)
+        .bind(slug)
+        .fetch_optional(&state.db)
+        .await?;
+        let (name, issuer, client_id, client_secret, auto_join) = row.ok_or(AppError::NotFound)?;
+        return Ok(Found {
+            provider: OidcProvider {
+                id: key.to_string(),
+                name,
+                issuer,
+                client_id,
+                client_secret,
+            },
+            tenant: Some((tenant, auto_join)),
+        });
+    }
     state
         .oidc
         .providers
         .iter()
-        .find(|provider| provider.id == id)
+        .find(|provider| provider.id == key)
         .cloned()
+        .map(|provider| Found { provider, tenant: None })
         .ok_or(AppError::NotFound)
+}
+
+impl OidcClients {
+    /// Forgets what a provider said about itself — after an admin changed or
+    /// removed it.
+    pub fn forget(&self, key: &str) {
+        if let Ok(mut metadata) = self.metadata.lock() {
+            metadata.remove(key);
+        }
+    }
+}
+
+/// The providers of every tenant, for the login page: (path, label).
+pub async fn tenant_providers(state: &AppState) -> AppResult<Vec<(String, String)>> {
+    let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+        "SELECT t.slug, p.slug, p.name, t.name FROM tenant_oidc_providers p JOIN tenants t ON t.uuid = p.tenant_uuid
+          ORDER BY t.name, p.name",
+    )
+    .fetch_all(&state.db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(tenant, slug, name, tenant_name)| {
+            let label = if state.config.single_tenant { name } else { format!("{name} ({tenant_name})") };
+            (format!("t/{tenant}/{slug}"), label)
+        })
+        .collect())
 }
 
 #[derive(Deserialize)]
@@ -90,13 +155,32 @@ pub struct StartQuery {
     pub next: Option<String>,
 }
 
-/// Sends the browser to the provider.
+/// Sends the browser to a provider the deployment configures.
 pub async fn start(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Query(query): Query<StartQuery>,
 ) -> AppResult<Response> {
-    let provider = provider(&state, &id)?;
+    start_with(&state, &id, query).await
+}
+
+/// Sends the browser to a provider an organisation brought itself.
+pub async fn start_tenant(
+    State(state): State<AppState>,
+    Path((tenant_slug, slug)): Path<(String, String)>,
+    Query(query): Query<StartQuery>,
+) -> AppResult<Response> {
+    let tenant: Uuid = sqlx::query_scalar("SELECT uuid FROM tenants WHERE slug = $1")
+        .bind(&tenant_slug)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    start_with(&state, &tenant_key(tenant, &slug), query).await
+}
+
+async fn start_with(state: &AppState, key: &str, query: StartQuery) -> AppResult<Response> {
+    let state = state.clone();
+    let provider = provider(&state, key).await?.provider;
     let metadata = metadata(&state, &provider).await?;
     let client = CoreClient::from_provider_metadata(
         metadata,
@@ -174,7 +258,8 @@ async fn finish(state: &AppState, query: CallbackQuery) -> AppResult<(CurrentUse
     .await?
     .ok_or_else(|| AppError::BadRequest("the login took too long or was not started here".to_string()))?;
 
-    let provider = provider(state, &provider_id)?;
+    let found = provider(state, &provider_id).await?;
+    let provider = found.provider.clone();
     let metadata = metadata(state, &provider).await?;
     let client = CoreClient::from_provider_metadata(
         metadata,
@@ -208,8 +293,65 @@ async fn finish(state: &AppState, query: CallbackQuery) -> AppResult<(CurrentUse
         .or_else(|| email.clone())
         .unwrap_or_else(|| "Unbenannt".to_string());
 
-    let user = find_or_create(state, &provider.id, &subject, email.as_deref(), verified, &name).await?;
+    let user = find_or_create(state, &provider.id, &subject, email.as_deref(), verified, &name).await;
+    // An organisation's own provider vouches for its people: one that joins
+    // them lets in an account nobody invited, and makes it a member.
+    let user = match (user, found.tenant) {
+        (Ok(user), Some((tenant, true))) => {
+            join(state, tenant, &user).await?;
+            user
+        }
+        (Err(AppError::Forbidden), Some((tenant, true))) => {
+            let user = create_unasked(state, &provider.id, &subject, email.as_deref(), verified, &name).await?;
+            join(state, tenant, &user).await?;
+            user
+        }
+        (result, _) => result?,
+    };
     Ok((user, next))
+}
+
+/// Makes `user` a member of `tenant`, if they are not one yet.
+async fn join(state: &AppState, tenant: Uuid, user: &CurrentUser) -> AppResult<()> {
+    sqlx::query("INSERT INTO memberships (tenant_uuid, user_uuid) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(tenant)
+        .bind(user.uuid)
+        .execute(&state.db)
+        .await?;
+    Ok(())
+}
+
+/// An account for somebody an organisation's provider vouches for, where
+/// neither an invitation nor open registration would have let them in.
+async fn create_unasked(
+    state: &AppState,
+    provider: &str,
+    subject: &str,
+    email: Option<&str>,
+    verified: bool,
+    name: &str,
+) -> AppResult<CurrentUser> {
+    let email = email.filter(|_| verified).ok_or(AppError::Forbidden)?;
+    let user = CurrentUser {
+        uuid: Uuid::now_v7(),
+        email: email.to_string(),
+        display_name: name.to_string(),
+        is_server_admin: false,
+    };
+    sqlx::query("INSERT INTO users (uuid, email, display_name) VALUES ($1, $2, $3)")
+        .bind(user.uuid)
+        .bind(&user.email)
+        .bind(&user.display_name)
+        .execute(&state.db)
+        .await?;
+    sqlx::query("INSERT INTO oidc_identities (uuid, user_uuid, provider, subject) VALUES ($1, $2, $3, $4)")
+        .bind(Uuid::now_v7())
+        .bind(user.uuid)
+        .bind(provider)
+        .bind(subject)
+        .execute(&state.db)
+        .await?;
+    Ok(user)
 }
 
 async fn find_or_create(

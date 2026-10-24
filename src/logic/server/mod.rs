@@ -319,7 +319,7 @@ impl Client {
 
     /// Hands a picture or document of a shared presentation to the server,
     /// under the path its slides name it by.
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    #[cfg_attr(not(all(target_arch = "wasm32", feature = "server-client")), allow(dead_code))]
     pub async fn put_session_media(&self, session: Uuid, path: &str, bytes: Vec<u8>) -> Result<(), ClientError> {
         let response = self
             .http
@@ -337,6 +337,34 @@ impl Client {
             reqwest::StatusCode::UNAUTHORIZED => Err(ClientError::Unauthorized),
             status => Err(ClientError::Refused { status: status.as_u16(), error: None }),
         }
+    }
+
+    /// Hands a file of a shared presentation to the server as it is read —
+    /// a video may be gigabytes, and is not read into memory first.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn put_session_media_file(&self, session: Uuid, path: &str) -> Result<(), ClientError> {
+        let file = tokio::fs::File::open(path)
+            .await
+            .map_err(|error| ClientError::Unreadable(format!("{path}: {error}")))?;
+        let body = reqwest::Body::wrap_stream(tokio_util::io::ReaderStream::new(file));
+        let request = self.http.put(self.session_media_url(session, path, None)).body(body);
+        let request = match &self.token {
+            Some(token) => request.bearer_auth(token),
+            None => request,
+        };
+        let response = request.send().await.map_err(|error| ClientError::Unreachable(error.to_string()))?;
+        match response.status() {
+            status if status.is_success() => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => Err(ClientError::Unauthorized),
+            status => Err(ClientError::Refused { status: status.as_u16(), error: None }),
+        }
+    }
+
+    /// Where the bytes of a version are, for a page that fetches them itself
+    /// — a `<video>` playing from the server.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    pub fn content_url(&self, tenant: Uuid, version: Uuid) -> String {
+        self.url(&format!("/tenants/{tenant}/versions/{version}/content"))
     }
 
     /// Where a viewer fetches a picture or document of a shared presentation.
@@ -417,6 +445,47 @@ impl Client {
     /// `design` or `slide_settings`.
     pub async fn publish_settings(&self, tenant: Uuid, kind: &str, request: &SaveSettings) -> Result<SettingsEntry, ClientError> {
         self.send(reqwest::Method::POST, &format!("/tenants/{tenant}/settings/{kind}"), request).await
+    }
+
+    /// Attaches a design's package (`.cantara-design.zip`) to the version
+    /// the server has now.
+    pub async fn put_settings_package(&self, tenant: Uuid, kind: &str, lineage: Uuid, bytes: Vec<u8>) -> Result<SettingsEntry, ClientError> {
+        Self::answer(
+            self.request(reqwest::Method::PUT, &format!("/tenants/{tenant}/settings/{kind}/{lineage}/package"))
+                .body(bytes)
+                .send()
+                .await,
+        )
+        .await
+    }
+
+    /// A design's package, with its fonts and background picture.
+    pub async fn settings_package(&self, tenant: Uuid, kind: &str, lineage: Uuid) -> Result<Vec<u8>, ClientError> {
+        let response = self
+            .request(reqwest::Method::GET, &format!("/tenants/{tenant}/settings/{kind}/{lineage}/package"))
+            .send()
+            .await
+            .map_err(|error| ClientError::Unreachable(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(ClientError::Refused { status: response.status().as_u16(), error: None });
+        }
+        response
+            .bytes()
+            .await
+            .map(|bytes| bytes.to_vec())
+            .map_err(|error| ClientError::Unreadable(error.to_string()))
+    }
+
+    pub async fn oidc_providers(&self, tenant: Uuid) -> Result<Vec<TenantOidcProvider>, ClientError> {
+        self.get(&format!("/tenants/{tenant}/oidc-providers")).await
+    }
+
+    pub async fn create_oidc_provider(&self, tenant: Uuid, provider: &SaveTenantOidcProvider) -> Result<TenantOidcProvider, ClientError> {
+        self.send(reqwest::Method::POST, &format!("/tenants/{tenant}/oidc-providers"), provider).await
+    }
+
+    pub async fn delete_oidc_provider(&self, tenant: Uuid, provider: Uuid) -> Result<(), ClientError> {
+        self.delete(&format!("/tenants/{tenant}/oidc-providers/{provider}")).await
     }
 
     pub async fn selections(&self, tenant: Uuid) -> Result<Vec<SelectionSummary>, ClientError> {
@@ -684,6 +753,28 @@ pub async fn ensure_local(paths: &[String]) -> usize {
         }
     }
     fetched
+}
+
+// ── Media a page plays from the server ───────────────────────────────────────
+
+static MEDIA_URLS: RwLock<Option<HashMap<String, String>>> = RwLock::new(None);
+
+/// Says that the video named `path` is played from `url` rather than looked
+/// for on this computer: a video of a shared presentation, or one of a server
+/// library in the browser build. Streamed, with range requests, rather than
+/// fetched whole.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub fn register_media_url(path: &str, url: String) {
+    if let Ok(mut urls) = MEDIA_URLS.write() {
+        urls.get_or_insert_with(HashMap::new).insert(path.to_string(), url);
+    }
+}
+
+/// Where the video named `path` is played from, if it is played from a
+/// server.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub fn media_url(path: &str) -> Option<String> {
+    MEDIA_URLS.read().ok()?.as_ref()?.get(path).cloned()
 }
 
 /// The display name of a file, as the rest of the program would give it.

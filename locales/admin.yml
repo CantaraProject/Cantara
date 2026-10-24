@@ -92,6 +92,48 @@ admin:
   invitation_link:
     en: "Pass this link on — it is shown only now:"
     de: "Diesen Link weitergeben – er wird nur jetzt angezeigt:"
+  invitation_mailed:
+    en: The invitation was sent by e-mail.
+    de: Die Einladung wurde per E-Mail verschickt.
+  oidc:
+    en: Logging in through your own directory (OpenID Connect)
+    de: Anmeldung über euer eigenes Verzeichnis (OpenID Connect)
+  oidc_description:
+    en: Your people log in with the account they already have. Register the redirect address below with the provider.
+    de: Eure Leute melden sich mit dem Konto an, das sie schon haben. Tragt die Rücksprungadresse unten beim Anbieter ein.
+  oidc_name:
+    en: Name on the login page
+    de: Name auf der Anmeldeseite
+  oidc_slug:
+    en: Short name (letters, digits, dashes)
+    de: Kurzname (Buchstaben, Ziffern, Bindestriche)
+  oidc_issuer:
+    en: Issuer (https://…)
+    de: Issuer (https://…)
+  oidc_client_id:
+    en: Client ID
+    de: Client-ID
+  oidc_client_secret:
+    en: Client secret (optional)
+    de: Client-Secret (optional)
+  oidc_auto_join:
+    en: Whoever logs in through it becomes a member, invited or not
+    de: Wer sich darüber anmeldet, wird Mitglied – auch ohne Einladung
+  oidc_auto_join_short:
+    en: members join by logging in
+    de: Mitglied durch Anmeldung
+  oidc_redirect:
+    en: "Redirect address:"
+    de: "Rücksprungadresse:"
+  oidc_login_path:
+    en: "Login starts at:"
+    de: "Anmeldung beginnt bei:"
+  oidc_add:
+    en: Add provider
+    de: Anbieter hinzufügen
+  oidc_delete_confirm:
+    en: "Remove \"%{name}\"? Accounts that logged in through it stay, and log in another way."
+    de: "„%{name}“ entfernen? Konten, die sich darüber angemeldet haben, bleiben und melden sich anders an."
   invitation_until:
     en: valid until
     de: gültig bis

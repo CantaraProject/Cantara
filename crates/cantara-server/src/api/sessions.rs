@@ -321,10 +321,11 @@ pub async fn put_media(
         .next()
         .unwrap_or("file")
         .to_string();
-    sqlx::query("INSERT INTO blobs (sha256, size) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+    let mut tx = state.db.begin().await?;
+    sqlx::query("INSERT INTO blobs (sha256, size) VALUES ($1, $2) ON CONFLICT (sha256) DO UPDATE SET created_at = now()")
         .bind(&sha256)
         .bind(size)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
     sqlx::query(
         "INSERT INTO session_media (session_uuid, path, sha256, file_name) VALUES ($1, $2, $3, $4)
@@ -334,8 +335,9 @@ pub async fn put_media(
     .bind(&query.path)
     .bind(&sha256)
     .bind(&file_name)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

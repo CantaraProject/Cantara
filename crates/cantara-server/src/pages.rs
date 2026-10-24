@@ -108,7 +108,21 @@ pub struct NextQuery {
     pub next: Option<String>,
 }
 
-fn login_form(state: &AppState, lang: Lang, next: &str, error: Option<&str>) -> Response {
+/// Every provider one can log in with here: the deployment's, and the
+/// organisations' own. (path below `/auth/oidc/`, label)
+pub async fn all_providers(state: &AppState) -> Vec<(String, String)> {
+    let mut providers: Vec<(String, String)> = state
+        .config
+        .oidc_providers
+        .iter()
+        .map(|provider| (provider.id.clone(), provider.name.clone()))
+        .collect();
+    providers.extend(crate::oidc::tenant_providers(state).await.unwrap_or_default());
+    providers
+}
+
+async fn login_form(state: &AppState, lang: Lang, next: &str, error: Option<&str>) -> Response {
+    let providers = all_providers(state).await;
     let mut body = format!("<h1>{}</h1>", escape(&state.config.name));
     if let Some(error) = error {
         body += &format!("<p class=\"error\">{}</p>", escape(error));
@@ -126,18 +140,18 @@ fn login_form(state: &AppState, lang: Lang, next: &str, error: Option<&str>) -> 
             login = t(lang, "Anmelden", "Log in"),
         );
     }
-    if !state.config.oidc_providers.is_empty() {
+    if !providers.is_empty() {
         if state.config.password_login {
             body += "<hr>";
         }
-        for provider in &state.config.oidc_providers {
+        for (path, name) in &providers {
             let encoded: String = url::form_urlencoded::byte_serialize(next.as_bytes()).collect();
             body += &format!(
                 "<a class=\"button secondary\" href=\"/auth/oidc/{}?next={}\">{} {}</a>",
-                escape(&provider.id),
+                escape(path),
                 encoded,
                 t(lang, "Anmelden mit", "Log in with"),
-                escape(&provider.name),
+                escape(name),
             );
         }
     }
@@ -161,7 +175,7 @@ pub async fn login_page(
     if user.0.is_some() {
         return redirect(&next);
     }
-    login_form(&state, lang(&headers), &next, None)
+    login_form(&state, lang(&headers), &next, None).await
 }
 
 #[derive(Deserialize)]
@@ -183,18 +197,24 @@ pub async fn login_submit(State(state): State<AppState>, headers: HeaderMap, For
             }
             Err(error) => error_page(&error.to_string()),
         },
-        Err(AppError::TooManyRequests) => login_form(
-            &state,
-            lang,
-            &next,
-            Some(t(lang, "Zu viele Versuche. Bitte in einer Minute noch einmal.", "Too many attempts. Try again in a minute.")),
-        ),
-        Err(_) => login_form(
-            &state,
-            lang,
-            &next,
-            Some(t(lang, "E-Mail-Adresse oder Passwort stimmen nicht.", "The e-mail address or the password is wrong.")),
-        ),
+        Err(AppError::TooManyRequests) => {
+            login_form(
+                &state,
+                lang,
+                &next,
+                Some(t(lang, "Zu viele Versuche. Bitte in einer Minute noch einmal.", "Too many attempts. Try again in a minute.")),
+            )
+            .await
+        }
+        Err(_) => {
+            login_form(
+                &state,
+                lang,
+                &next,
+                Some(t(lang, "E-Mail-Adresse oder Passwort stimmen nicht.", "The e-mail address or the password is wrong.")),
+            )
+            .await
+        }
     }
 }
 

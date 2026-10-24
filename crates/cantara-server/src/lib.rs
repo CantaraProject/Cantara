@@ -18,8 +18,10 @@ pub mod bootstrap;
 pub mod config;
 pub mod device;
 pub mod error;
+pub mod gc;
 pub mod invitations;
 pub mod limiter;
+pub mod mail;
 pub mod live;
 pub mod oidc;
 pub mod pages;
@@ -56,6 +58,7 @@ pub fn app(state: AppState) -> Router {
         .route("/device", get(device::device_page).post(device::device_submit))
         .route("/auth/oidc/callback", get(oidc::callback))
         .route("/auth/oidc/{provider}", get(oidc::start))
+        .route("/auth/oidc/t/{tenant}/{provider}", get(oidc::start_tenant))
         .route("/healthz", get(|| async { "ok" }))
         .route("/readyz", get(ready));
 
@@ -96,6 +99,7 @@ pub async fn prepare(config: Config) -> Result<AppState, String> {
         .run(&db)
         .await
         .map_err(|error| format!("cannot migrate the database: {error}"))?;
+    mail::Mailer::new(&config.mail)?;
     let blobs = BlobStore::open(&config.blob_dir)
         .map_err(|error| format!("cannot use {}: {error}", config.blob_dir.display()))?;
     bootstrap::run(&db, &config)

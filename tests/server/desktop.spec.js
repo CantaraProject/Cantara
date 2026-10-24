@@ -55,3 +55,16 @@ test('a shared presentation shows its picture on another device', async ({ brows
   await expect(page.locator('img[src^="data:image"]').first()).toBeVisible({ timeout: 30000 });
   await context.close();
 });
+
+test('a shared video plays from the server on another device', async ({ browser, request }) => {
+  const link = await harness(request, '/server-share?service=video');
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(link);
+  // Not fetched whole into the page: the video element streams it from the
+  // server, under the path the slide names it by.
+  const video = page.locator('video source').first();
+  await expect(video).toHaveAttribute('src', /\/api\/v1\/sessions\/[0-9a-f-]+\/media\?path=.*Clip\.mp4/, { timeout: 30000 });
+  await context.close();
+});

@@ -174,22 +174,16 @@ pub fn publish(now: Option<&RunningPresentation>) {
     }
 }
 
-/// The bytes of a picture or document a slide names, wherever this build
-/// keeps them.
+/// The bytes of a picture or document a slide names, from the in-memory file
+/// system of the browser build.
+#[cfg(target_arch = "wasm32")]
 fn read_media(path: &str) -> Option<Vec<u8>> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        std::fs::read(path).ok()
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        crate::logic::settings::RepositoryType::web_read_file(path)
-    }
+    crate::logic::settings::RepositoryType::web_read_file(path)
 }
 
-/// Hands the server the pictures and documents the presentation shows that it
-/// does not have yet, so that a viewer on another device sees what the room
-/// sees. Videos are left out: they play in the room (Q11).
+/// Hands the server the pictures, documents and videos the presentation shows
+/// that it does not have yet, so that a viewer on another device sees what the
+/// room sees.
 pub async fn upload_media() {
     let (client, session, wanted) = {
         let Ok(mut guard) = SHARED.lock() else { return };
@@ -207,14 +201,25 @@ pub async fn upload_media() {
         (client, shared.status.session.uuid, wanted)
     };
     for path in wanted {
-        let sent = match read_media(&path) {
-            Some(bytes) => match client.put_session_media(session, &path, bytes).await {
-                Ok(()) => true,
-                Err(error) => {
-                    log::warn!("{path} cannot be shared: {error}");
-                    false
-                }
-            },
+        // On the desktop the file goes up as it is read; a video may be
+        // gigabytes. The browser has it in memory anyway.
+        #[cfg(not(target_arch = "wasm32"))]
+        let result = if std::path::Path::new(&path).exists() {
+            Some(client.put_session_media_file(session, &path).await)
+        } else {
+            None
+        };
+        #[cfg(target_arch = "wasm32")]
+        let result = match read_media(&path) {
+            Some(bytes) => Some(client.put_session_media(session, &path, bytes).await),
+            None => None,
+        };
+        let sent = match result {
+            Some(Ok(())) => true,
+            Some(Err(error)) => {
+                log::warn!("{path} cannot be shared: {error}");
+                false
+            }
             // Nothing to send; asking again would not change that.
             None => true,
         };

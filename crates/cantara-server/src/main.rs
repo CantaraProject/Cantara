@@ -28,6 +28,8 @@ async fn main() {
         }
     };
 
+    cantara_server::gc::run_periodically(state.clone());
+
     let listener = match tokio::net::TcpListener::bind(listen).await {
         Ok(listener) => listener,
         Err(error) => {

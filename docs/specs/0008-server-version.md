@@ -668,22 +668,64 @@ They drive:
 - a presentation shared by the harness through the program's real sharing
   code, whose picture a viewer in another browser context sees.
 
+## What was built after that
+
+**Invitations by e-mail.** Over SMTP (`CANTARA_SMTP_HOST`, `_PORT`,
+`_SECURITY` = `starttls`/`tls`/`none`, `_USERNAME`, `_PASSWORD`,
+`CANTARA_MAIL_FROM`), or into a directory as `.eml` files
+(`CANTARA_MAIL_DIR`), for trying it out and for the tests. Each message has a
+German and an English part, as plain text and HTML. The link is still in the
+answer and on the admin page, which says whether the mail went out. A message
+that cannot be sent costs only the sending: the invitation stands, and the
+link is passed on by hand.
+
+**Fonts of shared designs.** A design offered to the organisation goes up
+together with its package: the `.cantara-design.zip` that `settings_io` writes,
+with the design, its background picture and its font files
+(`PUT /tenants/{t}/settings/design/{lineage}/package`). Taking it over
+downloads the package and runs the same import that opens such a file, so the
+fonts are installed and the picture is stored. Designs without a package are
+still taken over from their JSON. In the browser build the import keeps the
+design only, not its fonts, as it always has.
+
+**OIDC per tenant.** Admins add the providers of their organisation on the
+administration page (`/tenants/{t}/oidc-providers`). The slug, name, issuer,
+client id and secret are stored in the database, and the secret is never
+handed out again. The page shows the redirect address to register with the
+provider. Login starts at `/auth/oidc/t/{tenant slug}/{slug}`. The login page
+and `/info` list these providers next to the ones the deployment configures.
+A provider can let its people join: whoever logs in through it becomes a
+member of the organisation, invited or not, and gets an account if they have
+none.
+
+**Videos when sharing.** The presenting program hands videos over like
+pictures, but streams the upload from the file. A viewer does not fetch them;
+the `<video>` plays them straight from the server, with range requests, so
+seeking works (`server::media_url` takes precedence in `video_source_url`).
+The browser build plays videos from server libraries the same way, streamed
+from `/versions/{v}/content` instead of being loaded into memory.
+
+**Cleaning up.** Ending a session deletes its media references. Once an hour
+(`crate::gc`), content that nothing refers to any more — no item version, no
+session, no design package — is deleted if it has been untouched for an hour.
+Every store refreshes the age of the content it uses, and a file is only
+removed after its row has stayed deleted for a moment. That way content stored
+again at the moment it is collected is not lost.
+
 ## What is left
 
-- **Invitations by e-mail.** No SMTP: the link is shown to the person inviting,
-  to pass on.
 - **S3-compatible storage.** Only the directory exists, which is what Q5's
   answer asked for first.
-- **Fonts of a shared design** are not uploaded with it.
-- **Per-tenant OIDC providers.** Providers are configured per deployment.
-- **Videos in shared presentations** are not handed over.
-- **Session media are kept until the session ends.** Their blobs are not
-  collected afterwards.
+- **OIDC is tested up to the start of the login.** There are tests for adding
+  providers, listing them on the login page and in `/info`, and refusing
+  unknown ones. Logging in through a real provider, and joining through it,
+  have no automated test. They need an identity provider, for which
+  `deploy/docker-compose.yml` has a Keycloak behind the profile `oidc`.
+- **Ended sessions stay as rows** (without media). Nothing deletes them.
 - **The web build fetches a library's content again on every load.** Its VFS
-  lives in memory. The answers are marked `immutable`, so the browser's own
-  cache usually serves them.
-- **The queue of changes is tested in the browser only.** It has no Rust unit
-  test, because it keeps its state in the user's cache directory.
+  lives in memory. Videos are streamed, and the other answers are marked
+  `immutable`, so the browser's own cache usually serves them.
+- **The queue of changes is tested in the browser only.**
 
 ## Testing
 

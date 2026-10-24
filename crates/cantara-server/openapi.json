@@ -1940,6 +1940,159 @@
         }
       }
     },
+    "/tenants/{tenant}/oidc-providers": {
+      "get": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "The organisation's own providers. Admins only.",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TenantOidcProvider"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "Adds a provider.",
+        "operationId": "create",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveTenantOidcProvider"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantOidcProvider"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenant}/oidc-providers/{provider}": {
+      "put": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "Changes a provider. A secret left out stays as it is.",
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveTenantOidcProvider"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantOidcProvider"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "Removes a provider. Accounts that logged in through it stay; they log in\nanother way from now on.",
+        "operationId": "delete",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {}
+        }
+      }
+    },
     "/tenants/{tenant}/selections": {
       "get": {
         "tags": [
@@ -2511,6 +2664,112 @@
         ],
         "responses": {
           "204": {}
+        }
+      }
+    },
+    "/tenants/{tenant}/settings/{kind}/{lineage}/package": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "The package of a design's current version.",
+        "operationId": "get_package",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lineage",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {}
+            }
+          },
+          "404": {}
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Attaches the design's package — the `.cantara-design.zip` with its fonts\nand background picture — to its current version, so that whoever takes the\ndesign over gets what it needs to look right.",
+        "operationId": "put_package",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lineage",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/zip": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsEntry"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -3394,6 +3653,39 @@
           }
         }
       },
+      "SaveTenantOidcProvider": {
+        "type": "object",
+        "required": [
+          "slug",
+          "name",
+          "issuer",
+          "client_id"
+        ],
+        "properties": {
+          "auto_join": {
+            "type": "boolean"
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Left out when changing a provider: the kept secret stays."
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
       "SelectionDetail": {
         "type": "object",
         "description": "A saved running order.\n\nThe manifest is the `selection.json` of a `.cantara.zip` (format\n`cantara.selection`), whose items may name a server item by `lineage` and\n`item_version` instead of by a file in an archive.",
@@ -3613,6 +3905,10 @@
           "body": {
             "type": "object"
           },
+          "has_package": {
+            "type": "boolean",
+            "description": "Whether the design was stored with its package — the\n`.cantara-design.zip` with its fonts and background picture — which\n`GET …/package` hands out."
+          },
           "kind": {
             "$ref": "#/components/schemas/SettingsKind"
           },
@@ -3722,6 +4018,57 @@
           },
           "tenant": {
             "$ref": "#/components/schemas/TenantInfo"
+          }
+        }
+      },
+      "TenantOidcProvider": {
+        "type": "object",
+        "description": "An OpenID Connect provider an organisation brings itself — its own\ndirectory of people (a diocese's, a school's). Only admins see these.",
+        "required": [
+          "uuid",
+          "slug",
+          "name",
+          "issuer",
+          "client_id",
+          "has_secret",
+          "auto_join",
+          "redirect_uri",
+          "login_path"
+        ],
+        "properties": {
+          "auto_join": {
+            "type": "boolean",
+            "description": "Whether somebody logging in through it becomes a member of the\norganisation, invited or not."
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "has_secret": {
+            "type": "boolean",
+            "description": "Whether a client secret is kept. The secret itself is never sent out."
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "login_path": {
+            "type": "string",
+            "description": "Where the login through it starts."
+          },
+          "name": {
+            "type": "string",
+            "description": "What the login page calls it."
+          },
+          "redirect_uri": {
+            "type": "string",
+            "description": "The address to register with the provider."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Short, for the URL."
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

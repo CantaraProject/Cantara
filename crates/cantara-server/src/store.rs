@@ -189,7 +189,7 @@ pub async fn store(state: &AppState, request: StoreRequest) -> AppResult<StoredI
         .map_err(AppError::internal)??;
 
     let mut tx = state.db.begin().await?;
-    sqlx::query("INSERT INTO blobs (sha256, size) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+    sqlx::query("INSERT INTO blobs (sha256, size) VALUES ($1, $2) ON CONFLICT (sha256) DO UPDATE SET created_at = now()")
         .bind(&sha256)
         .bind(size)
         .execute(&mut *tx)

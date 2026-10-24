@@ -33,3 +33,25 @@ test('an invitation lets a new person in', async ({ page, browser }) => {
   await page.reload();
   await expect(page.getByText(email).first()).toBeVisible();
 });
+
+test('an organisation adds its own login provider', async ({ page }) => {
+  await logIn(page, '/admin');
+  await page.getByPlaceholder('Name on the login page').fill('Bistums-Login');
+  await page.getByPlaceholder('Short name (letters, digits, dashes)').fill('bistum');
+  await page.getByPlaceholder('Issuer (https://…)').fill('https://login.example.org/realms/bistum');
+  await page.getByPlaceholder('Client ID').fill('cantara');
+  await page.getByRole('button', { name: 'Add provider' }).click();
+  await expect(page.getByText('/auth/oidc/t/default/bistum')).toBeVisible();
+
+  // The login page offers it.
+  const context = await page.context().browser().newContext();
+  const visitor = await context.newPage();
+  await visitor.goto('/login');
+  await expect(visitor.getByRole('link', { name: 'Log in with Bistums-Login' })).toBeVisible();
+  await context.close();
+
+  // Removed again, through the program's own confirmation.
+  await page.getByRole('article').filter({ hasText: 'Bistums-Login' }).getByText('remove').click();
+  await page.getByRole('button', { name: 'Yes' }).click();
+  await expect(page.getByText('/auth/oidc/t/default/bistum')).toHaveCount(0);
+});
