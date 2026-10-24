@@ -7,7 +7,9 @@
 # server is and why it is built so: `docs/specs/0008-server-version.md`.
 
 # ── Build ─────────────────────────────────────────────────────────────────────
-FROM rust:1-bookworm AS build
+# Debian 13: the prebuilt dx that `cargo binstall` fetches is linked against
+# glibc 2.39, which bookworm (2.36) does not have.
+FROM rust:1-trixie AS build
 
 # The dx that builds the web app has to be the version of the `dioxus` crate —
 # see the README. npm brings the stylesheets the app embeds.
@@ -33,7 +35,7 @@ RUN dx build --platform web --release --locked --features server-client --base-p
  && cp -r target/dx/cantara/release/web/public /web
 
 # ── Run ───────────────────────────────────────────────────────────────────────
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \

@@ -42,7 +42,10 @@ export default defineConfig({
       command: 'cargo run --features test-harness -- --test-harness',
       url: 'http://127.0.0.1:8430',
       reuseExistingServer: !process.env.CI,
-      timeout: 300000,
+      // A cold build of the desktop program, which in CI runs after the
+      // server's and the WebAssembly build — CI builds it in a step of its own
+      // first, and this is the margin for when it has not.
+      timeout: 900000,
       stdout: 'pipe',
       stderr: 'pipe',
     },

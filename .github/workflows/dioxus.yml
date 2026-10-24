@@ -197,7 +197,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U cantara"
+          --health-cmd "pg_isready -U cantara -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -258,7 +258,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U cantara"
+          --health-cmd "pg_isready -U cantara -d cantara_browser"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -282,6 +282,17 @@ jobs:
             libayatana-appindicator3-dev librsvg2-dev postgresql-client
       - name: Install the browser the tests drive
         run: npx playwright install --with-deps chromium
+      # Built before Playwright starts them: its readiness timeouts are for
+      # starting a program, not for compiling one cold.
+      - name: Build the server and the test harness
+        env:
+          OPENSSL_ROOT_DIR: /usr
+          OPENSSL_DIR: /usr
+          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
+          OPENSSL_INCLUDE_DIR: /usr/include
+        run: |-
+          cargo build -p cantara-server
+          cargo build --features test-harness
       - name: Run the server-mode browser tests
         env:
           CANTARA_BROWSER_DATABASE_URL: postgres://cantara:cantara@127.0.0.1:5432/cantara_browser
