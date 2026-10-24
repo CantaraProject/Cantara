@@ -637,9 +637,15 @@ for a control link (`/s/{token}`).
 - **Fonts of a shared design** are not uploaded with it. A design that uses an
   installed font needs that font on every computer.
 - **Per-tenant OIDC providers.** Providers are configured per deployment.
-- **Not verified in a real browser yet:** the web build in server mode, the
-  admin page, and `/s/{token}`. Their Rust code compiles and the server side is
-  tested, but no Playwright test drives them yet.
+- **Browser tests.** The web build in server mode was checked by hand in a
+  browser against a local server: logging in, the server library in the song
+  list and the detail view (with the `uuid` tag the server wrote), the
+  administration page, creating an invitation, and `/s/{token}` waiting for a
+  presentation. No Playwright test drives these yet, and the desktop login
+  (system browser → loopback) has only been tested at the API level.
+- **The web build fetches a library's content again on every load.** Its VFS
+  lives in memory. The answers are marked `immutable`, so the browser's own
+  cache usually serves them, but nothing in the build relies on that.
 
 ## Testing
 

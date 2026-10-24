@@ -762,6 +762,13 @@ impl Settings {
                 .and_then(|stored| Self::from_stored(&stored))
                 .unwrap_or_else(Self::started_fresh);
             settings.ensure_bundled_repos();
+            // The web build a server serves is set up by that server: its
+            // libraries are the repositories, and there is nothing for the
+            // first-start wizard to ask.
+            #[cfg(feature = "server-client")]
+            {
+                settings.wizard_completed = true;
+            }
             crate::logic::server::register(&settings.server_instances);
             settings
         }
