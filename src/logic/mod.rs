@@ -128,6 +128,12 @@ pub mod about;
 // Waiting a moment, on the platform's clock rather than the page's.
 pub mod timer;
 
+// Whether the files of a phone's shared storage may be read, and asking for
+// it. Only Android says no; see the module. A browser has no files to ask
+// about.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod storage_access;
+
 // Where a dragged item lands, and what moving it does to a list.
 pub mod reorder;
 

@@ -74,3 +74,20 @@ installer_icon = "assets/icon.ico"
 # No administrator rights needed: Cantara is often installed on a church
 # laptop by whoever happens to run the projector.
 install_mode = "CurrentUser"
+
+# The permissions behind the library on Android. Since Android 11 an app may
+# list the folders of shared storage but read only the pictures, videos and
+# music in them, so songs, PDFs and Markdown files are invisible without
+# "access to all files" (MANAGE_EXTERNAL_STORAGE), which the user grants on a
+# page of the system settings. Android 7 to 10 know only the older two, which
+# are asked for in a dialog; `maxSdkVersion` keeps them from being requested
+# where they no longer mean anything. Asking happens in
+# `src/logic/storage_access.rs`; Android 10 also needs
+# `requestLegacyExternalStorage`, which `packaging/scripts/build-android-apk.sh`
+# adds, because dx has no setting for it.
+[android.raw]
+manifest = """
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+"""

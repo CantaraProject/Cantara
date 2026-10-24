@@ -74,6 +74,20 @@ echo "versionName $version, versionCode $version_code"
 perl -pi -e "s/versionCode = \\d+/versionCode = $version_code/" "$project/app/build.gradle.kts"
 grep -q "versionCode = $version_code" "$project/app/build.gradle.kts"
 
+# --- Shared storage on Android 10 ---------------------------------------------
+#
+# Android 10 hides every file in shared storage that is not a picture, video
+# or song from an app — except an app that says it wants the old behaviour.
+# Android 11 and newer ignore the attribute and go by "access to all files"
+# instead (see src/logic/storage_access.rs). dx has no setting for it, so it
+# goes into the manifest dx wrote.
+manifest="$project/app/src/main/AndroidManifest.xml"
+if ! grep -q 'requestLegacyExternalStorage' "$manifest"; then
+    perl -0pi -e 's/<application\b/<application android:requestLegacyExternalStorage="true"/' "$manifest"
+fi
+grep -q 'android:requestLegacyExternalStorage="true"' "$manifest"
+grep -q 'android.permission.MANAGE_EXTERNAL_STORAGE' "$manifest"
+
 # --- The icon -----------------------------------------------------------------
 #
 # Dioxus' launcher icon is an adaptive icon (mipmap-anydpi-v26) over WebP
