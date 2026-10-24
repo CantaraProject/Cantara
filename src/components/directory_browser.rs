@@ -118,6 +118,10 @@ pub fn DirectoryBrowserModal(
                     }
                 }
 
+                // The folders are listed either way; their songs are readable
+                // only with this. Nothing here where nobody has to ask.
+                crate::components::storage_access::StorageAccessRequest { on_granted: move |_| {} }
+
                 div {
                     style: "max-height: 50vh; overflow-y: auto;",
 

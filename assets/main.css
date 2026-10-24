@@ -2509,6 +2509,21 @@ div.inline-div {
     margin-bottom: 0;
 }
 
+/* Android's request for access to shared storage, in the directory browser
+   and in the notice at the root of the app. Set off from the folder list
+   below it, which it is about. */
+.storage-access-request {
+    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    border-left: 4px solid var(--pico-primary);
+    background: var(--pico-card-sectioning-background-color);
+}
+
+.storage-access-request button {
+    width: auto;
+    margin-bottom: 0;
+}
+
 /* The notice shown once, when a Cantara 2 installation was taken over on the
    first start. It borrows the dialog's own frame — see `.cantara-dialog` — and
    only adds the list of what was carried over. It is wider than a question,

@@ -119,6 +119,9 @@ pub mod remote_console;
 
 pub mod directory_browser;
 
+// Asking Android for access to the songs in shared storage.
+pub mod storage_access;
+
 // Asking the user something, in Cantara's own window rather than the web
 // view's.
 pub mod dialogs;
