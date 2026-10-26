@@ -66,7 +66,7 @@ async fn server() -> Option<TestServer> {
 /// `CANTARA_TEST_STORAGE` says `memory` (an object store in memory) or `s3`
 /// (a bucket, named by `CANTARA_TEST_S3_BUCKET` and reached at
 /// `CANTARA_TEST_S3_ENDPOINT` with `CANTARA_TEST_S3_ACCESS_KEY_ID` and
-/// `CANTARA_TEST_S3_SECRET_ACCESS_KEY` — a MinIO, in CI). Each test keeps its
+/// `CANTARA_TEST_S3_SECRET_ACCESS_KEY` — a Versity S3 Gateway, in CI). Each test keeps its
 /// content under a prefix of its own.
 fn storage_under_test(prefix: &str) -> cantara_server::config::StorageConfig {
     use cantara_server::config::StorageConfig;

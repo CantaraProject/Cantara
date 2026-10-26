@@ -208,17 +208,19 @@ jobs:
         env:
           CANTARA_TEST_DATABASE_URL: postgres://cantara:cantara@127.0.0.1:5432/postgres
         run: cargo test -p cantara-server -p cantara-api
-      # The same tests again with the content in an S3 bucket — a MinIO, which
-      # speaks the protocol AWS, Hetzner and the rest do. A service container
-      # cannot be given MinIO's command line, so it is started here; the
+      # The same tests again with the content in an S3 bucket — a Versity S3
+      # Gateway over a directory, which speaks the protocol AWS, Hetzner and
+      # the rest do (MinIO no longer publishes its image). A service container
+      # cannot be given the gateway's command line, so it is started here; the
       # bucket is made with the AWS CLI the runner has.
-      - name: Start an S3 storage (MinIO)
+      - name: Start an S3 storage (Versity S3 Gateway)
         run: |-
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=cantara -e MINIO_ROOT_PASSWORD=cantara-secret \
-            minio/minio server /data
+          docker run -d --name s3 -p 9000:9000 --tmpfs /data \
+            versity/versitygw:v1.10.0 \
+            --access cantara --secret cantara-secret --port :9000 --health /health \
+            posix /data
           for attempt in $(seq 1 30); do
-            curl -sf http://127.0.0.1:9000/minio/health/live && break
+            curl -sf http://127.0.0.1:9000/health && break
             sleep 1
           done
           AWS_ACCESS_KEY_ID=cantara AWS_SECRET_ACCESS_KEY=cantara-secret AWS_DEFAULT_REGION=us-east-1 \

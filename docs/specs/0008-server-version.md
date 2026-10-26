@@ -741,7 +741,7 @@ which asks the bucket for exactly the bytes wanted, so videos still seek.
 `If-None-Match` is answered with 304. The bucket is never exposed to
 browsers, so it needs no CORS and no public access. The integration tests run
 against the directory, against an object store in memory
-(`CANTARA_TEST_STORAGE=memory`), and in CI against a MinIO
+(`CANTARA_TEST_STORAGE=memory`), and in CI against a Versity S3 Gateway
 (`CANTARA_TEST_STORAGE=s3`).
 
 **Removing old presentations.** The hourly tidying first ends presentations
@@ -765,7 +765,7 @@ versions.
   lives in memory. Videos are streamed, and the other answers are marked
   `immutable`, so the browser's own cache usually serves them.
 - **The queue of changes is tested in the browser only.**
-- **S3 against a real bucket is tested in CI only** (MinIO). On the machine
+- **S3 against a real bucket is tested in CI only** (Versity S3 Gateway). On the machine
   this was written on there was no Docker to run one.
 
 ## Testing
