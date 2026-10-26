@@ -54,10 +54,6 @@ jobs:
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev
-      - name: Install dependencies under Windows
-        if: matrix.os == 'windows-latest'
-        run: |-
-          choco install openssl
       - name: Install dependencies under macOS
         if: matrix.os == 'macos-latest'
         run: |-
@@ -73,10 +69,10 @@ jobs:
       - name: Run tests
         env:
           # OpenSSL environment variables
-          OPENSSL_ROOT_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL' || (matrix.os == 'ubuntu-latest' && '/usr' || '')) }}
-          OPENSSL_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL' || (matrix.os == 'ubuntu-latest' && '/usr' || '')) }}
-          OPENSSL_LIB_DIR: ${{ matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL\lib' || (matrix.os == 'ubuntu-latest' && '/usr/lib/x86_64-linux-gnu' || '') }}
-          OPENSSL_INCLUDE_DIR: ${{ matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL\include' || (matrix.os == 'ubuntu-latest' && '/usr/include' || '') }}
+          OPENSSL_ROOT_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'ubuntu-latest' && '/usr' || '') }}
+          OPENSSL_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'ubuntu-latest' && '/usr' || '') }}
+          OPENSSL_LIB_DIR: ${{ matrix.os == 'ubuntu-latest' && '/usr/lib/x86_64-linux-gnu' || '' }}
+          OPENSSL_INCLUDE_DIR: ${{ matrix.os == 'ubuntu-latest' && '/usr/include' || '' }}
           DYLD_LIBRARY_PATH: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3/lib' || '' }}
         run: cargo test
       # The rule in `src/main.rs` — nothing outside the tests may `unwrap` or
@@ -161,10 +157,10 @@ jobs:
       - name: Build desktop release
         env:
           # OpenSSL environment variables
-          OPENSSL_ROOT_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL' || (matrix.os == 'ubuntu-latest' && '/usr' || '')) }}
-          OPENSSL_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL' || (matrix.os == 'ubuntu-latest' && '/usr' || '')) }}
-          OPENSSL_LIB_DIR: ${{ matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL\lib' || (matrix.os == 'ubuntu-latest' && '/usr/lib/x86_64-linux-gnu' || '') }}
-          OPENSSL_INCLUDE_DIR: ${{ matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL\include' || (matrix.os == 'ubuntu-latest' && '/usr/include' || '') }}
+          OPENSSL_ROOT_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'ubuntu-latest' && '/usr' || '') }}
+          OPENSSL_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'ubuntu-latest' && '/usr' || '') }}
+          OPENSSL_LIB_DIR: ${{ matrix.os == 'ubuntu-latest' && '/usr/lib/x86_64-linux-gnu' || '' }}
+          OPENSSL_INCLUDE_DIR: ${{ matrix.os == 'ubuntu-latest' && '/usr/include' || '' }}
           DYLD_LIBRARY_PATH: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3/lib' || '' }}
         run: dx build -r
       - name: Upload desktop artifact (Mac OS)

@@ -12,10 +12,11 @@
 FROM rust:1-trixie AS build
 
 # The dx that builds the web app has to be the version of the `dioxus` crate —
-# see the README. npm brings the stylesheets the app embeds.
+# see the README. npm brings the stylesheets the app embeds. clang compiles
+# the C in zstd (behind `zip`) for the browser; gcc cannot target wasm32.
 ARG DIOXUS_CLI_VERSION=0.8.0-alpha.3
 RUN apt-get update \
- && apt-get install -y --no-install-recommends nodejs npm \
+ && apt-get install -y --no-install-recommends nodejs npm clang llvm \
  && rm -rf /var/lib/apt/lists/* \
  && rustup target add wasm32-unknown-unknown \
  && curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash \
