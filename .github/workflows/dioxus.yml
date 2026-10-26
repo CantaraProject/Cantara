@@ -54,10 +54,6 @@ jobs:
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev
-      - name: Install dependencies under Windows
-        if: matrix.os == 'windows-latest'
-        run: |-
-          choco install openssl
       - name: Install dependencies under macOS
         if: matrix.os == 'macos-latest'
         run: |-
@@ -73,10 +69,10 @@ jobs:
       - name: Run tests
         env:
           # OpenSSL environment variables
-          OPENSSL_ROOT_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL' || (matrix.os == 'ubuntu-latest' && '/usr' || '')) }}
-          OPENSSL_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL' || (matrix.os == 'ubuntu-latest' && '/usr' || '')) }}
-          OPENSSL_LIB_DIR: ${{ matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL\lib' || (matrix.os == 'ubuntu-latest' && '/usr/lib/x86_64-linux-gnu' || '') }}
-          OPENSSL_INCLUDE_DIR: ${{ matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL\include' || (matrix.os == 'ubuntu-latest' && '/usr/include' || '') }}
+          OPENSSL_ROOT_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'ubuntu-latest' && '/usr' || '') }}
+          OPENSSL_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'ubuntu-latest' && '/usr' || '') }}
+          OPENSSL_LIB_DIR: ${{ matrix.os == 'ubuntu-latest' && '/usr/lib/x86_64-linux-gnu' || '' }}
+          OPENSSL_INCLUDE_DIR: ${{ matrix.os == 'ubuntu-latest' && '/usr/include' || '' }}
           DYLD_LIBRARY_PATH: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3/lib' || '' }}
         run: cargo test
       # The rule in `src/main.rs` — nothing outside the tests may `unwrap` or
@@ -161,10 +157,10 @@ jobs:
       - name: Build desktop release
         env:
           # OpenSSL environment variables
-          OPENSSL_ROOT_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL' || (matrix.os == 'ubuntu-latest' && '/usr' || '')) }}
-          OPENSSL_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL' || (matrix.os == 'ubuntu-latest' && '/usr' || '')) }}
-          OPENSSL_LIB_DIR: ${{ matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL\lib' || (matrix.os == 'ubuntu-latest' && '/usr/lib/x86_64-linux-gnu' || '') }}
-          OPENSSL_INCLUDE_DIR: ${{ matrix.os == 'windows-latest' && 'C:\Program Files\OpenSSL\include' || (matrix.os == 'ubuntu-latest' && '/usr/include' || '') }}
+          OPENSSL_ROOT_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'ubuntu-latest' && '/usr' || '') }}
+          OPENSSL_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || (matrix.os == 'ubuntu-latest' && '/usr' || '') }}
+          OPENSSL_LIB_DIR: ${{ matrix.os == 'ubuntu-latest' && '/usr/lib/x86_64-linux-gnu' || '' }}
+          OPENSSL_INCLUDE_DIR: ${{ matrix.os == 'ubuntu-latest' && '/usr/include' || '' }}
           DYLD_LIBRARY_PATH: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3/lib' || '' }}
         run: dx build -r
       - name: Upload desktop artifact (Mac OS)
@@ -179,6 +175,139 @@ jobs:
         with:
           name: release-${{ matrix.target_dir }}
           path: target/dx/cantara/release/${{ matrix.target_dir }}/app/
+
+  # The server and the types it shares with the program — see
+  # `docs/specs/0008-server-version.md`. Its tests run against a real
+  # PostgreSQL, started here as a service; each test makes a database of its
+  # own on it. The image is built too, so that a Dockerfile that no longer
+  # builds is found here rather than at the next deployment.
+  server:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: cantara
+          POSTGRES_PASSWORD: cantara
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cantara -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Test the server and the API types
+        env:
+          CANTARA_TEST_DATABASE_URL: postgres://cantara:cantara@127.0.0.1:5432/postgres
+        run: cargo test -p cantara-server -p cantara-api
+      # The same tests again with the content in an S3 bucket — a Versity S3
+      # Gateway over a directory, which speaks the protocol AWS, Hetzner and
+      # the rest do (MinIO no longer publishes its image). A service container
+      # cannot be given the gateway's command line, so it is started here; the
+      # bucket is made with the AWS CLI the runner has.
+      - name: Start an S3 storage (Versity S3 Gateway)
+        run: |-
+          docker run -d --name s3 -p 9000:9000 --tmpfs /data \
+            versity/versitygw:v1.10.0 \
+            --access cantara --secret cantara-secret --port :9000 --health /health \
+            posix /data
+          for attempt in $(seq 1 30); do
+            curl -sf http://127.0.0.1:9000/health && break
+            sleep 1
+          done
+          AWS_ACCESS_KEY_ID=cantara AWS_SECRET_ACCESS_KEY=cantara-secret AWS_DEFAULT_REGION=us-east-1 \
+            aws --endpoint-url http://127.0.0.1:9000 s3 mb s3://cantara-test
+      - name: Test the server against S3 storage
+        env:
+          CANTARA_TEST_DATABASE_URL: postgres://cantara:cantara@127.0.0.1:5432/postgres
+          CANTARA_TEST_STORAGE: s3
+          CANTARA_TEST_S3_BUCKET: cantara-test
+          CANTARA_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          CANTARA_TEST_S3_ACCESS_KEY_ID: cantara
+          CANTARA_TEST_S3_SECRET_ACCESS_KEY: cantara-secret
+        run: cargo test -p cantara-server --test api
+      - name: Check the server's lints
+        run: cargo clippy -p cantara-server -p cantara-api --all-targets -- -D warnings
+      - name: The API types build for the browser
+        run: |-
+          rustup target add wasm32-unknown-unknown
+          cargo build -p cantara-api --target wasm32-unknown-unknown
+      - name: Build the server image
+        run: docker build -t cantara-server .
+
+  # The server mode in a browser: the web build a server serves, the desktop
+  # program's login through the browser and with a code (run by the test
+  # harness, with Playwright's browser playing the user), and a presentation
+  # shared through the server with its pictures. See
+  # `playwright.server.config.js` and `tests/server/`.
+  server-browser:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: cantara
+          POSTGRES_PASSWORD: cantara
+          POSTGRES_DB: cantara_browser
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cantara -d cantara_browser"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Provide npm
+        uses: actions/setup-node@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Run npm install
+        run: npm install
+      - name: Install Rust wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Install cargo bininstall
+        uses: cargo-bins/cargo-binstall@main
+      - name: Install dioxus-cli
+        run: cargo binstall -y --locked dioxus-cli@${{ env.DIOXUS_CLI_VERSION }}
+      - name: Install dependencies
+        run: |-
+          sudo apt update
+          sudo apt install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev postgresql-client
+      - name: Install the browser the tests drive
+        run: npx playwright install --with-deps chromium
+      # Built before Playwright starts them: its readiness timeouts are for
+      # starting a program, not for compiling one cold.
+      - name: Build the server and the test harness
+        env:
+          OPENSSL_ROOT_DIR: /usr
+          OPENSSL_DIR: /usr
+          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
+          OPENSSL_INCLUDE_DIR: /usr/include
+        run: |-
+          cargo build -p cantara-server
+          cargo build --features test-harness
+      - name: Run the server-mode browser tests
+        env:
+          CANTARA_BROWSER_DATABASE_URL: postgres://cantara:cantara@127.0.0.1:5432/cantara_browser
+          OPENSSL_ROOT_DIR: /usr
+          OPENSSL_DIR: /usr
+          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
+          OPENSSL_INCLUDE_DIR: /usr/include
+        run: npx playwright test -c playwright.server.config.js
+      - name: Upload the browser test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-server
+          path: |-
+            playwright-report/
+            test-results/
+          retention-days: 7
 
   build-android:
     name: Build Android

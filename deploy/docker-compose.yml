@@ -1,0 +1,50 @@
+# Example `docker-compose.yml` for a Cantara server configuration with PostgreSQL database
+#
+# Steps to run the server:
+#
+#   cp deploy/.env.example deploy/.env      # and fill it in
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# The server listens then at http://localhost:8080 (or the port in CANTARA_PORT).
+# Important: In production, a reverse proxy with TLS (https) connection should be put in front of Cantara.
+# When doing this, set CANTARA_PUBLIC_URL to the address where the app is available.
+
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cantara}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-cantara}
+    volumes:
+      # PostgreSQL 18 keeps its data below /var/lib/postgresql/18/; the volume
+      # is mounted one level up, as its image expects.
+      - db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cantara} -d ${POSTGRES_DB:-cantara}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: cantara-server
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-cantara}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cantara}
+    ports:
+      - "${CANTARA_PORT:-8080}:8080"
+    # Location of the repository files
+    volumes:
+      - ${CANTARA_DATA:-files}:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db:
+  files:

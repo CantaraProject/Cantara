@@ -274,6 +274,16 @@ fn handle(mut stream: TcpStream) -> Instruction {
         }
         "/next" => advance(1).map(|position| format!("at slide {position}")),
         "/previous" => advance(-1).map(|position| format!("at slide {position}")),
+        "/server-login" => parameters
+            .get("url")
+            .ok_or_else(|| "a url is needed".to_string())
+            .and_then(|url| server::login(url, false)),
+        "/server-login-code" => parameters
+            .get("url")
+            .ok_or_else(|| "a url is needed".to_string())
+            .and_then(|url| server::login(url, true)),
+        "/server-login-result" => Ok(server::result()),
+        "/server-share" => server::share(parameters.get("service").map(String::as_str).unwrap_or("picture")),
         "/stop" => {
             answer(&mut stream, 200, "stopping");
             return Instruction::Stop;
@@ -366,6 +376,158 @@ fn show(name: &str, widgets: bool) -> Result<(), String> {
     hand_over_media(&running);
     crate::logic::network_host::publish(Some(running));
     Ok(())
+}
+
+/// The desktop program as a client of a Cantara server, driven by a test.
+///
+/// Not a stand-in: [`login`](server::login) runs the program's own
+/// [`login_with`](crate::logic::server::login::login_with) — the loopback
+/// port, the PKCE pair, the code exchange — and only replaces the system
+/// browser by handing the address to the test, whose browser then plays the
+/// user. [`share`](server::share) runs the program's own sharing: the session,
+/// the socket, the patches, the pictures handed over.
+mod server {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    use crate::logic::server::{self as client, login, session, ServerInstance};
+
+    #[derive(Default)]
+    struct Login {
+        /// Where the test's browser is to go: the `/authorize` page, or the
+        /// code and the page to type it into.
+        shown: Option<String>,
+        outcome: Option<Result<ServerInstance, String>>,
+    }
+
+    static LOGIN: Mutex<Option<Login>> = Mutex::new(None);
+
+    fn runtime() -> Result<tokio::runtime::Runtime, String> {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| error.to_string())
+    }
+
+    fn shown(text: String) {
+        if let Ok(mut login) = LOGIN.lock()
+            && let Some(login) = login.as_mut()
+        {
+            login.shown = Some(text);
+        }
+    }
+
+    /// Starts a login and answers with what the user would be shown: the
+    /// page to open, or — `by_code` — the code and where to type it in.
+    pub fn login(url: &str, by_code: bool) -> Result<String, String> {
+        client::secrets::without_keyring();
+        *LOGIN.lock().map_err(|_| "confused")? = Some(Login::default());
+        let url = url.to_string();
+        std::thread::spawn(move || {
+            let outcome = match runtime() {
+                Ok(runtime) => runtime.block_on(async {
+                    if by_code {
+                        login::login_with_code(&url, |authorization| {
+                            shown(format!("{} {}", authorization.user_code, authorization.verification_uri));
+                        })
+                        .await
+                    } else {
+                        login::login_with(&url, |authorize| {
+                            shown(authorize.to_string());
+                            Ok(())
+                        })
+                        .await
+                    }
+                }),
+                Err(error) => Err(error),
+            };
+            if let Ok(instance) = &outcome {
+                client::register(std::slice::from_ref(&instance.instance));
+            }
+            if let Ok(mut login) = LOGIN.lock()
+                && let Some(login) = login.as_mut()
+            {
+                login.outcome = Some(outcome.map(|logged_in| logged_in.instance));
+            }
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while Instant::now() < deadline {
+            if let Ok(login) = LOGIN.lock()
+                && let Some(login) = login.as_ref()
+            {
+                if let Some(shown) = &login.shown {
+                    return Ok(shown.clone());
+                }
+                if let Some(Err(error)) = &login.outcome {
+                    return Err(error.clone());
+                }
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        Err("the login showed nothing".to_string())
+    }
+
+    /// `pending`, `ok <e-mail>`, or `error <why>`.
+    pub fn result() -> String {
+        let Ok(login) = LOGIN.lock() else { return "error confused".to_string() };
+        match login.as_ref().and_then(|login| login.outcome.as_ref()) {
+            None => "pending".to_string(),
+            Some(Ok(instance)) => format!("ok {}", instance.user_email),
+            Some(Err(error)) => format!("error {error}"),
+        }
+    }
+
+    /// Shares a service through the server logged in to, and answers with the
+    /// link to watch it.
+    pub fn share(service: &str) -> Result<String, String> {
+        let instance = LOGIN
+            .lock()
+            .map_err(|_| "confused")?
+            .as_ref()
+            .and_then(|login| login.outcome.clone())
+            .ok_or("not logged in")??;
+        let tenant = instance.tenant.ok_or("the account belongs to no organisation")?;
+        let running = super::shown(service, false).ok_or_else(|| format!("no such service: {service}"))?;
+
+        let (sender, receiver) = std::sync::mpsc::channel::<Result<String, String>>();
+        std::thread::spawn(move || {
+            let Ok(runtime) = runtime() else { return };
+            runtime.block_on(async move {
+                let Some(api) = client::client_for(instance.uuid) else {
+                    let _ = sender.send(Err("the server is not known".to_string()));
+                    return;
+                };
+                let request = cantara_api::CreateSession {
+                    name: "Harness".to_string(),
+                    anonymous_control: false,
+                };
+                let created = match api.create_session(tenant, &request).await {
+                    Ok(created) => created,
+                    Err(error) => {
+                        let _ = sender.send(Err(error.to_string()));
+                        return;
+                    }
+                };
+                let link = created.watch_link.clone().unwrap_or_default();
+                if let Err(error) = session::start(instance.uuid, tenant, created) {
+                    let _ = sender.send(Err(error));
+                    return;
+                }
+                let _ = sender.send(Ok(link));
+                // What the program's own loop does, for as long as the share
+                // stands: tell the server, hand over the pictures.
+                while session::status().is_some() {
+                    session::publish(Some(&running));
+                    session::upload_media().await;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            });
+        });
+        receiver
+            .recv_timeout(Duration::from_secs(15))
+            .map_err(|_| "the share did not start".to_string())?
+    }
 }
 
 /// Files a picture under every name the current service will ask for.

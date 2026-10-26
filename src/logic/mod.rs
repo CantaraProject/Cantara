@@ -57,6 +57,10 @@
 //! ```
 
 pub mod settings;
+// Cantara as a client of a Cantara server: logging in, libraries on a server
+// as repositories, and sharing a presentation through one. See
+// `docs/specs/0008-server-version.md`.
+pub mod server;
 
 pub mod states;
 

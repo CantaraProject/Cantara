@@ -1,0 +1,172 @@
+# Administering an organisation on a Cantara server — see
+# `components::admin_components` and `docs/specs/0008-server-version.md`.
+_version: 2
+admin:
+  title:
+    en: Administration
+    de: Verwaltung
+  back:
+    en: Back
+    de: Zurück
+  open:
+    en: Administer
+    de: Verwalten
+  no_server:
+    en: This program is not logged in to any server.
+    de: Dieses Programm ist bei keinem Server angemeldet.
+  libraries:
+    en: Libraries
+    de: Bibliotheken
+  library_add:
+    en: New library
+    de: Neue Bibliothek
+  library_name:
+    en: Name of the library
+    de: Name der Bibliothek
+  library_delete:
+    en: Delete library
+    de: Bibliothek löschen
+  library_delete_confirm:
+    en: "Delete \"%{name}\" with everything in it? This cannot be undone."
+    de: "„%{name}“ mit allem darin löschen? Das lässt sich nicht rückgängig machen."
+  upload:
+    en: "Add files (a .zip is imported as a whole repository):"
+    de: "Dateien hinzufügen (eine .zip wird als ganzes Repository importiert):"
+  uploading:
+    en: Uploading …
+    de: Lade hoch …
+  uploaded:
+    en: "%{count} uploaded."
+    de: "%{count} hochgeladen."
+  grants:
+    en: "Who may use it (admins always may):"
+    de: "Wer sie nutzen darf (Admins dürfen immer):"
+  grant_to:
+    en: Share with …
+    de: Freigeben für …
+  grant:
+    en: Share
+    de: Freigeben
+  group:
+    en: group
+    de: Gruppe
+  role_read:
+    en: may read
+    de: darf lesen
+  role_write:
+    en: may change
+    de: darf ändern
+  role_manage:
+    en: may also share
+    de: darf auch freigeben
+  members:
+    en: Members
+    de: Mitglieder
+  member_name:
+    en: Name
+    de: Name
+  member_email:
+    en: E-mail address
+    de: E-Mail-Adresse
+  member_admin:
+    en: Admin
+    de: Admin
+  member_remove_confirm:
+    en: "Remove %{name} from the organisation?"
+    de: "%{name} aus der Organisation entfernen?"
+  remove:
+    en: remove
+    de: entfernen
+  invitations:
+    en: Invitations
+    de: Einladungen
+  invite:
+    en: Invite
+    de: Einladen
+  invite_no_group:
+    en: No group
+    de: Keine Gruppe
+  invite_as_manager:
+    en: as manager of the group (may invite others)
+    de: als Leitung der Gruppe (darf andere einladen)
+  invitation_link:
+    en: "Pass this link on — it is shown only now:"
+    de: "Diesen Link weitergeben – er wird nur jetzt angezeigt:"
+  invitation_mailed:
+    en: The invitation was sent by e-mail.
+    de: Die Einladung wurde per E-Mail verschickt.
+  oidc:
+    en: Logging in through your own directory (OpenID Connect)
+    de: Anmeldung über euer eigenes Verzeichnis (OpenID Connect)
+  oidc_description:
+    en: Your people log in with the account they already have. Register the redirect address below with the provider.
+    de: Eure Leute melden sich mit dem Konto an, das sie schon haben. Tragt die Rücksprungadresse unten beim Anbieter ein.
+  oidc_name:
+    en: Name on the login page
+    de: Name auf der Anmeldeseite
+  oidc_slug:
+    en: Short name (letters, digits, dashes)
+    de: Kurzname (Buchstaben, Ziffern, Bindestriche)
+  oidc_issuer:
+    en: Issuer (https://…)
+    de: Issuer (https://…)
+  oidc_client_id:
+    en: Client ID
+    de: Client-ID
+  oidc_client_secret:
+    en: Client secret (optional)
+    de: Client-Secret (optional)
+  oidc_auto_join:
+    en: Whoever logs in through it becomes a member, invited or not
+    de: Wer sich darüber anmeldet, wird Mitglied – auch ohne Einladung
+  oidc_auto_join_short:
+    en: members join by logging in
+    de: Mitglied durch Anmeldung
+  oidc_redirect:
+    en: "Redirect address:"
+    de: "Rücksprungadresse:"
+  oidc_login_path:
+    en: "Login starts at:"
+    de: "Anmeldung beginnt bei:"
+  oidc_add:
+    en: Add provider
+    de: Anbieter hinzufügen
+  oidc_delete_confirm:
+    en: "Remove \"%{name}\"? Accounts that logged in through it stay, and log in another way."
+    de: "„%{name}“ entfernen? Konten, die sich darüber angemeldet haben, bleiben und melden sich anders an."
+  invitation_until:
+    en: valid until
+    de: gültig bis
+  withdraw:
+    en: withdraw
+    de: zurückziehen
+  groups:
+    en: Groups
+    de: Gruppen
+  group_add:
+    en: New group
+    de: Neue Gruppe
+  group_name:
+    en: Name of the group
+    de: Name der Gruppe
+  group_admins:
+    en: may administer everything
+    de: dürfen alles verwalten
+  group_add_member:
+    en: Add a member …
+    de: Mitglied hinzufügen …
+  group_delete:
+    en: Delete group
+    de: Gruppe löschen
+  group_delete_confirm:
+    en: "Delete the group \"%{name}\"?"
+    de: "Gruppe „%{name}“ löschen?"
+  manager:
+    en: manager
+    de: Leitung
+  account:
+    en: Account
+    de: Konto
+  logout:
+    en: Log out
+    de: Abmelden

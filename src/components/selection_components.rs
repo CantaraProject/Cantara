@@ -463,6 +463,7 @@ pub fn Selection() -> Element {
                     }
                     crate::components::detail_components::ViewModeToggle {}
                     import_ui::ImportButton { selected_items }
+                    crate::components::server_components::ServerSelectionsButton { selected_items }
                     button {
                         class: "outline secondary smaller-buttons",
                         onclick: move |_| {

@@ -60,6 +60,13 @@ pub fn video_url(path: &str) -> String {
 /// an absolute `http://127.0.0.1:…` URL there. See
 /// [`crate::logic::video_server`].
 pub fn video_source_url(path: &str) -> String {
+    // A video of a shared presentation, or of a server library in the
+    // browser, plays from the server. See [`crate::logic::server::media_url`].
+    #[cfg(target_arch = "wasm32")]
+    if let Some(url) = crate::logic::server::media_url(path) {
+        return url;
+    }
+
     let url = video_url(path);
 
     #[cfg(all(feature = "desktop", not(any(target_os = "windows", target_os = "macos"))))]

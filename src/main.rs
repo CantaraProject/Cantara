@@ -47,6 +47,8 @@ use crate::components::presenter_console_components::PRESENTER_CONSOLE_CSS;
 use crate::components::route_transitions::RouteFadeLayout;
 use crate::components::song_slide_settings_components::SongSlideSettingsPage;
 use crate::components::wizard_components::Wizard;
+use crate::components::server_components::SharedSession;
+use crate::components::admin_components::AdminPage;
 use dioxus::prelude::*;
 use logic::settings::*;
 use logic::sourcefiles::SourceFile;
@@ -142,6 +144,17 @@ pub enum Route {
     /// to. See `docs/specs/0005-add-info-page.md`.
     #[route("/about")]
     AboutPage {},
+
+    /// A presentation shared through a Cantara server, reached by the link
+    /// to watch or to control it. Only meaningful in the web build the server
+    /// serves. See `docs/specs/0008-server-version.md`.
+    #[route("/s/:token")]
+    SharedSession { token: String },
+
+    /// Administering an organisation on a Cantara server: members, groups,
+    /// invitations, libraries.
+    #[route("/admin")]
+    AdminPage {},
 }
 
 fn main() {
@@ -364,6 +377,12 @@ fn App() -> Element {
     let settings: Signal<Settings> = use_signal(Settings::load);
     use_context_provider(|| settings);
 
+    // The web build a Cantara server serves is that server's client: it finds
+    // out who is logged in there (or sends them to log in) and offers the
+    // libraries they may use. See `docs/specs/0008-server-version.md`.
+    #[cfg(all(target_arch = "wasm32", feature = "server-client"))]
+    use_future(move || logic::server::web::connect_to_origin(settings));
+
     // The installed fonts are read on a thread of their own, started here so
     // that they are usually there by the time anyone opens a design — the
     // settings show what is available without ever waiting for them. See
@@ -372,7 +391,25 @@ fn App() -> Element {
 
     // The source files and selected items should live here because they should stay persistent in the different routes.
     let mut source_files: Signal<Vec<SourceFile>> = use_context_provider(|| Signal::new(vec![]));
-    let _: Signal<Vec<SelectedItemRepresentation>> = use_context_provider(|| Signal::new(vec![]));
+    let selected_items: Signal<Vec<SelectedItemRepresentation>> = use_context_provider(|| Signal::new(vec![]));
+
+    // A picture, PDF or video from a server library that is not kept whole on
+    // this computer is fetched the moment it is put into the running order,
+    // so that the service has it before it starts. See
+    // [`logic::server::ensure_local`].
+    use_effect(move || {
+        let wanted: Vec<String> = selected_items
+            .read()
+            .iter()
+            .map(|item| item.source_file.path.to_string_lossy().to_string())
+            .filter(|path| logic::server::needs_fetch(path))
+            .collect();
+        if !wanted.is_empty() {
+            spawn(async move {
+                logic::server::ensure_local(&wanted).await;
+            });
+        }
+    });
 
     // Which kind of element the library list is showing. Kept here so that it
     // survives switching between the selection and the detail view, and so
@@ -383,6 +420,21 @@ fn App() -> Element {
     // for a fresh scan through this.
     let library_refresh = use_context_provider(states::LibraryRefresh::new);
 
+    // Changes to files from a server go there as soon as it can be reached.
+    // See [`logic::server::pending`].
+    {
+        let mut library_refresh = library_refresh;
+        use_future(move || async move {
+            loop {
+                if logic::server::pending::flush().await {
+                    library_refresh.request();
+                }
+                logic::timer::sleep(std::time::Duration::from_secs(15)).await;
+            }
+        });
+    }
+
+
     use_context_provider(|| states::LibraryFilterState {
         active: Signal::new(states::first_sidebar_type(
             &settings.peek().sidebar_order,
@@ -390,7 +442,31 @@ fn App() -> Element {
     });
 
     // The running presentations given as a global signal
-    let _: Signal<Vec<RunningPresentation>> = use_context_provider(|| Signal::new(vec![]));
+    let shared_presentations: Signal<Vec<RunningPresentation>> = use_context_provider(|| Signal::new(vec![]));
+
+    // A presentation shared through a Cantara server: told what changed here,
+    // and given what a controller changed there, with the pictures and
+    // documents its slides show. The same polling loop as the remote
+    // console's, for the same reasons — on the desktop, and in the web build a
+    // server serves. See [`logic::server::session`].
+    #[cfg(any(feature = "desktop", all(target_arch = "wasm32", feature = "server-client")))]
+    use_future(move || async move {
+        let mut running_presentations = shared_presentations;
+        loop {
+            logic::timer::sleep(std::time::Duration::from_millis(50)).await;
+            if logic::server::session::status().is_none() {
+                continue;
+            }
+            let mut presentations = running_presentations.peek().clone();
+            if logic::server::session::drain(&mut presentations) {
+                running_presentations.set(presentations);
+            }
+            logic::server::session::publish(running_presentations.peek().first());
+            logic::server::session::upload_media().await;
+        }
+    });
+    #[cfg(not(any(feature = "desktop", all(target_arch = "wasm32", feature = "server-client"))))]
+    let _ = shared_presentations;
 
     // The windows a running service has open. They are rendered by
     // `WindowHost` below, from this tree, so they inherit everything provided
@@ -578,6 +654,8 @@ fn App() -> Element {
                 logic::network_host::publish(now);
             }
         });
+
+
 
         // A video moves by itself, and nothing about the presentation changes
         // while it does — so the effect above does not run again, and every

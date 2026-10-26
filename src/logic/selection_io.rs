@@ -286,6 +286,14 @@ pub struct ManifestItem {
     /// also what a running order written before videos existed means.
     #[serde(default, skip_serializing_if = "is_default_video_settings")]
     pub video_settings: VideoSettings,
+    /// The item on a Cantara server this element is, in a running order kept
+    /// on that server: its lineage (a song's `uuid` tag) and the version it
+    /// was saved with. Absent in a `.cantara.zip`, which carries the file
+    /// itself instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<uuid::Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_version: Option<uuid::Uuid>,
 }
 
 /// Whether these are the settings a video gets when nothing was said about it.
@@ -449,6 +457,39 @@ fn write_cantara_zip(
     items: &[SelectedItemRepresentation],
     read_asset: &dyn Fn(&SourceFile) -> Result<Vec<u8>, String>,
 ) -> Result<Vec<u8>, SelectionIoError> {
+    let (manifest, assets) = build_manifest(items, read_asset, true, &|_| None)?;
+    build_zip(&manifest, &assets)
+}
+
+/// What a server item is: its lineage and its version.
+pub type ServerReference = Option<(uuid::Uuid, uuid::Uuid)>;
+
+/// A running order as the manifest a Cantara server keeps.
+///
+/// The same `selection.json` a `.cantara.zip` holds, without the files: an
+/// element from a server library names its item there (`lineage`,
+/// `item_version`), and every element carries its fingerprint, so that a
+/// library that has the file — by whatever route — finds it again.
+pub fn write_server_manifest(
+    items: &[SelectedItemRepresentation],
+    read_asset: &dyn Fn(&SourceFile) -> Result<Vec<u8>, String>,
+    reference: &dyn Fn(&SourceFile) -> ServerReference,
+) -> Result<serde_json::Value, SelectionIoError> {
+    let (manifest, _) = build_manifest(items, read_asset, false, reference)?;
+    serde_json::to_value(manifest).map_err(|error| SelectionIoError::Malformed(error.to_string()))
+}
+
+/// A file put into an archive: its name there, and its bytes.
+type Asset = (String, Vec<u8>);
+
+/// The manifest of a running order, and — where `embed` asks for them — the
+/// files it refers to.
+fn build_manifest(
+    items: &[SelectedItemRepresentation],
+    read_asset: &dyn Fn(&SourceFile) -> Result<Vec<u8>, String>,
+    embed: bool,
+    reference: &dyn Fn(&SourceFile) -> ServerReference,
+) -> Result<(SelectionManifest, Vec<Asset>), SelectionIoError> {
     if items.is_empty() {
         return Err(SelectionIoError::Empty);
     }
@@ -461,33 +502,47 @@ fn write_cantara_zip(
     let mut assets: Vec<(String, Vec<u8>)> = Vec::new();
 
     for item in items {
-        // Two elements may well be the same file — a song sung twice in one
-        // service — and it is stored once.
-        let file = match item.inline_markdown {
-            Some(_) => None,
-            None => {
+        let (file, md5) = match (&item.inline_markdown, embed) {
+            (Some(_), _) => (None, None),
+            // Two elements may well be the same file — a song sung twice in
+            // one service — and it is stored once.
+            (None, true) => {
                 let name = unique_asset_name(&assets, item.source_file.file_name());
                 let content = read_item(item, read_asset)?;
+                let md5 = Some(fingerprint_of(&content));
                 match assets.iter().find(|(_, bytes)| *bytes == content) {
-                    Some((existing, _)) => Some(existing.clone()),
+                    Some((existing, _)) => (Some(existing.clone()), md5),
                     None => {
                         assets.push((name.clone(), content));
-                        Some(name)
+                        (Some(name), md5)
                     }
                 }
             }
+            // Without the file, only its fingerprint — the one the library
+            // already has where it has one, rather than reading a video
+            // through to say what is known.
+            (None, false) => {
+                let md5 = match &item.source_file.md5_hash {
+                    Some(md5) => Some(md5.clone()),
+                    None => Some(fingerprint_of(&read_item(item, read_asset)?)),
+                };
+                (None, md5)
+            }
         };
-
-        let md5 = file.as_ref().and_then(|name| {
-            assets
-                .iter()
-                .find(|(asset, _)| asset == name)
-                .map(|(_, bytes)| fingerprint_of(bytes))
-        });
+        let (lineage, item_version) = match reference(&item.source_file) {
+            Some((lineage, version)) if item.inline_markdown.is_none() => (Some(lineage), Some(version)),
+            _ => (None, None),
+        };
 
         manifest_items.push(ManifestItem {
             file: file.map(|name| format!("{ASSET_FOLDER}/{name}")),
-            name: item.source_file.name.clone(),
+            name: if embed || item.inline_markdown.is_some() {
+                item.source_file.name.clone()
+            } else {
+                // Without the archive path the file name is what tells the
+                // format, so it is what is kept.
+                item.source_file.file_name().to_string()
+            },
             md5,
             design: item
                 .presentation_design_option
@@ -510,6 +565,8 @@ fn write_cantara_zip(
             transition: item.transition_effect,
             pdf_pages: item.pdf_pages.clone(),
             video_settings: item.video_settings,
+            lineage,
+            item_version,
         });
     }
 
@@ -521,8 +578,7 @@ fn write_cantara_zip(
         slide_settings,
         items: manifest_items,
     };
-
-    build_zip(&manifest, &assets)
+    Ok((manifest, assets))
 }
 
 /// The position of `value` in `list`, adding it if it is not there yet.
@@ -745,6 +801,34 @@ fn read_cantara_zip(bytes: &[u8]) -> Result<SelectionDocument, SelectionIoError>
             .map_err(|error| SelectionIoError::Malformed(error.to_string()))?
     };
 
+    document_of_manifest(manifest, &mut |path| {
+        let mut file = archive.by_name(path).map_err(|_| {
+            SelectionIoError::Malformed(format!("{path} is named but not in the archive"))
+        })?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)
+            .map_err(|error| SelectionIoError::Archive(error.to_string()))?;
+        Ok(bytes)
+    })
+}
+
+/// A running order kept on a Cantara server, read the way a `.cantara.zip`
+/// is — without files to open, so every element is looked up in the library
+/// by its fingerprint and name. See [`write_server_manifest`].
+pub fn read_server_manifest(manifest: &serde_json::Value) -> Result<SelectionDocument, SelectionIoError> {
+    let manifest: SelectionManifest = serde_json::from_value(manifest.clone())
+        .map_err(|error| SelectionIoError::Malformed(error.to_string()))?;
+    document_of_manifest(manifest, &mut |path| {
+        Err(SelectionIoError::Malformed(format!("{path} is named but there is no archive")))
+    })
+}
+
+/// The elements a manifest describes, with the files it names read through
+/// `open`.
+fn document_of_manifest(
+    manifest: SelectionManifest,
+    open: &mut dyn FnMut(&str) -> Result<Vec<u8>, SelectionIoError>,
+) -> Result<SelectionDocument, SelectionIoError> {
     if manifest.version > CANTARA_ZIP_VERSION {
         return Err(SelectionIoError::TooNew {
             found: manifest.version,
@@ -755,18 +839,9 @@ fn read_cantara_zip(bytes: &[u8]) -> Result<SelectionDocument, SelectionIoError>
     let mut items = Vec::with_capacity(manifest.items.len());
     for entry in &manifest.items {
         let content = match &entry.file {
-            Some(path) => {
-                let mut file = archive.by_name(path).map_err(|_| {
-                    SelectionIoError::Malformed(format!("{path} is named but not in the archive"))
-                })?;
-                let mut bytes = Vec::new();
-                file.read_to_end(&mut bytes)
-                    .map_err(|error| SelectionIoError::Archive(error.to_string()))?;
-                Some(bytes)
-            }
+            Some(path) => Some(open(path)?),
             None => None,
         };
-
         let pick = |list: &Vec<PresentationDesign>, index: Option<usize>| {
             index.and_then(|index| list.get(index).cloned())
         };

@@ -27,6 +27,21 @@ detail:
   save:
     en: Save
     de: Speichern
+  fetching:
+    en: Fetching from the server …
+    de: Wird vom Server geholt …
+  sync_waiting:
+    en: Saved here. It goes to the server as soon as the server can be reached.
+    de: Hier gespeichert. Es geht an den Server, sobald er erreichbar ist.
+  sync_conflict:
+    en: Somebody else changed this on the server in the meantime.
+    de: Jemand anderes hat das auf dem Server inzwischen geändert.
+  sync_keep_mine:
+    en: Keep my version
+    de: Meine Fassung behalten
+  sync_take_theirs:
+    en: Take the server's version
+    de: Fassung des Servers übernehmen
   saved:
     en: Saved
     de: Gespeichert

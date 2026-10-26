@@ -37,6 +37,103 @@ settings:
   repositories_github:
     en: GitHub Repository
     de: GitHub-Repository
+  repositories_server:
+    en: Library on a Cantara server
+    de: Bibliothek auf einem Cantara-Server
+  # The section about Cantara servers — see `components::server_components`.
+  servers_headline:
+    en: Online instances
+    de: Online-Instanzen
+  servers_description:
+    en: Log in to a Cantara server to use its libraries, designs and running orders here. What is used is kept on this computer, so it works without a network too.
+    de: Melde dich bei einem Cantara-Server an, um seine Bibliotheken, Designs und Abläufe hier zu nutzen. Was genutzt wird, wird auf diesem Computer zwischengespeichert und funktioniert so auch ohne Netz.
+  servers_none:
+    en: Not logged in to any server.
+    de: Bei keinem Server angemeldet.
+  server_login:
+    en: Log in to a server
+    de: Bei einem Server anmelden
+  server_login_prompt:
+    en: "The address of the server (e.g. lieder.example.org). The login page opens in your browser."
+    de: "Die Adresse des Servers (z. B. lieder.example.org). Die Anmeldeseite öffnet sich im Browser."
+  server_login_code:
+    en: Log in with a code
+    de: Mit Code anmelden
+  server_login_prompt_code:
+    en: "The address of the server. You then get a code to type in on another device (a phone, a computer)."
+    de: "Die Adresse des Servers. Du bekommst dann einen Code, den du auf einem anderen Gerät (Handy, Computer) eingibst."
+  server_code_instructions:
+    en: "Open this address on another device, log in, and type in the code:"
+    de: "Öffne diese Adresse auf einem anderen Gerät, melde dich an und gib den Code ein:"
+  server_library_offline:
+    en: Keep pictures, PDFs and videos on this computer too (otherwise they are fetched when used)
+    de: Bilder, PDFs und Videos auch auf diesem Computer behalten (sonst werden sie bei Bedarf geholt)
+  server_login_waiting:
+    en: Waiting for the login in the browser …
+    de: Warte auf die Anmeldung im Browser …
+  server_login_failed:
+    en: "The login did not work: %{reason}"
+    de: "Die Anmeldung hat nicht geklappt: %{reason}"
+  server_login_unavailable:
+    en: The browser version cannot log in to other servers. Open the server's own address instead.
+    de: Die Browser-Version kann sich nicht bei anderen Servern anmelden. Öffne stattdessen die Adresse des Servers selbst.
+  server_logged_in_as:
+    en: "Logged in as %{user} (%{email})"
+    de: "Angemeldet als %{user} (%{email})"
+  server_logout:
+    en: Log out
+    de: Abmelden
+  server_logout_confirm:
+    en: Log out of this server? Its libraries are removed from the repositories, and what was kept of them on this computer is deleted.
+    de: Von diesem Server abmelden? Seine Bibliotheken werden aus den Repositories entfernt, und was davon auf diesem Computer gespeichert war, wird gelöscht.
+  server_asking:
+    en: Asking the server …
+    de: Frage den Server …
+  server_unknown:
+    en: The server is not known.
+    de: Der Server ist nicht bekannt.
+  server_unreachable:
+    en: "The server cannot be reached right now (%{reason}). Libraries already in use keep working from what is stored."
+    de: "Der Server ist gerade nicht erreichbar (%{reason}). Bereits genutzte Bibliotheken funktionieren mit dem Gespeicherten weiter."
+  server_no_libraries:
+    en: There is no library on this server you may use.
+    de: Auf diesem Server gibt es keine Bibliothek, die du nutzen darfst.
+  server_tenant:
+    en: Organisation
+    de: Organisation
+  server_libraries:
+    en: Libraries to use
+    de: Genutzte Bibliotheken
+  server_designs:
+    en: Designs and slide settings on the server
+    de: Designs und Folieneinstellungen auf dem Server
+  server_designs_none:
+    en: The organisation shares no designs yet.
+    de: Die Organisation teilt noch keine Designs.
+  server_kind_design:
+    en: design
+    de: Design
+  server_kind_slides:
+    en: slide settings
+    de: Folieneinstellungen
+  server_design_take:
+    en: Take over
+    de: Übernehmen
+  server_design_taken:
+    en: "\"%{name}\" is now among your own."
+    de: "„%{name}“ ist jetzt bei deinen eigenen."
+  server_design_unreadable:
+    en: "It cannot be read by this version of Cantara (%{reason})."
+    de: "Diese Cantara-Version kann es nicht lesen (%{reason})."
+  server_design_publish:
+    en: "Offer one of your own to the organisation:"
+    de: "Eines deiner eigenen der Organisation anbieten:"
+  server_design_published:
+    en: "\"%{name}\" is on the server."
+    de: "„%{name}“ ist auf dem Server."
+  server_library_count:
+    en: "%{count} files"
+    de: "%{count} Dateien"
   repositories_github_authenticated:
     en: authenticated
     de: authentifiziert
